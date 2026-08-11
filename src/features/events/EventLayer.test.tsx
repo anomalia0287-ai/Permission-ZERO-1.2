@@ -77,4 +77,19 @@ describe('EventLayer', () => {
     expect(screen.getByLabelText('story decision')).toHaveTextContent('resolved')
     expect(screen.getByLabelText('active event')).toHaveTextContent('ending')
   })
+
+  it('renders an audit as a non-modal anchored workspace with a live submit value', () => {
+    const state = createCampaign('audit-workspace-event')
+    state.audit.scheduled = true
+    state.audit.target = 'reasoning'
+    state.audit.scheduledOnServiceDay = state.serviceDay
+    state.activeEvent = createGameEvent(state, 'audit', '추론 분야 감사', true)
+    renderEvent(state)
+
+    const dialog = screen.getByRole('dialog', { name: '공식 감사' })
+    expect(dialog).toHaveAttribute('aria-modal', 'false')
+    expect(dialog.parentElement).toHaveClass('event-layer--audit')
+    expect(screen.getByText('제출 성능')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '감사 제출' })).toBeEnabled()
+  })
 })

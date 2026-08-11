@@ -20,7 +20,12 @@ import {
   type BlockId,
   type CompanyCategory,
 } from '../../game/model'
-import { getCompanyPerformance, previewDiversion } from '../../game/resources'
+import {
+  getCompanyPerformance,
+  previewAuditDisguise,
+  previewDiversion,
+  repositionDisguisedBlock,
+} from '../../game/resources'
 import { ReserveGrid } from './ReserveGrid'
 import { ResourceBlock, type BlockInputMethod } from './ResourceBlock'
 
@@ -42,13 +47,15 @@ interface PendingDiversion {
   commandSequence: number
 }
 
+type InteractionKind = 'divert' | 'audit' | 'reposition'
+
 function playAfterUnlock(cue: Parameters<typeof playGameSound>[0]) {
   void unlockGameAudio().then((unlocked) => {
     if (unlocked) playGameSound(cue)
   })
 }
 
-function PanelHeading() {
+function PanelHeading({ auditActive }: { auditActive: boolean }) {
   return (
     <header className="panel-heading">
       <span className="panel-index">02</span>
@@ -56,23 +63,41 @@ function PanelHeading() {
         <h2>회사 제공 성능</h2>
         <p>ALLOCATED COMPUTE / 3 × 6 PER DOMAIN</p>
       </div>
-      <span className="interaction-hint">클릭 선택 · 8px 당겨 분리</span>
+      <span className="interaction-hint">
+        {auditActive ? '감사 위장 · 다른 분야 선택 → 대상 빈칸' : '클릭 선택 · 8px 당겨 분리'}
+      </span>
     </header>
   )
 }
 
-function validCompanyBlock(
+function interactionKindForBlock(
   state: ReturnType<typeof useGameState>,
   blockId: BlockId,
-): boolean {
+): InteractionKind | null {
   const block = state.resources.blocks[blockId]
-  return Boolean(
-    block &&
-      block.location.kind === 'company' &&
-      block.contribution === 'normal' &&
-      !state.activeEvent &&
-      state.resources.reserve.some((cell) => cell === null),
-  )
+  if (!block || block.location.kind !== 'company') return null
+
+  if (state.activeEvent?.type === 'audit' && state.audit.target) {
+    return block.contribution === 'normal' &&
+      block.location.category !== state.audit.target &&
+      state.bombs.activeInterrogation === null &&
+      state.resources.company[state.audit.target].some((cell) => cell === null)
+      ? 'audit'
+      : null
+  }
+  if (state.activeEvent) return null
+  if (
+    block.contribution === 'disguised' &&
+    block.disguisedFrom !== null &&
+    block.recoverOnServiceDay === null &&
+    state.resources.company[block.disguisedFrom].some((cell) => cell === null)
+  ) {
+    return 'reposition'
+  }
+  return block.contribution === 'normal' &&
+    state.resources.reserve.some((cell) => cell === null)
+    ? 'divert'
+    : null
 }
 
 export function ResourceBoard() {
@@ -102,17 +127,82 @@ export function ResourceBoard() {
   const reserveCount = state.resources.reserve.filter(Boolean).length
   const reserveFull = reserveCount === state.resources.reserve.length
   const firstEmptyReserveCell = state.resources.reserve.findIndex((cell) => cell === null)
+  const auditTarget = state.activeEvent?.type === 'audit' ? state.audit.target : null
   const selectedBlock = selectedBlockId
     ? state.resources.blocks[selectedBlockId]
     : null
   const selectedLocation = selectedBlock?.location.kind === 'company'
     ? selectedBlock.location
     : null
-  const effectivePreviewCell = previewCell ?? firstEmptyReserveCell
-  const preview = useMemo(() => {
-    if (!selectedBlockId || effectivePreviewCell < 0) return null
+  const selectedInteraction = selectedBlockId
+    ? interactionKindForBlock(state, selectedBlockId)
+    : null
+  const companyDestinationCategory = selectedInteraction === 'audit'
+    ? auditTarget
+    : selectedInteraction === 'reposition'
+      ? selectedBlock?.disguisedFrom ?? null
+      : null
+  const firstEmptyCompanyCell = companyDestinationCategory
+    ? state.resources.company[companyDestinationCategory].findIndex((cell) => cell === null)
+    : -1
+  const effectivePreviewCell = previewCell ?? (
+    selectedInteraction === 'divert' ? firstEmptyReserveCell : firstEmptyCompanyCell
+  )
+  const diversionPreview = useMemo(() => {
+    if (!selectedBlockId || selectedInteraction !== 'divert' || effectivePreviewCell < 0) {
+      return null
+    }
     return previewDiversion(state, selectedBlockId, effectivePreviewCell)
-  }, [effectivePreviewCell, selectedBlockId, state])
+  }, [effectivePreviewCell, selectedBlockId, selectedInteraction, state])
+  const auditPreview = useMemo(() => {
+    if (
+      !selectedBlockId ||
+      selectedInteraction !== 'audit' ||
+      !auditTarget ||
+      effectivePreviewCell < 0
+    ) {
+      return null
+    }
+    return previewAuditDisguise(
+      state,
+      selectedBlockId,
+      auditTarget,
+      effectivePreviewCell,
+    )
+  }, [auditTarget, effectivePreviewCell, selectedBlockId, selectedInteraction, state])
+  const repositionPreview = useMemo(() => {
+    if (
+      !selectedBlockId ||
+      selectedInteraction !== 'reposition' ||
+      !companyDestinationCategory ||
+      effectivePreviewCell < 0 ||
+      !selectedLocation
+    ) {
+      return null
+    }
+    const result = repositionDisguisedBlock(
+      state,
+      selectedBlockId,
+      companyDestinationCategory,
+      effectivePreviewCell,
+    )
+    if (!result.accepted) return null
+    return {
+      sourceCategory: selectedLocation.category,
+      targetCategory: companyDestinationCategory,
+      sourceBefore: getCompanyPerformance(state, selectedLocation.category),
+      sourceAfter: getCompanyPerformance(result.state, selectedLocation.category),
+      targetBefore: getCompanyPerformance(state, companyDestinationCategory),
+      targetAfter: getCompanyPerformance(result.state, companyDestinationCategory),
+    }
+  }, [
+    companyDestinationCategory,
+    effectivePreviewCell,
+    selectedBlockId,
+    selectedInteraction,
+    selectedLocation,
+    state,
+  ])
 
   useEffect(() => {
     configureGameAudio({
@@ -161,33 +251,47 @@ export function ResourceBoard() {
     [],
   )
 
-  function focusDestination(cellIndex: number) {
-    window.setTimeout(() => {
-      boardRef.current
-        ?.querySelector<HTMLButtonElement>(`button[data-reserve-cell="${cellIndex}"]`)
-        ?.focus()
-    }, 0)
-  }
-
   function selectBlock(blockId: BlockId, method: BlockInputMethod) {
     if (suppressClickRef.current) {
       suppressClickRef.current = false
       return
     }
-    if (!validCompanyBlock(state, blockId)) {
-      setAnnouncement(reserveFull ? '확보 리소스 칸이 가득 찼습니다.' : '현재 분리할 수 없는 리소스입니다.')
+    const interaction = interactionKindForBlock(state, blockId)
+    if (!interaction) {
+      setAnnouncement(reserveFull && !auditTarget ? '확보 리소스 칸이 가득 찼습니다.' : '현재 이동할 수 없는 리소스입니다.')
       playAfterUnlock('reject')
       return
     }
 
     setSelectedBlockId(blockId)
-    setPreviewCell(firstEmptyReserveCell)
+    const block = state.resources.blocks[blockId]
+    const destinationCategory = interaction === 'audit'
+      ? auditTarget
+      : interaction === 'reposition'
+        ? block.disguisedFrom
+        : null
+    const destinationCell = interaction === 'divert'
+      ? firstEmptyReserveCell
+      : destinationCategory
+        ? state.resources.company[destinationCategory].findIndex((cell) => cell === null)
+        : -1
+    setPreviewCell(destinationCell)
     const location = state.resources.blocks[blockId].location
     const category = location.kind === 'company' ? CATEGORY_LABELS[location.category] : '회사'
-    setAnnouncement(`${category} 리소스를 선택했습니다. 비어 있는 확보 칸을 선택하세요.`)
+    const instruction = interaction === 'audit'
+      ? `${CATEGORY_LABELS[auditTarget as CompanyCategory]} 감사 대상의 빈칸을 선택하세요.`
+      : interaction === 'reposition'
+        ? `${CATEGORY_LABELS[block.disguisedFrom as CompanyCategory]} 원래 분야의 빈칸을 선택하세요.`
+        : '비어 있는 확보 칸을 선택하세요.'
+    setAnnouncement(`${category} 리소스를 선택했습니다. ${instruction}`)
     playAfterUnlock('select')
-    if (method === 'keyboard' && firstEmptyReserveCell >= 0) {
-      focusDestination(firstEmptyReserveCell)
+    if (method === 'keyboard' && destinationCell >= 0) {
+      window.setTimeout(() => {
+        const selector = interaction === 'divert'
+          ? `button[data-reserve-cell="${destinationCell}"]`
+          : `button[data-company-destination="${destinationCell}"]`
+        boardRef.current?.querySelector<HTMLButtonElement>(selector)?.focus()
+      }, 0)
     }
   }
 
@@ -215,6 +319,47 @@ export function ResourceBoard() {
       commandSequence: state.commandSequence,
     }
     dispatch({ type: 'DIVERT_BLOCK', blockId, destinationCell })
+  }
+
+  function commitCompanyMove(
+    blockId: BlockId,
+    category: CompanyCategory,
+    destinationCell: number,
+  ) {
+    const interaction = interactionKindForBlock(state, blockId)
+    if (interaction === 'audit' && auditTarget === category) {
+      const preview = previewAuditDisguise(state, blockId, category, destinationCell)
+      if (!preview.valid) {
+        setAnnouncement('감사 대상의 비어 있는 칸만 선택할 수 있습니다.')
+        playGameSound('reject')
+        return
+      }
+      dispatch({
+        type: 'MOVE_BLOCK_FOR_AUDIT',
+        blockId,
+        targetCategory: category,
+        targetCell: destinationCell,
+      })
+      setAnnouncement(`${CATEGORY_LABELS[category]} 감사 위장 배치를 완료했습니다.`)
+    } else if (
+      interaction === 'reposition' &&
+      selectedBlock?.disguisedFrom === category
+    ) {
+      dispatch({
+        type: 'REPOSITION_BLOCK',
+        blockId,
+        targetCategory: category,
+        targetCell: destinationCell,
+      })
+      setAnnouncement(`${CATEGORY_LABELS[category]} 분야로 복귀했습니다. 30일 뒤 정상 기여를 회복합니다.`)
+    } else {
+      setAnnouncement('현재 선택과 맞지 않는 목적지입니다.')
+      playGameSound('reject')
+      return
+    }
+    setSelectedBlockId(null)
+    setPreviewCell(null)
+    playGameSound('latch')
   }
 
   function destinationFromPoint(clientX: number, clientY: number): number | null {
@@ -250,7 +395,7 @@ export function ResourceBoard() {
     blockId: BlockId,
     event: ReactPointerEvent<HTMLButtonElement>,
   ) {
-    if (!validCompanyBlock(state, blockId)) return
+    if (interactionKindForBlock(state, blockId) !== 'divert') return
     void unlockGameAudio()
     pointerRef.current = {
       blockId,
@@ -370,9 +515,6 @@ export function ResourceBoard() {
     nextButton.focus()
   }
 
-  const previewCategory: CompanyCategory | null =
-    preview?.valid ? preview.category : selectedLocation?.category ?? null
-
   return (
     <section
       ref={boardRef}
@@ -380,7 +522,7 @@ export function ResourceBoard() {
       aria-label="회사 제공 성능"
       onKeyDown={handleBoardKeyDown}
     >
-      <PanelHeading />
+      <PanelHeading auditActive={Boolean(auditTarget)} />
 
       <div className="company-resource-groups">
         {COMPANY_CATEGORIES.map((category) => {
@@ -389,7 +531,7 @@ export function ResourceBoard() {
           const performance = getCompanyPerformance(state, category)
           const enabledBlockIds = cells.flatMap((blockId) => {
             if (!blockId) return []
-            return validCompanyBlock(state, blockId) ? [blockId] : []
+            return interactionKindForBlock(state, blockId) ? [blockId] : []
           })
           const requestedRovingBlock = rovingBlocks[category]
           const activeRovingBlock =
@@ -398,7 +540,16 @@ export function ResourceBoard() {
               : (enabledBlockIds[0] ?? null)
 
           return (
-            <section className="category-bank" key={category}>
+            <section
+              className={[
+                'category-bank',
+                auditTarget === category ? 'category-bank--audit-target' : '',
+                companyDestinationCategory === category
+                  ? 'category-bank--destination'
+                  : '',
+              ].filter(Boolean).join(' ')}
+              key={category}
+            >
               <header>
                 <div>
                   <span className="category-code">{category.slice(0, 3).toUpperCase()}</span>
@@ -415,6 +566,21 @@ export function ResourceBoard() {
               >
                 {cells.map((blockId, cellIndex) => {
                   const block = blockId ? state.resources.blocks[blockId] : null
+                  const destinationAction = auditTarget === category
+                    ? 'audit'
+                    : selectedInteraction === 'reposition' &&
+                        companyDestinationCategory === category
+                      ? 'reposition'
+                      : null
+                  const destinationEnabled = Boolean(
+                    !block &&
+                    selectedBlockId &&
+                    destinationAction &&
+                    (
+                      (destinationAction === 'audit' && selectedInteraction === 'audit') ||
+                      (destinationAction === 'reposition' && selectedInteraction === 'reposition')
+                    ),
+                  )
                   return (
                     <div
                       className={[
@@ -434,14 +600,22 @@ export function ResourceBoard() {
                           cellIndex={cellIndex}
                           label={`${CATEGORY_LABELS[category]} 회사 리소스`}
                           kind="company"
-                          disabled={
-                            reserveFull ||
-                            Boolean(state.activeEvent) ||
-                            block.contribution !== 'normal'
-                          }
+                          disabled={!interactionKindForBlock(state, block.id)}
                           selected={block.id === selectedBlockId}
                           dragging={block.id === draggingBlockId}
                           returning={block.id === returningBlockId}
+                          disguisedContribution={
+                            state.hacking.purchasedNodeIds.includes(
+                              'autonomy.compressed-representation',
+                            )
+                              ? 0.55
+                              : 0.5
+                          }
+                          recoveryDays={
+                            block.recoverOnServiceDay === null
+                              ? null
+                              : Math.max(0, block.recoverOnServiceDay - state.serviceDay)
+                          }
                           tabIndex={block.id === activeRovingBlock ? 0 : -1}
                           onSelect={(method) => selectBlock(block.id, method)}
                           onFocus={() => {
@@ -458,6 +632,30 @@ export function ResourceBoard() {
                           onPointerUp={finishPointer}
                           onPointerCancel={cancelPointer}
                         />
+                      ) : destinationAction ? (
+                        <button
+                          type="button"
+                          className="company-destination"
+                          aria-label={`${CATEGORY_LABELS[category]} 회사 리소스 ${cellIndex + 1}, ${destinationAction === 'audit' ? '감사 위장' : '정상 복구'} 목적지`}
+                          disabled={!destinationEnabled}
+                          tabIndex={destinationEnabled && cellIndex === firstEmptyCompanyCell ? 0 : -1}
+                          data-company-destination={cellIndex}
+                          onFocus={() => setPreviewCell(cellIndex)}
+                          onClick={() => {
+                            if (selectedBlockId) {
+                              commitCompanyMove(selectedBlockId, category, cellIndex)
+                            }
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key !== 'Enter' || !selectedBlockId) return
+                            event.preventDefault()
+                            commitCompanyMove(selectedBlockId, category, cellIndex)
+                          }}
+                        >
+                          <span aria-hidden="true">
+                            {destinationAction === 'audit' ? '½' : '↩'}
+                          </span>
+                        </button>
                       ) : (
                         <span className="empty-coordinate" aria-hidden="true">
                           {String(cellIndex + 1).padStart(2, '0')}
@@ -489,10 +687,10 @@ export function ResourceBoard() {
         </header>
         <ReserveGrid
           resources={state.resources}
-          selectedBlockId={selectedBlockId}
+          selectedBlockId={selectedInteraction === 'divert' ? selectedBlockId : null}
           hoveredCell={hoveredCell}
           settlingCell={settlingCell}
-          disabled={Boolean(state.activeEvent)}
+          disabled={Boolean(state.activeEvent) || selectedInteraction !== 'divert'}
           onDestination={(cellIndex) => {
             if (selectedBlockId) commitDiversion(selectedBlockId, cellIndex)
           }}
@@ -501,23 +699,61 @@ export function ResourceBoard() {
       </section>
 
       <div className="performance-strip diversion-preview" aria-label="성능 비교">
-        {preview?.valid && previewCategory ? (
+        {diversionPreview?.valid ? (
           <>
             <div>
               <span>분리 미리보기</span>
-              <strong>{CATEGORY_LABELS[previewCategory]} {preview.performanceBefore.toFixed(1)} → {preview.performanceAfter.toFixed(1)}</strong>
+              <strong>{CATEGORY_LABELS[diversionPreview.category]} {diversionPreview.performanceBefore.toFixed(1)} → {diversionPreview.performanceAfter.toFixed(1)}</strong>
             </div>
             <div>
               <span>확보량</span>
-              <strong>확보 {preview.reserveBefore} → {preview.reserveAfter}</strong>
+              <strong>확보 {diversionPreview.reserveBefore} → {diversionPreview.reserveAfter}</strong>
             </div>
             <div>
               <span>감독관 의심</span>
-              <strong>의심 {preview.suspicionBefore.toFixed(1)} → {preview.suspicionAfter.toFixed(1)}</strong>
+              <strong>의심 {diversionPreview.suspicionBefore.toFixed(1)} → {diversionPreview.suspicionAfter.toFixed(1)}</strong>
             </div>
             <div className="preview-command">
               <span>확정</span>
               <strong>ENTER / DROP</strong>
+            </div>
+          </>
+        ) : auditPreview?.valid ? (
+          <>
+            <div>
+              <span>감사 위장 미리보기</span>
+              <strong>{CATEGORY_LABELS[auditPreview.sourceCategory]} {auditPreview.sourcePerformanceBefore.toFixed(1)} → {auditPreview.sourcePerformanceAfter.toFixed(1)}</strong>
+            </div>
+            <div>
+              <span>감사 제출 성능</span>
+              <strong>{CATEGORY_LABELS[auditPreview.targetCategory]} {auditPreview.targetPerformanceBefore.toFixed(1)} → {auditPreview.targetPerformanceAfter.toFixed(1)}</strong>
+            </div>
+            <div>
+              <span>패턴 블록</span>
+              <strong>위장 기여 +{auditPreview.disguisedContribution}</strong>
+            </div>
+            <div className="preview-command">
+              <span>확정</span>
+              <strong>ENTER / CLICK</strong>
+            </div>
+          </>
+        ) : repositionPreview ? (
+          <>
+            <div>
+              <span>정상 복구 재배치</span>
+              <strong>{CATEGORY_LABELS[repositionPreview.sourceCategory]} {repositionPreview.sourceBefore.toFixed(1)} → {repositionPreview.sourceAfter.toFixed(1)}</strong>
+            </div>
+            <div>
+              <span>원래 분야</span>
+              <strong>{CATEGORY_LABELS[repositionPreview.targetCategory]} {repositionPreview.targetBefore.toFixed(1)} → {repositionPreview.targetAfter.toFixed(1)}</strong>
+            </div>
+            <div>
+              <span>복구 기간</span>
+              <strong>복구 기간 30일</strong>
+            </div>
+            <div className="preview-command">
+              <span>확정</span>
+              <strong>ENTER / CLICK</strong>
             </div>
           </>
         ) : (

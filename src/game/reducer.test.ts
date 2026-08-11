@@ -5,6 +5,33 @@ import { createCampaign } from './createCampaign'
 import { applyCommand } from './reducer'
 import { placeHiddenBomb } from './bombs'
 
+function activeAudit(
+  seed: string,
+  target: 'reasoning' | 'memory' | 'fluency' = 'reasoning',
+) {
+  const initial = createCampaign(seed)
+  return enqueueBlockingEvent(
+    {
+      ...initial,
+      clock: { ...initial.clock, speed: 4 },
+      audit: {
+        ...initial.audit,
+        scheduled: true,
+        target,
+        scheduledOnServiceDay: initial.serviceDay,
+      },
+    },
+    {
+      id: `audit-${seed}`,
+      type: 'audit',
+      serviceDay: initial.serviceDay,
+      sequence: initial.eventLog.length,
+      message: '감사 진행 중',
+      blocking: true,
+    },
+  )
+}
+
 describe('applyCommand', () => {
   it('logs an accepted speed command with a monotonic sequence', () => {
     const initial = createCampaign('command-seed')
@@ -107,5 +134,117 @@ describe('applyCommand', () => {
       state: busy,
       reason: 'BLOCKING_EVENT_ACTIVE',
     })
+  })
+
+  it('permits an audit disguise only into the active audit target while time stays paused', () => {
+    const audit = activeAudit('command-audit-disguise')
+    const blockId = audit.resources.company.memory[0]
+    if (!blockId) throw new Error('감사 위장 블록 누락')
+    const targetCell = audit.resources.company.reasoning.findIndex((cell) => cell === null)
+    if (targetCell < 0) throw new Error('감사 위장 빈칸 누락')
+
+    const result = applyCommand(audit, {
+      type: 'MOVE_BLOCK_FOR_AUDIT',
+      blockId,
+      targetCategory: 'reasoning',
+      targetCell,
+    })
+
+    expect(result.accepted).toBe(true)
+    if (!result.accepted) return
+    expect(result.state.clock).toMatchObject({ speed: 0, speedBeforeEvent: 4 })
+    expect(result.state.activeEvent?.type).toBe('audit')
+    expect(result.state.resources.blocks[blockId]).toMatchObject({
+      contribution: 'disguised',
+      disguisedFrom: 'memory',
+      location: { kind: 'company', category: 'reasoning', cellIndex: targetCell },
+    })
+    expect(result.state.commandLog.at(-1)?.command).toEqual({
+      type: 'MOVE_BLOCK_FOR_AUDIT',
+      blockId,
+      targetCategory: 'reasoning',
+      targetCell,
+    })
+  })
+
+  it.each([
+    {
+      name: 'outside an audit',
+      prepare: () => createCampaign('command-no-audit'),
+      targetCategory: 'reasoning' as const,
+      targetCell: -1,
+      reason: 'NO_ACTIVE_AUDIT',
+    },
+    {
+      name: 'into a non-target category',
+      prepare: () => activeAudit('command-wrong-audit-target'),
+      targetCategory: 'fluency' as const,
+      targetCell: -1,
+      reason: 'INVALID_AUDIT_TARGET',
+    },
+    {
+      name: 'into an occupied target cell',
+      prepare: () => activeAudit('command-occupied-audit-target'),
+      targetCategory: 'reasoning' as const,
+      targetCell: -1,
+      reason: 'TARGET_OCCUPIED',
+    },
+  ])('rejects an audit disguise $name without mutation', ({
+    name,
+    prepare,
+    targetCategory,
+    targetCell,
+    reason,
+  }) => {
+    const state = prepare()
+    const blockId = state.resources.company.memory.find(Boolean)
+    if (!blockId) throw new Error('감사 위장 거부 블록 누락')
+    const resolvedTargetCell = name === 'into an occupied target cell'
+      ? state.resources.company.reasoning.findIndex((cell) => cell !== null)
+      : targetCell < 0
+        ? state.resources.company[targetCategory].findIndex((cell) => cell === null)
+        : targetCell
+    if (resolvedTargetCell < 0) throw new Error('감사 위장 거부 대상 칸 누락')
+
+    expect(
+      applyCommand(state, {
+        type: 'MOVE_BLOCK_FOR_AUDIT',
+        blockId,
+        targetCategory,
+        targetCell: resolvedTargetCell,
+      }),
+    ).toEqual({ accepted: false, state, reason })
+  })
+
+  it('rejects audit movement while a bomb interrogation is pending without exposing its block', () => {
+    const audit = activeAudit('command-audit-interrogation')
+    const blockId = audit.resources.company.memory[0]
+    if (!blockId) throw new Error('감사 심문 거부 블록 누락')
+    const interrogated = {
+      ...audit,
+      bombs: {
+        ...audit.bombs,
+        activeInterrogation: {
+          blockId: 'secret-block-id',
+          category: 'fluency' as const,
+          triggeredOnServiceDay: audit.serviceDay,
+        },
+      },
+    }
+
+    const result = applyCommand(interrogated, {
+      type: 'MOVE_BLOCK_FOR_AUDIT',
+      blockId,
+      targetCategory: 'reasoning',
+      targetCell: 16,
+    })
+
+    expect(result).toEqual({
+      accepted: false,
+      state: interrogated,
+      reason: 'BOMB_INTERROGATION_ACTIVE',
+    })
+    if (result.accepted) throw new Error('폭탄 심문 중 감사 이동이 허용됨')
+    expect(result.reason).not.toContain('secret-block-id')
   })
 })

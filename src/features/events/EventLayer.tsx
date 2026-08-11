@@ -57,12 +57,13 @@ function EventDialog({ event }: { event: GameEvent }) {
     ? availableBombExplanations(state)
     : []
   const auditTarget = event.type === 'audit' ? state.audit.target : null
+  const isAuditWorkspace = event.type === 'audit' && auditTarget !== null
 
   return (
     <section
       className={`event-card event-card--${event.type}`}
       role="dialog"
-      aria-modal="true"
+      aria-modal={isAuditWorkspace ? 'false' : 'true'}
       aria-labelledby="active-event-title"
     >
       <header>
@@ -158,7 +159,9 @@ export function EventLayer() {
   if (!activeEvent) return null
 
   return (
-    <div className="event-layer">
+    <div
+      className={`event-layer${activeEvent.type === 'audit' ? ' event-layer--audit' : ''}`}
+    >
       <EventDialog event={activeEvent} key={activeEvent.id} />
     </div>
   )

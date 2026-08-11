@@ -17,6 +17,8 @@ export interface ResourceBlockProps {
   dragging?: boolean
   returning?: boolean
   settling?: boolean
+  disguisedContribution?: number
+  recoveryDays?: number | null
   tabIndex?: number
   onSelect?: (method: BlockInputMethod) => void
   onFocus?: () => void
@@ -37,6 +39,8 @@ export function ResourceBlock({
   dragging = false,
   returning = false,
   settling = false,
+  disguisedContribution = 0.5,
+  recoveryDays = null,
   tabIndex,
   onSelect,
   onFocus,
@@ -61,7 +65,7 @@ export function ResourceBlock({
         settling ? 'resource-block--settling' : '',
         disguised ? 'resource-block--disguised' : '',
       ].filter(Boolean).join(' ')}
-      aria-label={`${label} ${cellIndex + 1}, ${source} 블록${disguised ? ', 위장 배치' : ''}`}
+      aria-label={`${label} ${cellIndex + 1}, ${source} 블록${disguised ? ', 위장 배치' : ''}${recoveryDays !== null ? `, 복구 중, ${recoveryDays}일 남음` : ''}`}
       aria-pressed={selected}
       disabled={disabled}
       tabIndex={tabIndex}
@@ -76,7 +80,13 @@ export function ResourceBlock({
       onPointerCancel={onPointerCancel}
     >
       <i aria-hidden="true" />
-      <small aria-hidden="true">{disguised ? '위장 기여' : source}</small>
+      <small aria-hidden="true">
+        {recoveryDays !== null
+          ? `복구 ${recoveryDays}일`
+          : disguised
+            ? `위장 기여 ${disguisedContribution}`
+            : source}
+      </small>
     </button>
   )
 }

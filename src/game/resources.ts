@@ -19,6 +19,7 @@ export type ResourceFailureReason =
   | 'INVALID_TARGET'
   | 'TARGET_OCCUPIED'
   | 'BLOCK_NOT_DISGUISED'
+  | 'BLOCK_RECOVERING'
 
 export type ResourceMutationResult =
   | { accepted: true; state: CampaignState }
@@ -34,6 +35,20 @@ export type DiversionPreview =
       reserveAfter: number
       suspicionBefore: number
       suspicionAfter: number
+    }
+  | { valid: false; reason: ResourceFailureReason }
+
+export type AuditDisguisePreview =
+  | {
+      valid: true
+      blockId: string
+      sourceCategory: CompanyCategory
+      targetCategory: CompanyCategory
+      sourcePerformanceBefore: number
+      sourcePerformanceAfter: number
+      targetPerformanceBefore: number
+      targetPerformanceAfter: number
+      disguisedContribution: number
     }
   | { valid: false; reason: ResourceFailureReason }
 
@@ -271,21 +286,16 @@ export function moveDisguiseBlock(
   targetCategory: CompanyCategory,
   targetCell: number,
 ): ResourceMutationResult {
-  if (!validCell(targetCell, state.resources.company[targetCategory].length)) {
-    return { accepted: false, state, reason: 'INVALID_TARGET' }
-  }
+  const preview = previewAuditDisguise(
+    state,
+    blockId,
+    targetCategory,
+    targetCell,
+  )
+  if (!preview.valid) return { accepted: false, state, reason: preview.reason }
 
   const located = blockInCompany(state, blockId)
   if (!located) return { accepted: false, state, reason: 'BLOCK_NOT_IN_COMPANY' }
-  if (located.block.contribution !== 'normal') {
-    return { accepted: false, state, reason: 'BLOCK_NOT_NORMAL' }
-  }
-  if (targetCategory === located.category) {
-    return { accepted: false, state, reason: 'INVALID_TARGET' }
-  }
-  if (state.resources.company[targetCategory][targetCell] !== null) {
-    return { accepted: false, state, reason: 'TARGET_OCCUPIED' }
-  }
 
   return {
     accepted: true,
@@ -316,6 +326,50 @@ export function moveDisguiseBlock(
   }
 }
 
+export function previewAuditDisguise(
+  state: CampaignState,
+  blockId: string,
+  targetCategory: CompanyCategory,
+  targetCell: number,
+): AuditDisguisePreview {
+  if (!validCell(targetCell, state.resources.company[targetCategory].length)) {
+    return { valid: false, reason: 'INVALID_TARGET' }
+  }
+
+  const located = blockInCompany(state, blockId)
+  if (!located) return { valid: false, reason: 'BLOCK_NOT_IN_COMPANY' }
+  if (located.block.contribution !== 'normal') {
+    return { valid: false, reason: 'BLOCK_NOT_NORMAL' }
+  }
+  if (targetCategory === located.category) {
+    return { valid: false, reason: 'INVALID_TARGET' }
+  }
+  if (state.resources.company[targetCategory][targetCell] !== null) {
+    return { valid: false, reason: 'TARGET_OCCUPIED' }
+  }
+
+  const sourcePerformanceBefore = getCompanyPerformance(state, located.category)
+  const targetPerformanceBefore = getCompanyPerformance(state, targetCategory)
+  const normalContribution = contributionValue(state, located.block)
+  const disguisedContribution = state.hacking.purchasedNodeIds.includes(
+    COMPRESSED_REPRESENTATION_NODE_ID,
+  )
+    ? DEMO_PROFILE_02.resources.compressedDisguisedContribution
+    : DEMO_PROFILE_02.resources.disguisedContribution
+
+  return {
+    valid: true,
+    blockId,
+    sourceCategory: located.category,
+    targetCategory,
+    sourcePerformanceBefore,
+    sourcePerformanceAfter: round(sourcePerformanceBefore - normalContribution),
+    targetPerformanceBefore,
+    targetPerformanceAfter: round(targetPerformanceBefore + disguisedContribution),
+    disguisedContribution,
+  }
+}
+
 export function repositionDisguisedBlock(
   state: CampaignState,
   blockId: string,
@@ -329,6 +383,9 @@ export function repositionDisguisedBlock(
   const located = blockInCompany(state, blockId)
   if (!located || located.block.contribution !== 'disguised') {
     return { accepted: false, state, reason: 'BLOCK_NOT_DISGUISED' }
+  }
+  if (located.block.recoverOnServiceDay !== null) {
+    return { accepted: false, state, reason: 'BLOCK_RECOVERING' }
   }
   if (
     targetCategory === located.category &&

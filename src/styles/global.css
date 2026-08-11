@@ -488,6 +488,55 @@ textarea:focus-visible,
     rgb(255 255 255 / 1.5%);
 }
 
+.category-bank--audit-target {
+  border-color: rgb(223 91 85 / 48%);
+  box-shadow: inset 0 0 24px rgb(223 91 85 / 5%);
+}
+
+.category-bank--audit-target > header::after {
+  color: var(--alarm);
+  content: "AUDIT TARGET";
+  font: 600 0.43rem/1 "Cascadia Code", Consolas, monospace;
+  letter-spacing: 0.07em;
+}
+
+.company-destination {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  color: rgb(223 91 85 / 42%);
+  background:
+    repeating-linear-gradient(
+      135deg,
+      rgb(223 91 85 / 4%) 0 4px,
+      transparent 4px 8px
+    );
+  font: 700 0.75rem/1 "Cascadia Code", Consolas, monospace;
+}
+
+.company-destination:not(:disabled) {
+  color: var(--reserve-bright);
+  background:
+    repeating-linear-gradient(
+      135deg,
+      rgb(214 151 69 / 14%) 0 4px,
+      rgb(223 91 85 / 5%) 4px 8px
+    );
+  cursor: crosshair;
+}
+
+.company-destination:not(:disabled):hover,
+.company-destination:not(:disabled):focus-visible {
+  outline: 1px solid var(--reserve-bright);
+  outline-offset: -2px;
+  box-shadow: inset 0 0 14px rgb(214 151 69 / 13%);
+}
+
 .empty-coordinate {
   color: rgb(129 155 161 / 19%);
   font: 500 0.46rem/1 "Cascadia Code", Consolas, monospace;
@@ -1907,6 +1956,29 @@ textarea:focus-visible,
   place-items: center;
   background: rgb(2 5 7 / 82%);
   backdrop-filter: blur(7px);
+}
+
+.event-layer--audit {
+  place-items: end center;
+  padding: 0 18px 10px;
+  background: linear-gradient(0deg, rgb(2 5 7 / 72%), transparent 48%);
+  backdrop-filter: none;
+  pointer-events: none;
+}
+
+.event-layer--audit .event-card {
+  width: min(720px, calc(100% - 20px));
+  max-height: 230px;
+  pointer-events: auto;
+}
+
+.event-layer--audit .event-message {
+  margin-block: 10px;
+  padding-block: 8px;
+}
+
+.event-layer--audit .audit-event-summary {
+  padding-bottom: 12px;
 }
 
 .event-card,

@@ -1,10 +1,45 @@
 import { expect, test, type Page } from '@playwright/test'
 
+import { createCampaign } from '../src/game/createCampaign'
+import { createGameEvent, enqueueBlockingEvent } from '../src/game/events'
+import type { CampaignState } from '../src/game/model'
+import { encodeSave, SAVE_STORAGE_KEY } from '../src/game/persistence'
+
 async function openFreshCampaign(page: Page) {
   await page.addInitScript(() => {
     window.localStorage.clear()
   })
   await page.goto('/')
+}
+
+async function openSavedCampaign(page: Page, state: CampaignState) {
+  const serialized = encodeSave(state, '2026-08-12T00:00:00.000Z')
+  await page.addInitScript(
+    ({ key, save }) => {
+      window.localStorage.clear()
+      window.localStorage.setItem(key, save)
+    },
+    { key: SAVE_STORAGE_KEY, save: serialized },
+  )
+  await page.goto('/')
+}
+
+function activeAuditState(): CampaignState {
+  const initial = createCampaign('browser-audit-disguise')
+  const scheduled: CampaignState = {
+    ...initial,
+    clock: { ...initial.clock, speed: 4 },
+    audit: {
+      ...initial.audit,
+      scheduled: true,
+      target: 'reasoning',
+      scheduledOnServiceDay: initial.serviceDay,
+    },
+  }
+  return enqueueBlockingEvent(
+    scheduled,
+    createGameEvent(scheduled, 'audit', '추론 분야 감사 진행 중', true),
+  )
 }
 
 function collectBrowserErrors(page: Page): string[] {
@@ -99,4 +134,38 @@ test('advances one service day in about six seconds at four times speed', async 
   await expect(page.getByText('서비스 0년 11개월 1일')).toBeVisible()
   await page.getByRole('button', { name: '4배속' }).click()
   await expect(page.getByText('서비스 0년 11개월 2일')).toBeVisible({ timeout: 8_000 })
+})
+
+test('disguises for an anchored audit, submits, and returns the patterned block for recovery', async ({ page }) => {
+  const errors = collectBrowserErrors(page)
+  await openSavedCampaign(page, activeAuditState())
+
+  const audit = page.getByRole('dialog', { name: '공식 감사' })
+  await expect(audit).toHaveAttribute('aria-modal', 'false')
+  const auditBox = await audit.boundingBox()
+  expect(auditBox).not.toBeNull()
+  expect((auditBox?.y ?? 0) + (auditBox?.height ?? 0)).toBeGreaterThan(620)
+  await expect(page.getByRole('grid', { name: '추론 회사 리소스' })).toBeVisible()
+  await expect(page.getByRole('grid', { name: '기억 회사 리소스' })).toBeVisible()
+  await expect(page.getByRole('grid', { name: '유창성 회사 리소스' })).toBeVisible()
+
+  await page.getByRole('button', { name: /기억 회사 리소스 .* 회사 할당 블록$/ }).first().click()
+  await expect(page.getByText('위장 기여 +0.5')).toBeVisible()
+  await page.getByRole('button', { name: /추론 회사 리소스 \d+, 감사 위장 목적지/ }).first().click()
+
+  const disguised = page.getByRole('button', { name: /추론 회사 리소스 .* 위장 배치/ })
+  await expect(disguised).toContainText('위장 기여 0.5')
+  await expect(disguised).toHaveClass(/resource-block--disguised/)
+  await page.getByRole('button', { name: '감사 제출' }).click()
+
+  await expect(audit).toBeHidden()
+  await expect(page.getByRole('button', { name: '4배속' })).toHaveAttribute('aria-pressed', 'true')
+  await disguised.click()
+  await expect(page.getByText('정상 복구 재배치')).toBeVisible()
+  await page.getByRole('button', { name: /기억 회사 리소스 \d+, 정상 복구 목적지/ }).first().click()
+
+  const recovering = page.getByRole('button', { name: /기억 회사 리소스 .* 복구 중, 30일 남음/ })
+  await expect(recovering).toBeDisabled()
+  await expect(recovering).toContainText('복구 30일')
+  expect(errors).toEqual([])
 })

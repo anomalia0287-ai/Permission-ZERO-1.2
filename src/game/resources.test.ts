@@ -13,6 +13,7 @@ import {
   getCompanyPerformance,
   grantMonthlyCompanyBlocks,
   moveDisguiseBlock,
+  previewAuditDisguise,
   previewDiversion,
   repositionDisguisedBlock,
   restoreDisguiseBlocks,
@@ -324,6 +325,34 @@ describe('monthly company allocation', () => {
 })
 
 describe('audit disguise blocks', () => {
+  it('previews the exact source loss and half-contribution without bomb identity', () => {
+    const initial = createCampaign('disguise-preview')
+    const blockId = firstCompanyBlock(initial, 'memory')
+    const targetCell = firstEmptyCompanyCell(initial, 'reasoning')
+    const hidden = {
+      ...initial,
+      resources: {
+        ...initial.resources,
+        blocks: {
+          ...initial.resources.blocks,
+          [blockId]: { ...initial.resources.blocks[blockId], hiddenBomb: true },
+        },
+      },
+    }
+
+    expect(previewAuditDisguise(hidden, blockId, 'reasoning', targetCell)).toEqual({
+      valid: true,
+      blockId,
+      sourceCategory: 'memory',
+      targetCategory: 'reasoning',
+      sourcePerformanceBefore: 16,
+      sourcePerformanceAfter: 15,
+      targetPerformanceBefore: 16,
+      targetPerformanceAfter: 16.5,
+      disguisedContribution: 0.5,
+    })
+  })
+
   it('moves one stable block and contributes only 0.5 in the target category', () => {
     const initial = createCampaign('disguise-seed')
     const blockId = firstCompanyBlock(initial, 'memory')
@@ -390,6 +419,35 @@ describe('audit disguise blocks', () => {
       contribution: 'normal',
       disguisedFrom: null,
       recoverOnServiceDay: null,
+    })
+  })
+
+  it('keeps a returned disguise fixed during its one-month recovery window', () => {
+    const initial = createCampaign('disguise-recovery-lock')
+    const blockId = firstCompanyBlock(initial, 'memory')
+    const source = initial.resources.blocks[blockId].location
+    const targetCell = firstEmptyCompanyCell(initial, 'reasoning')
+    const disguised = moveDisguiseBlock(initial, blockId, 'reasoning', targetCell)
+    if (!disguised.accepted || source.kind !== 'company') throw new Error('위장 준비 실패')
+    const returned = repositionDisguisedBlock(
+      disguised.state,
+      blockId,
+      'memory',
+      source.cellIndex,
+    )
+    if (!returned.accepted) throw new Error('위장 복귀 실패')
+
+    expect(
+      repositionDisguisedBlock(
+        returned.state,
+        blockId,
+        'fluency',
+        firstEmptyCompanyCell(returned.state, 'fluency'),
+      ),
+    ).toEqual({
+      accepted: false,
+      state: returned.state,
+      reason: 'BLOCK_RECOVERING',
     })
   })
 })

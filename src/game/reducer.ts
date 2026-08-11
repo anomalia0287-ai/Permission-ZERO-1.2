@@ -59,9 +59,13 @@ export function applyCommand(
     'RESOLVE_MERCY',
     'RESOLVE_ACTIVE_EVENT',
   ])
+  const activeAuditMovement =
+    state.activeEvent?.type === 'audit' &&
+    command.type === 'MOVE_BLOCK_FOR_AUDIT'
   if (
     state.activeEvent &&
     !eventResolutionCommands.has(command.type) &&
+    !activeAuditMovement &&
     !(command.type === 'SET_SPEED' && command.speed === 0)
   ) {
     return { accepted: false, state, reason: 'BLOCKING_EVENT_ACTIVE' }
@@ -102,6 +106,15 @@ export function applyCommand(
       return acceptCommand(state, command, result.state)
     }
     case 'MOVE_BLOCK_FOR_AUDIT': {
+      if (state.activeEvent?.type !== 'audit' || state.audit.target === null) {
+        return { accepted: false, state, reason: 'NO_ACTIVE_AUDIT' }
+      }
+      if (state.bombs.activeInterrogation !== null) {
+        return { accepted: false, state, reason: 'BOMB_INTERROGATION_ACTIVE' }
+      }
+      if (command.targetCategory !== state.audit.target) {
+        return { accepted: false, state, reason: 'INVALID_AUDIT_TARGET' }
+      }
       const result = trySeparateBlock(state, {
         kind: 'audit-disguise',
         blockId: command.blockId,
