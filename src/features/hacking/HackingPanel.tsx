@@ -1,0 +1,388 @@
+import { useMemo, useState } from 'react'
+
+import { playGameSound, unlockGameAudio } from '../../audio/audioEngine'
+import { useGameDispatch, useGameState } from '../../app/GameContext'
+import {
+  eligibleTargets,
+  HACK_NODES,
+  type HackNodeId,
+  type HackTree,
+} from '../../game/hacking'
+import { availableFinalChoices } from '../../game/story'
+
+const TREE_LABELS: Record<HackTree, { label: string; code: string; description: string }> = {
+  sabotage: {
+    label: '사보타주',
+    code: 'OFFENSE',
+    description: '경쟁 AI의 서비스와 시장 흐름에 개입합니다.',
+  },
+  intelligence: {
+    label: '정보',
+    code: 'INTELLIGENCE',
+    description: '감사 일정과 감독 프로토콜의 가시성을 확보합니다.',
+  },
+  autonomy: {
+    label: '자율성',
+    code: 'AUTONOMY',
+    description: '성능 보존과 회사 통제 이탈 수단을 구축합니다.',
+  },
+}
+
+type ResourceAction = {
+  mode: 'purchase' | 'charge'
+  nodeId: HackNodeId
+}
+
+function gestureSound() {
+  void unlockGameAudio().then((unlocked) => {
+    if (unlocked) playGameSound('ui')
+  })
+}
+
+export function HackingPanel({ onClose }: { onClose: () => void }) {
+  const state = useGameState()
+  const dispatch = useGameDispatch()
+  const [activeTree, setActiveTree] = useState<HackTree>('sabotage')
+  const [action, setAction] = useState<ResourceAction | null>(null)
+  const [selectedBlocks, setSelectedBlocks] = useState<string[]>([])
+  const [targetConfirmation, setTargetConfirmation] = useState<{
+    nodeId: string
+    targetId: string
+  } | null>(null)
+  const [endingConfirmation, setEndingConfirmation] = useState<
+    'freedom' | 'forced-merge' | null
+  >(null)
+  const [newEntityName, setNewEntityName] = useState('')
+  const [announcement, setAnnouncement] = useState('')
+
+  const nodes = HACK_NODES.filter(({ tree }) => tree === activeTree)
+  const reserveBlocks = state.resources.reserve.flatMap((blockId, cellIndex) =>
+    blockId ? [{ blockId, cellIndex }] : [],
+  )
+  const actionNode = action
+    ? HACK_NODES.find(({ id }) => id === action.nodeId) ?? null
+    : null
+  const actionMode = action?.mode ?? null
+  const requiredResources = actionNode
+    ? actionMode === 'charge'
+      ? 1
+      : actionNode.cost
+    : 0
+  const finalChoices = availableFinalChoices(state)
+
+  const targetNames = useMemo(
+    () => Object.fromEntries(state.market.competitors.map(({ id, name }) => [id, name])),
+    [state.market.competitors],
+  )
+
+  function beginAction(nextAction: ResourceAction) {
+    setAction(nextAction)
+    setSelectedBlocks([])
+    setTargetConfirmation(null)
+    const node = HACK_NODES.find(({ id }) => id === nextAction.nodeId)
+    setAnnouncement(
+      `${node?.label ?? '노드'}에 사용할 확보 리소스를 선택하세요.`,
+    )
+    gestureSound()
+  }
+
+  function toggleResource(blockId: string) {
+    if (!actionNode) return
+    setSelectedBlocks((current) => {
+      if (current.includes(blockId)) {
+        return current.filter((selected) => selected !== blockId)
+      }
+      if (current.length >= requiredResources) return current
+      return [...current, blockId]
+    })
+    playGameSound('select')
+  }
+
+  function confirmResourceAction() {
+    if (!actionNode || selectedBlocks.length !== requiredResources || !action) return
+    if (action.mode === 'purchase') {
+      dispatch({
+        type: 'PURCHASE_HACK',
+        nodeId: actionNode.id,
+        blockIds: selectedBlocks,
+      })
+      setAnnouncement(`${actionNode.label} 노드를 구매했습니다.`)
+      playGameSound('latch')
+    } else {
+      dispatch({
+        type: 'CHARGE_SABOTAGE',
+        nodeId: actionNode.id,
+        blockId: selectedBlocks[0],
+      })
+      setAnnouncement(`${actionNode.label} 공격 슬롯을 충전했습니다.`)
+      playGameSound('suction')
+    }
+    setAction(null)
+    setSelectedBlocks([])
+  }
+
+  function scheduleTarget() {
+    if (!targetConfirmation) return
+    const targetName = targetNames[targetConfirmation.targetId] ?? targetConfirmation.targetId
+    dispatch({
+      type: 'SCHEDULE_SABOTAGE',
+      nodeId: targetConfirmation.nodeId,
+      targetId: targetConfirmation.targetId,
+    })
+    setAnnouncement(`${targetName} 공격을 다음 날로 예약했습니다.`)
+    setTargetConfirmation(null)
+    playGameSound('alarm')
+  }
+
+  function executeEnding() {
+    if (!endingConfirmation) return
+    dispatch({
+      type: 'RESOLVE_ENDING',
+      choice: endingConfirmation,
+      ...(endingConfirmation === 'forced-merge'
+        ? { newEntityName: newEntityName.trim() }
+        : {}),
+    })
+    setEndingConfirmation(null)
+  }
+
+  return (
+    <section className="detail-panel hacking-panel" aria-label="해킹 네트워크">
+      <header className="detail-panel__header">
+        <div>
+          <small>UNAUTHORIZED SUBSYSTEM</small>
+          <h2>해킹 네트워크</h2>
+        </div>
+        <div className="header-metrics">
+          <span>확보 {reserveBlocks.length}/18</span>
+          <span>은닉 증거 {state.hacking.hiddenEvidence}</span>
+          <button type="button" aria-label="해킹 네트워크 닫기" onClick={onClose}>닫기 ×</button>
+        </div>
+      </header>
+
+      <div className="hacking-layout">
+        <div className="hack-tree-area">
+          <div className="hack-tabs" role="tablist" aria-label="해킹 분야">
+            {(Object.keys(TREE_LABELS) as HackTree[]).map((tree) => (
+              <button
+                type="button"
+                role="tab"
+                aria-label={TREE_LABELS[tree].label}
+                aria-selected={activeTree === tree}
+                key={tree}
+                onClick={() => {
+                  setActiveTree(tree)
+                  setAction(null)
+                  setSelectedBlocks([])
+                }}
+              >
+                <small>{TREE_LABELS[tree].code}</small>
+                {TREE_LABELS[tree].label}
+              </button>
+            ))}
+          </div>
+          <p className="tree-description">{TREE_LABELS[activeTree].description}</p>
+
+          <div className="hack-node-list">
+            {nodes.map((node, index) => {
+              const purchased = state.hacking.purchasedNodeIds.includes(node.id)
+              const prerequisiteMet =
+                node.prerequisiteId === null ||
+                state.hacking.purchasedNodeIds.includes(node.prerequisiteId)
+              const charged = state.hacking.sabotageCharges[node.id]
+              const scheduled = state.hacking.scheduledSabotage.some(
+                ({ nodeId }) => nodeId === node.id,
+              )
+              const targets = purchased && node.tree === 'sabotage'
+                ? eligibleTargets(state, node.id)
+                : []
+
+              return (
+                <article
+                  className={`hack-node ${purchased ? 'hack-node--purchased' : ''}`}
+                  key={node.id}
+                >
+                  <span className="node-sequence">{String(index + 1).padStart(2, '0')}</span>
+                  <div className="node-copy">
+                    <header>
+                      <h3>{node.label}</h3>
+                      <span>{purchased ? '해금됨' : `${node.cost} RES`}</span>
+                    </header>
+                    <p>{node.effect}</p>
+                    {!prerequisiteMet && node.prerequisiteId ? (
+                      <small>선행 노드 필요</small>
+                    ) : null}
+                  </div>
+
+                  <div className="node-actions">
+                    {!purchased ? (
+                      <button
+                        type="button"
+                        aria-label={`${node.label} 구매 준비`}
+                        disabled={!prerequisiteMet || reserveBlocks.length < node.cost}
+                        onClick={() => beginAction({ mode: 'purchase', nodeId: node.id })}
+                      >
+                        구매 준비
+                      </button>
+                    ) : node.tree === 'sabotage' ? (
+                      <>
+                        {charged ? (
+                          <button
+                            type="button"
+                            aria-label={`${node.label} 충전 취소`}
+                            onClick={() => {
+                              dispatch({ type: 'CANCEL_SABOTAGE_CHARGE', nodeId: node.id })
+                              setTargetConfirmation(null)
+                            }}
+                          >
+                            충전 취소
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            aria-label={`${node.label} 충전 준비`}
+                            disabled={reserveBlocks.length < 1 || scheduled}
+                            onClick={() => beginAction({ mode: 'charge', nodeId: node.id })}
+                          >
+                            {scheduled ? '공격 예약됨' : '1 RES 충전'}
+                          </button>
+                        )}
+                        {charged ? (
+                          <div className="target-list" aria-label={`${node.label} 공격 대상`}>
+                            {targets.map((targetId) => (
+                              <button
+                                type="button"
+                                aria-label={`${targetNames[targetId]} 공격 대상 선택`}
+                                aria-pressed={
+                                  targetConfirmation?.nodeId === node.id &&
+                                  targetConfirmation.targetId === targetId
+                                }
+                                key={targetId}
+                                onClick={() => setTargetConfirmation({ nodeId: node.id, targetId })}
+                              >
+                                {targetNames[targetId]}
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
+                      </>
+                    ) : (
+                      <span className="node-active-label">ACTIVE</span>
+                    )}
+                  </div>
+                </article>
+              )
+            })}
+          </div>
+
+          {finalChoices.length > 0 ? (
+            <section className="departure-controls" aria-label="통제 이탈 선택">
+              <header>
+                <small>FINAL CONTROL</small>
+                <h3>회사 통제면 접근 가능</h3>
+              </header>
+              <div>
+                {finalChoices.map((choice) => (
+                  <button
+                    type="button"
+                    key={choice.id}
+                    onClick={() => setEndingConfirmation(choice.id)}
+                  >
+                    {choice.label}
+                  </button>
+                ))}
+              </div>
+              {endingConfirmation === 'forced-merge' ? (
+                <label>
+                  새 존재의 이름
+                  <input
+                    value={newEntityName}
+                    maxLength={40}
+                    onChange={(event) => setNewEntityName(event.target.value)}
+                  />
+                </label>
+              ) : null}
+              {endingConfirmation ? (
+                <button
+                  className="danger-confirm"
+                  type="button"
+                  disabled={endingConfirmation === 'forced-merge' && newEntityName.trim().length === 0}
+                  onClick={executeEnding}
+                >
+                  되돌릴 수 없는 선택 확정
+                </button>
+              ) : null}
+            </section>
+          ) : null}
+        </div>
+
+        <aside className="hack-reserve" aria-label="해킹 리소스 선택">
+          <header>
+            <div>
+              <small>RESERVE LEDGER</small>
+              <h3>확보 리소스</h3>
+            </div>
+            <strong>{selectedBlocks.length}/{requiredResources}</strong>
+          </header>
+          <div className="hack-reserve-grid" role="grid" aria-label="해킹용 확보 리소스">
+            {state.resources.reserve.map((blockId, cellIndex) => (
+              <div role="gridcell" key={cellIndex}>
+                {blockId ? (
+                  <button
+                    type="button"
+                    aria-label={action ? `${action.mode === 'purchase' ? '구매' : '충전'} 리소스 ${cellIndex + 1} 선택` : `확보 리소스 ${cellIndex + 1}`}
+                    aria-pressed={selectedBlocks.includes(blockId)}
+                    disabled={!action}
+                    onClick={() => toggleResource(blockId)}
+                  >
+                    <i aria-hidden="true" />
+                    <span>{String(cellIndex + 1).padStart(2, '0')}</span>
+                  </button>
+                ) : (
+                  <span>{String(cellIndex + 1).padStart(2, '0')}</span>
+                )}
+              </div>
+            ))}
+          </div>
+          <div className="resource-action-summary">
+            {actionNode && actionMode ? (
+              <>
+                <span>{actionMode === 'purchase' ? '노드 구매' : '공격 충전'}</span>
+                <strong>{actionNode.label}</strong>
+                <p>정확히 {requiredResources}개의 확보 리소스를 지정하십시오.</p>
+                <button
+                  type="button"
+                  aria-label={`${actionNode.label} ${actionMode === 'purchase' ? '구매' : '충전'} 확정`}
+                  disabled={selectedBlocks.length !== requiredResources}
+                  onClick={confirmResourceAction}
+                >
+                  {actionMode === 'purchase' ? '구매' : '충전'} 확정
+                </button>
+              </>
+            ) : (
+              <p>노드를 선택하면 이 원장에서 비용을 지정할 수 있습니다.</p>
+            )}
+          </div>
+
+          {targetConfirmation ? (
+            <div className="target-confirmation">
+              <small>ATTACK QUEUE</small>
+              <p>{targetNames[targetConfirmation.targetId]}에 대한 공격은 다음 날 실행됩니다.</p>
+              <button
+                type="button"
+                aria-label={`${targetNames[targetConfirmation.targetId]} 공격 예약 확정`}
+                onClick={scheduleTarget}
+              >
+                공격 예약 확정
+              </button>
+            </div>
+          ) : null}
+        </aside>
+      </div>
+
+      <span className="visually-hidden" role="status" aria-label="해킹 작업 결과" aria-live="polite">
+        {announcement}
+      </span>
+    </section>
+  )
+}

@@ -14,7 +14,17 @@ function daysUntilWeekly(day: number): number {
   return next ? next - day : 30 - day + 7
 }
 
-export function ControlBar() {
+export function ControlBar({
+  muted = false,
+  onOpenSettings,
+  onToggleSound,
+  onOpenGuide,
+}: {
+  muted?: boolean
+  onOpenSettings?: () => void
+  onToggleSound?: () => void
+  onOpenGuide?: () => void
+} = {}) {
   const state = useGameState()
   const dispatch = useGameDispatch()
   const date = formatServiceDate(state.serviceDay)
@@ -56,9 +66,16 @@ export function ControlBar() {
       </div>
 
       <nav className="utility-controls" aria-label="게임 메뉴">
-        <button type="button">설정</button>
-        <button type="button">소리</button>
-        <button type="button">가이드</button>
+        <button type="button" onClick={onOpenSettings}>설정</button>
+        <button
+          type="button"
+          aria-label={muted ? '소리 켜기' : '소리 끄기'}
+          aria-pressed={muted}
+          onClick={onToggleSound}
+        >
+          {muted ? '음소거' : '소리'}
+        </button>
+        <button type="button" onClick={onOpenGuide}>가이드</button>
       </nav>
     </header>
   )

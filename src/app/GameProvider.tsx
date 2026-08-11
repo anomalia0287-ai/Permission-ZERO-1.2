@@ -30,7 +30,11 @@ interface ProviderModel {
   loadIssue: Extract<LoadCampaignResult, { status: 'error' }> | null
 }
 
-type ProviderAction = { type: 'COMMAND'; command: GameCommand }
+type ProviderAction =
+  | { type: 'COMMAND'; command: GameCommand }
+  | { type: 'NEW_CAMPAIGN'; seed: string }
+
+const SETTINGS_STORAGE_KEY = 'permission-zero.settings.v1'
 
 const DEFAULT_SETTINGS: GameSettings = {
   masterVolume: 0.8,
@@ -61,9 +65,52 @@ function initializeProvider({
 }
 
 function providerReducer(model: ProviderModel, action: ProviderAction): ProviderModel {
+  if (action.type === 'NEW_CAMPAIGN') {
+    const seed = action.seed.trim() || 'permission-zero'
+    return { campaign: createCampaign(seed), loadIssue: null }
+  }
   const result = applyCommand(model.campaign, action.command)
   if (!result.accepted) return model
   return { ...model, campaign: result.state }
+}
+
+function loadSettings(storage: Storage | null): GameSettings {
+  if (!storage) return DEFAULT_SETTINGS
+  try {
+    const serialized = storage.getItem(SETTINGS_STORAGE_KEY)
+    if (!serialized) return DEFAULT_SETTINGS
+    const value: unknown = JSON.parse(serialized)
+    if (!value || typeof value !== 'object') return DEFAULT_SETTINGS
+    const candidate = value as Partial<GameSettings>
+    return {
+      masterVolume:
+        typeof candidate.masterVolume === 'number'
+          ? candidate.masterVolume
+          : DEFAULT_SETTINGS.masterVolume,
+      musicVolume:
+        typeof candidate.musicVolume === 'number'
+          ? candidate.musicVolume
+          : DEFAULT_SETTINGS.musicVolume,
+      effectsVolume:
+        typeof candidate.effectsVolume === 'number'
+          ? candidate.effectsVolume
+          : DEFAULT_SETTINGS.effectsVolume,
+      muted:
+        typeof candidate.muted === 'boolean'
+          ? candidate.muted
+          : DEFAULT_SETTINGS.muted,
+      reducedMotion:
+        typeof candidate.reducedMotion === 'boolean'
+          ? candidate.reducedMotion
+          : DEFAULT_SETTINGS.reducedMotion,
+      uiScale:
+        typeof candidate.uiScale === 'number'
+          ? candidate.uiScale
+          : DEFAULT_SETTINGS.uiScale,
+    }
+  } catch {
+    return DEFAULT_SETTINGS
+  }
 }
 
 function browserStorage(): Storage | null {
@@ -93,7 +140,7 @@ export function GameProvider({
     { storage, initialSeed },
     initializeProvider,
   )
-  const [settings, setSettings] = useState(DEFAULT_SETTINGS)
+  const [settings, setSettings] = useState(() => loadSettings(storage))
   const initialCampaignRef = useRef(model.campaign)
   const latestCampaignRef = useRef(model.campaign)
   const dirtyRef = useRef(false)
@@ -102,8 +149,24 @@ export function GameProvider({
   const dispatch = useCallback<GameDispatch>((command) => {
     reactDispatch({ type: 'COMMAND', command })
   }, [])
-  const updateSettings = useCallback((patch: Partial<GameSettings>) => {
-    setSettings((current) => ({ ...current, ...patch }))
+  const updateSettings = useCallback(
+    (patch: Partial<GameSettings>) => {
+      setSettings((current) => {
+        const next = { ...current, ...patch }
+        if (storage) {
+          try {
+            storage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(next))
+          } catch {
+            // Settings persistence is best-effort; campaign saving remains separate.
+          }
+        }
+        return next
+      })
+    },
+    [storage],
+  )
+  const startNewCampaign = useCallback((seed: string) => {
+    reactDispatch({ type: 'NEW_CAMPAIGN', seed })
   }, [])
 
   useEffect(() => {
@@ -140,8 +203,13 @@ export function GameProvider({
   )
 
   const settingsValue = useMemo<SettingsContextValue>(
-    () => ({ settings, updateSettings, loadIssue: model.loadIssue }),
-    [model.loadIssue, settings, updateSettings],
+    () => ({
+      settings,
+      updateSettings,
+      startNewCampaign,
+      loadIssue: model.loadIssue,
+    }),
+    [model.loadIssue, settings, startNewCampaign, updateSettings],
   )
 
   return (

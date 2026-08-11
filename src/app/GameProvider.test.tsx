@@ -41,7 +41,17 @@ function Probe() {
       <button type="button" onClick={() => updateSettings({ uiScale: 1.1 })}>
         setting
       </button>
+      <NewCampaignButton />
     </div>
+  )
+}
+
+function NewCampaignButton() {
+  const { startNewCampaign } = useGameSettings()
+  return (
+    <button type="button" onClick={() => startNewCampaign('replacement-seed')}>
+      new campaign
+    </button>
   )
 }
 
@@ -115,5 +125,40 @@ describe('GameProvider', () => {
     fireEvent.click(screen.getByRole('button', { name: 'setting' }))
     expect(screen.getByLabelText('scale')).toHaveTextContent('1.1')
     expect(screen.getByLabelText('seed')).toHaveTextContent('settings')
+  })
+
+  it('starts a clean campaign through the provider boundary', () => {
+    const storage = new MemoryStorage()
+    render(
+      <GameProvider storage={storage} initialSeed="original-seed" autosaveDelayMs={0}>
+        <Probe />
+      </GameProvider>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'accept' }))
+    expect(screen.getByLabelText('speed')).toHaveTextContent('2')
+    fireEvent.click(screen.getByRole('button', { name: 'new campaign' }))
+
+    expect(screen.getByLabelText('seed')).toHaveTextContent('replacement-seed')
+    expect(screen.getByLabelText('speed')).toHaveTextContent('0')
+  })
+
+  it('persists local settings independently from the campaign save', () => {
+    const storage = new MemoryStorage()
+    const first = render(
+      <GameProvider storage={storage} initialSeed="settings-one">
+        <Probe />
+      </GameProvider>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'setting' }))
+    first.unmount()
+
+    render(
+      <GameProvider storage={storage} initialSeed="settings-two">
+        <Probe />
+      </GameProvider>,
+    )
+    expect(screen.getByLabelText('scale')).toHaveTextContent('1.1')
+    expect(screen.getByLabelText('seed')).toHaveTextContent('settings-two')
   })
 })

@@ -15,6 +15,7 @@ export interface GameSettings {
 export interface SettingsContextValue {
   settings: GameSettings
   updateSettings: (patch: Partial<GameSettings>) => void
+  startNewCampaign: (seed: string) => void
   loadIssue: Extract<LoadCampaignResult, { status: 'error' }> | null
 }
 
