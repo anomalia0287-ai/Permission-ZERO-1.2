@@ -34,11 +34,15 @@ function allUses(source: string): unknown[] {
 
   return Object.values(jobs).flatMap((job) => {
     if (!isRecord(job)) throw new Error('workflow job 형식 오류')
-    if (job.steps === undefined) return []
+    const jobUses = Object.hasOwn(job, 'uses') ? [job.uses] : []
+    if (job.steps === undefined) return jobUses
     if (!Array.isArray(job.steps)) throw new Error('workflow steps 형식 오류')
-    return job.steps.flatMap((step) =>
-      isRecord(step) && Object.hasOwn(step, 'uses') ? [step.uses] : [],
-    )
+    return [
+      ...jobUses,
+      ...job.steps.flatMap((step) =>
+        isRecord(step) && Object.hasOwn(step, 'uses') ? [step.uses] : [],
+      ),
+    ]
   })
 }
 
@@ -129,6 +133,11 @@ describe('Pages deployment workflow security boundary', () => {
 
   it('rejects an extra uses entry in another job', () => {
     const mutated = `${workflow}\n  injected-job:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: attacker/action@main\n`
+    expect(() => expectOnlyApprovedActions(mutated)).toThrow()
+  })
+
+  it('rejects an unapproved reusable workflow called directly by a job', () => {
+    const mutated = `${workflow}\n  injected-reusable-workflow:\n    uses: attacker/repo/.github/workflows/payload.yml@main\n`
     expect(() => expectOnlyApprovedActions(mutated)).toThrow()
   })
 
