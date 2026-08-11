@@ -26,6 +26,15 @@ export interface SettingsContextValue {
   saveFailure: { message: string } | null
   retrySave: () => boolean
   copyProgressExport: () => Promise<boolean>
+  validateProgressImport: (payload: string) =>
+    | {
+        ok: true
+        campaignSeed: string
+        savedAt: string
+        protocolVersion: number
+      }
+    | { ok: false; message: string }
+  importProgressExport: (payload: string) => boolean
 }
 
 export interface PauseContextValue {

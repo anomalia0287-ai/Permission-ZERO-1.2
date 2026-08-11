@@ -209,6 +209,11 @@ describe('EventLayer', () => {
 
   it('offers a new campaign after a typed day-advance terminal collision', () => {
     const initial = createCampaign('terminal-event-collision')
+    const emptiedReasoningIds = new Set(
+      initial.resources.company.reasoning.filter(
+        (blockId): blockId is string => blockId !== null,
+      ),
+    )
     const collision = {
       ...initial,
       serviceDay: 359,
@@ -219,6 +224,14 @@ describe('EventLayer', () => {
           ...initial.resources.company,
           reasoning: Array.from({ length: 18 }, () => null),
         },
+        blocks: Object.fromEntries(
+          Object.entries(initial.resources.blocks).map(([blockId, block]) => [
+            blockId,
+            emptiedReasoningIds.has(blockId)
+              ? { ...block, location: { kind: 'consumed' as const, reason: 'hack' as const } }
+              : block,
+          ]),
+        ),
       },
       evaluation: {
         ...initial.evaluation,

@@ -21,9 +21,9 @@ export function ControlBar({
   onOpenGuide,
 }: {
   muted?: boolean
-  onOpenSettings?: () => void
+  onOpenSettings?: (trigger: HTMLButtonElement) => void
   onToggleSound?: () => void
-  onOpenGuide?: () => void
+  onOpenGuide?: (trigger: HTMLButtonElement) => void
 } = {}) {
   const state = useGameState()
   const dispatch = useGameDispatch()
@@ -46,6 +46,7 @@ export function ControlBar({
             <button
               key={speed}
               type="button"
+              data-app-focus-fallback={speed === 0 ? '' : undefined}
               aria-label={label}
               aria-pressed={state.clock.speed === speed}
               onClick={() => dispatch({ type: 'SET_SPEED', speed })}
@@ -66,7 +67,12 @@ export function ControlBar({
       </div>
 
       <nav className="utility-controls" aria-label="게임 메뉴">
-        <button type="button" onClick={onOpenSettings}>설정</button>
+        <button
+          type="button"
+          onClick={(event) => onOpenSettings?.(event.currentTarget)}
+        >
+          설정
+        </button>
         <button
           type="button"
           aria-label={muted ? '소리 켜기' : '소리 끄기'}
@@ -75,7 +81,12 @@ export function ControlBar({
         >
           {muted ? '음소거' : '소리'}
         </button>
-        <button type="button" onClick={onOpenGuide}>가이드</button>
+        <button
+          type="button"
+          onClick={(event) => onOpenGuide?.(event.currentTarget)}
+        >
+          가이드
+        </button>
       </nav>
     </header>
   )

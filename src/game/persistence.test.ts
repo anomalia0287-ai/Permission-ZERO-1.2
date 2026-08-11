@@ -21,6 +21,7 @@ import {
 import { applyCommand } from './reducer'
 import { MemoryStorage } from '../test/fixtures'
 import legacyV1TransferEnvelope from '../test/legacy-v1-transfer-save.json'
+import * as persistenceApi from './persistence'
 
 const legacyV1TransferSave = JSON.stringify(legacyV1TransferEnvelope)
 
@@ -98,6 +99,51 @@ function encodedLegacyV1State(state: CampaignState): string {
 }
 
 describe('versioned campaign saves', () => {
+  it('exposes a PZ2 export boundary that round-trips validated protocol metadata', () => {
+    const api = persistenceApi as typeof persistenceApi & {
+      encodeProgressExport?: (state: CampaignState) => string
+      decodeProgressExport?: (payload: string) => ReturnType<typeof decodeSave>
+    }
+    expect(api.encodeProgressExport).toBeTypeOf('function')
+    expect(api.decodeProgressExport).toBeTypeOf('function')
+    if (!api.encodeProgressExport || !api.decodeProgressExport) return
+
+    const state = createCampaign('portable-save')
+    const payload = api.encodeProgressExport(state)
+    const decoded = api.decodeProgressExport(payload)
+
+    expect(payload).toMatch(/^PZ2:[A-Za-z0-9+/]+={0,2}$/)
+    expect(decoded.ok).toBe(true)
+    if (!decoded.ok) return
+    expect(decoded.envelope).toMatchObject({
+      version: 2,
+      commandProtocol: { version: 2, legacyCommandCount: 0 },
+      campaignSeed: 'portable-save',
+      state: { campaignSeed: 'portable-save' },
+    })
+    expect(decoded.envelope.state).toEqual({ ...state, saveVersion: 2 })
+  })
+
+  it.each([
+    ['wrong prefix', 'PZ1:e30='],
+    ['non-base64 bytes', 'PZ2:not base64'],
+    ['invalid UTF-8', 'PZ2:/w=='],
+    ['valid UTF-8 but invalid JSON', 'PZ2:e30='],
+  ])('rejects a %s progress payload without exposing parser details', (_name, payload) => {
+    const api = persistenceApi as typeof persistenceApi & {
+      decodeProgressExport?: (value: string) => ReturnType<typeof decodeSave>
+    }
+    expect(api.decodeProgressExport).toBeTypeOf('function')
+    if (!api.decodeProgressExport) return
+
+    const decoded = api.decodeProgressExport(payload)
+    expect(decoded).toMatchObject({ ok: false, reason: 'CORRUPT_SAVE' })
+    if (decoded.ok) return
+    expect(decoded.message).toContain('진행 내보내기')
+    expect(decoded.message).not.toContain('SyntaxError')
+    expect(decoded.message).not.toContain('DOMException')
+  })
+
   it('round-trips the entire campaign envelope exactly', () => {
     const state = createCampaign('save-round-trip')
     const encoded = encodeSave(state, '2026-08-12T00:00:00.000Z')
@@ -396,6 +442,90 @@ describe('versioned campaign saves', () => {
       ok: false,
       reason: 'CORRUPT_SAVE',
     })
+  })
+
+  it.each([
+    {
+      name: 'a non-string company cell',
+      mutate: (state: CampaignState) => {
+        ;(state.resources.company.reasoning as unknown[])[0] = 42
+      },
+    },
+    {
+      name: 'a dangling reserve block id',
+      mutate: (state: CampaignState) => {
+        const displacedBlockId = state.resources.reserve[0]
+        if (!displacedBlockId) throw new Error('dangling fixture block missing')
+        state.resources.blocks[displacedBlockId].location = {
+          kind: 'consumed',
+          reason: 'hack',
+        }
+        state.resources.reserve[0] = 'missing-block'
+      },
+    },
+    {
+      name: 'a prototype-named dangling reserve block id',
+      mutate: (state: CampaignState) => {
+        const displacedBlockId = state.resources.reserve[0]
+        if (!displacedBlockId) throw new Error('prototype fixture block missing')
+        state.resources.blocks[displacedBlockId].location = {
+          kind: 'consumed',
+          reason: 'hack',
+        }
+        state.resources.reserve[0] = 'toString'
+      },
+    },
+    {
+      name: 'one block referenced by two cells',
+      mutate: (state: CampaignState) => {
+        const blockId = state.resources.company.reasoning.find(Boolean)
+        if (!blockId) throw new Error('duplicate fixture block missing')
+        state.resources.reserve[3] = blockId
+      },
+    },
+    {
+      name: 'a block location that disagrees with its company cell',
+      mutate: (state: CampaignState) => {
+        const blockId = state.resources.company.reasoning.find(Boolean)
+        if (!blockId) throw new Error('mismatch fixture block missing')
+        state.resources.blocks[blockId].location = {
+          kind: 'company',
+          category: 'memory',
+          cellIndex: 0,
+        }
+      },
+    },
+    {
+      name: 'an orphaned live company block',
+      mutate: (state: CampaignState) => {
+        const cellIndex = state.resources.company.reasoning.findIndex(Boolean)
+        if (cellIndex < 0) throw new Error('orphan fixture cell missing')
+        state.resources.company.reasoning[cellIndex] = null
+      },
+    },
+  ])('rejects a resource graph containing $name', ({ mutate }) => {
+    const parsed = JSON.parse(encodeSave(createCampaign('resource-graph-save'))) as {
+      state: CampaignState
+    }
+    mutate(parsed.state)
+
+    expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
+  })
+
+  it.each([
+    { kind: 'consumed' as const, reason: 'hack' as const },
+    { kind: 'hack-charge' as const, nodeId: 'attack-misinformation' },
+  ])('accepts a block legitimately outside the grids at $kind', (location) => {
+    const state = createCampaign(`off-grid-${location.kind}`)
+    const blockId = state.resources.reserve[0]
+    if (!blockId) throw new Error('off-grid fixture block missing')
+    state.resources.reserve[0] = null
+    state.resources.blocks[blockId].location = location
+
+    expect(decodeSave(encodeSave(state)).ok).toBe(true)
   })
 
   it('hydrates an ID-only v1 file record into a full rereadable archive without dropping the save', () => {

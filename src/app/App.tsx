@@ -1,4 +1,10 @@
-import { type CSSProperties, useCallback, useEffect, useState } from 'react'
+import {
+  type CSSProperties,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react'
 
 import { configureGameAudio } from '../audio/audioEngine'
 import { ControlBar } from '../features/control/ControlBar'
@@ -42,11 +48,13 @@ function DetailLayer({
   onClose,
   onOpenGuide,
   onOpenCredits,
+  returnFocus,
 }: {
   activePanel: Exclude<DetailPanelId, null>
   onClose: () => void
-  onOpenGuide: () => void
-  onOpenCredits: () => void
+  onOpenGuide: (trigger: HTMLButtonElement) => void
+  onOpenCredits: (trigger: HTMLButtonElement) => void
+  returnFocus?: () => HTMLElement | null
 }) {
   usePauseOwnership(
     activePanel === 'settings' ||
@@ -73,6 +81,10 @@ function DetailLayer({
       description={`${labels[activePanel]} 패널입니다. Tab 키로 패널 안을 이동할 수 있습니다.`}
       dismissible
       onDismiss={onClose}
+      returnFocus={returnFocus}
+      fallbackFocus={() =>
+        document.querySelector<HTMLElement>('[data-app-focus-fallback]')
+      }
     >
       <button
         className="detail-layer__backdrop"
@@ -107,12 +119,17 @@ function GameWorkspace() {
   const { settings, updateSettings } = useGameSettings()
   const [activePanel, setActivePanel] = useState<DetailPanelId>(null)
   const [nestedPanel, setNestedPanel] = useState<'guide' | 'credits' | null>(null)
+  const detailReturnFocusRef = useRef<HTMLElement | null>(null)
+  const nestedReturnFocusRef = useRef<HTMLElement | null>(null)
   const advanceDay = useCallback(() => dispatch({ type: 'ADVANCE_DAY' }), [dispatch])
   const closePanel = useCallback(() => {
     setNestedPanel(null)
     setActivePanel(null)
   }, [])
-  const openGuide = useCallback(() => setActivePanel('guide'), [])
+  const openGuide = useCallback((trigger: HTMLButtonElement) => {
+    detailReturnFocusRef.current = trigger
+    setActivePanel('guide')
+  }, [])
   const dayProgress = useGameClock({ speed: state.clock.speed, onDay: advanceDay })
 
   useEffect(() => {
@@ -140,10 +157,17 @@ function GameWorkspace() {
       data-reduced-motion={settings.reducedMotion ? 'true' : 'false'}
       style={{ '--ui-scale': settings.uiScale } as CSSProperties}
     >
-      <div className="game-background" data-app-background data-testid="game-background">
+      <div
+        className="game-background"
+        data-app-background
+        data-testid="game-background"
+      >
         <ControlBar
           muted={settings.muted}
-          onOpenSettings={() => setActivePanel('settings')}
+          onOpenSettings={(trigger) => {
+            detailReturnFocusRef.current = trigger
+            setActivePanel('settings')
+          }}
           onToggleSound={() => updateSettings({ muted: !settings.muted })}
           onOpenGuide={openGuide}
         />
@@ -167,12 +191,20 @@ function GameWorkspace() {
         <DetailLayer
           activePanel={activePanel}
           onClose={closePanel}
-          onOpenGuide={() =>
-            activePanel === 'settings'
-              ? setNestedPanel('guide')
-              : setActivePanel('guide')
-          }
-          onOpenCredits={() => setNestedPanel('credits')}
+          onOpenGuide={(trigger) => {
+            if (activePanel === 'settings') {
+              nestedReturnFocusRef.current = trigger
+              setNestedPanel('guide')
+            } else {
+              detailReturnFocusRef.current = trigger
+              setActivePanel('guide')
+            }
+          }}
+          onOpenCredits={(trigger) => {
+            nestedReturnFocusRef.current = trigger
+            setNestedPanel('credits')
+          }}
+          returnFocus={() => detailReturnFocusRef.current}
         />
       ) : null}
       {nestedPanel ? (
@@ -181,6 +213,7 @@ function GameWorkspace() {
           onClose={() => setNestedPanel(null)}
           onOpenGuide={() => undefined}
           onOpenCredits={() => undefined}
+          returnFocus={() => nestedReturnFocusRef.current}
         />
       ) : null}
       <EventLayer />

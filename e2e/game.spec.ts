@@ -4,7 +4,11 @@ import { createCampaign } from '../src/game/createCampaign'
 import { createGameEvent, enqueueBlockingEvent } from '../src/game/events'
 import { HACK_NODE_IDS } from '../src/game/hacking'
 import type { CampaignState, GameCommand } from '../src/game/model'
-import { encodeSave, SAVE_STORAGE_KEY } from '../src/game/persistence'
+import {
+  encodeProgressExport,
+  encodeSave,
+  SAVE_STORAGE_KEY,
+} from '../src/game/persistence'
 import { applyCommand } from '../src/game/reducer'
 
 async function openFreshCampaign(page: Page) {
@@ -456,7 +460,7 @@ test('keeps a save failure visible until a real retry succeeds without exposing 
   await openFreshCampaign(page)
 
   await page.getByRole('button', { name: '1배속' }).click()
-  const warning = page.getByRole('alert', { name: '저장 실패' })
+  const warning = page.locator('.save-failure-warning')
   await expect(warning).toBeVisible()
   await expect(warning).toContainText('자동 저장에 실패했습니다')
   await expect(warning).toContainText('permission-zero')
@@ -472,5 +476,145 @@ test('keeps a save failure visible until a real retry succeeds without exposing 
   await page.getByRole('button', { name: '저장 다시 시도' }).click()
   await expect(warning).toBeHidden()
   expect(await page.evaluate((key) => localStorage.getItem(key) !== null, SAVE_STORAGE_KEY)).toBe(true)
+  expect(errors).toEqual([])
+})
+
+test('rejects a corrupt resource graph before rendering blocks and offers recovery', async ({ page }) => {
+  const errors = collectBrowserErrors(page)
+  const parsed = JSON.parse(encodeSave(createCampaign('browser-corrupt-graph'))) as {
+    state: CampaignState
+  }
+  parsed.state.resources.reserve[0] = 'dangling-browser-block'
+  await page.addInitScript(
+    ({ key, save }) => {
+      window.localStorage.clear()
+      window.localStorage.setItem(key, save)
+    },
+    { key: SAVE_STORAGE_KEY, save: JSON.stringify(parsed) },
+  )
+  await page.goto('/')
+
+  await expect(page.getByRole('main', { name: 'PERMISSION ZERO' })).toBeVisible()
+  await expect(page.getByRole('dialog', { name: '저장 데이터 복구' })).toBeVisible()
+  await expect(page.getByText('dangling-browser-block')).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
+test('keeps save recovery inert while settings owns the active modal', async ({ page }) => {
+  const errors = collectBrowserErrors(page)
+  await page.addInitScript(({ saveKey }) => {
+    const originalSetItem = Storage.prototype.setItem
+    Storage.prototype.setItem = function setItem(key: string, value: string) {
+      if (key === saveKey) throw new DOMException('modal quota detail', 'QuotaExceededError')
+      return originalSetItem.call(this, key, value)
+    }
+  }, { saveKey: SAVE_STORAGE_KEY })
+  await openFreshCampaign(page)
+
+  await page.getByRole('button', { name: '1배속' }).click()
+  const warning = page.locator('.save-failure-warning')
+  await expect(warning).toBeVisible()
+  await page.getByRole('button', { name: '설정' }).click()
+  const settings = page.getByRole('dialog', { name: '게임 설정' })
+  await expect(settings).toBeVisible()
+  await expect(warning).toHaveAttribute('inert', '')
+  const retry = page.locator('.save-failure-warning button', {
+    hasText: '저장 다시 시도',
+  })
+  await retry.evaluate((element) => (element as HTMLElement).focus())
+  await page.keyboard.press('Tab')
+  expect(await settings.evaluate((element) => element.contains(document.activeElement))).toBe(true)
+
+  await page.keyboard.press('Escape')
+  await expect(settings).toBeHidden()
+  await expect(warning).not.toHaveAttribute('inert', '')
+  await expect(page.getByRole('button', { name: '저장 다시 시도' })).toBeVisible()
+  expect(errors).toEqual([])
+})
+
+test('uses the app fallback when a settings opener is disabled before close', async ({ page }) => {
+  await openFreshCampaign(page)
+  const trigger = await page.locator('.utility-controls button').filter({ hasText: '설정' }).elementHandle()
+  if (!trigger) throw new Error('settings trigger not found')
+  await trigger.click()
+  await trigger.evaluate((element) => element.setAttribute('disabled', ''))
+  await page.keyboard.press('Escape')
+
+  await expect(page.getByRole('button', { name: '일시정지' })).toBeFocused()
+})
+
+test('uses the app fallback when a settings opener is removed before close', async ({ page }) => {
+  await openFreshCampaign(page)
+  const trigger = await page.locator('.utility-controls button').filter({ hasText: '설정' }).elementHandle()
+  if (!trigger) throw new Error('settings trigger not found')
+  await trigger.click()
+  await trigger.evaluate((element) => element.remove())
+  await page.keyboard.press('Escape')
+
+  await expect(page.getByRole('button', { name: '일시정지' })).toBeFocused()
+})
+
+test('imports a validated PZ2 payload only after irreversible confirmation', async ({ page }) => {
+  const errors = collectBrowserErrors(page)
+  const payload = encodeProgressExport(createCampaign('browser-imported-progress'))
+  await openFreshCampaign(page)
+  await page.getByRole('button', { name: '설정' }).click()
+
+  await page.getByRole('textbox', { name: '진행 내보내기 붙여넣기' }).fill(payload)
+  await page.getByRole('button', { name: '진행 내보내기 검증' }).click()
+  const confirmation = page.getByRole('alertdialog', {
+    name: '진행 가져오기 최종 확인',
+  })
+  await expect(confirmation).toContainText('browser-imported-progress')
+  await page.keyboard.press('Escape')
+  await expect(confirmation).toBeVisible()
+  await page.getByRole('button', { name: '진행 가져오기 확정' }).click()
+
+  await expect(confirmation).toBeHidden()
+  await expect(page.getByText('browser-imported-progress', { exact: true })).toBeVisible()
+  expect(errors).toEqual([])
+})
+
+test('recovers saving after the localStorage getter becomes available', async ({ page }) => {
+  const errors = collectBrowserErrors(page)
+  await page.addInitScript(() => {
+    const availableStorage = window.localStorage
+    Object.defineProperty(window, '__permissionZeroStorageAvailable', {
+      configurable: true,
+      value: false,
+      writable: true,
+    })
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      get() {
+        const available = (window as typeof window & {
+          __permissionZeroStorageAvailable: boolean
+        }).__permissionZeroStorageAvailable
+        if (!available) throw new DOMException('getter secret', 'SecurityError')
+        return availableStorage
+      },
+    })
+  })
+  await page.goto('/')
+  await expect(page.getByRole('alert', { name: '저장 실패' })).toHaveCount(0)
+
+  await page.getByRole('button', { name: '1배속' }).click()
+  const warning = page.getByRole('alert', { name: '저장 실패' })
+  await expect(warning).toBeVisible()
+  await expect(warning).not.toContainText('getter secret')
+  expect(await page.evaluate(() => {
+    const event = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(event)
+    return event.defaultPrevented
+  })).toBe(true)
+
+  await page.evaluate(() => {
+    ;(window as typeof window & {
+      __permissionZeroStorageAvailable: boolean
+    }).__permissionZeroStorageAvailable = true
+  })
+  await page.getByRole('button', { name: '저장 다시 시도' }).click()
+  await expect(warning).toBeHidden()
+  expect(await page.evaluate((key) => window.localStorage.getItem(key) !== null, SAVE_STORAGE_KEY)).toBe(true)
   expect(errors).toEqual([])
 })

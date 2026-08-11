@@ -1954,6 +1954,52 @@ textarea:focus-visible,
   background: rgb(223 91 85 / 5%);
 }
 
+.destructive-confirmation--modal {
+  position: fixed;
+  z-index: 90;
+  inset: 50% auto auto 50%;
+  display: grid;
+  gap: 10px;
+  width: min(520px, calc(100% - 40px));
+  max-height: calc(100% - 40px);
+  overflow: auto;
+  border: 1px solid rgb(223 91 85 / 52%);
+  background: var(--ink-1);
+  box-shadow: var(--shadow-deep);
+  transform: translate(-50%, -50%);
+}
+
+.progress-import {
+  display: grid;
+  gap: 7px;
+  padding: 10px;
+  border: 1px solid var(--line-soft);
+  background: rgb(4 9 11 / 48%);
+}
+
+.progress-import label {
+  display: grid;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 0.59rem;
+}
+
+.progress-import textarea {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid var(--line-soft);
+  color: var(--text-strong);
+  background: var(--ink-0);
+  font: 0.55rem/1.4 "Cascadia Code", Consolas, monospace;
+}
+
+.progress-import > p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.58rem;
+  line-height: 1.5;
+}
+
 .destructive-confirmation p {
   margin: 0 0 9px;
   color: #d7aaa7;

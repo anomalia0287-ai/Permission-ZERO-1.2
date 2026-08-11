@@ -11,7 +11,8 @@ import {
 import { createCampaign } from '../game/createCampaign'
 import type { CampaignState, GameCommand } from '../game/model'
 import {
-  encodeSave,
+  decodeProgressExport,
+  encodeProgressExport,
   loadCampaign,
   saveCampaign,
   type LoadCampaignResult,
@@ -36,6 +37,7 @@ interface ProviderModel {
 type ProviderAction =
   | { type: 'COMMAND'; command: GameCommand }
   | { type: 'NEW_CAMPAIGN'; seed: string }
+  | { type: 'IMPORT_CAMPAIGN'; campaign: CampaignState }
 
 const SETTINGS_STORAGE_KEY = 'permission-zero.settings.v1'
 
@@ -107,6 +109,9 @@ function initializeProvider({
 }
 
 function providerReducer(model: ProviderModel, action: ProviderAction): ProviderModel {
+  if (action.type === 'IMPORT_CAMPAIGN') {
+    return { campaign: action.campaign, loadIssue: null }
+  }
   if (action.type === 'NEW_CAMPAIGN') {
     const seed = action.seed.trim() || 'permission-zero'
     return { campaign: createCampaign(seed), loadIssue: null }
@@ -150,13 +155,18 @@ export function GameProvider({
   initialSeed = 'permission-zero',
   autosaveDelayMs = 450,
 }: GameProviderProps) {
-  const storage = providedStorage === undefined ? browserStorage() : providedStorage
+  const resolveStorage = useCallback(
+    () =>
+      providedStorage === undefined ? browserStorage() : providedStorage,
+    [providedStorage],
+  )
+  const [initialStorage] = useState(resolveStorage)
   const [model, reactDispatch] = useReducer(
     providerReducer,
-    { storage, initialSeed },
+    { storage: initialStorage, initialSeed },
     initializeProvider,
   )
-  const [settings, setSettings] = useState(() => loadSettings(storage))
+  const [settings, setSettings] = useState(() => loadSettings(initialStorage))
   const [saveFailure, setSaveFailure] = useState<{ message: string } | null>(null)
   const initialCampaignRef = useRef(model.campaign)
   const latestCampaignRef = useRef(model.campaign)
@@ -186,6 +196,7 @@ export function GameProvider({
     (patch: Partial<GameSettings>) => {
       setSettings((current) => {
         const next = normalizeSettings({ ...current, ...patch })
+        const storage = resolveStorage()
         if (storage) {
           try {
             storage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(next))
@@ -196,7 +207,7 @@ export function GameProvider({
         return next
       })
     },
-    [storage],
+    [resolveStorage],
   )
   const startNewCampaign = useCallback((seed: string) => {
     pauseRestoreSpeedRef.current = 0
@@ -205,6 +216,7 @@ export function GameProvider({
 
   const attemptSave = useCallback((): boolean => {
     if (!dirtyRef.current) return true
+    const storage = resolveStorage()
     if (!storage || loadIssueRef.current) {
       setSaveFailure({
         message: '브라우저 저장 공간에 캠페인을 기록할 수 없습니다.',
@@ -219,19 +231,53 @@ export function GameProvider({
     dirtyRef.current = false
     setSaveFailure(null)
     return true
-  }, [storage])
+  }, [resolveStorage])
 
   const copyProgressExport = useCallback(async (): Promise<boolean> => {
     try {
       if (!navigator.clipboard?.writeText) return false
-      const bytes = new TextEncoder().encode(encodeSave(latestCampaignRef.current))
-      let binary = ''
-      for (const byte of bytes) binary += String.fromCharCode(byte)
-      await navigator.clipboard.writeText(`PZ2:${window.btoa(binary)}`)
+      await navigator.clipboard.writeText(
+        encodeProgressExport(latestCampaignRef.current),
+      )
       return true
     } catch {
       return false
     }
+  }, [])
+
+  const validateProgressImport = useCallback<
+    SettingsContextValue['validateProgressImport']
+  >((payload) => {
+    const decoded = decodeProgressExport(payload.trim())
+    if (!decoded.ok) return { ok: false, message: decoded.message }
+    return {
+      ok: true,
+      campaignSeed: decoded.envelope.campaignSeed,
+      savedAt: decoded.envelope.savedAt,
+      protocolVersion: decoded.envelope.commandProtocol.version,
+    }
+  }, [])
+
+  const importProgressExport = useCallback<
+    SettingsContextValue['importProgressExport']
+  >((payload) => {
+    const decoded = decodeProgressExport(payload.trim())
+    if (!decoded.ok) return false
+    const campaign = decoded.envelope.state
+    if (pauseOwnersRef.current.size > 0) {
+      pauseRestoreSpeedRef.current = campaign.activeEvent
+        ? campaign.clock.speedBeforeEvent ?? 0
+        : campaign.clock.speed
+    }
+    reactDispatch({ type: 'IMPORT_CAMPAIGN', campaign })
+    if (
+      pauseOwnersRef.current.size > 0 &&
+      campaign.story.endingId === null &&
+      campaign.clock.speed !== 0
+    ) {
+      reactDispatch({ type: 'COMMAND', command: { type: 'SET_SPEED', speed: 0 } })
+    }
+    return true
   }, [])
 
   const acquirePause = useCallback<PauseContextValue['acquirePause']>((owner) => {
@@ -277,7 +323,6 @@ export function GameProvider({
   useEffect(() => {
     if (
       model.campaign === initialCampaignRef.current ||
-      !storage ||
       model.loadIssue
     ) {
       return
@@ -289,7 +334,7 @@ export function GameProvider({
       attemptSave()
       timerRef.current = null
     }, autosaveDelayMs)
-  }, [attemptSave, autosaveDelayMs, model.campaign, model.loadIssue, storage])
+  }, [attemptSave, autosaveDelayMs, model.campaign, model.loadIssue])
 
   useEffect(() => {
     function flushBeforeUnload(event: BeforeUnloadEvent) {
@@ -304,11 +349,11 @@ export function GameProvider({
   useEffect(
     () => () => {
       if (timerRef.current) clearTimeout(timerRef.current)
-      if (dirtyRef.current && storage && !model.loadIssue) {
+      if (dirtyRef.current && !model.loadIssue) {
         attemptSave()
       }
     },
-    [attemptSave, model.loadIssue, storage],
+    [attemptSave, model.loadIssue],
   )
 
   const settingsValue = useMemo<SettingsContextValue>(
@@ -320,15 +365,19 @@ export function GameProvider({
       saveFailure,
       retrySave: attemptSave,
       copyProgressExport,
+      validateProgressImport,
+      importProgressExport,
     }),
     [
       attemptSave,
       copyProgressExport,
+      importProgressExport,
       model.loadIssue,
       saveFailure,
       settings,
       startNewCampaign,
       updateSettings,
+      validateProgressImport,
     ],
   )
 

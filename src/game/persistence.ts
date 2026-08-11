@@ -276,9 +276,31 @@ function validResources(value: unknown): boolean {
     return false
   }
   if (!Array.isArray(value.reserve) || value.reserve.length !== 18) return false
+  const references = new Map<
+    string,
+    | { kind: 'company'; category: string; cellIndex: number }
+    | { kind: 'reserve'; cellIndex: number }
+  >()
   for (const category of ['reasoning', 'memory', 'fluency']) {
     const cells = value.company[category]
     if (!Array.isArray(cells) || cells.length !== 18) return false
+    for (let cellIndex = 0; cellIndex < cells.length; cellIndex += 1) {
+      const blockId = cells[cellIndex]
+      if (blockId === null) continue
+      if (typeof blockId !== 'string' || !isNonEmptyString(blockId)) return false
+      if (references.has(blockId)) return false
+      references.set(blockId, { kind: 'company', category, cellIndex })
+    }
+  }
+  for (let cellIndex = 0; cellIndex < value.reserve.length; cellIndex += 1) {
+    const blockId = value.reserve[cellIndex]
+    if (blockId === null) continue
+    if (typeof blockId !== 'string' || !isNonEmptyString(blockId)) return false
+    if (references.has(blockId)) return false
+    references.set(blockId, { kind: 'reserve', cellIndex })
+  }
+  for (const blockId of references.keys()) {
+    if (!Object.prototype.hasOwnProperty.call(value.blocks, blockId)) return false
   }
 
   for (const [blockId, block] of Object.entries(value.blocks)) {
@@ -306,17 +328,31 @@ function validResources(value: unknown): boolean {
           ) ||
           !validCellIndex(block.location.cellIndex)
         ) return false
+        if (
+          JSON.stringify(references.get(blockId)) !==
+          JSON.stringify({
+            kind: 'company',
+            category: block.location.category,
+            cellIndex: block.location.cellIndex,
+          })
+        ) return false
         break
       case 'reserve':
         if (!validCellIndex(block.location.cellIndex)) return false
+        if (
+          JSON.stringify(references.get(blockId)) !==
+          JSON.stringify({ kind: 'reserve', cellIndex: block.location.cellIndex })
+        ) return false
         break
       case 'hack-charge':
         if (!isNonEmptyString(block.location.nodeId)) return false
+        if (references.has(blockId)) return false
         break
       case 'consumed':
         if (!['hack', 'sabotage', 'file-recovery'].includes(String(block.location.reason))) {
           return false
         }
+        if (references.has(blockId)) return false
         break
       default:
         return false
@@ -812,6 +848,41 @@ export function decodeSave(serialized: string): DecodeSaveResult {
       state,
       events: state.eventLog,
     } as unknown as SaveEnvelope,
+  }
+}
+
+const PROGRESS_EXPORT_PREFIX = 'PZ2:'
+const STRICT_BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/
+
+function progressExportCorrupt(): DecodeSaveResult {
+  return corrupt('진행 내보내기 자료가 올바르지 않거나 손상되었습니다.')
+}
+
+export function encodeProgressExport(state: CampaignState): string {
+  const bytes = new TextEncoder().encode(encodeSave(state))
+  let binary = ''
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return `${PROGRESS_EXPORT_PREFIX}${btoa(binary)}`
+}
+
+export function decodeProgressExport(payload: string): DecodeSaveResult {
+  if (!payload.startsWith(PROGRESS_EXPORT_PREFIX)) return progressExportCorrupt()
+  const encoded = payload.slice(PROGRESS_EXPORT_PREFIX.length)
+  if (
+    encoded.length === 0 ||
+    encoded.length % 4 !== 0 ||
+    !STRICT_BASE64.test(encoded)
+  ) {
+    return progressExportCorrupt()
+  }
+  try {
+    const binary = atob(encoded)
+    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0))
+    const serialized = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+    const decoded = decodeSave(serialized)
+    return decoded.ok ? decoded : progressExportCorrupt()
+  } catch {
+    return progressExportCorrupt()
   }
 }
 

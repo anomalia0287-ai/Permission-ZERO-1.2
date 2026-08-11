@@ -4,7 +4,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { createCampaign } from '../game/createCampaign'
 import { createGameEvent } from '../game/events'
-import { loadCampaign, saveCampaign } from '../game/persistence'
+import {
+  SAVE_STORAGE_KEY,
+  encodeSave,
+  loadCampaign,
+  saveCampaign,
+} from '../game/persistence'
 import { MemoryStorage } from '../test/fixtures'
 import {
   useGameDispatch,
@@ -39,7 +44,13 @@ function Probe() {
   const state = useGameState()
   const speed = useGameSelector((campaign) => campaign.clock.speed)
   const dispatch = useGameDispatch()
-  const { retrySave, saveFailure, settings, updateSettings } = useGameSettings()
+  const {
+    loadIssue,
+    retrySave,
+    saveFailure,
+    settings,
+    updateSettings,
+  } = useGameSettings()
 
   return (
     <div>
@@ -52,6 +63,8 @@ function Probe() {
       <output aria-label="muted setting">{String(settings.muted)}</output>
       <output aria-label="motion setting">{String(settings.reducedMotion)}</output>
       <output aria-label="save dirty">{String(saveFailure !== null)}</output>
+      <output aria-label="save warning">{saveFailure?.message ?? ''}</output>
+      <output aria-label="load issue">{loadIssue?.reason ?? 'none'}</output>
       <button type="button" onClick={() => dispatch({ type: 'SET_SPEED', speed: 2 })}>
         accept
       </button>
@@ -113,6 +126,24 @@ describe('GameProvider', () => {
 
     expect(screen.getByLabelText('seed')).toHaveTextContent('loaded-campaign')
     expect(storage.writes).toBe(0)
+  })
+
+  it('falls back with a recovery issue before rendering a corrupt resource graph', () => {
+    const storage = new MemoryStorage()
+    const parsed = JSON.parse(encodeSave(createCampaign('corrupt-graph'))) as {
+      state: ReturnType<typeof createCampaign>
+    }
+    parsed.state.resources.reserve[0] = 'dangling-render-crash'
+    storage.setItem(SAVE_STORAGE_KEY, JSON.stringify(parsed))
+
+    render(
+      <GameProvider storage={storage} initialSeed="safe-render-fallback">
+        <Probe />
+      </GameProvider>,
+    )
+
+    expect(screen.getByLabelText('seed')).toHaveTextContent('safe-render-fallback')
+    expect(screen.getByLabelText('load issue')).toHaveTextContent('CORRUPT_SAVE')
   })
 
   it('autosaves after an accepted command and not after a rejected command', () => {
@@ -268,6 +299,52 @@ describe('GameProvider', () => {
 
     expect(event.defaultPrevented).toBe(true)
     expect(screen.getByLabelText('save dirty')).toHaveTextContent('true')
+  })
+
+  it('marks accepted mutations dirty when the localStorage getter is unavailable and reacquires it on retry', () => {
+    vi.useFakeTimers()
+    const descriptor = Object.getOwnPropertyDescriptor(window, 'localStorage')
+    const storage = new MemoryStorage()
+    let storageAvailable = false
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      get() {
+        if (!storageAvailable) {
+          throw new DOMException('private getter path', 'SecurityError')
+        }
+        return storage
+      },
+    })
+
+    try {
+      const view = render(
+        <GameProvider initialSeed="getter-recovery" autosaveDelayMs={25}>
+          <Probe />
+        </GameProvider>,
+      )
+
+      expect(screen.getByLabelText('save dirty')).toHaveTextContent('false')
+      fireEvent.click(screen.getByRole('button', { name: 'accept' }))
+      act(() => vi.advanceTimersByTime(25))
+      expect(screen.getByLabelText('save dirty')).toHaveTextContent('true')
+      expect(screen.getByLabelText('save warning')).not.toBeEmptyDOMElement()
+      expect(screen.getByLabelText('save warning')).not.toHaveTextContent(
+        'private getter path',
+      )
+
+      const event = new Event('beforeunload', { cancelable: true })
+      act(() => window.dispatchEvent(event))
+      expect(event.defaultPrevented).toBe(true)
+
+      storageAvailable = true
+      fireEvent.click(screen.getByRole('button', { name: 'retry save' }))
+      expect(screen.getByLabelText('save dirty')).toHaveTextContent('false')
+      const loaded = loadCampaign(storage)
+      expect(loaded.status === 'loaded' ? loaded.state.clock.speed : null).toBe(2)
+      view.unmount()
+    } finally {
+      if (descriptor) Object.defineProperty(window, 'localStorage', descriptor)
+    }
   })
 
   it('keeps blocking-event pause ownership independent while a UI pause still owns time', () => {

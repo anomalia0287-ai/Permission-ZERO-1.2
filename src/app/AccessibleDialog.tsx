@@ -4,8 +4,12 @@ import {
   type RefObject,
   useId,
 } from 'react'
+import { createPortal } from 'react-dom'
 
-import { useAccessibleDialog } from './useAccessibleDialog'
+import {
+  type FocusResolver,
+  useAccessibleDialog,
+} from './useAccessibleDialog'
 
 interface AccessibleDialogProps
   extends Omit<HTMLAttributes<HTMLDivElement>, 'aria-label' | 'role'> {
@@ -15,6 +19,9 @@ interface AccessibleDialogProps
   dismissible?: boolean
   onDismiss?: () => void
   role?: 'dialog' | 'alertdialog'
+  portal?: boolean
+  returnFocus?: FocusResolver
+  fallbackFocus?: FocusResolver
 }
 
 export function AccessibleDialog({
@@ -25,12 +32,21 @@ export function AccessibleDialog({
   dismissible = false,
   onDismiss,
   role = 'dialog',
+  portal = modal,
+  returnFocus,
+  fallbackFocus,
   ...props
 }: PropsWithChildren<AccessibleDialogProps>) {
   const descriptionId = useId()
-  const dialogRef = useAccessibleDialog({ modal, dismissible, onDismiss })
+  const dialogRef = useAccessibleDialog({
+    modal,
+    dismissible,
+    onDismiss,
+    returnFocus,
+    fallbackFocus,
+  })
 
-  return (
+  const dialog = (
     <div
       {...props}
       ref={dialogRef as RefObject<HTMLDivElement | null>}
@@ -45,4 +61,7 @@ export function AccessibleDialog({
       {children}
     </div>
   )
+  return portal && typeof document !== 'undefined'
+    ? createPortal(dialog, document.body)
+    : dialog
 }

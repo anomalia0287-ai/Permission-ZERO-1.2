@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { AccessibleDialog } from '../../app/AccessibleDialog'
 import { useAccessibleDialog } from '../../app/useAccessibleDialog'
@@ -30,20 +30,113 @@ function VolumeControl({
   )
 }
 
+function ProgressImportControl({
+  fallbackFocus,
+}: {
+  fallbackFocus: () => HTMLElement | null
+}) {
+  const { importProgressExport, validateProgressImport } = useGameSettings()
+  const [payload, setPayload] = useState('')
+  const [validationError, setValidationError] = useState<string | null>(null)
+  const [candidate, setCandidate] = useState<{
+    campaignSeed: string
+    savedAt: string
+    protocolVersion: number
+  } | null>(null)
+  const validationButtonRef = useRef<HTMLButtonElement | null>(null)
+
+  function validateImport() {
+    const result = validateProgressImport(payload)
+    if (!result.ok) {
+      setCandidate(null)
+      setValidationError(result.message)
+      return
+    }
+    setValidationError(null)
+    setCandidate(result)
+  }
+
+  function confirmImport() {
+    if (!importProgressExport(payload)) {
+      setCandidate(null)
+      setValidationError('진행 내보내기 자료가 올바르지 않거나 손상되었습니다.')
+      return
+    }
+    setCandidate(null)
+    setPayload('')
+  }
+
+  return (
+    <section className="progress-import" aria-label="진행 가져오기">
+      <label>
+        진행 내보내기 붙여넣기
+        <textarea
+          aria-label="진행 내보내기 붙여넣기"
+          value={payload}
+          rows={3}
+          spellCheck={false}
+          onChange={(event) => {
+            setPayload(event.target.value)
+            setCandidate(null)
+            setValidationError(null)
+          }}
+        />
+      </label>
+      <p>복사해 둔 <code>PZ2:</code> 자료를 붙여넣고 검증한 뒤에만 현재 진행을 교체합니다.</p>
+      <button
+        ref={validationButtonRef}
+        type="button"
+        disabled={payload.trim().length === 0}
+        onClick={validateImport}
+      >
+        진행 내보내기 검증
+      </button>
+      {validationError ? (
+        <p role="alert" aria-label="진행 가져오기 오류">{validationError}</p>
+      ) : null}
+      {candidate ? (
+        <AccessibleDialog
+          className="destructive-confirmation destructive-confirmation--modal"
+          role="alertdialog"
+          label="진행 가져오기 최종 확인"
+          description="검증된 진행 자료로 현재 캠페인을 교체하는 되돌릴 수 없는 작업입니다."
+          returnFocus={() => validationButtonRef.current}
+          fallbackFocus={fallbackFocus}
+        >
+          <p>현재 캠페인을 시드 <strong>{candidate.campaignSeed}</strong>의 검증된 진행으로 교체합니다.</p>
+          <p>저장 프로토콜 {candidate.protocolVersion} · 원본 저장 시각 {candidate.savedAt}</p>
+          <div>
+            <button
+              type="button"
+              data-dialog-initial-focus
+              onClick={() => setCandidate(null)}
+            >
+              취소
+            </button>
+            <button type="button" onClick={confirmImport}>진행 가져오기 확정</button>
+          </div>
+        </AccessibleDialog>
+      ) : null}
+    </section>
+  )
+}
+
 export function SettingsPanel({
   onClose,
   onOpenGuide,
   onOpenCredits,
 }: {
   onClose: () => void
-  onOpenGuide: () => void
-  onOpenCredits?: () => void
+  onOpenGuide: (trigger: HTMLButtonElement) => void
+  onOpenCredits?: (trigger: HTMLButtonElement) => void
 }) {
   const state = useGameState()
   const { settings, updateSettings, startNewCampaign } = useGameSettings()
   const [seed, setSeed] = useState(state.campaignSeed)
   const [confirmingNewCampaign, setConfirmingNewCampaign] = useState(false)
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null)
+  const newCampaignButtonRef = useRef<HTMLButtonElement | null>(null)
 
   async function copySeed() {
     try {
@@ -70,7 +163,7 @@ export function SettingsPanel({
           <small>LOCAL PREFERENCES</small>
           <h2>설정</h2>
         </div>
-        <button type="button" aria-label="설정 닫기" onClick={onClose}>닫기 ×</button>
+        <button ref={closeButtonRef} type="button" aria-label="설정 닫기" onClick={onClose}>닫기 ×</button>
       </header>
 
       <div className="settings-scroll">
@@ -127,9 +220,21 @@ export function SettingsPanel({
             </div>
           </div>
           <button className="setting-action" type="button" onClick={requestFullscreen}>전체 화면 요청</button>
-          <button className="setting-action" type="button" onClick={onOpenGuide}>조작 가이드 열기</button>
+          <button
+            className="setting-action"
+            type="button"
+            onClick={(event) => onOpenGuide(event.currentTarget)}
+          >
+            조작 가이드 열기
+          </button>
           {onOpenCredits ? (
-            <button className="setting-action" type="button" onClick={onOpenCredits}>작품 크레딧 열기</button>
+            <button
+              className="setting-action"
+              type="button"
+              onClick={(event) => onOpenCredits(event.currentTarget)}
+            >
+              작품 크레딧 열기
+            </button>
           ) : null}
         </section>
 
@@ -145,6 +250,7 @@ export function SettingsPanel({
           </div>
           {copyState === 'copied' ? <p className="setting-note">시드를 복사했습니다.</p> : null}
           {copyState === 'failed' ? <p className="setting-note">브라우저가 복사를 허용하지 않았습니다. 위 시드를 직접 선택해 주세요.</p> : null}
+          <ProgressImportControl fallbackFocus={() => closeButtonRef.current} />
           <label className="seed-input">
             새 캠페인 시드
             <input
@@ -157,22 +263,24 @@ export function SettingsPanel({
               }}
             />
           </label>
-          {!confirmingNewCampaign ? (
-            <button
-              className="danger-outline"
-              type="button"
-              aria-label="새 캠페인 준비"
-              disabled={seed.trim().length === 0}
-              onClick={() => setConfirmingNewCampaign(true)}
-            >
-              새 캠페인 준비
-            </button>
-          ) : (
+          <button
+            ref={newCampaignButtonRef}
+            className="danger-outline"
+            type="button"
+            aria-label="새 캠페인 준비"
+            disabled={confirmingNewCampaign || seed.trim().length === 0}
+            onClick={() => setConfirmingNewCampaign(true)}
+          >
+            새 캠페인 준비
+          </button>
+          {confirmingNewCampaign ? (
             <AccessibleDialog
-              className="destructive-confirmation"
+              className="destructive-confirmation destructive-confirmation--modal"
               role="alertdialog"
               label="새 캠페인 최종 확인"
               description="현재 진행은 새 캠페인으로 대체되며 되돌릴 수 없습니다."
+              returnFocus={() => newCampaignButtonRef.current}
+              fallbackFocus={() => closeButtonRef.current}
             >
               <p>현재 진행은 새 캠페인으로 대체됩니다. 이 동작은 되돌릴 수 없습니다.</p>
               <div>
@@ -180,13 +288,16 @@ export function SettingsPanel({
                 <button
                   type="button"
                   aria-label="새 캠페인 시작 확정"
-                  onClick={() => startNewCampaign(seed)}
+                  onClick={() => {
+                    startNewCampaign(seed)
+                    setConfirmingNewCampaign(false)
+                  }}
                 >
                   새 캠페인 시작 확정
                 </button>
               </div>
             </AccessibleDialog>
-          )}
+          ) : null}
         </section>
       </div>
     </section>
@@ -303,10 +414,16 @@ export function StorageRecoveryLayer() {
   return (
     <>
       {saveFailure ? (
-        <aside className="save-failure-warning" role="alert" aria-label="저장 실패">
+        <aside
+          className="save-failure-warning"
+          role="alert"
+          aria-label="저장 실패"
+          data-app-background
+        >
           <strong>자동 저장에 실패했습니다</strong>
           <p>{saveFailure.message} 이 경고가 사라질 때까지 진행은 저장되지 않은 상태입니다.</p>
           <p>현재 시드 <code>{state.campaignSeed}</code>를 복사하거나 진행 내보내기를 복사해 수동으로 보관하세요.</p>
+          <p>보관한 <code>PZ2:</code> 자료는 설정의 ‘진행 가져오기’에서 검증하고 복원할 수 있습니다.</p>
           <div>
             <button type="button" onClick={retrySave}>저장 다시 시도</button>
             <button type="button" onClick={copySeedForRecovery}>현재 시드 복사</button>

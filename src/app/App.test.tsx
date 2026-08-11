@@ -118,6 +118,19 @@ describe('App', () => {
     expect(trigger).toHaveFocus()
   })
 
+  it('falls back to the stable pause control when the exact dialog opener becomes disabled', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    const trigger = screen.getByRole('button', { name: '설정' })
+    await user.click(trigger)
+    trigger.setAttribute('disabled', '')
+    await user.keyboard('{Escape}')
+
+    expect(screen.getByRole('button', { name: '일시정지' })).toHaveFocus()
+    expect(trigger).not.toHaveFocus()
+  })
+
   it('restores an explicitly selected paused speed as paused', async () => {
     const user = userEvent.setup()
     render(<App />)

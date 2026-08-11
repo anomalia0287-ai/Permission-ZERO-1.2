@@ -269,6 +269,7 @@ export function EventLayer() {
   return (
     <div
       className={`event-layer${activeEvent.type === 'audit' ? ' event-layer--audit' : ''}`}
+      data-app-background={activeEvent.type === 'audit' ? '' : undefined}
     >
       <EventDialog event={activeEvent} key={activeEvent.id} />
     </div>
