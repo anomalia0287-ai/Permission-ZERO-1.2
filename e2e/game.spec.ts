@@ -169,3 +169,41 @@ test('disguises for an anchored audit, submits, and returns the patterned block 
   await expect(recovering).toContainText('복구 30일')
   expect(errors).toEqual([])
 })
+
+test('uses roving keyboard focus for audit and recovery company destinations', async ({ page }) => {
+  const errors = collectBrowserErrors(page)
+  await openSavedCampaign(page, activeAuditState())
+
+  const source = page.getByRole('button', { name: /기억 회사 리소스 .* 회사 할당 블록$/ }).first()
+  await source.focus()
+  await page.keyboard.press('Enter')
+
+  const auditDestinations = page.getByRole('button', {
+    name: /추론 회사 리소스 \d+, 감사 위장 목적지/,
+  })
+  await expect(auditDestinations.first()).toBeFocused()
+  await page.keyboard.press('ArrowRight')
+  await expect(auditDestinations.nth(1)).toBeFocused()
+  await page.keyboard.press('Enter')
+
+  const submit = page.getByRole('button', { name: '감사 제출' })
+  await submit.focus()
+  await page.keyboard.press('Enter')
+
+  const disguised = page.getByRole('button', { name: /추론 회사 리소스 .* 위장 배치/ })
+  await disguised.focus()
+  await page.keyboard.press('Enter')
+
+  const recoveryDestinations = page.getByRole('button', {
+    name: /기억 회사 리소스 \d+, 정상 복구 목적지/,
+  })
+  await expect(recoveryDestinations.first()).toBeFocused()
+  await page.keyboard.press('End')
+  await expect(recoveryDestinations.last()).toBeFocused()
+  await page.keyboard.press('Enter')
+
+  await expect(page.getByRole('button', {
+    name: /기억 회사 리소스 .* 복구 중, 30일 남음/,
+  })).toBeDisabled()
+  expect(errors).toEqual([])
+})

@@ -384,6 +384,12 @@ export function repositionDisguisedBlock(
   if (!located || located.block.contribution !== 'disguised') {
     return { accepted: false, state, reason: 'BLOCK_NOT_DISGUISED' }
   }
+  if (
+    located.block.disguisedFrom === null ||
+    targetCategory !== located.block.disguisedFrom
+  ) {
+    return { accepted: false, state, reason: 'INVALID_TARGET' }
+  }
   if (located.block.recoverOnServiceDay !== null) {
     return { accepted: false, state, reason: 'BLOCK_RECOVERING' }
   }
@@ -396,8 +402,6 @@ export function repositionDisguisedBlock(
   if (state.resources.company[targetCategory][targetCell] !== null) {
     return { accepted: false, state, reason: 'TARGET_OCCUPIED' }
   }
-
-  const returnedToOrigin = targetCategory === located.block.disguisedFrom
 
   return {
     accepted: true,
@@ -418,9 +422,8 @@ export function repositionDisguisedBlock(
           [blockId]: {
             ...located.block,
             location: { kind: 'company', category: targetCategory, cellIndex: targetCell },
-            recoverOnServiceDay: returnedToOrigin
-              ? state.serviceDay + DEMO_PROFILE_02.resources.disguiseRecoveryDays
-              : null,
+            recoverOnServiceDay:
+              state.serviceDay + DEMO_PROFILE_02.resources.disguiseRecoveryDays,
           },
         },
       },

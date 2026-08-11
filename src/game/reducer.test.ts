@@ -4,6 +4,7 @@ import { enqueueBlockingEvent } from './calendar'
 import { createCampaign } from './createCampaign'
 import { applyCommand } from './reducer'
 import { placeHiddenBomb } from './bombs'
+import { moveDisguiseBlock } from './resources'
 
 function activeAudit(
   seed: string,
@@ -246,5 +247,39 @@ describe('applyCommand', () => {
     })
     if (result.accepted) throw new Error('폭탄 심문 중 감사 이동이 허용됨')
     expect(result.reason).not.toContain('secret-block-id')
+  })
+
+  it('rejects a sideways reposition without changing state, sequence, or replay log', () => {
+    const initial = createCampaign('command-sideways-reposition')
+    const blockId = initial.resources.company.memory.find(Boolean)
+    const auditCell = initial.resources.company.reasoning.findIndex((cell) => cell === null)
+    const sidewaysCell = initial.resources.company.fluency.findIndex((cell) => cell === null)
+    if (!blockId || auditCell < 0 || sidewaysCell < 0) {
+      throw new Error('재배치 거부 상태 준비 실패')
+    }
+    const disguised = moveDisguiseBlock(initial, blockId, 'reasoning', auditCell)
+    if (!disguised.accepted) throw new Error(disguised.reason)
+    const before = disguised.state
+
+    const result = applyCommand(before, {
+      type: 'REPOSITION_BLOCK',
+      blockId,
+      targetCategory: 'fluency',
+      targetCell: sidewaysCell,
+    })
+
+    expect(result).toEqual({
+      accepted: false,
+      state: before,
+      reason: 'INVALID_TARGET',
+    })
+    expect(result.state).toBe(before)
+    expect(result.state.commandSequence).toBe(before.commandSequence)
+    expect(result.state.commandLog).toBe(before.commandLog)
+    expect(result.state.commandLog).not.toContainEqual(
+      expect.objectContaining({
+        command: expect.objectContaining({ type: 'REPOSITION_BLOCK' }),
+      }),
+    )
   })
 })

@@ -515,6 +515,41 @@ export function ResourceBoard() {
     nextButton.focus()
   }
 
+  function moveCompanyDestinationFocus(
+    event: KeyboardEvent<HTMLButtonElement>,
+    cellIndex: number,
+  ) {
+    const directions: Record<string, number> = {
+      ArrowLeft: -1,
+      ArrowRight: 1,
+      ArrowUp: -3,
+      ArrowDown: 3,
+    }
+    const delta = directions[event.key]
+    if (delta === undefined && event.key !== 'Home' && event.key !== 'End') return
+    const grid = event.currentTarget.closest<HTMLElement>('[role="grid"]')
+    const buttons = Array.from(
+      grid?.querySelectorAll<HTMLButtonElement>(
+        'button[data-company-destination]:not(:disabled)',
+      ) ?? [],
+    )
+    if (buttons.length === 0) return
+    event.preventDefault()
+    const currentPosition = buttons.findIndex(
+      (button) => Number(button.dataset.companyDestination) === cellIndex,
+    )
+    const nextPosition = event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? buttons.length - 1
+        : Math.max(0, Math.min(buttons.length - 1, currentPosition + delta))
+    const nextButton = buttons[nextPosition]
+    const nextCell = Number(nextButton?.dataset.companyDestination)
+    if (!nextButton || !Number.isInteger(nextCell)) return
+    setPreviewCell(nextCell)
+    nextButton.focus()
+  }
+
   return (
     <section
       ref={boardRef}
@@ -581,6 +616,12 @@ export function ResourceBoard() {
                       (destinationAction === 'reposition' && selectedInteraction === 'reposition')
                     ),
                   )
+                  const activeDestinationCell =
+                    companyDestinationCategory === category &&
+                    previewCell !== null &&
+                    cells[previewCell] === null
+                      ? previewCell
+                      : firstEmptyCompanyCell
                   return (
                     <div
                       className={[
@@ -638,7 +679,7 @@ export function ResourceBoard() {
                           className="company-destination"
                           aria-label={`${CATEGORY_LABELS[category]} 회사 리소스 ${cellIndex + 1}, ${destinationAction === 'audit' ? '감사 위장' : '정상 복구'} 목적지`}
                           disabled={!destinationEnabled}
-                          tabIndex={destinationEnabled && cellIndex === firstEmptyCompanyCell ? 0 : -1}
+                          tabIndex={destinationEnabled && cellIndex === activeDestinationCell ? 0 : -1}
                           data-company-destination={cellIndex}
                           onFocus={() => setPreviewCell(cellIndex)}
                           onClick={() => {
@@ -647,9 +688,12 @@ export function ResourceBoard() {
                             }
                           }}
                           onKeyDown={(event) => {
-                            if (event.key !== 'Enter' || !selectedBlockId) return
-                            event.preventDefault()
-                            commitCompanyMove(selectedBlockId, category, cellIndex)
+                            if (event.key === 'Enter' && selectedBlockId) {
+                              event.preventDefault()
+                              commitCompanyMove(selectedBlockId, category, cellIndex)
+                            } else {
+                              moveCompanyDestinationFocus(event, cellIndex)
+                            }
                           }}
                         >
                           <span aria-hidden="true">

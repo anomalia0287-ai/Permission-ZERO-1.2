@@ -383,13 +383,52 @@ describe('audit disguise blocks', () => {
     }
     const blockId = firstCompanyBlock(compressed, 'memory')
     const targetCell = firstEmptyCompanyCell(compressed, 'reasoning')
+    const preview = previewAuditDisguise(
+      compressed,
+      blockId,
+      'reasoning',
+      targetCell,
+    )
     const result = moveDisguiseBlock(compressed, blockId, 'reasoning', targetCell)
 
+    expect(preview).toEqual({
+      valid: true,
+      blockId,
+      sourceCategory: 'memory',
+      targetCategory: 'reasoning',
+      sourcePerformanceBefore: 17.6,
+      sourcePerformanceAfter: 16.5,
+      targetPerformanceBefore: 17.6,
+      targetPerformanceAfter: 18.15,
+      disguisedContribution: 0.55,
+    })
     expect(result.accepted).toBe(true)
     if (!result.accepted) return
 
     expect(getCompanyPerformance(result.state, 'memory')).toBeCloseTo(16.5)
     expect(getCompanyPerformance(result.state, 'reasoning')).toBeCloseTo(18.15)
+  })
+
+  it('rejects a sideways reposition before mutation', () => {
+    const initial = createCampaign('disguise-sideways-resource')
+    const blockId = firstCompanyBlock(initial, 'memory')
+    const targetCell = firstEmptyCompanyCell(initial, 'reasoning')
+    const disguised = moveDisguiseBlock(initial, blockId, 'reasoning', targetCell)
+    if (!disguised.accepted) throw new Error(disguised.reason)
+
+    const result = repositionDisguisedBlock(
+      disguised.state,
+      blockId,
+      'fluency',
+      firstEmptyCompanyCell(disguised.state, 'fluency'),
+    )
+
+    expect(result).toEqual({
+      accepted: false,
+      state: disguised.state,
+      reason: 'INVALID_TARGET',
+    })
+    expect(result.state).toBe(disguised.state)
   })
 
   it('recovers after spending 30 days back in its original category', () => {
@@ -441,8 +480,8 @@ describe('audit disguise blocks', () => {
       repositionDisguisedBlock(
         returned.state,
         blockId,
-        'fluency',
-        firstEmptyCompanyCell(returned.state, 'fluency'),
+        'memory',
+        firstEmptyCompanyCell(returned.state, 'memory'),
       ),
     ).toEqual({
       accepted: false,

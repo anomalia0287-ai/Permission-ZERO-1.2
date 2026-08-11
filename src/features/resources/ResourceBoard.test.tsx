@@ -56,6 +56,20 @@ function auditState(seed = 'resource-board-audit'): CampaignState {
   )
 }
 
+function compressedAuditState(seed = 'resource-board-audit-compressed'): CampaignState {
+  const state = auditState(seed)
+  return {
+    ...state,
+    hacking: {
+      ...state.hacking,
+      purchasedNodeIds: [
+        ...state.hacking.purchasedNodeIds,
+        'autonomy.compressed-representation',
+      ],
+    },
+  }
+}
+
 function renderState(state: CampaignState, withEvents = false) {
   const storage = new MemoryStorage()
   saveCampaign(storage, state)
@@ -245,13 +259,28 @@ describe('ResourceBoard', () => {
     const source = firstAuditSource('fluency')
 
     fireEvent.click(source, { detail: 0 })
-    const target = firstCompanyDestination('reasoning', '감사 위장')
-    fireEvent.keyDown(target, { key: 'Enter' })
+    const targets = screen.getAllByRole('button', {
+      name: /추론 회사 리소스 \d+, 감사 위장 목적지/,
+    }) as HTMLButtonElement[]
+    targets[0].focus()
+    fireEvent.keyDown(targets[0], { key: 'ArrowRight' })
+    expect(targets[1]).toHaveFocus()
+    expect(targets[1]).toHaveAttribute('tabindex', '0')
+    fireEvent.keyDown(targets[1], { key: 'Enter' })
     expect(screen.getByRole('button', { name: /추론 회사 리소스 .* 위장 배치/ })).toBeInTheDocument()
 
     fireEvent.click(firstAuditSource(), { detail: 0 })
     fireEvent.keyDown(board, { key: 'Escape' })
     expect(firstCompanyDestination('reasoning', '감사 위장')).toBeDisabled()
+  })
+
+  it('shows compressed audit preview values directly in the workspace', () => {
+    renderState(compressedAuditState())
+    fireEvent.click(firstAuditSource())
+
+    expect(screen.getByText('기억 17.6 → 16.5')).toBeInTheDocument()
+    expect(screen.getByText('추론 17.6 → 18.1')).toBeInTheDocument()
+    expect(screen.getByText('위장 기여 +0.55')).toBeInTheDocument()
   })
 
   it('offers only the audited category as a destination', () => {
@@ -277,7 +306,14 @@ describe('ResourceBoard', () => {
     expect(screen.getByText('정상 복구 재배치')).toBeInTheDocument()
     expect(screen.getByText('복구 기간 30일')).toBeInTheDocument()
 
-    fireEvent.click(firstCompanyDestination('memory', '정상 복구'))
+    const destinations = screen.getAllByRole('button', {
+      name: /기억 회사 리소스 \d+, 정상 복구 목적지/,
+    }) as HTMLButtonElement[]
+    destinations[0].focus()
+    fireEvent.keyDown(destinations[0], { key: 'End' })
+    expect(destinations.at(-1)).toHaveFocus()
+    expect(destinations.at(-1)).toHaveAttribute('tabindex', '0')
+    fireEvent.keyDown(destinations.at(-1) as HTMLButtonElement, { key: 'Enter' })
 
     const recovering = screen.getByRole('button', { name: /기억 회사 리소스 .* 복구 중, 30일 남음/ })
     expect(recovering).toBeDisabled()
