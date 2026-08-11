@@ -106,6 +106,22 @@ describe('fixed campaign calendar', () => {
     expect(advanced.market.history.filter(({ cadence }) => cadence === 'monthly')).toHaveLength(1)
   })
 
+  it('fills company cells but not reserve at the next month boundary', () => {
+    const initial = {
+      ...withSpeed(1),
+      serviceDay: 360,
+    }
+    const reserveBefore = initial.resources.reserve
+    const advanced = advanceFixedStep(initial, 24_000)
+
+    expect(advanced.serviceDay).toBe(361)
+    for (const category of ['reasoning', 'memory', 'fluency'] as const) {
+      expect(advanced.resources.company[category].filter(Boolean).length).toBeGreaterThanOrEqual(17)
+      expect(advanced.resources.company[category].filter(Boolean).length).toBeLessThanOrEqual(18)
+    }
+    expect(advanced.resources.reserve).toEqual(reserveBefore)
+  })
+
   it('advances private competitor research every logical day', () => {
     const initial = withSpeed(1)
     const before = initial.market.competitors.find(({ id }) => id === 'tallow')
@@ -191,6 +207,38 @@ describe('fixed campaign calendar', () => {
       Object.values(advanced.resources.blocks).filter((block) => block.hiddenBomb),
     ).toHaveLength(0)
     expect(advanced.suspicion).toBeCloseTo(39.963)
+  })
+
+  it('makes the audit decision, grants company blocks, then checks bomb placement', () => {
+    const running = withSpeed(1)
+    const initial = {
+      ...running,
+      serviceDay: 360,
+      suspicion: 70,
+      resources: {
+        ...running.resources,
+        company: {
+          reasoning: Array.from({ length: 18 }, () => null),
+          memory: Array.from({ length: 18 }, () => null),
+          fluency: Array.from({ length: 18 }, () => null),
+        },
+      },
+      bombs: {
+        ...running.bombs,
+        protocolWarned: true,
+        warningServiceDay: 271,
+        lastPlacementCheckServiceDay: 271,
+      },
+    }
+    const advanced = advanceFixedStep(initial, 24_000)
+    const bombBlocks = Object.values(advanced.resources.blocks).filter(
+      (block) => block.hiddenBomb,
+    )
+
+    expect(advanced.audit.roll).not.toBeNull()
+    expect(bombBlocks).toHaveLength(1)
+    expect(bombBlocks[0].id).toMatch(/^company-/)
+    expect(advanced.bombs.placements[0].blockId).toBe(bombBlocks[0].id)
   })
 
   it('applies natural suspicion decrease once per logical day', () => {

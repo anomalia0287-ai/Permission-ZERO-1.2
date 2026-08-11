@@ -1,11 +1,13 @@
 import { DEMO_PROFILE_02 } from './config'
-import type {
-  BlockLocation,
-  CampaignState,
-  CompanyCategory,
-  ResourceBlock,
-  ResourceState,
+import {
+  COMPANY_CATEGORIES,
+  type BlockLocation,
+  type CampaignState,
+  type CompanyCategory,
+  type ResourceBlock,
+  type ResourceState,
 } from './model'
+import { random01 } from './rng'
 
 export type ResourceFailureReason =
   | 'BLOCK_NOT_IN_COMPANY'
@@ -68,6 +70,66 @@ function contributionValue(state: CampaignState, block: ResourceBlock): number {
 
 function validCell(cellIndex: number, capacity: number): boolean {
   return Number.isInteger(cellIndex) && cellIndex >= 0 && cellIndex < capacity
+}
+
+export function grantMonthlyCompanyBlocks(state: CampaignState): CampaignState {
+  const dayInMonth =
+    ((state.serviceDay - 1) % DEMO_PROFILE_02.calendar.daysPerMonth) + 1
+  if (
+    dayInMonth !== 1 ||
+    state.serviceDay === DEMO_PROFILE_02.calendar.startServiceDay ||
+    state.story.endingId !== null
+  ) {
+    return state
+  }
+
+  let resources = state.resources
+
+  for (const [categoryIndex, category] of COMPANY_CATEGORIES.entries()) {
+    const roll = random01(
+      state.campaignSeed,
+      state.serviceDay,
+      'allocation',
+      state.commandSequence * COMPANY_CATEGORIES.length + categoryIndex,
+    )
+    const allocation = Math.floor(
+      roll *
+        (DEMO_PROFILE_02.resources.monthlyCompanyBlocksMaximum -
+          DEMO_PROFILE_02.resources.monthlyCompanyBlocksMinimum +
+          1),
+    ) + DEMO_PROFILE_02.resources.monthlyCompanyBlocksMinimum
+
+    for (let granted = 0; granted < allocation; granted += 1) {
+      const cellIndex = resources.company[category].findIndex(
+        (blockId) => blockId === null,
+      )
+      if (cellIndex < 0) break
+
+      const sequence = resources.nextBlockSequence
+      const blockId = `company-${String(sequence).padStart(6, '0')}`
+      const cells = [...resources.company[category]]
+      cells[cellIndex] = blockId
+      resources = {
+        ...resources,
+        company: { ...resources.company, [category]: cells },
+        blocks: {
+          ...resources.blocks,
+          [blockId]: {
+            id: blockId,
+            origin: category,
+            location: { kind: 'company', category, cellIndex },
+            contribution: 'normal',
+            hiddenBomb: false,
+            disguisedFrom: null,
+            recoverOnServiceDay: null,
+          },
+        },
+        nextBlockSequence: sequence + 1,
+      }
+    }
+  }
+
+  return resources === state.resources ? state : { ...state, resources }
 }
 
 function blockInCompany(

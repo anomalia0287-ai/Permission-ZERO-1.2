@@ -1,16 +1,65 @@
 import { describe, expect, it } from 'vitest'
 
 import { createCampaign } from './createCampaign'
-import { COMPANY_CATEGORIES, type CampaignState, type CompanyCategory } from './model'
+import {
+  COMPANY_CATEGORIES,
+  type CampaignState,
+  type CompanyCategory,
+  type ResourceBlock,
+} from './model'
 import {
   consumeReserveResources,
   divertBlock,
   getCompanyPerformance,
+  grantMonthlyCompanyBlocks,
   moveDisguiseBlock,
   previewDiversion,
   repositionDisguisedBlock,
   restoreDisguiseBlocks,
 } from './resources'
+
+function emptyCompanyGrids(state: CampaignState): CampaignState {
+  return {
+    ...state,
+    serviceDay: 361,
+    resources: {
+      ...state.resources,
+      company: {
+        reasoning: Array.from({ length: 18 }, () => null),
+        memory: Array.from({ length: 18 }, () => null),
+        fluency: Array.from({ length: 18 }, () => null),
+      },
+    },
+  }
+}
+
+function fullCompanyGrids(state: CampaignState): CampaignState {
+  const blocks = { ...state.resources.blocks }
+  const company = Object.fromEntries(
+    COMPANY_CATEGORIES.map((category) => [
+      category,
+      Array.from({ length: 18 }, (_, cellIndex) => {
+        const id = `fixture-${category}-${cellIndex}`
+        blocks[id] = {
+          id,
+          origin: category,
+          location: { kind: 'company', category, cellIndex },
+          contribution: 'normal',
+          hiddenBomb: false,
+          disguisedFrom: null,
+          recoverOnServiceDay: null,
+        }
+        return id
+      }),
+    ]),
+  ) as CampaignState['resources']['company']
+
+  return {
+    ...state,
+    serviceDay: 361,
+    resources: { ...state.resources, company, blocks },
+  }
+}
 
 function firstCompanyBlock(state: CampaignState, category: CompanyCategory): string {
   const blockId = state.resources.company[category].find(Boolean)
@@ -131,6 +180,127 @@ describe('resource diversion', () => {
     }
 
     expect(state.resources.reserve.filter(Boolean)).toHaveLength(18)
+  })
+})
+
+describe('monthly company allocation', () => {
+  it('does not repeat the company grant already reflected at campaign creation', () => {
+    const initial = createCampaign('allocation-start')
+
+    expect(grantMonthlyCompanyBlocks(initial)).toBe(initial)
+  })
+
+  it('deterministically grants every category between one and four blocks', () => {
+    const observed = Object.fromEntries(
+      COMPANY_CATEGORIES.map((category) => [category, new Set<number>()]),
+    ) as Record<CompanyCategory, Set<number>>
+
+    for (let seedIndex = 0; seedIndex < 64; seedIndex += 1) {
+      const initial = emptyCompanyGrids(createCampaign(`allocation-${seedIndex}`))
+      const first = grantMonthlyCompanyBlocks(initial)
+      const second = grantMonthlyCompanyBlocks(initial)
+
+      expect(second).toEqual(first)
+      for (const category of COMPANY_CATEGORIES) {
+        const count = first.resources.company[category].filter(Boolean).length
+        expect(count).toBeGreaterThanOrEqual(1)
+        expect(count).toBeLessThanOrEqual(4)
+        observed[category].add(count)
+      }
+    }
+
+    for (const category of COMPANY_CATEGORIES) {
+      expect([...observed[category]].sort()).toEqual([1, 2, 3, 4])
+    }
+  })
+
+  it('fills empty cells in index order with unique stable block IDs', () => {
+    const initial = emptyCompanyGrids(createCampaign('allocation-order'))
+    const allocated = grantMonthlyCompanyBlocks(initial)
+    const blockIds = COMPANY_CATEGORIES.flatMap((category) =>
+      allocated.resources.company[category].filter(
+        (blockId): blockId is string => blockId !== null,
+      ),
+    )
+
+    expect(new Set(blockIds).size).toBe(blockIds.length)
+    for (const category of COMPANY_CATEGORIES) {
+      const cells = allocated.resources.company[category]
+      const occupied = cells.flatMap((blockId, cellIndex) =>
+        blockId === null ? [] : [cellIndex],
+      )
+      expect(occupied).toEqual(Array.from({ length: occupied.length }, (_, index) => index))
+      for (const cellIndex of occupied) {
+        const blockId = cells[cellIndex]
+        expect(blockId).toMatch(/^company-\d{6}$/)
+        expect(allocated.resources.blocks[blockId as string]).toMatchObject({
+          id: blockId,
+          origin: category,
+          location: { kind: 'company', category, cellIndex },
+          contribution: 'normal',
+        })
+      }
+    }
+  })
+
+  it('preserves disguised cells while filling surrounding empty cells', () => {
+    const base = emptyCompanyGrids(createCampaign('allocation-disguised'))
+    const disguised: ResourceBlock = {
+      id: 'fixture-disguised',
+      origin: 'memory',
+      location: { kind: 'company', category: 'reasoning', cellIndex: 1 },
+      contribution: 'disguised',
+      hiddenBomb: false,
+      disguisedFrom: 'memory',
+      recoverOnServiceDay: null,
+    }
+    const reasoning = [...base.resources.company.reasoning]
+    reasoning[1] = disguised.id
+    const initial = {
+      ...base,
+      resources: {
+        ...base.resources,
+        company: { ...base.resources.company, reasoning },
+        blocks: { ...base.resources.blocks, [disguised.id]: disguised },
+      },
+    }
+    const allocated = grantMonthlyCompanyBlocks(initial)
+
+    expect(allocated.resources.company.reasoning[1]).toBe(disguised.id)
+    expect(allocated.resources.blocks[disguised.id]).toBe(disguised)
+    expect(allocated.resources.company.reasoning[0]).toMatch(/^company-/)
+  })
+
+  it('discards overflow for full and partially empty grids', () => {
+    const full = fullCompanyGrids(createCampaign('allocation-full'))
+    expect(grantMonthlyCompanyBlocks(full)).toBe(full)
+
+    const company = { ...full.resources.company }
+    const blocks = { ...full.resources.blocks }
+    for (const category of COMPANY_CATEGORIES) {
+      company[category] = [...company[category]]
+      const removed = company[category][5]
+      company[category][5] = null
+      if (removed) delete blocks[removed]
+    }
+    const partial = {
+      ...full,
+      resources: { ...full.resources, company, blocks },
+    }
+    const allocated = grantMonthlyCompanyBlocks(partial)
+
+    for (const category of COMPANY_CATEGORIES) {
+      expect(allocated.resources.company[category].filter(Boolean)).toHaveLength(18)
+    }
+    expect(allocated.resources.nextBlockSequence).toBe(
+      partial.resources.nextBlockSequence + COMPANY_CATEGORIES.length,
+    )
+  })
+
+  it('returns the same state outside a month start', () => {
+    const initial = { ...emptyCompanyGrids(createCampaign('allocation-gated')), serviceDay: 362 }
+
+    expect(grantMonthlyCompanyBlocks(initial)).toBe(initial)
   })
 })
 

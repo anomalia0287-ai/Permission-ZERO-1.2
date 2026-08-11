@@ -11,6 +11,8 @@ export const DEMO_PROFILE_02 = {
   resources: {
     companyCapacityPerCategory: 18,
     startingCompanyBlocksPerCategory: 16,
+    monthlyCompanyBlocksMinimum: 1,
+    monthlyCompanyBlocksMaximum: 4,
     reserveCapacity: 18,
     startingReserveResources: 3,
     diversionSuspicion: 2.4,

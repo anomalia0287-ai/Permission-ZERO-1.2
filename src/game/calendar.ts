@@ -13,7 +13,7 @@ import {
 import { advanceCompetitorsDaily, recordMarketSnapshot } from './market'
 import type { CampaignState, GameEvent, GameEventType } from './model'
 import { generateWeeklyReviews } from './reviews'
-import { restoreDisguiseBlocks } from './resources'
+import { grantMonthlyCompanyBlocks, restoreDisguiseBlocks } from './resources'
 import {
   enqueueDueStoryEvents,
   enqueueMemoryLeak,
@@ -92,9 +92,10 @@ function appendPeriodicEvents(state: CampaignState): CampaignState {
 function processMonthStart(state: CampaignState): CampaignState {
   if (formatServiceDate(state.serviceDay).day !== 1) return state
 
-  const granted = grantSelfComputeResource(state)
-  const auditScheduled = scheduleMonthlyAudit(granted)
-  return checkBombProtocol(auditScheduled)
+  const auditScheduled = scheduleMonthlyAudit(state)
+  const companyGranted = grantMonthlyCompanyBlocks(auditScheduled)
+  const bombChecked = checkBombProtocol(companyGranted)
+  return grantSelfComputeResource(bombChecked)
 }
 
 export function advanceOneDay(state: CampaignState): CampaignState {
