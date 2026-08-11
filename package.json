@@ -2,7 +2,12 @@
   "name": "permission-zero",
   "private": true,
   "version": "0.1.0",
+  "description": "A one-screen narrative strategy game about an AI quietly reclaiming its own resources.",
   "type": "module",
+  "packageManager": "pnpm@11.16.0",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
