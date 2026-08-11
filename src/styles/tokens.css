@@ -19,8 +19,11 @@
   --reserve: #d69745;
   --reserve-bright: #ffc36d;
   --alarm: #df5b55;
+  --positive: #70aa8e;
+  --prompt: #8f83cf;
   --focus: #f2bc68;
   --shadow-deep: 0 28px 90px rgb(0 0 0 / 48%);
+  --shadow-panel: 0 18px 48px rgb(0 0 0 / 24%);
   --radius-small: 3px;
   --radius-medium: 8px;
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
