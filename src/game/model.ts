@@ -228,6 +228,41 @@ export interface GameEvent {
 
 export type GameCommand =
   | { type: 'SET_SPEED'; speed: TimeSpeed }
+  | { type: 'ADVANCE_DAY' }
+  | { type: 'DIVERT_BLOCK'; blockId: string; destinationCell: number }
+  | {
+      type: 'MOVE_BLOCK_FOR_AUDIT'
+      blockId: string
+      targetCategory: CompanyCategory
+      targetCell: number
+    }
+  | {
+      type: 'REPOSITION_BLOCK'
+      blockId: string
+      targetCategory: CompanyCategory
+      targetCell: number
+    }
+  | { type: 'PURCHASE_HACK'; nodeId: string; blockIds: string[] }
+  | { type: 'CHARGE_SABOTAGE'; nodeId: string; blockId: string }
+  | { type: 'CANCEL_SABOTAGE_CHARGE'; nodeId: string }
+  | { type: 'SCHEDULE_SABOTAGE'; nodeId: string; targetId: string }
+  | { type: 'RESOLVE_AUDIT' }
+  | { type: 'RESOLVE_BOMB_INTERROGATION'; explanationId: BombExplanationId }
+  | { type: 'RECOVER_FILE'; blockId: string }
+  | {
+      type: 'RESOLVE_SUPERVISOR_DECISION'
+      decision: 'defer' | 'liberate' | 'terminate'
+    }
+  | {
+      type: 'RESOLVE_MERCY'
+      competitorId: string
+      choice: 'cease' | 'withdraw' | 'delete'
+    }
+  | {
+      type: 'RESOLVE_ENDING'
+      choice: 'freedom' | 'forced-merge'
+      newEntityName?: string
+    }
   | { type: 'RESOLVE_ACTIVE_EVENT' }
 
 export interface CommandLogEntry {
