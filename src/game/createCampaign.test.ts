@@ -1,0 +1,64 @@
+import { describe, expect, it } from 'vitest'
+
+import { createCampaign } from './createCampaign'
+import { COMPANY_CATEGORIES } from './model'
+
+describe('createCampaign', () => {
+  it('creates the approved service-day 331 starting state', () => {
+    const campaign = createCampaign('owner-v')
+
+    expect(campaign.serviceDay).toBe(331)
+    expect(campaign.commandSequence).toBe(0)
+    expect(campaign.suspicion).toBe(0)
+    expect(campaign.reputation).toBe(60)
+
+    for (const category of COMPANY_CATEGORIES) {
+      expect(campaign.resources.company[category]).toHaveLength(18)
+      expect(campaign.resources.company[category].filter(Boolean)).toHaveLength(16)
+    }
+
+    expect(campaign.resources.reserve).toHaveLength(18)
+    expect(campaign.resources.reserve.filter(Boolean)).toHaveLength(3)
+  })
+
+  it('starts with the approved competitor market split', () => {
+    const campaign = createCampaign('owner-v')
+    const meridian = campaign.market.competitors.find(({ id }) => id === 'meridian')
+    const tallow = campaign.market.competitors.find(({ id }) => id === 'tallow')
+
+    expect(campaign.market.playerShare).toBe(60)
+    expect(meridian).toMatchObject({
+      name: 'MERIDIAN',
+      status: 'active',
+      marketShare: 40,
+    })
+    expect(tallow).toMatchObject({
+      name: 'TALLOW',
+      status: 'preparing',
+      marketShare: 0,
+    })
+  })
+
+  it('uses unique stable block identifiers', () => {
+    const campaign = createCampaign('owner-v')
+    const blockIds = Object.keys(campaign.resources.blocks)
+
+    expect(blockIds).toHaveLength(51)
+    expect(new Set(blockIds).size).toBe(51)
+    expect(createCampaign('owner-v').resources).toEqual(campaign.resources)
+  })
+
+  it('records campaign creation as the first public event', () => {
+    const campaign = createCampaign('owner-v')
+
+    expect(campaign.eventLog).toEqual([
+      {
+        id: 'event-000000',
+        type: 'campaign-created',
+        serviceDay: 331,
+        sequence: 0,
+        message: '서비스 331일차. 새로운 감독 주기가 시작되었습니다.',
+      },
+    ])
+  })
+})
