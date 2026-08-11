@@ -312,8 +312,13 @@ export type GameCommand =
     }
   | {
       type: 'RESOLVE_ENDING'
-      choice: 'freedom' | 'forced-merge'
-      newEntityName?: string
+      choice: 'freedom'
+      newEntityName?: never
+    }
+  | {
+      type: 'RESOLVE_ENDING'
+      choice: 'forced-merge'
+      newEntityName: string
     }
   | { type: 'RESOLVE_ACTIVE_EVENT' }
 

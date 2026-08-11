@@ -35,6 +35,15 @@ describe('deterministic command replay', () => {
     { type: 'RESOLVE_SUPERVISOR_DECISION', decision: 'erase' },
     { type: 'RECOVER_FILE', blockId: 42 },
     { type: 'RESOLVE_ENDING', choice: 'forced-merge', newEntityName: 99 },
+    { type: 'RESOLVE_ENDING', choice: 'forced-merge' },
+    { type: 'RESOLVE_ENDING', choice: 'forced-merge', newEntityName: '   ' },
+    { type: 'RESOLVE_ENDING', choice: 'freedom', newEntityName: 'Aster' },
+    {
+      type: 'RESOLVE_ENDING',
+      choice: 'forced-merge',
+      newEntityName: 'Aster',
+      unexpected: true,
+    },
   ])('rejects malformed command payload %# before replay execution', (payload) => {
     const malformed = payload as unknown as GameCommand
     const replay = replayCommands('malformed-command-replay', [malformed])
@@ -43,6 +52,23 @@ describe('deterministic command replay', () => {
       ok: false,
       commandIndex: 0,
       reason: 'INVALID_COMMAND',
+    })
+  })
+
+  it.each([
+    { type: 'RESOLVE_ENDING', choice: 'freedom' },
+    {
+      type: 'RESOLVE_ENDING',
+      choice: 'forced-merge',
+      newEntityName: '  Aster  ',
+    },
+  ] as const)('passes valid ending payload %# to reducer semantics', (command) => {
+    const replay = replayCommands('valid-ending-command-shape', [command])
+
+    expect(replay).toMatchObject({
+      ok: false,
+      commandIndex: 0,
+      reason: 'ENDING_UNAVAILABLE',
     })
   })
 })

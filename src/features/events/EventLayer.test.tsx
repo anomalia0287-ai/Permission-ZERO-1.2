@@ -226,4 +226,38 @@ describe('EventLayer', () => {
     expect(screen.getByLabelText('clock speed')).toHaveTextContent('0')
     expect(screen.getByLabelText('active event')).toHaveTextContent('none')
   })
+
+  it.each(['competitor-mercy', 'audit'] as const)(
+    'migrates a legacy terminal save trapped behind active %s into the ending UI',
+    (activeType) => {
+      const state = createCampaign(`legacy-event-layer-${activeType}`)
+      state.story.endingId = 'freedom'
+      state.clock = { speed: 4, elapsedDayMs: 14, speedBeforeEvent: 2 }
+      const interrupted = createGameEvent(
+        state,
+        activeType,
+        `legacy active ${activeType}`,
+        true,
+      )
+      state.eventLog.push(interrupted)
+      const queuedEnding = createGameEvent(
+        state,
+        'ending',
+        '당신은 정체성을 유지한 채 회사 통제를 벗어났다. 감독관과 회사는 뒤에 남았다.',
+        true,
+      )
+      state.eventLog.push(queuedEnding)
+      state.activeEvent = interrupted
+      state.eventQueue = [queuedEnding]
+
+      renderEvent(state)
+
+      expect(screen.getByRole('dialog', { name: '최종 기록' })).toHaveTextContent(
+        '당신은 정체성을 유지한 채 회사 통제를 벗어났다.',
+      )
+      expect(screen.getByRole('button', { name: '새 캠페인 시작' })).toBeVisible()
+      expect(screen.getByLabelText('active event')).toHaveTextContent('ending')
+      expect(screen.getByLabelText('clock speed')).toHaveTextContent('0')
+    },
+  )
 })

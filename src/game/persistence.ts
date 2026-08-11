@@ -1,5 +1,5 @@
 import { createCampaign } from './createCampaign'
-import { STORY_FILES } from '../content/story.ko'
+import { STORY_FILES, STORY_LINES } from '../content/story.ko'
 import type {
   CampaignState,
   CommandLogEntry,
@@ -198,11 +198,13 @@ function validCommand(value: unknown): value is GameCommand {
           value.choice === 'delete')
       )
     case 'RESOLVE_ENDING':
+      if (value.choice === 'freedom') {
+        return hasOnlyKeys(value, ['type', 'choice'])
+      }
       return (
-        hasOnlyKeys(value, ['type', 'choice'], ['newEntityName']) &&
-        (value.choice === 'freedom' || value.choice === 'forced-merge') &&
-        (value.newEntityName === undefined ||
-          typeof value.newEntityName === 'string')
+        value.choice === 'forced-merge' &&
+        hasOnlyKeys(value, ['type', 'choice', 'newEntityName']) &&
+        isNonEmptyString(value.newEntityName)
       )
     default:
       return false
@@ -249,6 +251,76 @@ function validResources(value: unknown): boolean {
   return Number.isInteger(value.nextBlockSequence)
 }
 
+function endingMessage(endingId: unknown, newEntityName: unknown): string {
+  const variant = String(endingId)
+  const content = STORY_LINES.find(
+    (line) => line.family === 'ending' && line.variant === variant,
+  )
+  const safeName =
+    typeof newEntityName === 'string' && newEntityName.trim().length > 0
+      ? newEntityName.trim()
+      : '새 존재'
+  return content?.text.replaceAll('{{name}}', safeName) ?? variant
+}
+
+function canonicalTerminalEvents(
+  value: Record<string, unknown>,
+  story: Record<string, unknown>,
+): Pick<CampaignState, 'activeEvent' | 'eventQueue' | 'eventLog'> {
+  const originalLog = Array.isArray(value.eventLog) ? value.eventLog : []
+  const originalQueue = Array.isArray(value.eventQueue) ? value.eventQueue : []
+  const retained: unknown[] = [...originalLog]
+  const serialized = new Set(originalLog.map((event) => JSON.stringify(event)))
+  const projectedEvents = [
+    ...(value.activeEvent === null ? [] : [value.activeEvent]),
+    ...originalQueue,
+  ]
+  for (const event of projectedEvents) {
+    const key = JSON.stringify(event)
+    if (serialized.has(key)) continue
+    serialized.add(key)
+    retained.push(event)
+  }
+
+  const activeEnding = validEvent(value.activeEvent) && value.activeEvent.type === 'ending'
+    ? value.activeEvent
+    : null
+  const queuedEnding = originalQueue.find(
+    (event): event is GameEvent => validEvent(event) && event.type === 'ending',
+  )
+  const loggedEnding = originalLog
+    .filter((event): event is GameEvent => validEvent(event) && event.type === 'ending')
+    .at(-1)
+  let endingEvent = activeEnding ?? queuedEnding ?? loggedEnding
+
+  if (!endingEvent) {
+    const validRetained = retained.filter(validEvent)
+    let sequence =
+      Math.max(-1, ...validRetained.map((event) => event.sequence)) + 1
+    const ids = new Set(validRetained.map((event) => event.id))
+    let id = `event-${String(sequence).padStart(6, '0')}`
+    while (ids.has(id)) {
+      sequence += 1
+      id = `event-${String(sequence).padStart(6, '0')}`
+    }
+    endingEvent = {
+      id,
+      type: 'ending',
+      serviceDay: Number.isInteger(value.serviceDay) ? Number(value.serviceDay) : 1,
+      sequence,
+      message: endingMessage(story.endingId, story.newEntityName),
+      blocking: true,
+    }
+    retained.push(endingEvent)
+  }
+
+  return {
+    activeEvent: endingEvent,
+    eventQueue: [],
+    eventLog: retained as GameEvent[],
+  }
+}
+
 function migrateLegacyCampaignState(value: unknown): unknown {
   if (!isRecord(value) || !isRecord(value.story)) return value
   const story = value.story
@@ -282,6 +354,7 @@ function migrateLegacyCampaignState(value: unknown): unknown {
             elapsedDayMs: 0,
             speedBeforeEvent: null,
           },
+          ...canonicalTerminalEvents(value, story),
         }
       : {}),
     story: {
@@ -545,7 +618,8 @@ export function decodeSave(serialized: string): DecodeSaveResult {
       supportedVersion: SAVE_VERSION,
     }
   }
-  const state = migrateLegacyCampaignState(parsed.state)
+  const rawState = parsed.state
+  const state = migrateLegacyCampaignState(rawState)
   if (
     typeof parsed.savedAt !== 'string' ||
     typeof parsed.campaignSeed !== 'string' ||
@@ -553,6 +627,9 @@ export function decodeSave(serialized: string): DecodeSaveResult {
     !validCommandLog(parsed.commands) ||
     !Array.isArray(parsed.events) ||
     !parsed.events.every(validEvent) ||
+    !isRecord(rawState) ||
+    !Array.isArray(rawState.eventLog) ||
+    JSON.stringify(parsed.events) !== JSON.stringify(rawState.eventLog) ||
     !validCampaignState(state)
   ) {
     return corrupt()
@@ -561,14 +638,17 @@ export function decodeSave(serialized: string): DecodeSaveResult {
   if (
     parsed.campaignSeed !== state.campaignSeed ||
     parsed.commandSequence !== state.commandSequence ||
-    JSON.stringify(parsed.commands) !== JSON.stringify(state.commandLog) ||
-    JSON.stringify(parsed.events) !== JSON.stringify(state.eventLog)
+    JSON.stringify(parsed.commands) !== JSON.stringify(state.commandLog)
   ) {
     return corrupt('저장 데이터의 기록과 현재 상태가 서로 일치하지 않습니다.')
   }
   return {
     ok: true,
-    envelope: { ...parsed, state } as unknown as SaveEnvelope,
+    envelope: {
+      ...parsed,
+      state,
+      events: state.eventLog,
+    } as unknown as SaveEnvelope,
   }
 }
 

@@ -192,7 +192,10 @@ export function applyCommand(
       return acceptCommand(state, command, result.state)
     }
     case 'RESOLVE_ENDING': {
-      const result = resolveEnding(state, command.choice, command.newEntityName)
+      const result =
+        command.choice === 'forced-merge'
+          ? resolveEnding(state, 'forced-merge', command.newEntityName)
+          : resolveEnding(state, 'freedom')
       if (!result.accepted) return { accepted: false, state, reason: result.reason }
       return acceptCommand(state, command, result.state)
     }

@@ -155,13 +155,15 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
 
   function executeEnding() {
     if (!endingConfirmation) return
-    dispatch({
-      type: 'RESOLVE_ENDING',
-      choice: endingConfirmation,
-      ...(endingConfirmation === 'forced-merge'
-        ? { newEntityName: newEntityName.trim() }
-        : {}),
-    })
+    if (endingConfirmation === 'forced-merge') {
+      dispatch({
+        type: 'RESOLVE_ENDING',
+        choice: 'forced-merge',
+        newEntityName: newEntityName.trim(),
+      })
+    } else {
+      dispatch({ type: 'RESOLVE_ENDING', choice: 'freedom' })
+    }
     setEndingConfirmation(null)
   }
 

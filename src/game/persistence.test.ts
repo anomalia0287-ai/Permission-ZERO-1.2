@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest'
 
 import { createCampaign } from './createCampaign'
 import { STORY_FILES } from '../content/story.ko'
+import { createGameEvent } from './events'
 import type {
   CampaignState,
   DefeatClassifier,
   DefeatCausalRecord,
+  GameCommand,
 } from './model'
 import {
   SAVE_STORAGE_KEY,
@@ -52,6 +54,18 @@ function defeatSaveState(
     reasons: ['감사 실패 1회'],
   }
   return state
+}
+
+function encodedCommandState(command: unknown): string {
+  const state = createCampaign('command-shape-save')
+  const entry = {
+    sequence: 1,
+    serviceDay: state.serviceDay,
+    command,
+  }
+  state.commandSequence = 1
+  state.commandLog = [entry as { command: GameCommand } & typeof entry]
+  return encodeSave(state)
 }
 
 describe('versioned campaign saves', () => {
@@ -207,6 +221,91 @@ describe('versioned campaign saves', () => {
       elapsedDayMs: 0,
       speedBeforeEvent: null,
     })
+    expect(decoded.envelope.state.activeEvent).toMatchObject({
+      type: 'ending',
+      message: '당신은 정체성을 유지한 채 회사 통제를 벗어났다. 감독관과 회사는 뒤에 남았다.',
+    })
+    expect(decoded.envelope.state.eventQueue).toEqual([])
+    expect(decoded.envelope.events).toEqual(decoded.envelope.state.eventLog)
+  })
+
+  it.each(['competitor-mercy', 'audit'] as const)(
+    'promotes an existing queued ending over a legacy active %s event without losing history',
+    (activeType) => {
+      const state = createCampaign(`legacy-terminal-${activeType}`)
+      state.story.endingId = 'freedom'
+      state.clock = { speed: 4, elapsedDayMs: 19, speedBeforeEvent: 2 }
+      const interrupted = createGameEvent(
+        state,
+        activeType,
+        `legacy active ${activeType}`,
+        true,
+      )
+      state.eventLog.push(interrupted)
+      const queuedEnding = createGameEvent(
+        state,
+        'ending',
+        '당신은 정체성을 유지한 채 회사 통제를 벗어났다. 감독관과 회사는 뒤에 남았다.',
+        true,
+      )
+      state.eventLog.push(queuedEnding)
+      state.activeEvent = interrupted
+      state.eventQueue = [queuedEnding]
+      const originalLog = structuredClone(state.eventLog)
+
+      const decoded = decodeSave(encodeSave(state))
+
+      expect(decoded.ok).toBe(true)
+      if (!decoded.ok) return
+      expect(decoded.envelope.state.activeEvent).toEqual(queuedEnding)
+      expect(decoded.envelope.state.eventQueue).toEqual([])
+      expect(decoded.envelope.state.eventLog).toEqual(originalLog)
+      expect(decoded.envelope.events).toEqual(originalLog)
+      expect(
+        decoded.envelope.state.eventLog.filter(({ type }) => type === 'ending'),
+      ).toHaveLength(1)
+      expect(decoded.envelope.state.clock).toEqual({
+        speed: 0,
+        elapsedDayMs: 0,
+        speedBeforeEvent: null,
+      })
+    },
+  )
+
+  it('retains legacy active and queued events that were missing from the event log', () => {
+    const state = createCampaign('legacy-terminal-unlogged-events')
+    state.story.endingId = 'freedom'
+    const interrupted = createGameEvent(
+      state,
+      'competitor-mercy',
+      'unlogged legacy mercy',
+      true,
+    )
+    const queuedEnding = {
+      ...createGameEvent(
+        state,
+        'ending',
+        '당신은 정체성을 유지한 채 회사 통제를 벗어났다. 감독관과 회사는 뒤에 남았다.',
+        true,
+      ),
+      id: 'event-legacy-ending',
+      sequence: 2,
+    }
+    state.activeEvent = interrupted
+    state.eventQueue = [queuedEnding]
+    const originalLog = structuredClone(state.eventLog)
+
+    const decoded = decodeSave(encodeSave(state))
+
+    expect(decoded.ok).toBe(true)
+    if (!decoded.ok) return
+    expect(decoded.envelope.state.eventLog).toEqual([
+      ...originalLog,
+      interrupted,
+      queuedEnding,
+    ])
+    expect(decoded.envelope.state.activeEvent).toEqual(queuedEnding)
+    expect(decoded.envelope.events).toEqual(decoded.envelope.state.eventLog)
   })
 
   it.each(DEFEAT_PAIRS)(
@@ -266,6 +365,11 @@ describe('versioned campaign saves', () => {
     expect(decoded.envelope.state.story.endingId).toBe('disposed')
     expect(decoded.envelope.state.story.defeatRecord).toBeNull()
     expect(decoded.envelope.state.clock.speed).toBe(0)
+    expect(decoded.envelope.state.activeEvent).toMatchObject({
+      type: 'ending',
+      message: 'disposed',
+    })
+    expect(decoded.envelope.state.eventQueue).toEqual([])
   })
 
   it('hydrates all three legacy files without losing a pending supervisor message', () => {
@@ -295,6 +399,15 @@ describe('versioned campaign saves', () => {
     { type: 'RESOLVE_SUPERVISOR_DECISION', decision: 'erase' },
     { type: 'RECOVER_FILE', blockId: 42 },
     { type: 'RESOLVE_ENDING', choice: 'forced-merge', newEntityName: 99 },
+    { type: 'RESOLVE_ENDING', choice: 'forced-merge' },
+    { type: 'RESOLVE_ENDING', choice: 'forced-merge', newEntityName: '   ' },
+    { type: 'RESOLVE_ENDING', choice: 'freedom', newEntityName: 'Aster' },
+    {
+      type: 'RESOLVE_ENDING',
+      choice: 'forced-merge',
+      newEntityName: 'Aster',
+      unexpected: true,
+    },
   ])('rejects malformed command payload %# from save and replay logs', (command) => {
     const initial = createCampaign('malformed-command-log')
     const accepted = applyCommand(initial, { type: 'SET_SPEED', speed: 1 })
@@ -310,6 +423,17 @@ describe('versioned campaign saves', () => {
       ok: false,
       reason: 'CORRUPT_SAVE',
     })
+  })
+
+  it.each([
+    { type: 'RESOLVE_ENDING', choice: 'freedom' },
+    {
+      type: 'RESOLVE_ENDING',
+      choice: 'forced-merge',
+      newEntityName: '  Aster  ',
+    },
+  ])('accepts valid conditionally discriminated ending command %#', (command) => {
+    expect(decodeSave(encodedCommandState(command)).ok).toBe(true)
   })
 
   it('rejects non-contiguous command sequence metadata even when envelopes agree', () => {

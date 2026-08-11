@@ -296,7 +296,11 @@ describe('typed confidential-file and supervisor routes', () => {
       }),
     )
     for (const choice of ['freedom', 'forced-merge'] as const) {
-      expect(applyCommand(dueTick, { type: 'RESOLVE_ENDING', choice })).toEqual({
+      const command: GameCommand =
+        choice === 'freedom'
+          ? { type: 'RESOLVE_ENDING', choice }
+          : { type: 'RESOLVE_ENDING', choice, newEntityName: 'Blocked' }
+      expect(applyCommand(dueTick, command)).toEqual({
         accepted: false,
         state: dueTick,
         reason: 'BLOCKING_EVENT_ACTIVE',
