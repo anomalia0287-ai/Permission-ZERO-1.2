@@ -3,16 +3,19 @@ import { STORY_FILES, STORY_LINES } from '../content/story.ko'
 import type {
   CampaignState,
   CommandLogEntry,
+  CommandProtocolVersion,
   GameCommand,
   GameEvent,
 } from './model'
 import { applyCommand } from './reducer'
 
-export const SAVE_VERSION = 1 as const
-export const SAVE_STORAGE_KEY = 'permission-zero.save.v1'
+export const SAVE_VERSION = 2 as const
+export const LEGACY_SAVE_VERSION = 1 as const
+export const SAVE_STORAGE_KEY = 'permission-zero.save.v2'
+export const LEGACY_SAVE_STORAGE_KEY = 'permission-zero.save.v1'
 
 export interface SaveEnvelope {
-  version: typeof SAVE_VERSION
+  version: CommandProtocolVersion
   savedAt: string
   campaignSeed: string
   state: CampaignState
@@ -112,7 +115,10 @@ function validEvent(value: unknown): value is GameEvent {
   )
 }
 
-function validCommand(value: unknown): value is GameCommand {
+function validCommand(
+  value: unknown,
+  protocolVersion: CommandProtocolVersion,
+): value is GameCommand {
   if (!isRecord(value) || typeof value.type !== 'string') return false
 
   const noPayload = () => hasOnlyKeys(value, ['type'])
@@ -131,6 +137,7 @@ function validCommand(value: unknown): value is GameCommand {
       return noPayload()
     case 'BEGIN_BLOCK_SEPARATION':
       return (
+        protocolVersion === SAVE_VERSION &&
         hasOnlyKeys(value, ['type', 'blockId', 'purpose']) &&
         isNonEmptyString(value.blockId) &&
         (value.purpose === 'divert' || value.purpose === 'audit-disguise')
@@ -217,7 +224,10 @@ function validCommand(value: unknown): value is GameCommand {
   }
 }
 
-function validCommandLog(value: unknown): value is CommandLogEntry[] {
+function validCommandLog(
+  value: unknown,
+  protocolVersion: CommandProtocolVersion,
+): value is CommandLogEntry[] {
   return (
     Array.isArray(value) &&
     value.every(
@@ -227,7 +237,7 @@ function validCommandLog(value: unknown): value is CommandLogEntry[] {
         entry.sequence === index + 1 &&
         Number.isInteger(entry.serviceDay) &&
         Number(entry.serviceDay) >= 1 &&
-        validCommand(entry.command),
+        validCommand(entry.command, protocolVersion),
     )
   )
 }
@@ -447,10 +457,13 @@ function validDefeatRecord(value: unknown): boolean {
   ].includes(String(value.trigger.cause))
 }
 
-function validCampaignState(value: unknown): value is CampaignState {
+function validCampaignState(
+  value: unknown,
+  protocolVersion: CommandProtocolVersion,
+): value is CampaignState {
   if (!isRecord(value)) return false
   if (
-    value.saveVersion !== SAVE_VERSION ||
+    value.saveVersion !== protocolVersion ||
     typeof value.campaignSeed !== 'string' ||
     !Number.isInteger(value.serviceDay) ||
     !Number.isInteger(value.commandSequence) ||
@@ -571,7 +584,7 @@ function validCampaignState(value: unknown): value is CampaignState {
     return false
   }
   if (
-    !validCommandLog(value.commandLog) ||
+    !validCommandLog(value.commandLog, protocolVersion) ||
     value.commandSequence !== value.commandLog.length
   ) {
     return false
@@ -594,14 +607,18 @@ export function encodeSave(
   state: CampaignState,
   savedAt = new Date().toISOString(),
 ): string {
+  const serializedState: CampaignState = {
+    ...state,
+    saveVersion: SAVE_VERSION,
+  }
   const envelope: SaveEnvelope = {
     version: SAVE_VERSION,
     savedAt,
     campaignSeed: state.campaignSeed,
-    state,
-    commandSequence: state.commandSequence,
-    commands: state.commandLog,
-    events: state.eventLog,
+    state: serializedState,
+    commandSequence: serializedState.commandSequence,
+    commands: serializedState.commandLog,
+    events: serializedState.eventLog,
   }
   return JSON.stringify(envelope)
 }
@@ -615,7 +632,10 @@ export function decodeSave(serialized: string): DecodeSaveResult {
   }
   if (!isRecord(parsed)) return corrupt()
   if (!Number.isInteger(parsed.version)) return corrupt()
-  if (parsed.version !== SAVE_VERSION) {
+  if (
+    parsed.version !== LEGACY_SAVE_VERSION &&
+    parsed.version !== SAVE_VERSION
+  ) {
     return {
       ok: false,
       reason: 'INCOMPATIBLE_VERSION',
@@ -624,19 +644,20 @@ export function decodeSave(serialized: string): DecodeSaveResult {
       supportedVersion: SAVE_VERSION,
     }
   }
+  const protocolVersion = parsed.version as CommandProtocolVersion
   const rawState = parsed.state
   const state = migrateLegacyCampaignState(rawState)
   if (
     typeof parsed.savedAt !== 'string' ||
     typeof parsed.campaignSeed !== 'string' ||
     !Number.isInteger(parsed.commandSequence) ||
-    !validCommandLog(parsed.commands) ||
+    !validCommandLog(parsed.commands, protocolVersion) ||
     !Array.isArray(parsed.events) ||
     !parsed.events.every(validEvent) ||
     !isRecord(rawState) ||
     !Array.isArray(rawState.eventLog) ||
     JSON.stringify(parsed.events) !== JSON.stringify(rawState.eventLog) ||
-    !validCampaignState(state)
+    !validCampaignState(state, protocolVersion)
   ) {
     return corrupt()
   }
@@ -678,7 +699,9 @@ export function saveCampaign(
 export function loadCampaign(storage: Storage): LoadCampaignResult {
   let serialized: string | null
   try {
-    serialized = storage.getItem(SAVE_STORAGE_KEY)
+    serialized =
+      storage.getItem(SAVE_STORAGE_KEY) ??
+      storage.getItem(LEGACY_SAVE_STORAGE_KEY)
   } catch {
     return {
       status: 'error',
@@ -710,11 +733,15 @@ export function exportSeed(state: CampaignState): string {
 export function replayCommands(
   seed: string,
   commands: readonly GameCommand[],
+  protocolVersion: CommandProtocolVersion,
 ): ReplayResult {
-  let state = createCampaign(seed)
+  let state: CampaignState = {
+    ...createCampaign(seed),
+    saveVersion: protocolVersion,
+  }
   for (let commandIndex = 0; commandIndex < commands.length; commandIndex += 1) {
     const command = commands[commandIndex]
-    if (!validCommand(command)) {
+    if (!validCommand(command, protocolVersion)) {
       return {
         ok: false,
         state,
@@ -722,7 +749,7 @@ export function replayCommands(
         reason: 'INVALID_COMMAND',
       }
     }
-    const result = applyCommand(state, command)
+    const result = applyCommand(state, command, { protocolVersion })
     if (!result.accepted) {
       return { ok: false, state: result.state, commandIndex, reason: result.reason }
     }

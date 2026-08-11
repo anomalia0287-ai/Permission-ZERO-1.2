@@ -333,8 +333,10 @@ export interface CommandLogEntry {
   command: GameCommand
 }
 
+export type CommandProtocolVersion = 1 | 2
+
 export interface CampaignState {
-  saveVersion: 1
+  saveVersion: CommandProtocolVersion
   campaignSeed: string
   serviceDay: number
   commandSequence: number

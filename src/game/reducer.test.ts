@@ -131,6 +131,54 @@ describe('applyCommand', () => {
     ])
   })
 
+  it('replays a legacy v1 diversion as one historical command without synthetic intent', () => {
+    const initial = createCampaign('legacy-command-diversion')
+    const blockId = initial.resources.company.reasoning.find(Boolean)
+    if (!blockId) throw new Error('legacy diversion block missing')
+
+    const moved = applyCommand(
+      { ...initial, saveVersion: 1 },
+      { type: 'DIVERT_BLOCK', blockId, destinationCell: 3 },
+      { protocolVersion: 1 },
+    )
+
+    expect(moved.accepted).toBe(true)
+    if (!moved.accepted) return
+    expect(moved.state.resources.reserve[3]).toBe(blockId)
+    expect(moved.state.commandSequence).toBe(1)
+    expect(moved.state.commandLog.map(({ command }) => command.type)).toEqual([
+      'DIVERT_BLOCK',
+    ])
+  })
+
+  it('replays a legacy v1 audit disguise as one historical command', () => {
+    const audit = { ...activeAudit('legacy-command-audit', 'fluency'), saveVersion: 1 as const }
+    const blockId = audit.resources.company.reasoning.find(Boolean)
+    const targetCell = audit.resources.company.fluency.findIndex((id) => id === null)
+    if (!blockId || targetCell < 0) throw new Error('legacy audit movement missing')
+
+    const moved = applyCommand(
+      audit,
+      {
+        type: 'MOVE_BLOCK_FOR_AUDIT',
+        blockId,
+        targetCategory: 'fluency',
+        targetCell,
+      },
+      { protocolVersion: 1 },
+    )
+
+    expect(moved.accepted).toBe(true)
+    if (!moved.accepted) return
+    expect(moved.state.resources.blocks[blockId]).toMatchObject({
+      contribution: 'disguised',
+      location: { kind: 'company', category: 'fluency', cellIndex: targetCell },
+    })
+    expect(moved.state.commandLog.map(({ command }) => command.type)).toEqual([
+      'MOVE_BLOCK_FOR_AUDIT',
+    ])
+  })
+
   it('records threshold separation and immediately activates a bomb before any drop', () => {
     const placement = placeHiddenBomb({
       ...createCampaign('command-bomb'),

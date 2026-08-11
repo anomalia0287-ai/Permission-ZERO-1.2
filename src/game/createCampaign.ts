@@ -127,7 +127,7 @@ export function createCampaign(seed: string): CampaignState {
   }
 
   const campaign: CampaignState = {
-    saveVersion: 1,
+    saveVersion: 2,
     campaignSeed: seed,
     serviceDay: DEMO_PROFILE_02.calendar.startServiceDay,
     commandSequence: 0,

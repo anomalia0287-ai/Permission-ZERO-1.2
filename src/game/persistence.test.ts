@@ -19,6 +19,9 @@ import {
 } from './persistence'
 import { applyCommand } from './reducer'
 import { MemoryStorage } from '../test/fixtures'
+import legacyV1TransferEnvelope from '../test/legacy-v1-transfer-save.json'
+
+const legacyV1TransferSave = JSON.stringify(legacyV1TransferEnvelope)
 
 const DEFEAT_PAIRS = [
   ['disposed-attacker', 'substantial-hacking'],
@@ -68,6 +71,16 @@ function encodedCommandState(command: unknown): string {
   return encodeSave(state)
 }
 
+function encodedLegacyV1State(state: CampaignState): string {
+  const parsed = JSON.parse(encodeSave(state)) as {
+    version: number
+    state: { saveVersion: number }
+  }
+  parsed.version = 1
+  parsed.state.saveVersion = 1
+  return JSON.stringify(parsed)
+}
+
 describe('versioned campaign saves', () => {
   it('round-trips the entire campaign envelope exactly', () => {
     const state = createCampaign('save-round-trip')
@@ -77,7 +90,7 @@ describe('versioned campaign saves', () => {
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
     expect(decoded.envelope).toMatchObject({
-      version: 1,
+      version: 2,
       savedAt: '2026-08-12T00:00:00.000Z',
       campaignSeed: 'save-round-trip',
       commandSequence: state.commandSequence,
@@ -87,6 +100,56 @@ describe('versioned campaign saves', () => {
     expect(decoded.envelope.state).toEqual(state)
   })
 
+  it('decodes and loads the genuine historical v1 transfer save without rewriting it', () => {
+    const decoded = decodeSave(legacyV1TransferSave)
+    const storage = new MemoryStorage()
+    storage.setItem('permission-zero.save.v1', legacyV1TransferSave)
+    const loaded = loadCampaign(storage)
+
+    expect(decoded.ok).toBe(true)
+    if (!decoded.ok) return
+    expect(decoded.envelope.version).toBe(1)
+    expect(decoded.envelope.commandSequence).toBe(31)
+    expect(decoded.envelope.commands).toEqual(decoded.envelope.state.commandLog)
+    expect(loaded.status).toBe('loaded')
+    if (loaded.status !== 'loaded') return
+    expect(loaded.envelope.version).toBe(1)
+    expect(loaded.state).toEqual(decoded.envelope.state)
+  })
+
+  it('still rejects malformed command payloads inside a v1 save', () => {
+    const parsed = JSON.parse(legacyV1TransferSave) as {
+      commands: Array<{ command: Record<string, unknown> }>
+      state: { commandLog: Array<{ command: Record<string, unknown> }> }
+    }
+    parsed.commands[0].command.destinationCell = 99
+    parsed.state.commandLog[0].command.destinationCell = 99
+
+    expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
+  })
+
+  it('does not accept a v2 intentional-separation command inside a v1 log', () => {
+    const parsed = JSON.parse(legacyV1TransferSave) as {
+      commands: Array<{ command: unknown }>
+      state: { commandLog: Array<{ command: unknown }> }
+    }
+    const command = {
+      type: 'BEGIN_BLOCK_SEPARATION',
+      blockId: 'reasoning-00',
+      purpose: 'divert',
+    }
+    parsed.commands[0].command = command
+    parsed.state.commandLog[0].command = command
+
+    expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
+  })
+
   it('persists and reloads through the browser storage boundary', () => {
     const storage = new MemoryStorage()
     const state = createCampaign('storage-reload')
@@ -94,6 +157,10 @@ describe('versioned campaign saves', () => {
     const loaded = loadCampaign(storage)
 
     expect(saved).toEqual({ ok: true })
+    expect(JSON.parse(storage.getItem(SAVE_STORAGE_KEY) ?? '{}')).toMatchObject({
+      version: 2,
+      state: { saveVersion: 2 },
+    })
     expect(loaded.status).toBe('loaded')
     if (loaded.status !== 'loaded') return
     expect(loaded.state).toEqual(state)
@@ -127,7 +194,7 @@ describe('versioned campaign saves', () => {
       ok: false,
       reason: 'INCOMPATIBLE_VERSION',
       foundVersion: 99,
-      supportedVersion: 1,
+      supportedVersion: 2,
     })
   })
 
@@ -212,10 +279,11 @@ describe('versioned campaign saves', () => {
     state.story.endingId = 'freedom'
     state.clock = { speed: 0, elapsedDayMs: 12, speedBeforeEvent: 4 }
 
-    const decoded = decodeSave(encodeSave(state))
+    const decoded = decodeSave(encodedLegacyV1State(state))
 
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
+    expect(decoded.envelope.version).toBe(1)
     expect(decoded.envelope.state.clock).toEqual({
       speed: 0,
       elapsedDayMs: 0,
