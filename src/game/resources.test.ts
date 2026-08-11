@@ -287,10 +287,29 @@ describe('monthly company allocation', () => {
       ...full,
       resources: { ...full.resources, company, blocks },
     }
+    const sentinels = Object.fromEntries(
+      COMPANY_CATEGORIES.map((category) => [
+        category,
+        partial.resources.company[category].flatMap((blockId, cellIndex) =>
+          blockId === null
+            ? []
+            : [{ cellIndex, blockId, block: partial.resources.blocks[blockId] }],
+        ),
+      ]),
+    ) as Record<
+      CompanyCategory,
+      Array<{ cellIndex: number; blockId: string; block: ResourceBlock }>
+    >
     const allocated = grantMonthlyCompanyBlocks(partial)
 
     for (const category of COMPANY_CATEGORIES) {
       expect(allocated.resources.company[category].filter(Boolean)).toHaveLength(18)
+      for (const sentinel of sentinels[category]) {
+        expect(allocated.resources.company[category][sentinel.cellIndex]).toBe(
+          sentinel.blockId,
+        )
+        expect(allocated.resources.blocks[sentinel.blockId]).toBe(sentinel.block)
+      }
     }
     expect(allocated.resources.nextBlockSequence).toBe(
       partial.resources.nextBlockSequence + COMPANY_CATEGORIES.length,

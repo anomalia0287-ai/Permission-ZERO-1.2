@@ -5,7 +5,9 @@ import {
   advanceFixedStep,
   enqueueBlockingEvent,
   formatServiceDate,
+  processMonthStart,
   resolveActiveEvent,
+  type MonthStartTransitions,
 } from './calendar'
 import { applyCommand } from './reducer'
 import {
@@ -209,7 +211,29 @@ describe('fixed campaign calendar', () => {
     expect(advanced.suspicion).toBeCloseTo(39.963)
   })
 
-  it('makes the audit decision, grants company blocks, then checks bomb placement', () => {
+  it('runs exact audit, company grant, bomb, and self-compute month-start order', () => {
+    type Transition = MonthStartTransitions['decideAudit']
+    const mark = (name: string): Transition => (state) => ({
+      ...state,
+      campaignSeed: `${state.campaignSeed}|${name}`,
+    })
+
+    const transitioned = processMonthStart(
+      { ...withSpeed(1), serviceDay: 361 },
+      {
+        decideAudit: mark('audit'),
+        grantCompany: mark('company'),
+        checkBomb: mark('bomb'),
+        grantSelfCompute: mark('self-compute'),
+      },
+    )
+
+    expect(transitioned.campaignSeed).toBe(
+      'clock-seed|audit|company|bomb|self-compute',
+    )
+  })
+
+  it('places a due bomb onto a same-month company grant', () => {
     const running = withSpeed(1)
     const initial = {
       ...running,

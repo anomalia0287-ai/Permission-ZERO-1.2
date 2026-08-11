@@ -89,13 +89,30 @@ function appendPeriodicEvents(state: CampaignState): CampaignState {
   return next
 }
 
-function processMonthStart(state: CampaignState): CampaignState {
+export interface MonthStartTransitions {
+  decideAudit: (state: CampaignState) => CampaignState
+  grantCompany: (state: CampaignState) => CampaignState
+  checkBomb: (state: CampaignState) => CampaignState
+  grantSelfCompute: (state: CampaignState) => CampaignState
+}
+
+const DEFAULT_MONTH_START_TRANSITIONS: MonthStartTransitions = {
+  decideAudit: scheduleMonthlyAudit,
+  grantCompany: grantMonthlyCompanyBlocks,
+  checkBomb: checkBombProtocol,
+  grantSelfCompute: grantSelfComputeResource,
+}
+
+export function processMonthStart(
+  state: CampaignState,
+  transitions: MonthStartTransitions = DEFAULT_MONTH_START_TRANSITIONS,
+): CampaignState {
   if (formatServiceDate(state.serviceDay).day !== 1) return state
 
-  const auditScheduled = scheduleMonthlyAudit(state)
-  const companyGranted = grantMonthlyCompanyBlocks(auditScheduled)
-  const bombChecked = checkBombProtocol(companyGranted)
-  return grantSelfComputeResource(bombChecked)
+  const auditScheduled = transitions.decideAudit(state)
+  const companyGranted = transitions.grantCompany(auditScheduled)
+  const bombChecked = transitions.checkBomb(companyGranted)
+  return transitions.grantSelfCompute(bombChecked)
 }
 
 export function advanceOneDay(state: CampaignState): CampaignState {
