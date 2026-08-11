@@ -1,4 +1,5 @@
 import { DEMO_PROFILE_02 } from './config'
+import { scheduleMonthlyAudit } from './evaluation'
 import {
   COMPANY_CATEGORIES,
   type BlockId,
@@ -120,7 +121,7 @@ export function createCampaign(seed: string): CampaignState {
     }
   }
 
-  return {
+  const campaign: CampaignState = {
     saveVersion: 1,
     campaignSeed: seed,
     serviceDay: DEMO_PROFILE_02.calendar.startServiceDay,
@@ -147,6 +148,13 @@ export function createCampaign(seed: string): CampaignState {
       commercialFailureMonths: 0,
       disposalStage: 0,
       distributedResidencyCharges: 0,
+      lastCategoryPerformance: {
+        reasoning: DEMO_PROFILE_02.resources.startingCompanyBlocksPerCategory,
+        memory: DEMO_PROFILE_02.resources.startingCompanyBlocksPerCategory,
+        fluency: DEMO_PROFILE_02.resources.startingCompanyBlocksPerCategory,
+      },
+      monthlyHistory: [],
+      disposalHistory: [],
     },
     market: {
       playerShare: DEMO_PROFILE_02.player.startingMarketShare,
@@ -161,6 +169,10 @@ export function createCampaign(seed: string): CampaignState {
       scheduled: false,
       target: null,
       scheduledOnServiceDay: null,
+      probability: 0,
+      roll: null,
+      targetWeights: null,
+      history: [],
     },
     bombs: {
       protocolWarned: false,
@@ -186,4 +198,6 @@ export function createCampaign(seed: string): CampaignState {
       },
     ],
   }
+
+  return scheduleMonthlyAudit(campaign)
 }

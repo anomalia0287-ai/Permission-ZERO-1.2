@@ -90,6 +90,46 @@ export interface MarketState {
   history: MarketSnapshot[]
 }
 
+export type DisposalCause =
+  | 'consecutive-performance-failures'
+  | 'commercial-value-failure'
+  | 'audit-failure'
+
+export interface DisposalRecord {
+  serviceDay: number
+  cause: DisposalCause
+  stageBefore: number
+  stageAfter: number
+  absorbed: boolean
+}
+
+export interface MonthlyEvaluationRecord {
+  serviceDay: number
+  serviceMonth: number
+  expectedPerformance: number
+  categoryPerformance: Record<CompanyCategory, number>
+  passed: boolean
+  failedCategories: CompanyCategory[]
+  reputationBefore: number
+  reputationDelta: number
+  reputationAfter: number
+  commercialValueFailed: boolean
+  disposalStageBefore: number
+  disposalStageAfter: number
+  disposalCauses: DisposalCause[]
+}
+
+export interface AuditRecord {
+  serviceDay: number
+  serviceMonth: number
+  target: CompanyCategory
+  expectedPerformance: number
+  submittedPerformance: number
+  passed: boolean
+  suspicionDelta: number
+  disposalAbsorbed: boolean
+}
+
 export type GameEventType =
   | 'campaign-created'
   | 'weekly-update'
@@ -138,6 +178,9 @@ export interface CampaignState {
     commercialFailureMonths: number
     disposalStage: number
     distributedResidencyCharges: number
+    lastCategoryPerformance: Record<CompanyCategory, number>
+    monthlyHistory: MonthlyEvaluationRecord[]
+    disposalHistory: DisposalRecord[]
   }
   market: MarketState
   hacking: {
@@ -148,6 +191,10 @@ export interface CampaignState {
     scheduled: boolean
     target: CompanyCategory | null
     scheduledOnServiceDay: number | null
+    probability: number
+    roll: number | null
+    targetWeights: Record<CompanyCategory, number> | null
+    history: AuditRecord[]
   }
   bombs: {
     protocolWarned: boolean

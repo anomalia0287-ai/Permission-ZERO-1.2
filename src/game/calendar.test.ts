@@ -81,10 +81,44 @@ describe('fixed campaign calendar', () => {
     const advanced = advanceFixedStep(withSpeed(4), 29 * 6_000)
 
     expect(formatServiceDate(advanced.serviceDay)).toEqual({ year: 0, month: 11, day: 30 })
-    expect(advanced.eventLog.at(-1)).toMatchObject({
-      type: 'monthly-evaluation',
-      serviceDay: 360,
-    })
+    expect(advanced.eventLog).toContainEqual(
+      expect.objectContaining({
+        type: 'monthly-evaluation',
+        serviceDay: 360,
+      }),
+    )
+    expect(advanced.evaluation.monthlyHistory).toHaveLength(1)
+  })
+
+  it('applies natural suspicion decrease once per logical day', () => {
+    const running = {
+      ...withSpeed(1),
+      suspicion: 2.4,
+    }
+    const advanced = advanceFixedStep(running, 24_000)
+
+    expect(advanced.suspicion).toBeCloseTo(2.363)
+  })
+
+  it('opens a due audit after evaluation and discards high-speed time backlog', () => {
+    const running = {
+      ...withSpeed(4),
+      serviceDay: 359,
+      audit: {
+        ...withSpeed(4).audit,
+        scheduled: true,
+        target: 'reasoning' as const,
+        scheduledOnServiceDay: 360,
+      },
+    }
+    const advanced = advanceFixedStep(running, 60_000)
+
+    expect(advanced.serviceDay).toBe(360)
+    expect(advanced.evaluation.monthlyHistory).toHaveLength(1)
+    expect(advanced.activeEvent).toMatchObject({ type: 'audit', blocking: true })
+    expect(advanced.clock.speed).toBe(0)
+    expect(advanced.clock.speedBeforeEvent).toBe(4)
+    expect(advanced.clock.elapsedDayMs).toBe(0)
   })
 })
 

@@ -1,5 +1,14 @@
 import { DEMO_PROFILE_02 } from './config'
+import {
+  decreaseSuspicionDaily,
+  evaluateMonth,
+  openScheduledAudit,
+  scheduleMonthlyAudit,
+} from './evaluation'
 import type { CampaignState, GameEvent, GameEventType } from './model'
+import { restoreDisguiseBlocks } from './resources'
+
+export { enqueueBlockingEvent, resolveActiveEvent } from './events'
 
 export interface ServiceDate {
   year: number
@@ -40,6 +49,10 @@ function appendPeriodicEvents(state: CampaignState): CampaignState {
   const { day } = formatServiceDate(state.serviceDay)
   let next = state
 
+  if (day === 1) {
+    next = scheduleMonthlyAudit(next)
+  }
+
   if ([7, 14, 21, 28].includes(day)) {
     const weekly = createTimedEvent(
       next,
@@ -56,15 +69,23 @@ function appendPeriodicEvents(state: CampaignState): CampaignState {
       `서비스 ${state.serviceDay}일차 공식 성능 평가`,
     )
     next = { ...next, eventLog: [...next.eventLog, monthly] }
+    next = evaluateMonth(next)
+    next = openScheduledAudit(next)
   }
 
   return next
 }
 
 export function advanceOneDay(state: CampaignState): CampaignState {
+  const advanced = restoreDisguiseBlocks(
+    decreaseSuspicionDaily({
+      ...state,
+      serviceDay: state.serviceDay + 1,
+    }),
+  )
+
   return appendPeriodicEvents({
-    ...state,
-    serviceDay: state.serviceDay + 1,
+    ...advanced,
   })
 }
 
@@ -82,6 +103,7 @@ export function advanceFixedStep(state: CampaignState, elapsedMs: number): Campa
     next = advanceOneDay(next)
 
     if (next.clock.speed === 0) {
+      logicalElapsed = 0
       break
     }
   }
@@ -91,59 +113,6 @@ export function advanceFixedStep(state: CampaignState, elapsedMs: number): Campa
     clock: {
       ...next.clock,
       elapsedDayMs: logicalElapsed,
-    },
-  }
-}
-
-export function enqueueBlockingEvent(state: CampaignState, event: GameEvent): CampaignState {
-  const blockingEvent = event.blocking ? event : { ...event, blocking: true as const }
-  const eventLog = state.eventLog.some(({ id }) => id === blockingEvent.id)
-    ? state.eventLog
-    : [...state.eventLog, blockingEvent]
-
-  if (state.activeEvent) {
-    return {
-      ...state,
-      eventQueue: [...state.eventQueue, blockingEvent],
-      eventLog,
-    }
-  }
-
-  return {
-    ...state,
-    activeEvent: blockingEvent,
-    eventLog,
-    clock: {
-      ...state.clock,
-      speed: 0,
-      speedBeforeEvent: state.clock.speed,
-    },
-  }
-}
-
-export function resolveActiveEvent(state: CampaignState): CampaignState {
-  if (!state.activeEvent) {
-    return state
-  }
-
-  const [nextEvent, ...remainingEvents] = state.eventQueue
-
-  if (nextEvent) {
-    return {
-      ...state,
-      activeEvent: nextEvent,
-      eventQueue: remainingEvents,
-    }
-  }
-
-  return {
-    ...state,
-    activeEvent: null,
-    eventQueue: [],
-    clock: {
-      ...state.clock,
-      speed: state.clock.speedBeforeEvent ?? 0,
-      speedBeforeEvent: null,
     },
   }
 }

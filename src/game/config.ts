@@ -25,6 +25,30 @@ export const DEMO_PROFILE_02 = {
     startingReputation: 60,
     startingMarketShare: 60,
   },
+  evaluation: {
+    expectedBase: 12.6,
+    expectedGain: 4.14,
+    expectedDecayMonths: 26,
+    reputationPassGain: 1,
+    reputationFailurePerCategory: 2,
+    severeDeficitThreshold: 2,
+    severeDeficitPenalty: 1,
+    consecutiveFailuresPerDisposal: 2,
+    commercialShareThreshold: 8,
+    commercialReputationThreshold: 20,
+    commercialFailureMonthsPerDisposal: 3,
+    maximumDisposalStage: 3,
+  },
+  suspicion: {
+    naturalDailyDecrease: 0.037,
+    auditFailureIncrease: 25,
+  },
+  audit: {
+    baseProbability: 0.03,
+    suspicionProbabilityGain: 0.45,
+    suspicionExponent: 1.7,
+    maximumProbability: 0.48,
+  },
   competitors: {
     meridian: {
       name: 'MERIDIAN',

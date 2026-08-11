@@ -61,4 +61,19 @@ describe('createCampaign', () => {
       },
     ])
   })
+
+  it('makes the first hidden audit decision on service month day 1', () => {
+    const campaign = createCampaign('owner-v')
+
+    expect(campaign.audit.roll).not.toBeNull()
+    expect(campaign.audit.probability).toBe(0.03)
+    expect(campaign.audit.targetWeights).toEqual({
+      reasoning: 1,
+      memory: 1,
+      fluency: 1,
+    })
+    expect(campaign.audit.scheduledOnServiceDay).toBe(
+      campaign.audit.scheduled ? 360 : null,
+    )
+  })
 })
