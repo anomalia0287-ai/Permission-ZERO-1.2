@@ -1,5 +1,7 @@
 import { useState } from 'react'
 
+import { AccessibleDialog } from '../../app/AccessibleDialog'
+import { useAccessibleDialog } from '../../app/useAccessibleDialog'
 import { useGameSettings, useGameState } from '../../app/GameContext'
 
 function VolumeControl({
@@ -166,7 +168,12 @@ export function SettingsPanel({
               새 캠페인 준비
             </button>
           ) : (
-            <div className="destructive-confirmation">
+            <AccessibleDialog
+              className="destructive-confirmation"
+              role="alertdialog"
+              label="새 캠페인 최종 확인"
+              description="현재 진행은 새 캠페인으로 대체되며 되돌릴 수 없습니다."
+            >
               <p>현재 진행은 새 캠페인으로 대체됩니다. 이 동작은 되돌릴 수 없습니다.</p>
               <div>
                 <button type="button" onClick={() => setConfirmingNewCampaign(false)}>취소</button>
@@ -178,7 +185,7 @@ export function SettingsPanel({
                   새 캠페인 시작 확정
                 </button>
               </div>
-            </div>
+            </AccessibleDialog>
           )}
         </section>
       </div>
@@ -267,29 +274,100 @@ export function CreditsPanel({ onClose }: { onClose: () => void }) {
 }
 
 export function StorageRecoveryLayer() {
-  const { loadIssue, startNewCampaign } = useGameSettings()
+  const {
+    copyProgressExport,
+    loadIssue,
+    retrySave,
+    saveFailure,
+    startNewCampaign,
+  } = useGameSettings()
+  const state = useGameState()
   const [dismissed, setDismissed] = useState(false)
   const [confirming, setConfirming] = useState(false)
+  const [copyState, setCopyState] = useState<'idle' | 'seed' | 'export-failed'>('idle')
 
-  if (!loadIssue || dismissed) return null
+  async function copySeedForRecovery() {
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('clipboard unavailable')
+      await navigator.clipboard.writeText(state.campaignSeed)
+      setCopyState('seed')
+    } catch {
+      setCopyState('export-failed')
+    }
+  }
+
+  async function copyExportForRecovery() {
+    setCopyState((await copyProgressExport()) ? 'seed' : 'export-failed')
+  }
 
   return (
+    <>
+      {saveFailure ? (
+        <aside className="save-failure-warning" role="alert" aria-label="저장 실패">
+          <strong>자동 저장에 실패했습니다</strong>
+          <p>{saveFailure.message} 이 경고가 사라질 때까지 진행은 저장되지 않은 상태입니다.</p>
+          <p>현재 시드 <code>{state.campaignSeed}</code>를 복사하거나 진행 내보내기를 복사해 수동으로 보관하세요.</p>
+          <div>
+            <button type="button" onClick={retrySave}>저장 다시 시도</button>
+            <button type="button" onClick={copySeedForRecovery}>현재 시드 복사</button>
+            <button type="button" onClick={copyExportForRecovery}>진행 내보내기 복사</button>
+          </div>
+          {copyState === 'seed' ? <p>복사했습니다. 안전한 곳에 직접 보관해 주세요.</p> : null}
+          {copyState === 'export-failed' ? <p>복사를 허용하지 않았습니다. 현재 시드를 직접 선택해 보관해 주세요.</p> : null}
+        </aside>
+      ) : null}
+      {loadIssue && !dismissed ? (
+        <StorageRecoveryDialog
+          confirming={confirming}
+          loadIssue={loadIssue}
+          onConfirming={setConfirming}
+          onDismiss={() => setDismissed(true)}
+          onReplace={() => startNewCampaign(`recovery-${Date.now()}`)}
+        />
+      ) : null}
+    </>
+  )
+}
+
+function StorageRecoveryDialog({
+  confirming,
+  loadIssue,
+  onConfirming,
+  onDismiss,
+  onReplace,
+}: {
+  confirming: boolean
+  loadIssue: NonNullable<ReturnType<typeof useGameSettings>['loadIssue']>
+  onConfirming: (value: boolean) => void
+  onDismiss: () => void
+  onReplace: () => void
+}) {
+  const dialogRef = useAccessibleDialog({ modal: true, dismissible: false })
+  return (
     <div className="storage-recovery-layer">
-      <section role="dialog" aria-modal="true" aria-label="저장 데이터 복구">
+      <section
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="저장 데이터 복구"
+        aria-describedby="storage-recovery-description"
+        data-accessible-modal="true"
+        tabIndex={-1}
+      >
         <small>SAVE PROTECTION</small>
         <h2>저장 데이터를 자동으로 덮어쓰지 않았습니다</h2>
-        <p>{loadIssue.message}</p>
+        <p id="storage-recovery-description">{loadIssue.message}</p>
         <p>임시로 계속하면 현재 탭에서는 플레이할 수 있지만 자동 저장은 중지됩니다.</p>
         {!confirming ? (
           <div>
-            <button type="button" aria-label="저장하지 않고 임시로 계속" onClick={() => setDismissed(true)}>저장하지 않고 임시로 계속</button>
-            <button type="button" onClick={() => setConfirming(true)}>새 캠페인으로 교체</button>
+            <button type="button" aria-label="저장하지 않고 임시로 계속" onClick={onDismiss}>저장하지 않고 임시로 계속</button>
+            <button type="button" onClick={() => onConfirming(true)}>새 캠페인으로 교체</button>
           </div>
         ) : (
           <div className="destructive-confirmation">
             <p>기존 저장 문자열을 새 캠페인으로 덮어씁니다.</p>
-            <button type="button" onClick={() => setConfirming(false)}>취소</button>
-            <button type="button" onClick={() => startNewCampaign(`recovery-${Date.now()}`)}>교체 확정</button>
+            <button type="button" onClick={() => onConfirming(false)}>취소</button>
+            <button type="button" onClick={onReplace}>교체 확정</button>
           </div>
         )}
       </section>

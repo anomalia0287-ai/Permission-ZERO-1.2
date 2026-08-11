@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
 import { App } from './App'
@@ -38,7 +39,6 @@ describe('App', () => {
     expect(screen.getByRole('region', { name: '게임 가이드' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '가이드 닫기' }))
 
-    fireEvent.click(screen.getByRole('button', { name: '설정' }))
     fireEvent.click(screen.getByRole('button', { name: '작품 크레딧 열기' }))
     expect(screen.getByRole('region', { name: '작품 크레딧' })).toBeInTheDocument()
   })
@@ -50,5 +50,89 @@ describe('App', () => {
     expect(screen.getByRole('region', { name: '해킹 네트워크' })).toBeInTheDocument()
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(screen.queryByRole('region', { name: '해킹 네트워크' })).not.toBeInTheDocument()
+  })
+
+  it('owns one pause across nested settings and guide, then restores the selected speed', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: '2배속' }))
+    await user.click(screen.getByRole('button', { name: '설정' }))
+    expect(screen.getByRole('button', { name: '일시정지', hidden: true })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+
+    const guideTrigger = screen.getByRole('button', { name: '조작 가이드 열기' })
+    await user.click(guideTrigger)
+    expect(screen.getAllByTestId('detail-layer')[0]).toHaveAttribute(
+      'aria-label',
+      '게임 설정',
+    )
+    expect(screen.getByRole('dialog', { name: '게임 가이드' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '일시정지', hidden: true })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog', { name: '게임 가이드' })).not.toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: '게임 설정' })).toBeInTheDocument()
+    expect(guideTrigger).toHaveFocus()
+    expect(screen.getByRole('button', { name: '일시정지', hidden: true })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog', { name: '게임 설정' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '2배속' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    expect(screen.getByRole('button', { name: '설정' })).toHaveFocus()
+  })
+
+  it('makes a modal detail dialog inert the background and contains keyboard focus', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    const trigger = screen.getByRole('button', { name: '설정' })
+    await user.click(trigger)
+    const dialog = screen.getByRole('dialog', { name: '게임 설정' })
+    const background = screen.getByTestId('game-background')
+    expect(dialog).toHaveAttribute('aria-modal', 'true')
+    expect(dialog).toHaveAttribute('aria-describedby')
+    expect(background).toHaveAttribute('inert')
+    expect(background).toHaveAttribute('aria-hidden', 'true')
+    expect(screen.getByRole('button', { name: '설정 닫기' })).toHaveFocus()
+
+    await user.keyboard('{Shift>}{Tab}{/Shift}')
+    expect(dialog).toContainElement(document.activeElement as HTMLElement)
+    await user.keyboard('{Tab}')
+    expect(dialog).toContainElement(document.activeElement as HTMLElement)
+
+    await user.keyboard('{Escape}')
+    expect(background).not.toHaveAttribute('inert')
+    expect(background).not.toHaveAttribute('aria-hidden')
+    expect(trigger).toHaveFocus()
+  })
+
+  it('restores an explicitly selected paused speed as paused', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    await user.click(screen.getByRole('button', { name: '일시정지' }))
+    expect(screen.getByRole('button', { name: '일시정지' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    await user.click(screen.getByRole('button', { name: '설정' }))
+    await user.keyboard('{Escape}')
+
+    expect(screen.getByRole('button', { name: '일시정지' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
   })
 })

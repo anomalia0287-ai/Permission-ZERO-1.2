@@ -11,6 +11,7 @@ import { availableBombExplanations } from '../../game/bombs'
 import { expectedPerformance, serviceMonthForDay } from '../../game/evaluation'
 import type { BombExplanationId, GameEvent } from '../../game/model'
 import { getCompanyPerformance } from '../../game/resources'
+import { useAccessibleDialog } from '../../app/useAccessibleDialog'
 
 type Decision =
   | { kind: 'bomb'; id: BombExplanationId; label: string }
@@ -75,18 +76,28 @@ function EventDialog({ event }: { event: GameEvent }) {
     : []
   const auditTarget = event.type === 'audit' ? state.audit.target : null
   const isAuditWorkspace = event.type === 'audit' && auditTarget !== null
+  const dialogRef = useAccessibleDialog({
+    modal: !isAuditWorkspace,
+    dismissible: false,
+  })
+  const titleId = `${event.id}-title`
+  const descriptionId = `${event.id}-description`
 
   return (
     <section
+      ref={dialogRef}
       className={`event-card event-card--${event.type}`}
       role="dialog"
       aria-modal={isAuditWorkspace ? 'false' : 'true'}
-      aria-labelledby="active-event-title"
+      aria-labelledby={titleId}
+      aria-describedby={descriptionId}
+      data-accessible-modal={isAuditWorkspace ? 'false' : 'true'}
+      tabIndex={-1}
     >
       <header>
         <div>
           <small>BLOCKING EVENT · DAY {event.serviceDay}</small>
-          <h2 id="active-event-title">{EVENT_TITLES[event.type]}</h2>
+          <h2 id={titleId}>{EVENT_TITLES[event.type]}</h2>
         </div>
         {state.eventQueue.length > 0 ? (
           <span>대기 중 {state.eventQueue.length}건</span>
@@ -97,7 +108,7 @@ function EventDialog({ event }: { event: GameEvent }) {
 
       <div className="event-message">
         <span className="event-signal" aria-hidden="true" />
-        <p>{event.message}</p>
+        <p id={descriptionId}>{event.message}</p>
       </div>
 
       {event.type === 'ending' && state.story.defeatRecord ? (

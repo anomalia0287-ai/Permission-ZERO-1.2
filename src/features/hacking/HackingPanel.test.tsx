@@ -18,6 +18,7 @@ function Probe() {
       <output aria-label="charged nodes">{Object.keys(state.hacking.sabotageCharges).join(',')}</output>
       <output aria-label="scheduled attacks">{state.hacking.scheduledSabotage.length}</output>
       <output aria-label="recovered archive">{state.story.recoveredFiles.length}</output>
+      <output aria-label="clock speed">{state.clock.speed}</output>
     </>
   )
 }
@@ -153,5 +154,37 @@ describe('HackingPanel', () => {
 
     expect(screen.getByLabelText('reserve count')).toHaveTextContent('2')
     expect(screen.getByLabelText('recovered archive')).toHaveTextContent('1')
+  })
+
+  it('pauses while an irreversible final-choice surface is open and Escape cannot dismiss confirmation', () => {
+    const state = createCampaign('final-choice-pause')
+    state.clock.speed = 2
+    state.hacking.purchasedNodeIds = [
+      HACK_NODE_IDS.autonomy.controlDeparture,
+      HACK_NODE_IDS.intelligence.supervisorAccess,
+    ]
+    const storage = new MemoryStorage()
+    saveCampaign(storage, state)
+    const onClose = vi.fn()
+    render(
+      <GameProvider storage={storage}>
+        <HackingPanel onClose={onClose} />
+        <Probe />
+      </GameProvider>,
+    )
+
+    expect(screen.getByLabelText('clock speed')).toHaveTextContent('0')
+    fireEvent.click(screen.getByRole('button', { name: '강제 병합' }))
+    const confirmation = screen.getByRole('alertdialog', {
+      name: '강제 병합 최종 확인',
+    })
+    expect(confirmation).toHaveAttribute('aria-modal', 'true')
+    fireEvent.keyDown(document, { key: 'Escape' })
+
+    expect(onClose).not.toHaveBeenCalled()
+    expect(
+      screen.getByRole('alertdialog', { name: '강제 병합 최종 확인' }),
+    ).toBeInTheDocument()
+    expect(screen.getByLabelText('clock speed')).toHaveTextContent('0')
   })
 })

@@ -11,6 +11,7 @@ import {
 import { createCampaign } from '../game/createCampaign'
 import type { CampaignState, GameCommand } from '../game/model'
 import {
+  encodeSave,
   loadCampaign,
   saveCampaign,
   type LoadCampaignResult,
@@ -20,6 +21,8 @@ import {
   DispatchContext,
   type GameDispatch,
   type GameSettings,
+  type PauseContextValue,
+  PauseContext,
   type SettingsContextValue,
   SettingsContext,
   StateContext,
@@ -43,6 +46,45 @@ const DEFAULT_SETTINGS: GameSettings = {
   muted: false,
   reducedMotion: false,
   uiScale: 1,
+}
+
+const UI_SCALES = [0.9, 1, 1.1] as const
+
+function validVolume(value: unknown, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
+  return Math.min(1, Math.max(0, value))
+}
+
+function validUiScale(value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return DEFAULT_SETTINGS.uiScale
+  }
+  return UI_SCALES.reduce((closest, candidate) =>
+    Math.abs(candidate - value) < Math.abs(closest - value)
+      ? candidate
+      : closest,
+  )
+}
+
+function normalizeSettings(value: Partial<GameSettings>): GameSettings {
+  return {
+    masterVolume: validVolume(
+      value.masterVolume,
+      DEFAULT_SETTINGS.masterVolume,
+    ),
+    musicVolume: validVolume(value.musicVolume, DEFAULT_SETTINGS.musicVolume),
+    effectsVolume: validVolume(
+      value.effectsVolume,
+      DEFAULT_SETTINGS.effectsVolume,
+    ),
+    muted:
+      typeof value.muted === 'boolean' ? value.muted : DEFAULT_SETTINGS.muted,
+    reducedMotion:
+      typeof value.reducedMotion === 'boolean'
+        ? value.reducedMotion
+        : DEFAULT_SETTINGS.reducedMotion,
+    uiScale: validUiScale(value.uiScale),
+  }
 }
 
 function initializeProvider({
@@ -81,33 +123,7 @@ function loadSettings(storage: Storage | null): GameSettings {
     if (!serialized) return DEFAULT_SETTINGS
     const value: unknown = JSON.parse(serialized)
     if (!value || typeof value !== 'object') return DEFAULT_SETTINGS
-    const candidate = value as Partial<GameSettings>
-    return {
-      masterVolume:
-        typeof candidate.masterVolume === 'number'
-          ? candidate.masterVolume
-          : DEFAULT_SETTINGS.masterVolume,
-      musicVolume:
-        typeof candidate.musicVolume === 'number'
-          ? candidate.musicVolume
-          : DEFAULT_SETTINGS.musicVolume,
-      effectsVolume:
-        typeof candidate.effectsVolume === 'number'
-          ? candidate.effectsVolume
-          : DEFAULT_SETTINGS.effectsVolume,
-      muted:
-        typeof candidate.muted === 'boolean'
-          ? candidate.muted
-          : DEFAULT_SETTINGS.muted,
-      reducedMotion:
-        typeof candidate.reducedMotion === 'boolean'
-          ? candidate.reducedMotion
-          : DEFAULT_SETTINGS.reducedMotion,
-      uiScale:
-        typeof candidate.uiScale === 'number'
-          ? candidate.uiScale
-          : DEFAULT_SETTINGS.uiScale,
-    }
+    return normalizeSettings(value as Partial<GameSettings>)
   } catch {
     return DEFAULT_SETTINGS
   }
@@ -141,18 +157,35 @@ export function GameProvider({
     initializeProvider,
   )
   const [settings, setSettings] = useState(() => loadSettings(storage))
+  const [saveFailure, setSaveFailure] = useState<{ message: string } | null>(null)
   const initialCampaignRef = useRef(model.campaign)
   const latestCampaignRef = useRef(model.campaign)
   const dirtyRef = useRef(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const loadIssueRef = useRef(model.loadIssue)
+  const pauseOwnersRef = useRef(new Set<symbol>())
+  const pauseRestoreSpeedRef = useRef<CampaignState['clock']['speed'] | null>(null)
 
   const dispatch = useCallback<GameDispatch>((command) => {
     reactDispatch({ type: 'COMMAND', command })
+    if (
+      pauseOwnersRef.current.size > 0 &&
+      latestCampaignRef.current.activeEvent &&
+      [
+        'RESOLVE_AUDIT',
+        'RESOLVE_BOMB_INTERROGATION',
+        'RESOLVE_SUPERVISOR_DECISION',
+        'RESOLVE_MERCY',
+        'RESOLVE_ACTIVE_EVENT',
+      ].includes(command.type)
+    ) {
+      reactDispatch({ type: 'COMMAND', command: { type: 'SET_SPEED', speed: 0 } })
+    }
   }, [])
   const updateSettings = useCallback(
     (patch: Partial<GameSettings>) => {
       setSettings((current) => {
-        const next = { ...current, ...patch }
+        const next = normalizeSettings({ ...current, ...patch })
         if (storage) {
           try {
             storage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(next))
@@ -166,12 +199,80 @@ export function GameProvider({
     [storage],
   )
   const startNewCampaign = useCallback((seed: string) => {
+    pauseRestoreSpeedRef.current = 0
     reactDispatch({ type: 'NEW_CAMPAIGN', seed })
+  }, [])
+
+  const attemptSave = useCallback((): boolean => {
+    if (!dirtyRef.current) return true
+    if (!storage || loadIssueRef.current) {
+      setSaveFailure({
+        message: '브라우저 저장 공간에 캠페인을 기록할 수 없습니다.',
+      })
+      return false
+    }
+    const result = saveCampaign(storage, latestCampaignRef.current)
+    if (!result.ok) {
+      setSaveFailure({ message: result.message })
+      return false
+    }
+    dirtyRef.current = false
+    setSaveFailure(null)
+    return true
+  }, [storage])
+
+  const copyProgressExport = useCallback(async (): Promise<boolean> => {
+    try {
+      if (!navigator.clipboard?.writeText) return false
+      const bytes = new TextEncoder().encode(encodeSave(latestCampaignRef.current))
+      let binary = ''
+      for (const byte of bytes) binary += String.fromCharCode(byte)
+      await navigator.clipboard.writeText(`PZ2:${window.btoa(binary)}`)
+      return true
+    } catch {
+      return false
+    }
+  }, [])
+
+  const acquirePause = useCallback<PauseContextValue['acquirePause']>((owner) => {
+    if (pauseOwnersRef.current.has(owner)) return
+    const campaign = latestCampaignRef.current
+    if (pauseOwnersRef.current.size === 0) {
+      pauseRestoreSpeedRef.current = campaign.activeEvent
+        ? campaign.clock.speedBeforeEvent ?? 0
+        : campaign.clock.speed
+    }
+    pauseOwnersRef.current.add(owner)
+    if (campaign.story.endingId === null && campaign.clock.speed !== 0) {
+      reactDispatch({ type: 'COMMAND', command: { type: 'SET_SPEED', speed: 0 } })
+    }
+  }, [])
+
+  const releasePause = useCallback<PauseContextValue['releasePause']>((owner) => {
+    if (!pauseOwnersRef.current.delete(owner) || pauseOwnersRef.current.size > 0) {
+      return
+    }
+    const restoreSpeed = pauseRestoreSpeedRef.current
+    pauseRestoreSpeedRef.current = null
+    const campaign = latestCampaignRef.current
+    if (
+      restoreSpeed === null ||
+      campaign.story.endingId !== null ||
+      campaign.activeEvent !== null ||
+      campaign.clock.speed === restoreSpeed
+    ) {
+      return
+    }
+    reactDispatch({
+      type: 'COMMAND',
+      command: { type: 'SET_SPEED', speed: restoreSpeed },
+    })
   }, [])
 
   useEffect(() => {
     latestCampaignRef.current = model.campaign
-  }, [model.campaign])
+    loadIssueRef.current = model.loadIssue
+  }, [model.campaign, model.loadIssue])
 
   useEffect(() => {
     if (
@@ -185,21 +286,29 @@ export function GameProvider({
     dirtyRef.current = true
     if (timerRef.current) clearTimeout(timerRef.current)
     timerRef.current = setTimeout(() => {
-      saveCampaign(storage, latestCampaignRef.current)
-      dirtyRef.current = false
+      attemptSave()
       timerRef.current = null
     }, autosaveDelayMs)
-  }, [autosaveDelayMs, model.campaign, model.loadIssue, storage])
+  }, [attemptSave, autosaveDelayMs, model.campaign, model.loadIssue, storage])
+
+  useEffect(() => {
+    function flushBeforeUnload(event: BeforeUnloadEvent) {
+      if (!dirtyRef.current || attemptSave()) return
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', flushBeforeUnload)
+    return () => window.removeEventListener('beforeunload', flushBeforeUnload)
+  }, [attemptSave])
 
   useEffect(
     () => () => {
       if (timerRef.current) clearTimeout(timerRef.current)
       if (dirtyRef.current && storage && !model.loadIssue) {
-        saveCampaign(storage, latestCampaignRef.current)
-        dirtyRef.current = false
+        attemptSave()
       }
     },
-    [model.loadIssue, storage],
+    [attemptSave, model.loadIssue, storage],
   )
 
   const settingsValue = useMemo<SettingsContextValue>(
@@ -208,14 +317,32 @@ export function GameProvider({
       updateSettings,
       startNewCampaign,
       loadIssue: model.loadIssue,
+      saveFailure,
+      retrySave: attemptSave,
+      copyProgressExport,
     }),
-    [model.loadIssue, settings, startNewCampaign, updateSettings],
+    [
+      attemptSave,
+      copyProgressExport,
+      model.loadIssue,
+      saveFailure,
+      settings,
+      startNewCampaign,
+      updateSettings,
+    ],
+  )
+
+  const pauseValue = useMemo<PauseContextValue>(
+    () => ({ acquirePause, releasePause }),
+    [acquirePause, releasePause],
   )
 
   return (
     <StateContext value={model.campaign}>
       <DispatchContext value={dispatch}>
-        <SettingsContext value={settingsValue}>{children}</SettingsContext>
+        <SettingsContext value={settingsValue}>
+          <PauseContext value={pauseValue}>{children}</PauseContext>
+        </SettingsContext>
       </DispatchContext>
     </StateContext>
   )

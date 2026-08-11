@@ -1,7 +1,11 @@
-import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { act, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { useGameSettings, useGameState } from '../../app/GameContext'
+import {
+  useGameDispatch,
+  useGameSettings,
+  useGameState,
+} from '../../app/GameContext'
 import { GameProvider } from '../../app/GameProvider'
 import { SAVE_STORAGE_KEY } from '../../game/persistence'
 import { MemoryStorage } from '../../test/fixtures'
@@ -24,6 +28,39 @@ function Probe() {
     </>
   )
 }
+
+class SecurityFailingStorage extends MemoryStorage {
+  failWrites = true
+
+  override setItem(key: string, value: string): void {
+    if (this.failWrites && key === SAVE_STORAGE_KEY) {
+      throw new DOMException('private browser policy detail', 'SecurityError')
+    }
+    super.setItem(key, value)
+  }
+}
+
+function SaveFailureTrigger() {
+  const dispatch = useGameDispatch()
+  const state = useGameState()
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => {
+          dispatch({ type: 'SET_SPEED', speed: 1 })
+        }}
+      >
+        force save
+      </button>
+      <output aria-label="failure seed">{state.campaignSeed}</output>
+    </>
+  )
+}
+
+afterEach(() => {
+  vi.useRealTimers()
+})
 
 describe('SettingsPanel', () => {
   it('updates familiar sound and accessibility controls', () => {
@@ -63,6 +100,28 @@ describe('SettingsPanel', () => {
     expect(screen.getByLabelText('current seed')).toHaveTextContent('new-seed')
   })
 
+  it('moves focus into irreversible campaign confirmation and Escape cannot dismiss it', () => {
+    const onClose = vi.fn()
+    render(
+      <GameProvider storage={new MemoryStorage()} initialSeed="confirmation-focus">
+        <SettingsPanel onClose={onClose} onOpenGuide={vi.fn()} />
+      </GameProvider>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '새 캠페인 준비' }))
+    const confirmation = screen.getByRole('alertdialog', {
+      name: '새 캠페인 최종 확인',
+    })
+    expect(confirmation).toHaveAttribute('aria-describedby')
+    expect(screen.getByRole('button', { name: '취소' })).toHaveFocus()
+    fireEvent.keyDown(window, { key: 'Escape' })
+
+    expect(onClose).not.toHaveBeenCalled()
+    expect(
+      screen.getByRole('alertdialog', { name: '새 캠페인 최종 확인' }),
+    ).toBeInTheDocument()
+  })
+
   it('provides a plain-language controls guide', () => {
     render(<GuidePanel onClose={vi.fn()} />)
     expect(screen.getByRole('region', { name: '게임 가이드' })).toBeInTheDocument()
@@ -95,5 +154,30 @@ describe('SettingsPanel', () => {
     expect(screen.getByText(/손상되었거나/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '저장하지 않고 임시로 계속' }))
     expect(screen.queryByRole('dialog', { name: '저장 데이터 복구' })).not.toBeInTheDocument()
+  })
+
+  it('shows a persistent Korean save warning with safe manual recovery and retry guidance', () => {
+    vi.useFakeTimers()
+    const storage = new SecurityFailingStorage()
+    render(
+      <GameProvider storage={storage} initialSeed="manual-recovery-seed" autosaveDelayMs={25}>
+        <SaveFailureTrigger />
+        <StorageRecoveryLayer />
+      </GameProvider>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'force save' }))
+    act(() => vi.advanceTimersByTime(25))
+    const warning = screen.getByRole('alert', { name: '저장 실패' })
+    expect(warning).toHaveTextContent('자동 저장에 실패했습니다')
+    expect(warning).toHaveTextContent('manual-recovery-seed')
+    expect(warning).toHaveTextContent(/진행 내보내기|복사/)
+    expect(warning).not.toHaveTextContent('private browser policy detail')
+
+    fireEvent.click(screen.getByRole('button', { name: '저장 다시 시도' }))
+    expect(screen.getByRole('alert', { name: '저장 실패' })).toBeInTheDocument()
+    storage.failWrites = false
+    fireEvent.click(screen.getByRole('button', { name: '저장 다시 시도' }))
+    expect(screen.queryByRole('alert', { name: '저장 실패' })).not.toBeInTheDocument()
   })
 })

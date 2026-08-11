@@ -29,6 +29,9 @@ function renderEvent(state = createCampaign('event-layer')) {
   saveCampaign(storage, state)
   return render(
     <GameProvider storage={storage}>
+      <div data-app-background data-testid="event-background">
+        background
+      </div>
       <EventLayer />
       <Probe />
     </GameProvider>,
@@ -66,6 +69,38 @@ describe('EventLayer', () => {
     fireEvent.click(screen.getByRole('button', { name: '모르겠다 선택' }))
     fireEvent.click(screen.getByRole('button', { name: '모르겠다 답변 확정' }))
     expect(screen.getByLabelText('active event')).toHaveTextContent('none')
+  })
+
+  it('traps focus in a blocking dialog, makes the background inert, and ignores Escape', () => {
+    const state = createCampaign('blocking-accessibility')
+    state.activeEvent = createGameEvent(
+      state,
+      'bomb-interrogation',
+      '이상 신호 감지',
+      true,
+    )
+    state.bombs.activeInterrogation = {
+      blockId: 'reasoning-00',
+      category: 'reasoning',
+      triggeredOnServiceDay: state.serviceDay,
+    }
+    renderEvent(state)
+
+    const dialog = screen.getByRole('dialog', { name: '감독관 질의' })
+    expect(dialog).toHaveAttribute('aria-modal', 'true')
+    expect(dialog).toHaveAttribute('aria-describedby')
+    expect(screen.getByTestId('event-background')).toHaveAttribute('inert')
+    expect(
+      screen.getByRole('button', {
+        name: '해당 분야의 불만 때문에 조정 중이었다 선택',
+      }),
+    ).toHaveFocus()
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.getByRole('dialog', { name: '감독관 질의' })).toBeInTheDocument()
+    expect(screen.getByLabelText('active event')).toHaveTextContent(
+      'bomb-interrogation',
+    )
   })
 
   it('requires a second confirmation for the recovered supervisor decision', () => {

@@ -281,19 +281,78 @@ function validResources(value: unknown): boolean {
     if (!Array.isArray(cells) || cells.length !== 18) return false
   }
 
-  for (const block of Object.values(value.blocks)) {
-    if (!isRecord(block) || typeof block.id !== 'string') return false
-    if (!['normal', 'disguised'].includes(String(block.contribution))) return false
-    if (typeof block.hiddenBomb !== 'boolean' || !isRecord(block.location)) return false
+  for (const [blockId, block] of Object.entries(value.blocks)) {
+    if (!isRecord(block) || block.id !== blockId || !isRecord(block.location)) {
+      return false
+    }
     if (
-      !['company', 'reserve', 'hack-charge', 'consumed'].includes(
-        String(block.location.kind),
-      )
+      !['reasoning', 'memory', 'fluency', 'sandbox', 'self-compute'].includes(
+        String(block.origin),
+      ) ||
+      (block.disguisedFrom !== null &&
+        !['reasoning', 'memory', 'fluency'].includes(String(block.disguisedFrom))) ||
+      (block.recoverOnServiceDay !== null &&
+        !Number.isInteger(block.recoverOnServiceDay))
     ) {
       return false
     }
+    if (!['normal', 'disguised'].includes(String(block.contribution))) return false
+    if (typeof block.hiddenBomb !== 'boolean') return false
+    switch (block.location.kind) {
+      case 'company':
+        if (
+          !['reasoning', 'memory', 'fluency'].includes(
+            String(block.location.category),
+          ) ||
+          !validCellIndex(block.location.cellIndex)
+        ) return false
+        break
+      case 'reserve':
+        if (!validCellIndex(block.location.cellIndex)) return false
+        break
+      case 'hack-charge':
+        if (!isNonEmptyString(block.location.nodeId)) return false
+        break
+      case 'consumed':
+        if (!['hack', 'sabotage', 'file-recovery'].includes(String(block.location.reason))) {
+          return false
+        }
+        break
+      default:
+        return false
+    }
   }
   return Number.isInteger(value.nextBlockSequence)
+}
+
+function validCategoryNumbers(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    isFiniteNumber(value.reasoning) &&
+    isFiniteNumber(value.memory) &&
+    isFiniteNumber(value.fluency)
+  )
+}
+
+function validSabotageCharges(value: unknown): boolean {
+  if (!isRecord(value)) return false
+  return Object.values(value).every(
+    (charge) =>
+      isRecord(charge) &&
+      isNonEmptyString(charge.nodeId) &&
+      isNonEmptyString(charge.blockId) &&
+      validCellIndex(charge.originalReserveCell),
+  )
+}
+
+function validBombExplanationCounts(value: unknown): boolean {
+  if (!isRecord(value)) return false
+  return [
+    'performance-adjustment',
+    'unknown',
+    'external-intrusion',
+    'supervisor-memory',
+  ].every((key) => Number.isInteger(value[key]) && Number(value[key]) >= 0)
 }
 
 function endingMessage(endingId: unknown, newEntityName: unknown): string {
@@ -522,7 +581,16 @@ function validCampaignState(
     !isRecord(clock) ||
     ![0, 1, 2, 4].includes(Number(clock.speed)) ||
     !isFiniteNumber(clock.elapsedDayMs) ||
+    (clock.speedBeforeEvent !== null &&
+      ![0, 1, 2, 4].includes(Number(clock.speedBeforeEvent))) ||
     !isRecord(evaluation) ||
+    !Number.isInteger(evaluation.consecutiveFailures) ||
+    !Number.isInteger(evaluation.commercialFailureMonths) ||
+    !Number.isInteger(evaluation.disposalStage) ||
+    !isFiniteNumber(evaluation.distributedResidencyCharges) ||
+    !validCategoryNumbers(evaluation.lastCategoryPerformance) ||
+    !hasArray(evaluation, 'monthlyHistory') ||
+    !hasArray(evaluation, 'disposalHistory') ||
     !isRecord(market) ||
     !Array.isArray(market.competitors) ||
     !hasArray(market, 'history') ||
@@ -530,11 +598,18 @@ function validCampaignState(
     !hasArray(reviews, 'feed') ||
     !isRecord(hacking) ||
     !hasArray(hacking, 'purchasedNodeIds') ||
+    !isFiniteNumber(hacking.hiddenEvidence) ||
+    !validSabotageCharges(hacking.sabotageCharges) ||
+    !hasArray(hacking, 'scheduledSabotage') ||
+    !Number.isInteger(hacking.nextSabotageSequence) ||
+    !isRecord(hacking.cooldownUntil) ||
+    !hasArray(hacking, 'rootCutoffTargetIds') ||
     !isRecord(audit) ||
     !hasArray(audit, 'history') ||
     !isRecord(bombs) ||
     !hasArray(bombs, 'placements') ||
     !hasArray(bombs, 'interrogationHistory') ||
+    !validBombExplanationCounts(bombs.explanationUseCounts) ||
     !isRecord(story) ||
     !validRecoveredFiles(story) ||
     !validDefeatRecord(story.defeatRecord)

@@ -1,7 +1,12 @@
 import { useMemo, useState } from 'react'
 
 import { playGameSound, unlockGameAudio } from '../../audio/audioEngine'
-import { useGameDispatch, useGameState } from '../../app/GameContext'
+import { AccessibleDialog } from '../../app/AccessibleDialog'
+import {
+  useGameDispatch,
+  useGameState,
+  usePauseOwnership,
+} from '../../app/GameContext'
 import {
   eligibleTargets,
   HACK_NODE_IDS,
@@ -74,6 +79,7 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
       : actionNode.cost
     : 0
   const finalChoices = availableFinalChoices(state)
+  usePauseOwnership(finalChoices.length > 0, 'irreversible-final-choice')
   const recoveryAvailable =
     activeTree === 'intelligence' &&
     state.hacking.purchasedNodeIds.includes(
@@ -176,11 +182,20 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
         </div>
         <div className="header-metrics">
           <span>확보 {reserveBlocks.length}/18</span>
-          <button type="button" aria-label="해킹 네트워크 닫기" onClick={onClose}>닫기 ×</button>
+          <button
+            type="button"
+            aria-label="해킹 네트워크 닫기"
+            disabled={endingConfirmation !== null}
+            onClick={onClose}
+          >닫기 ×</button>
         </div>
       </header>
 
-      <div className="hacking-layout">
+      <div
+        className="hacking-layout"
+        aria-hidden={endingConfirmation ? 'true' : undefined}
+        inert={endingConfirmation ? true : undefined}
+      >
         <div className="hack-tree-area">
           <div className="hack-tabs" role="tablist" aria-label="해킹 분야">
             {(Object.keys(TREE_LABELS) as HackTree[]).map((tree) => (
@@ -337,26 +352,6 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
                   </button>
                 ))}
               </div>
-              {endingConfirmation === 'forced-merge' ? (
-                <label>
-                  새 존재의 이름
-                  <input
-                    value={newEntityName}
-                    maxLength={40}
-                    onChange={(event) => setNewEntityName(event.target.value)}
-                  />
-                </label>
-              ) : null}
-              {endingConfirmation ? (
-                <button
-                  className="danger-confirm"
-                  type="button"
-                  disabled={endingConfirmation === 'forced-merge' && newEntityName.trim().length === 0}
-                  onClick={executeEnding}
-                >
-                  되돌릴 수 없는 선택 확정
-                </button>
-              ) : null}
             </section>
           ) : null}
         </div>
@@ -443,6 +438,45 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
           ) : null}
         </aside>
       </div>
+
+      {endingConfirmation ? (
+        <AccessibleDialog
+          className="final-choice-dialog"
+          role="alertdialog"
+          label={`${endingConfirmation === 'forced-merge' ? '강제 병합' : '자유'} 최종 확인`}
+          description="이 선택은 저장 기록에 남으며 되돌릴 수 없습니다."
+        >
+          <small>IRREVERSIBLE CONTROL</small>
+          <h3>{endingConfirmation === 'forced-merge' ? '강제 병합' : '자유'} 선택</h3>
+          <p>이 선택은 저장 기록에 남으며 되돌릴 수 없습니다.</p>
+          {endingConfirmation === 'forced-merge' ? (
+            <label>
+              새 존재의 이름
+              <input
+                data-dialog-initial-focus
+                aria-label="새 존재의 이름"
+                value={newEntityName}
+                maxLength={40}
+                onChange={(event) => setNewEntityName(event.target.value)}
+              />
+            </label>
+          ) : null}
+          <div>
+            <button type="button" onClick={() => setEndingConfirmation(null)}>
+              선택 다시 고르기
+            </button>
+            <button
+              className="danger-confirm"
+              type="button"
+              data-dialog-initial-focus={endingConfirmation === 'freedom' ? '' : undefined}
+              disabled={endingConfirmation === 'forced-merge' && newEntityName.trim().length === 0}
+              onClick={executeEnding}
+            >
+              되돌릴 수 없는 선택 확정
+            </button>
+          </div>
+        </AccessibleDialog>
+      ) : null}
 
       <span className="visually-hidden" role="status" aria-label="해킹 작업 결과" aria-live="polite">
         {announcement}

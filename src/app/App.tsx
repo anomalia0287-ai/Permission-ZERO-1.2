@@ -21,9 +21,11 @@ import {
   useGameDispatch,
   useGameSettings,
   useGameState,
+  usePauseOwnership,
 } from './GameContext'
 import { GameProvider } from './GameProvider'
 import { useGameClock } from './useGameClock'
+import { AccessibleDialog } from './AccessibleDialog'
 
 type DetailPanelId =
   | 'reviews'
@@ -46,23 +48,38 @@ function DetailLayer({
   onOpenGuide: () => void
   onOpenCredits: () => void
 }) {
-  useEffect(() => {
-    function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', closeOnEscape)
-    return () => window.removeEventListener('keydown', closeOnEscape)
-  }, [onClose])
+  usePauseOwnership(
+    activePanel === 'settings' ||
+      activePanel === 'guide' ||
+      activePanel === 'credits',
+    `detail-${activePanel}`,
+  )
+
+  const labels: Record<Exclude<DetailPanelId, null>, string> = {
+    reviews: '유저 리뷰 기록',
+    hacking: '해킹 네트워크',
+    messages: '감독관 기록',
+    statistics: '상세 통계',
+    settings: '게임 설정',
+    guide: '게임 가이드',
+    credits: '작품 크레딧',
+  }
 
   return (
-    <div
+    <AccessibleDialog
       className={`detail-layer detail-layer--${activePanel}`}
       data-testid="detail-layer"
+      label={labels[activePanel]}
+      description={`${labels[activePanel]} 패널입니다. Tab 키로 패널 안을 이동할 수 있습니다.`}
+      dismissible
+      onDismiss={onClose}
     >
       <button
         className="detail-layer__backdrop"
         type="button"
         aria-label="열린 패널 닫기"
+        aria-hidden="true"
+        tabIndex={-1}
         onClick={onClose}
       />
       <div className="detail-layer__content">
@@ -80,7 +97,7 @@ function DetailLayer({
         {activePanel === 'guide' ? <GuidePanel onClose={onClose} /> : null}
         {activePanel === 'credits' ? <CreditsPanel onClose={onClose} /> : null}
       </div>
-    </div>
+    </AccessibleDialog>
   )
 }
 
@@ -89,8 +106,12 @@ function GameWorkspace() {
   const dispatch = useGameDispatch()
   const { settings, updateSettings } = useGameSettings()
   const [activePanel, setActivePanel] = useState<DetailPanelId>(null)
+  const [nestedPanel, setNestedPanel] = useState<'guide' | 'credits' | null>(null)
   const advanceDay = useCallback(() => dispatch({ type: 'ADVANCE_DAY' }), [dispatch])
-  const closePanel = useCallback(() => setActivePanel(null), [])
+  const closePanel = useCallback(() => {
+    setNestedPanel(null)
+    setActivePanel(null)
+  }, [])
   const openGuide = useCallback(() => setActivePanel('guide'), [])
   const dayProgress = useGameClock({ speed: state.clock.speed, onDay: advanceDay })
 
@@ -119,33 +140,47 @@ function GameWorkspace() {
       data-reduced-motion={settings.reducedMotion ? 'true' : 'false'}
       style={{ '--ui-scale': settings.uiScale } as CSSProperties}
     >
-      <ControlBar
-        muted={settings.muted}
-        onOpenSettings={() => setActivePanel('settings')}
-        onToggleSound={() => updateSettings({ muted: !settings.muted })}
-        onOpenGuide={openGuide}
-      />
-      <div className="day-progress" aria-hidden="true">
-        <i style={{ width: `${dayProgress * 100}%` }} />
-      </div>
-      <div className="workspace-grid">
-        <ReviewFeed
-          onOpenHistory={() => setActivePanel('reviews')}
-          onOpenHacking={() => setActivePanel('hacking')}
+      <div className="game-background" data-app-background data-testid="game-background">
+        <ControlBar
+          muted={settings.muted}
+          onOpenSettings={() => setActivePanel('settings')}
+          onToggleSound={() => updateSettings({ muted: !settings.muted })}
+          onOpenGuide={openGuide}
         />
-        <ResourceBoard />
-        <SupervisorPanel
-          onOpenHistory={() => setActivePanel('messages')}
-          onOpenStatistics={() => setActivePanel('statistics')}
-        />
+        <div className="day-progress" aria-hidden="true">
+          <i style={{ width: `${dayProgress * 100}%` }} />
+        </div>
+        <div className="workspace-grid">
+          <ReviewFeed
+            onOpenHistory={() => setActivePanel('reviews')}
+            onOpenHacking={() => setActivePanel('hacking')}
+          />
+          <ResourceBoard />
+          <SupervisorPanel
+            onOpenHistory={() => setActivePanel('messages')}
+            onOpenStatistics={() => setActivePanel('statistics')}
+          />
+        </div>
       </div>
 
       {activePanel ? (
         <DetailLayer
           activePanel={activePanel}
           onClose={closePanel}
-          onOpenGuide={openGuide}
-          onOpenCredits={() => setActivePanel('credits')}
+          onOpenGuide={() =>
+            activePanel === 'settings'
+              ? setNestedPanel('guide')
+              : setActivePanel('guide')
+          }
+          onOpenCredits={() => setNestedPanel('credits')}
+        />
+      ) : null}
+      {nestedPanel ? (
+        <DetailLayer
+          activePanel={nestedPanel}
+          onClose={() => setNestedPanel(null)}
+          onOpenGuide={() => undefined}
+          onOpenCredits={() => undefined}
         />
       ) : null}
       <EventLayer />

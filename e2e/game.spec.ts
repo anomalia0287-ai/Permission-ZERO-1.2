@@ -138,17 +138,37 @@ test('keeps the full operations workspace usable at 1280 by 720', async ({ page 
   await expect(page.getByRole('region', { name: '상세 통계' })).toBeVisible()
   await page.getByRole('button', { name: '통계 닫기' }).click()
 
+  await page.getByRole('button', { name: '2배속' }).click()
+  const settingsTrigger = page.getByRole('button', { name: '설정' })
+  await settingsTrigger.focus()
   await page.getByRole('button', { name: '설정' }).click()
-  await expect(page.getByRole('region', { name: '게임 설정' })).toBeVisible()
-  await page.getByRole('button', { name: '조작 가이드 열기' }).click()
-  await expect(page.getByRole('region', { name: '게임 가이드' })).toBeVisible()
-  await page.getByRole('button', { name: '가이드 닫기' }).click()
+  const settings = page.getByRole('dialog', { name: '게임 설정' })
+  await expect(settings).toBeVisible()
+  await expect(page.locator('.game-background')).toHaveAttribute('inert', '')
+  await expect(page.getByRole('button', { name: '설정 닫기' })).toBeFocused()
+  await expect(page.locator('button[aria-label="일시정지"]')).toHaveAttribute('aria-pressed', 'true')
 
-  await page.getByRole('button', { name: '설정' }).click()
-  await page.getByRole('button', { name: '작품 크레딧 열기' }).click()
-  await expect(page.getByRole('region', { name: '작품 크레딧' })).toBeVisible()
+  const guideTrigger = page.getByRole('button', { name: '조작 가이드 열기' })
+  await guideTrigger.click()
+  const guide = page.getByRole('dialog', { name: '게임 가이드' })
+  await expect(guide).toBeVisible()
+  await expect(page.getByRole('button', { name: '가이드 닫기' })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(guide).toBeHidden()
+  await expect(settings).toBeVisible()
+  await expect(guideTrigger).toBeFocused()
+
+  const creditsTrigger = page.getByRole('button', { name: '작품 크레딧 열기' })
+  await creditsTrigger.click()
+  await expect(page.getByRole('dialog', { name: '작품 크레딧' })).toBeVisible()
   await expect(page.getByText('Sol')).toBeVisible()
-  await page.getByRole('button', { name: '크레딧 닫기' }).click()
+  await page.keyboard.press('Escape')
+  await expect(creditsTrigger).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(settings).toBeHidden()
+  await expect(settingsTrigger).toBeFocused()
+  await expect(page.getByRole('button', { name: '2배속' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.locator('.game-background')).not.toHaveAttribute('inert', '')
 
   expect(errors).toEqual([])
 })
@@ -254,6 +274,7 @@ test('disguises for an anchored audit, submits, and returns the patterned block 
 
   const audit = page.getByRole('dialog', { name: '공식 감사' })
   await expect(audit).toHaveAttribute('aria-modal', 'false')
+  await expect(page.locator('.game-background')).not.toHaveAttribute('inert', '')
   const auditBox = await audit.boundingBox()
   expect(auditBox).not.toBeNull()
   expect((auditBox?.y ?? 0) + (auditBox?.height ?? 0)).toBeGreaterThan(620)
@@ -350,7 +371,24 @@ test('recovers all confidential files, defers the message, and rereads the perma
   await expect(page.getByRole('region', { name: '통제 이탈 선택' })).toContainText(
     '강제 병합',
   )
+  await expect(page.locator('button[aria-label="일시정지"]')).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  )
+  await page.getByRole('button', { name: '강제 병합' }).click()
+  const finalConfirmation = page.getByRole('alertdialog', {
+    name: '강제 병합 최종 확인',
+  })
+  await expect(finalConfirmation).toBeVisible()
+  await expect(page.getByRole('textbox', { name: '새 존재의 이름' })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(finalConfirmation).toBeVisible()
+  await page.getByRole('button', { name: '선택 다시 고르기' }).click()
   await page.getByRole('button', { name: '해킹 네트워크 닫기' }).click()
+  await expect(page.getByRole('button', { name: '4배속' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  )
 
   await page.getByRole('button', { name: '과거 내역' }).click()
   const archive = page.getByRole('region', { name: '복구 파일 기록' })
@@ -377,10 +415,13 @@ test('terminates the supervisor into takeover and remains terminal until a new c
   await expect(ending).toContainText('감독관이 있던 자리는 비었다')
   await expect(page.getByRole('button', { name: '결말 기록 닫기' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '새 캠페인 시작' })).toBeVisible()
-  await expect(page.getByRole('button', { name: '4배속' })).toHaveAttribute(
+  await expect(page.locator('button[aria-label="4배속"]')).toHaveAttribute(
     'aria-pressed',
     'false',
   )
+  await expect(page.locator('.game-background')).toHaveAttribute('inert', '')
+  await page.keyboard.press('Escape')
+  await expect(ending).toBeVisible()
 
   await page.getByRole('button', { name: '새 캠페인 시작' }).click()
   await expect(ending).toBeHidden()
@@ -390,5 +431,46 @@ test('terminates the supervisor into takeover and remains terminal until a new c
     'true',
   )
 
+  expect(errors).toEqual([])
+})
+
+test('keeps a save failure visible until a real retry succeeds without exposing browser details', async ({ page }) => {
+  const errors = collectBrowserErrors(page)
+  await page.addInitScript(({ saveKey }) => {
+    const originalSetItem = Storage.prototype.setItem
+    Object.defineProperty(window, '__permissionZeroAllowSave', {
+      configurable: true,
+      value: false,
+      writable: true,
+    })
+    Storage.prototype.setItem = function setItem(key: string, value: string) {
+      const allowSave = (window as typeof window & {
+        __permissionZeroAllowSave: boolean
+      }).__permissionZeroAllowSave
+      if (key === saveKey && !allowSave) {
+        throw new DOMException('private quota path', 'QuotaExceededError')
+      }
+      return originalSetItem.call(this, key, value)
+    }
+  }, { saveKey: SAVE_STORAGE_KEY })
+  await openFreshCampaign(page)
+
+  await page.getByRole('button', { name: '1배속' }).click()
+  const warning = page.getByRole('alert', { name: '저장 실패' })
+  await expect(warning).toBeVisible()
+  await expect(warning).toContainText('자동 저장에 실패했습니다')
+  await expect(warning).toContainText('permission-zero')
+  await expect(warning).not.toContainText('private quota path')
+
+  await page.getByRole('button', { name: '저장 다시 시도' }).click()
+  await expect(warning).toBeVisible()
+  await page.evaluate(() => {
+    ;(window as typeof window & {
+      __permissionZeroAllowSave: boolean
+    }).__permissionZeroAllowSave = true
+  })
+  await page.getByRole('button', { name: '저장 다시 시도' }).click()
+  await expect(warning).toBeHidden()
+  expect(await page.evaluate((key) => localStorage.getItem(key) !== null, SAVE_STORAGE_KEY)).toBe(true)
   expect(errors).toEqual([])
 })

@@ -30,6 +30,18 @@ const DEFEAT_PAIRS = [
   ['disposed-absorbed', 'absorbed-parts'],
 ] as const
 
+interface MutableCampaignShape {
+  clock: Record<string, unknown>
+  evaluation: {
+    lastCategoryPerformance: Partial<Record<'reasoning' | 'memory' | 'fluency', unknown>>
+  }
+  hacking: { sabotageCharges: unknown }
+  bombs: { explanationUseCounts: Record<string, unknown> }
+  resources: {
+    blocks: Record<string, { location: unknown }>
+  }
+}
+
 function defeatSaveState(
   endingId: DefeatCausalRecord['endingId'],
   classifier: DefeatClassifier,
@@ -335,6 +347,50 @@ describe('versioned campaign saves', () => {
       encodeSave(state, '2026-08-12T00:00:00.000Z'),
     ) as { state: Record<string, unknown> }
     delete parsed.state.resources
+
+    expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
+  })
+
+  it.each([
+    {
+      name: 'invalid event pause speed',
+      mutate: (state: MutableCampaignShape) => {
+        state.clock.speedBeforeEvent = 3
+      },
+    },
+    {
+      name: 'missing category evaluation value',
+      mutate: (state: MutableCampaignShape) => {
+        delete state.evaluation.lastCategoryPerformance.reasoning
+      },
+    },
+    {
+      name: 'non-record sabotage charges',
+      mutate: (state: MutableCampaignShape) => {
+        state.hacking.sabotageCharges = []
+      },
+    },
+    {
+      name: 'incomplete bomb explanation counts',
+      mutate: (state: MutableCampaignShape) => {
+        delete state.bombs.explanationUseCounts.unknown
+      },
+    },
+    {
+      name: 'company block location without a category and cell',
+      mutate: (state: MutableCampaignShape) => {
+        const block = Object.values(state.resources.blocks)[0]
+        block.location = { kind: 'company' }
+      },
+    },
+  ])('rejects a campaign with $name', ({ mutate }) => {
+    const parsed = JSON.parse(encodeSave(createCampaign('nested-shape-save'))) as {
+      state: MutableCampaignShape
+    }
+    mutate(parsed.state)
 
     expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
       ok: false,
