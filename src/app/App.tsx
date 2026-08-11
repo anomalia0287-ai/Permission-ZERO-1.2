@@ -1,8 +1,8 @@
 import { useCallback } from 'react'
 
 import { ControlBar } from '../features/control/ControlBar'
-import { CATEGORY_LABELS } from '../game/config'
-import { COMPANY_CATEGORIES, type ReviewSentiment } from '../game/model'
+import { ResourceBoard } from '../features/resources/ResourceBoard'
+import type { ReviewSentiment } from '../game/model'
 import { useGameDispatch, useGameState } from './GameContext'
 import { GameProvider } from './GameProvider'
 import { useGameClock } from './useGameClock'
@@ -12,6 +12,10 @@ const SENTIMENT_LABELS: Record<ReviewSentiment, string> = {
   neutral: '일반',
   negative: '불만',
   prompt: '프롬프트',
+}
+
+function formatCompactNumber(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1)
 }
 
 function PanelHeading({
@@ -66,135 +70,6 @@ function ReviewPanel() {
   )
 }
 
-function ResourceCell({
-  blockId,
-  label,
-  index,
-  kind,
-}: {
-  blockId: string | null
-  label: string
-  index: number
-  kind: 'company' | 'reserve'
-}) {
-  const state = blockId ? '할당됨' : '비어 있음'
-  const source = blockId?.startsWith('sandbox') ? '자체 지급' : '회사 할당'
-
-  return (
-    <div
-      className={`resource-cell ${blockId ? 'resource-cell--filled' : ''} resource-cell--${kind}`}
-      role="gridcell"
-      aria-label={`${label} ${index + 1}, ${state}`}
-      data-block-id={blockId ?? undefined}
-    >
-      {blockId ? (
-        <span className="resource-block" aria-hidden="true">
-          <i />
-          <small>{source}</small>
-        </span>
-      ) : (
-        <span className="empty-coordinate" aria-hidden="true">
-          {String(index + 1).padStart(2, '0')}
-        </span>
-      )}
-    </div>
-  )
-}
-
-function ResourcePanel() {
-  const state = useGameState()
-
-  return (
-    <section className="workspace-panel resource-panel" aria-label="회사 제공 성능">
-      <PanelHeading
-        index="02"
-        title="회사 제공 성능"
-        detail="ALLOCATED COMPUTE / 3 × 6 PER DOMAIN"
-      />
-
-      <div className="company-resource-groups">
-        {COMPANY_CATEGORIES.map((category) => {
-          const cells = state.resources.company[category]
-          const filled = cells.filter(Boolean).length
-          const performance = state.evaluation.lastCategoryPerformance[category]
-
-          return (
-            <section className="category-bank" key={category}>
-              <header>
-                <div>
-                  <span className="category-code">{category.slice(0, 3).toUpperCase()}</span>
-                  <h3>{CATEGORY_LABELS[category]}</h3>
-                </div>
-                <output aria-label={`${CATEGORY_LABELS[category]} 할당량`}>
-                  {filled}<small>/18</small>
-                </output>
-              </header>
-              <div
-                className="resource-grid company-grid"
-                role="grid"
-                aria-label={`${CATEGORY_LABELS[category]} 회사 리소스`}
-              >
-                {cells.map((blockId, index) => (
-                  <ResourceCell
-                    key={`${category}-${index}`}
-                    blockId={blockId}
-                    label={`${CATEGORY_LABELS[category]} 회사 리소스`}
-                    index={index}
-                    kind="company"
-                  />
-                ))}
-              </div>
-              <footer>
-                <span>현재 기여도</span>
-                <strong>{performance.toFixed(1)}</strong>
-              </footer>
-            </section>
-          )
-        })}
-      </div>
-
-      <section className="reserve-bank" aria-label="확보 리소스">
-        <header>
-          <div>
-            <span className="reserve-pulse" aria-hidden="true" />
-            <div>
-              <h3>확보 리소스</h3>
-              <p>회사 원장 외부 · 최대 18 블록</p>
-            </div>
-          </div>
-          <output>
-            {state.resources.reserve.filter(Boolean).length}<small>/18</small>
-          </output>
-        </header>
-        <div className="resource-grid reserve-grid" role="grid" aria-label="확보 리소스 저장소">
-          {state.resources.reserve.map((blockId, index) => (
-            <ResourceCell
-              key={`reserve-${index}`}
-              blockId={blockId}
-              label="확보 리소스"
-              index={index}
-              kind="reserve"
-            />
-          ))}
-        </div>
-      </section>
-
-      <div className="performance-strip" aria-label="성능 비교">
-        <div>
-          <span>회사 기대 성능</span>
-          <strong>12.6</strong>
-        </div>
-        {COMPANY_CATEGORIES.map((category) => (
-          <div key={category}>
-            <span>{CATEGORY_LABELS[category]}</span>
-            <strong>{state.evaluation.lastCategoryPerformance[category].toFixed(1)}</strong>
-          </div>
-        ))}
-      </div>
-    </section>
-  )
-}
-
 function SupervisorPanel() {
   const state = useGameState()
   const latestEvent = state.activeEvent ?? state.eventLog.at(-1)
@@ -216,7 +91,7 @@ function SupervisorPanel() {
         </header>
         <div className="suspicion-meter">
           <div>
-            <span>의심 {Math.round(state.suspicion)}</span>
+            <span>의심 {formatCompactNumber(state.suspicion)}</span>
             <small>/100</small>
           </div>
           <span className="meter-track" aria-hidden="true">
@@ -283,7 +158,7 @@ function GameWorkspace() {
       </div>
       <div className="workspace-grid">
         <ReviewPanel />
-        <ResourcePanel />
+        <ResourceBoard />
         <SupervisorPanel />
       </div>
     </main>

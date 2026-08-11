@@ -1,0 +1,278 @@
+:root {
+  --motion-micro: 150ms;
+  --motion-state: 230ms;
+  --motion-settle: 360ms;
+  --motion-ease-ui: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --motion-ease-magnet: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.resource-block-button {
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  touch-action: none;
+  cursor: grab;
+  transition:
+    border-color var(--motion-micro) var(--motion-ease-ui),
+    background-color var(--motion-micro) var(--motion-ease-ui),
+    opacity var(--motion-micro) linear,
+    transform var(--motion-micro) var(--motion-ease-ui);
+}
+
+.resource-block-button:hover:not(:disabled) {
+  border-color: rgb(255 195 109 / 58%);
+  transform: translateY(-1px);
+}
+
+.resource-block-button:active:not(:disabled) {
+  cursor: grabbing;
+  transform: scale(0.98);
+}
+
+.resource-block-button:disabled {
+  cursor: not-allowed;
+}
+
+.resource-block-button:disabled:not(.resource-block--settling) {
+  opacity: 0.78;
+}
+
+.resource-block--selected {
+  border-color: var(--reserve-bright);
+  background:
+    linear-gradient(145deg, rgb(214 151 69 / 25%), rgb(69 91 97 / 16%)),
+    var(--ink-2);
+  box-shadow:
+    inset 0 0 0 1px rgb(255 195 109 / 12%),
+    0 0 14px rgb(214 151 69 / 10%);
+}
+
+.resource-cell--source::after {
+  position: absolute;
+  inset: 2px;
+  z-index: 0;
+  content: "";
+  border: 1px dashed rgb(255 195 109 / 34%);
+  background: rgb(214 151 69 / 3%);
+}
+
+.resource-block--dragging {
+  opacity: 0.16;
+  animation: source-strain 110ms linear infinite alternate;
+}
+
+.resource-block--returning {
+  animation: invalid-return 280ms var(--motion-ease-ui);
+}
+
+.resource-block--settling {
+  animation: magnetic-settle var(--motion-settle) var(--motion-ease-magnet);
+}
+
+.resource-block--disguised {
+  background:
+    repeating-linear-gradient(
+      135deg,
+      rgb(214 151 69 / 18%) 0 5px,
+      rgb(111 140 147 / 15%) 5px 10px
+    ),
+    var(--ink-2);
+}
+
+.resource-block--disguised::before {
+  width: 50%;
+  background: var(--reserve);
+}
+
+.reserve-destination {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  padding: 0;
+  color: rgb(129 155 161 / 19%);
+  background: transparent;
+  font: 500 0.46rem/1 "Cascadia Code", Consolas, monospace;
+  cursor: default;
+}
+
+.reserve-destination:not(:disabled) {
+  color: rgb(255 195 109 / 48%);
+  cursor: crosshair;
+}
+
+.resource-cell--drop-ready {
+  border-color: rgb(214 151 69 / 26%);
+  background: rgb(214 151 69 / 3%);
+  transition:
+    border-color var(--motion-state) var(--motion-ease-ui),
+    background-color var(--motion-state) var(--motion-ease-ui),
+    transform var(--motion-state) var(--motion-ease-ui);
+}
+
+.resource-cell--drop-ready:nth-child(3n + 2) {
+  transition-delay: 28ms;
+}
+
+.resource-cell--drop-ready:nth-child(3n) {
+  transition-delay: 52ms;
+}
+
+.resource-cell--drop-hover {
+  z-index: 1;
+  border-color: var(--reserve-bright);
+  background: rgb(214 151 69 / 14%);
+  box-shadow: inset 0 0 18px rgb(214 151 69 / 12%);
+  transform: scale(1.045);
+}
+
+.drag-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 50;
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border: 1px solid var(--reserve-bright);
+  background:
+    linear-gradient(145deg, rgb(214 151 69 / 50%), rgb(43 61 66 / 88%)),
+    var(--ink-2);
+  box-shadow:
+    0 8px 22px rgb(0 0 0 / 42%),
+    0 0 18px rgb(214 151 69 / 15%);
+  pointer-events: none;
+  will-change: transform;
+}
+
+.drag-overlay i {
+  width: 15px;
+  height: 15px;
+  border: 1px solid rgb(255 226 184 / 65%);
+  transform: rotate(45deg);
+}
+
+.drag-trail {
+  position: fixed;
+  inset: 0;
+  z-index: 49;
+  pointer-events: none;
+}
+
+.drag-trail span {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 8px;
+  height: 8px;
+  border: 1px solid rgb(255 195 109 / 48%);
+  background: rgb(214 151 69 / 14%);
+  transform: translate3d(-20px, -20px, 0) rotate(45deg);
+  will-change: transform, opacity;
+}
+
+.interaction-hint {
+  margin-left: auto;
+  color: var(--reserve);
+  font: 500 0.48rem/1 "Cascadia Code", Consolas, monospace;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+.diversion-preview > div:first-child {
+  min-width: 0;
+}
+
+.diversion-preview > div:first-child strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diversion-preview .preview-command strong {
+  color: var(--reserve-bright);
+  font-size: 0.58rem;
+}
+
+.visually-hidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+@keyframes source-strain {
+  from {
+    transform: translateX(-1px) rotate(-0.35deg);
+  }
+
+  to {
+    transform: translateX(1px) rotate(0.35deg);
+  }
+}
+
+@keyframes invalid-return {
+  0% {
+    transform: translateX(0) scale(0.97);
+  }
+
+  38% {
+    transform: translateX(-5px) scale(1.01);
+  }
+
+  70% {
+    transform: translateX(2px);
+  }
+
+  100% {
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes magnetic-settle {
+  0% {
+    opacity: 0.2;
+    transform: translateY(-13px) scale(1.08);
+  }
+
+  56% {
+    opacity: 1;
+    transform: translateY(2px) scale(0.96);
+  }
+
+  78% {
+    transform: translateY(-1px) scale(1.015);
+  }
+
+  100% {
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drag-trail {
+    display: none;
+  }
+
+  .resource-block--dragging,
+  .resource-block--returning,
+  .resource-block--settling {
+    animation: none;
+  }
+
+  .resource-block--settling {
+    border-color: var(--reserve-bright);
+    box-shadow: inset 0 0 0 2px rgb(255 195 109 / 24%);
+  }
+
+  .resource-cell--drop-ready {
+    transition-delay: 0ms;
+  }
+}
