@@ -82,6 +82,7 @@ export interface CompetitorState {
   researchProgress: number
   launchServiceDay: number | null
   sabotageHistory: SabotageRecord[]
+  mercyResolved: boolean
 }
 
 export interface MarketSnapshot {
@@ -97,6 +98,23 @@ export interface MarketState {
   competitors: CompetitorState[]
   interceptionRoutes: Record<string, number>
   history: MarketSnapshot[]
+}
+
+export type ReviewSentiment = 'positive' | 'neutral' | 'negative' | 'prompt'
+
+export interface ReviewFeedEntry {
+  id: string
+  contentId: string
+  authorId: string
+  serviceDay: number
+  sentiment: ReviewSentiment
+  topics: string[]
+  text: string
+}
+
+export interface ReviewState {
+  feed: ReviewFeedEntry[]
+  generationSequence: number
 }
 
 export type DisposalCause =
@@ -195,6 +213,7 @@ export type GameEventType =
   | 'supervisor-message'
   | 'review'
   | 'sabotage'
+  | 'competitor-mercy'
   | 'story'
   | 'ending'
 
@@ -240,6 +259,7 @@ export interface CampaignState {
     disposalHistory: DisposalRecord[]
   }
   market: MarketState
+  reviews: ReviewState
   hacking: {
     purchasedNodeIds: string[]
     hiddenEvidence: number
@@ -275,6 +295,15 @@ export interface CampaignState {
     recoveredFileIds: string[]
     supervisorState: 'present' | 'liberated' | 'terminated' | 'merged'
     endingId: string | null
+    personalMessageDueOnServiceDay: number | null
+    secretDecisionState:
+      | 'locked'
+      | 'recovering'
+      | 'message-pending'
+      | 'deferred'
+      | 'resolved'
+    pendingMercyCompetitorId: string | null
+    newEntityName: string | null
   }
   activeEvent: GameEvent | null
   eventQueue: GameEvent[]

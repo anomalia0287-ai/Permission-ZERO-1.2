@@ -1,4 +1,5 @@
 import { DEMO_PROFILE_02 } from './config'
+import { STARTING_REVIEW_ENTRIES } from '../content/reviews.ko'
 import { scheduleMonthlyAudit } from './evaluation'
 import {
   COMPANY_CATEGORIES,
@@ -73,6 +74,7 @@ function createCompetitors(): CompetitorState[] {
       researchProgress: 1,
       launchServiceDay: DEMO_PROFILE_02.calendar.startServiceDay,
       sabotageHistory: [],
+      mercyResolved: false,
     },
     {
       id: 'tallow',
@@ -88,6 +90,7 @@ function createCompetitors(): CompetitorState[] {
       launchServiceDay:
         DEMO_PROFILE_02.calendar.startServiceDay + tallow.launchDelayDays,
       sabotageHistory: [],
+      mercyResolved: false,
     },
   ]
 }
@@ -164,6 +167,13 @@ export function createCampaign(seed: string): CampaignState {
       interceptionRoutes: {},
       history: [],
     },
+    reviews: {
+      feed: STARTING_REVIEW_ENTRIES.map((entry) => ({
+        ...entry,
+        topics: [...entry.topics],
+      })),
+      generationSequence: 0,
+    },
     hacking: {
       purchasedNodeIds: [],
       hiddenEvidence: 0,
@@ -204,6 +214,10 @@ export function createCampaign(seed: string): CampaignState {
       recoveredFileIds: [],
       supervisorState: 'present',
       endingId: null,
+      personalMessageDueOnServiceDay: null,
+      secretDecisionState: 'locked',
+      pendingMercyCompetitorId: null,
+      newEntityName: null,
     },
     activeEvent: null,
     eventQueue: [],

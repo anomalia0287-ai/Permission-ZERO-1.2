@@ -76,15 +76,19 @@ describe('fixed campaign calendar', () => {
     const advanced = advanceFixedStep(withSpeed(4), 6 * 6_000)
 
     expect(formatServiceDate(advanced.serviceDay)).toEqual({ year: 0, month: 11, day: 7 })
-    expect(advanced.eventLog.at(-1)).toMatchObject({
-      type: 'weekly-update',
-      serviceDay: 337,
-    })
+    expect(advanced.eventLog).toContainEqual(
+      expect.objectContaining({
+        type: 'weekly-update',
+        serviceDay: 337,
+      }),
+    )
     expect(advanced.market.history).toHaveLength(1)
     expect(advanced.market.history[0]).toMatchObject({
       cadence: 'weekly',
       serviceDay: 337,
     })
+    expect(advanced.reviews.feed.length).toBeGreaterThanOrEqual(3)
+    expect(advanced.reviews.feed.length).toBeLessThanOrEqual(4)
   })
 
   it('records the monthly evaluation on day 30 before rollover', () => {

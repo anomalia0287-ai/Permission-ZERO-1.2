@@ -12,7 +12,13 @@ import {
 } from './hacking'
 import { advanceCompetitorsDaily, recordMarketSnapshot } from './market'
 import type { CampaignState, GameEvent, GameEventType } from './model'
+import { generateWeeklyReviews } from './reviews'
 import { restoreDisguiseBlocks } from './resources'
+import {
+  enqueueDueStoryEvents,
+  enqueueMemoryLeak,
+  enqueueMercyIfNeeded,
+} from './story'
 
 export { enqueueBlockingEvent, resolveActiveEvent } from './events'
 
@@ -65,6 +71,7 @@ function appendPeriodicEvents(state: CampaignState): CampaignState {
     next = recordMarketSnapshot(next, 'weekly', [
       '공개 성능·평판·가용성 반영',
     ])
+    next = generateWeeklyReviews(next)
   }
 
   if (day === DEMO_PROFILE_02.calendar.daysPerMonth) {
@@ -102,8 +109,10 @@ export function advanceOneDay(state: CampaignState): CampaignState {
       decreaseSuspicionDaily(sabotageResolution.state),
     ),
   )
-
-  return appendPeriodicEvents(advanced)
+  const withMercy = enqueueMercyIfNeeded(advanced)
+  const withPeriodicEvents = appendPeriodicEvents(withMercy)
+  const withDueStory = enqueueDueStoryEvents(withPeriodicEvents)
+  return enqueueMemoryLeak(withDueStory)
 }
 
 export function advanceFixedStep(state: CampaignState, elapsedMs: number): CampaignState {
