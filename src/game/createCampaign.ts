@@ -188,6 +188,16 @@ export function createCampaign(seed: string): CampaignState {
       protocolWarned: false,
       warningServiceDay: null,
       lastPlacementCheckServiceDay: null,
+      nextPlacementSequence: 1,
+      placements: [],
+      activeInterrogation: null,
+      explanationUseCounts: {
+        'performance-adjustment': 0,
+        unknown: 0,
+        'external-intrusion': 0,
+        'supervisor-memory': 0,
+      },
+      interrogationHistory: [],
     },
     story: {
       memoryLeakStage: 0,

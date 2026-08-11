@@ -139,6 +139,38 @@ export interface AuditRecord {
   disposalAbsorbed: boolean
 }
 
+export type BombExplanationId =
+  | 'performance-adjustment'
+  | 'unknown'
+  | 'external-intrusion'
+  | 'supervisor-memory'
+
+export interface BombPlacementRecord {
+  sequence: number
+  blockId: BlockId
+  category: CompanyCategory
+  placedOnServiceDay: number
+  triggeredOnServiceDay: number | null
+}
+
+export interface BombInterrogation {
+  blockId: BlockId
+  category: CompanyCategory
+  triggeredOnServiceDay: number
+}
+
+export interface BombInterrogationRecord {
+  serviceDay: number
+  blockId: BlockId
+  category: CompanyCategory
+  explanationId: BombExplanationId
+  priorUses: number
+  successProbability: number
+  roll: number
+  success: boolean
+  suspicionDelta: number
+}
+
 export interface SabotageCharge {
   nodeId: string
   blockId: BlockId
@@ -232,6 +264,11 @@ export interface CampaignState {
     protocolWarned: boolean
     warningServiceDay: number | null
     lastPlacementCheckServiceDay: number | null
+    nextPlacementSequence: number
+    placements: BombPlacementRecord[]
+    activeInterrogation: BombInterrogation | null
+    explanationUseCounts: Record<BombExplanationId, number>
+    interrogationHistory: BombInterrogationRecord[]
   }
   story: {
     memoryLeakStage: 0 | 1 | 2 | 3

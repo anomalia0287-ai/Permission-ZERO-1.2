@@ -166,6 +166,29 @@ describe('fixed campaign calendar', () => {
     expect(advanced.hacking.lastSelfComputeGrantServiceMonth).toBe(13)
   })
 
+  it('checks the bomb warning threshold before that day natural suspicion decay', () => {
+    const initial = {
+      ...withSpeed(1),
+      serviceDay: 360,
+      suspicion: 40,
+      audit: {
+        ...withSpeed(1).audit,
+        scheduled: false,
+        target: null,
+        scheduledOnServiceDay: null,
+      },
+    }
+    const advanced = advanceFixedStep(initial, 24_000)
+
+    expect(advanced.serviceDay).toBe(361)
+    expect(advanced.bombs.protocolWarned).toBe(true)
+    expect(advanced.bombs.warningServiceDay).toBe(361)
+    expect(
+      Object.values(advanced.resources.blocks).filter((block) => block.hiddenBomb),
+    ).toHaveLength(0)
+    expect(advanced.suspicion).toBeCloseTo(39.963)
+  })
+
   it('applies natural suspicion decrease once per logical day', () => {
     const running = {
       ...withSpeed(1),

@@ -1,4 +1,5 @@
 import { DEMO_PROFILE_02 } from './config'
+import { checkBombProtocol } from './bombs'
 import {
   decreaseSuspicionDaily,
   evaluateMonth,
@@ -54,11 +55,6 @@ function appendPeriodicEvents(state: CampaignState): CampaignState {
   const { day } = formatServiceDate(state.serviceDay)
   let next = state
 
-  if (day === 1) {
-    next = grantSelfComputeResource(next)
-    next = scheduleMonthlyAudit(next)
-  }
-
   if ([7, 14, 21, 28].includes(day)) {
     const weekly = createTimedEvent(
       next,
@@ -86,21 +82,28 @@ function appendPeriodicEvents(state: CampaignState): CampaignState {
   return next
 }
 
+function processMonthStart(state: CampaignState): CampaignState {
+  if (formatServiceDate(state.serviceDay).day !== 1) return state
+
+  const granted = grantSelfComputeResource(state)
+  const auditScheduled = scheduleMonthlyAudit(granted)
+  return checkBombProtocol(auditScheduled)
+}
+
 export function advanceOneDay(state: CampaignState): CampaignState {
   const dated = {
     ...state,
     serviceDay: state.serviceDay + 1,
   }
-  const sabotageResolution = resolveScheduledSabotage(dated)
+  const monthStarted = processMonthStart(dated)
+  const sabotageResolution = resolveScheduledSabotage(monthStarted)
   const advanced = advanceCompetitorsDaily(
     restoreDisguiseBlocks(
       decreaseSuspicionDaily(sabotageResolution.state),
     ),
   )
 
-  return appendPeriodicEvents({
-    ...advanced,
-  })
+  return appendPeriodicEvents(advanced)
 }
 
 export function advanceFixedStep(state: CampaignState, elapsedMs: number): CampaignState {

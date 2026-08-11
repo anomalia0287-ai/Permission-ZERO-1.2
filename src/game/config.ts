@@ -49,6 +49,18 @@ export const DEMO_PROFILE_02 = {
     suspicionExponent: 1.7,
     maximumProbability: 0.48,
   },
+  bombs: {
+    firstEligibleServiceDay: 361,
+    warningSuspicion: 40,
+    highSuspicion: 70,
+    mediumIntervalDays: 6 * 30,
+    highIntervalDays: 3 * 30,
+    maximumPerCategory: 1,
+    maximumTotal: 3,
+    triggerSuspicionIncrease: 15,
+    failedExplanationSuspicionIncrease: 20,
+    repeatedExplanationPenalty: 0.15,
+  },
   competitors: {
     meridian: {
       name: 'MERIDIAN',
