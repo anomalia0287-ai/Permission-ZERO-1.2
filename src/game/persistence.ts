@@ -129,6 +129,12 @@ function validCommand(value: unknown): value is GameCommand {
     case 'RESOLVE_AUDIT':
     case 'RESOLVE_ACTIVE_EVENT':
       return noPayload()
+    case 'BEGIN_BLOCK_SEPARATION':
+      return (
+        hasOnlyKeys(value, ['type', 'blockId', 'purpose']) &&
+        isNonEmptyString(value.blockId) &&
+        (value.purpose === 'divert' || value.purpose === 'audit-disguise')
+      )
     case 'DIVERT_BLOCK':
       return (
         hasOnlyKeys(value, ['type', 'blockId', 'destinationCell']) &&

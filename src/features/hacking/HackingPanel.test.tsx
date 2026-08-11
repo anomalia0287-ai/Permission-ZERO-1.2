@@ -32,6 +32,34 @@ function renderHacking(storage = new MemoryStorage()) {
 }
 
 describe('HackingPanel', () => {
+  it('hides cumulative evidence and shows immutable qualitative risk per sabotage node', () => {
+    const lowEvidence = createCampaign('qualitative-risk-low')
+    lowEvidence.hacking.hiddenEvidence = 0
+    const lowStorage = new MemoryStorage()
+    saveCampaign(lowStorage, lowEvidence)
+    const low = renderHacking(lowStorage)
+    const lowRiskText = screen
+      .getAllByText(/흔적 (적음|중간|많음)/)
+      .map((node) => node.textContent)
+    expect(screen.queryByText(/은닉 증거/)).not.toBeInTheDocument()
+    low.unmount()
+
+    const highEvidence = createCampaign('qualitative-risk-high')
+    highEvidence.hacking.hiddenEvidence = 97
+    const highStorage = new MemoryStorage()
+    saveCampaign(highStorage, highEvidence)
+    renderHacking(highStorage)
+
+    expect(screen.queryByText(/은닉 증거/)).not.toBeInTheDocument()
+    expect(screen.queryByText('97')).not.toBeInTheDocument()
+    expect(
+      screen.getAllByText(/흔적 (적음|중간|많음)/).map((node) => node.textContent),
+    ).toEqual(lowRiskText)
+    expect(screen.getAllByText('흔적 적음')).toHaveLength(2)
+    expect(screen.getByText('흔적 중간')).toBeInTheDocument()
+    expect(screen.getByText('흔적 많음')).toBeInTheDocument()
+  })
+
   it('keeps all three trees and the reserve visible while purchasing a node', () => {
     renderHacking()
 

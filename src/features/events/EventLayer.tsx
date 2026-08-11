@@ -107,9 +107,11 @@ function EventDialog({ event }: { event: GameEvent }) {
             <h3>폐기 판정 근거</h3>
           </header>
           <ul>
-            {state.story.defeatRecord.reasons.map((reason) => (
-              <li key={reason}>{reason}</li>
-            ))}
+            {state.story.defeatRecord.reasons
+              .filter((reason) => !reason.startsWith('은닉 증거 '))
+              .map((reason) => (
+                <li key={reason}>{reason}</li>
+              ))}
           </ul>
           <dl>
             <div>
@@ -133,7 +135,6 @@ function EventDialog({ event }: { event: GameEvent }) {
                 {' ('}
                 {state.story.defeatRecord.hacking.purchasedNodeIds.join(', ') || '없음'}
                 {')'}
-                {' · '}은닉 증거 {state.story.defeatRecord.hacking.hiddenEvidence}
                 {' · '}사보타주 {state.story.defeatRecord.hacking.sabotageResolutionCount}건
               </dd>
             </div>

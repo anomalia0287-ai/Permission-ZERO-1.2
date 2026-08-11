@@ -16,20 +16,15 @@ import {
   type CampaignState,
   type CompanyCategory,
 } from './model'
-import {
-  divertBlock,
-  getCompanyPerformance,
-  moveDisguiseBlock,
-} from './resources'
+import { getCompanyPerformance } from './resources'
 import { random01 } from './rng'
 
 export type SeparationIntent =
-  | { kind: 'divert'; blockId: string; destinationCell: number }
+  | { kind: 'divert'; blockId: string }
   | {
       kind: 'audit-disguise'
       blockId: string
       targetCategory: CompanyCategory
-      targetCell: number
     }
 
 export type SeparationResult =
@@ -200,29 +195,38 @@ export function placeHiddenBomb(state: CampaignState): BombPlacementResult {
   }
 }
 
-function performSeparation(
+export function tryBeginSeparation(
   state: CampaignState,
   intent: SeparationIntent,
 ): SeparationResult {
-  return intent.kind === 'divert'
-    ? divertBlock(state, intent.blockId, intent.destinationCell)
-    : moveDisguiseBlock(
-        state,
-        intent.blockId,
-        intent.targetCategory,
-        intent.targetCell,
-      )
-}
-
-export function trySeparateBlock(
-  state: CampaignState,
-  intent: SeparationIntent,
-): SeparationResult {
-  const validMovement = performSeparation(state, intent)
-  if (!validMovement.accepted) return validMovement
-
   const block = state.resources.blocks[intent.blockId]
-  if (!block.hiddenBomb || block.location.kind !== 'company') return validMovement
+  if (!block || block.location.kind !== 'company') {
+    return { accepted: false, state, reason: 'BLOCK_NOT_IN_COMPANY' }
+  }
+  if (
+    state.resources.company[block.location.category][block.location.cellIndex] !==
+    intent.blockId
+  ) {
+    return { accepted: false, state, reason: 'BLOCK_NOT_IN_COMPANY' }
+  }
+  if (block.contribution !== 'normal') {
+    return { accepted: false, state, reason: 'BLOCK_NOT_NORMAL' }
+  }
+
+  if (intent.kind === 'divert') {
+    if (!state.resources.reserve.some((cell) => cell === null)) {
+      return { accepted: false, state, reason: 'RESERVE_FULL' }
+    }
+  } else {
+    if (intent.targetCategory === block.location.category) {
+      return { accepted: false, state, reason: 'INVALID_TARGET' }
+    }
+    if (!state.resources.company[intent.targetCategory].some((cell) => cell === null)) {
+      return { accepted: false, state, reason: 'TARGET_FULL' }
+    }
+  }
+
+  if (!block.hiddenBomb) return { accepted: true, state }
 
   const category = block.location.category
   let triggered: CampaignState = {
@@ -254,15 +258,21 @@ export function trySeparateBlock(
       },
     },
   }
-  triggered = enqueueBlockingEvent(
+  const interrogationEvent = createGameEvent(
     triggered,
-    createGameEvent(
-      triggered,
-      'bomb-interrogation',
-      `${category} 분야의 무결성 보호 장치가 발동했습니다.`,
-      true,
-    ),
+    'bomb-interrogation',
+    `${category} 분야의 무결성 보호 장치가 발동했습니다.`,
+    true,
   )
+  if (triggered.activeEvent) {
+    triggered = {
+      ...appendEvent(triggered, interrogationEvent),
+      activeEvent: interrogationEvent,
+      eventQueue: [triggered.activeEvent, ...triggered.eventQueue],
+    }
+  } else {
+    triggered = enqueueBlockingEvent(triggered, interrogationEvent)
+  }
 
   return { accepted: false, state: triggered, reason: 'HIDDEN_BOMB_TRIGGERED' }
 }

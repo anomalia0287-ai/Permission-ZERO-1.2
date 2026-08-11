@@ -6,7 +6,7 @@ import {
   getBlockVisualState,
   placeHiddenBomb,
   resolveBombInterrogation,
-  trySeparateBlock,
+  tryBeginSeparation,
 } from './bombs'
 import { createCampaign } from './createCampaign'
 import { HACK_NODE_IDS } from './hacking'
@@ -43,10 +43,9 @@ function armAndTrigger(
   }
   const placement = placeHiddenBomb(initial)
   if (!placement.placed || !placement.blockId) throw new Error('폭탄 배치 실패')
-  const result = trySeparateBlock(placement.state, {
+  const result = tryBeginSeparation(placement.state, {
     kind: 'divert',
     blockId: placement.blockId,
-    destinationCell: 3,
   })
   if (result.accepted || result.reason !== 'HIDDEN_BOMB_TRIGGERED') {
     throw new Error('폭탄 발동 실패')
@@ -205,10 +204,9 @@ describe('bomb activation and hidden presentation', () => {
     const placement = placeHiddenBomb({ ...full, serviceDay: 541 })
     if (!placement.placed || !placement.blockId) throw new Error('가득 찬 상태 폭탄 배치 실패')
 
-    const result = trySeparateBlock(placement.state, {
+    const result = tryBeginSeparation(placement.state, {
       kind: 'divert',
       blockId: placement.blockId,
-      destinationCell: 17,
     })
 
     expect(result).toEqual({
@@ -217,6 +215,49 @@ describe('bomb activation and hidden presentation', () => {
       reason: 'RESERVE_FULL',
     })
     expect(placement.state.resources.blocks[placement.blockId].hiddenBomb).toBe(true)
+  })
+
+  it('does not activate an audit-disguise bomb without a valid company destination', () => {
+    const initial = createCampaign('bomb-audit-full-target')
+    const blockId = initial.resources.company.memory.find(Boolean)
+    if (!blockId) throw new Error('감사 폭탄 블록 누락')
+    const reasoning = [...initial.resources.company.reasoning]
+    const blocks = { ...initial.resources.blocks }
+    for (let cellIndex = 0; cellIndex < reasoning.length; cellIndex += 1) {
+      if (reasoning[cellIndex] !== null) continue
+      const id = `test-reasoning-${cellIndex}`
+      reasoning[cellIndex] = id
+      blocks[id] = {
+        id,
+        origin: 'reasoning',
+        location: { kind: 'company', category: 'reasoning', cellIndex },
+        contribution: 'normal',
+        hiddenBomb: false,
+        disguisedFrom: null,
+        recoverOnServiceDay: null,
+      }
+    }
+    const armed = {
+      ...initial,
+      audit: { ...initial.audit, target: 'reasoning' as const },
+      resources: {
+        ...initial.resources,
+        company: { ...initial.resources.company, reasoning },
+        blocks: {
+          ...blocks,
+          [blockId]: { ...blocks[blockId], hiddenBomb: true },
+        },
+      },
+    }
+
+    expect(
+      tryBeginSeparation(armed, {
+        kind: 'audit-disguise',
+        blockId,
+        targetCategory: 'reasoning',
+      }),
+    ).toEqual({ accepted: false, state: armed, reason: 'TARGET_FULL' })
+    expect(armed.resources.blocks[blockId].hiddenBomb).toBe(true)
   })
 
   it('offers the supervisor-memory explanation only with supervisor access', () => {
@@ -249,10 +290,9 @@ describe('bomb activation and hidden presentation', () => {
     if (!secondPlacement.placed || !secondPlacement.blockId) {
       throw new Error('두 번째 폭탄 배치 실패')
     }
-    const secondTrigger = trySeparateBlock(secondPlacement.state, {
+    const secondTrigger = tryBeginSeparation(secondPlacement.state, {
       kind: 'divert',
       blockId: secondPlacement.blockId,
-      destinationCell: 3,
     })
     const second = resolveBombInterrogation(secondTrigger.state, 'unknown')
 

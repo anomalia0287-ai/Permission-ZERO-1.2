@@ -44,6 +44,40 @@ function activeAuditState(): CampaignState {
   )
 }
 
+function hiddenBombState(seed: string): {
+  state: CampaignState
+  blockId: string
+} {
+  const initial = createCampaign(seed)
+  const blockId = initial.resources.company.reasoning.find(Boolean)
+  if (!blockId) throw new Error('브라우저 폭탄 블록 누락')
+  return {
+    blockId,
+    state: {
+      ...initial,
+      resources: {
+        ...initial.resources,
+        blocks: {
+          ...initial.resources.blocks,
+          [blockId]: { ...initial.resources.blocks[blockId], hiddenBomb: true },
+        },
+      },
+      bombs: {
+        ...initial.bombs,
+        placements: [
+          {
+            sequence: 0,
+            blockId,
+            category: 'reasoning',
+            placedOnServiceDay: initial.serviceDay - 1,
+            triggeredOnServiceDay: null,
+          },
+        ],
+      },
+    },
+  }
+}
+
 function applyOrThrow(state: CampaignState, command: GameCommand): CampaignState {
   const result = applyCommand(state, command)
   if (!result.accepted) throw new Error(`${command.type}: ${result.reason}`)
@@ -157,6 +191,52 @@ test('diverts resources and schedules a charged sabotage through the visible UI'
   await page.getByRole('button', { name: `${targetName} 공격 예약 확정` }).click()
   await expect(page.getByText(`${targetName} 공격을 다음 날로 예약했습니다.`)).toBeAttached()
 
+  expect(errors).toEqual([])
+})
+
+test('activates a hidden bomb at pointer separation before release and Escape cannot evade it', async ({ page }) => {
+  const errors = collectBrowserErrors(page)
+  const armed = hiddenBombState('browser-bomb-pointer-separation')
+  await openSavedCampaign(page, armed.state)
+
+  const source = page.locator(`[data-block-id="${armed.blockId}"]`)
+  const box = await source.boundingBox()
+  if (!box) throw new Error('브라우저 폭탄 블록 위치 누락')
+  const startX = box.x + box.width / 2
+  const startY = box.y + box.height / 2
+  await page.mouse.move(startX, startY)
+  await page.mouse.down()
+  await page.mouse.move(startX + 8, startY)
+
+  const interrogation = page.getByRole('dialog', { name: '감독관 질의' })
+  await expect(interrogation).toBeVisible()
+  await expect(page.getByText('의심 15')).toBeVisible()
+  await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(3)
+  await expect(source).toHaveCount(1)
+
+  await page.mouse.up()
+  await page.keyboard.press('Escape')
+  await expect(interrogation).toBeVisible()
+  await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(3)
+  expect(errors).toEqual([])
+})
+
+test('uses keyboard destination confirmation as the hidden-bomb separation boundary', async ({ page }) => {
+  const errors = collectBrowserErrors(page)
+  const armed = hiddenBombState('browser-bomb-keyboard-separation')
+  await openSavedCampaign(page, armed.state)
+
+  const source = page.locator(`[data-block-id="${armed.blockId}"]`)
+  await source.focus()
+  await page.keyboard.press('Enter')
+  const destination = page.locator('.reserve-destination:not([disabled])').first()
+  await expect(destination).toBeFocused()
+  await page.keyboard.press('Enter')
+
+  await expect(page.getByRole('dialog', { name: '감독관 질의' })).toBeVisible()
+  await expect(page.getByText('의심 15')).toBeVisible()
+  await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(3)
+  await expect(source).toHaveCount(1)
   expect(errors).toEqual([])
 })
 

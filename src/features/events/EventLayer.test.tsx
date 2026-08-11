@@ -149,7 +149,7 @@ describe('EventLayer', () => {
           playerMarketShare: 27.25,
         },
         audits: { passed: 3, failed: 2 },
-        reasons: [`classifier:${classifier}`],
+        reasons: [`classifier:${classifier}`, '은닉 증거 11'],
       }
       state.activeEvent = createGameEvent(state, 'ending', '최종 폐기 기록', true)
       renderEvent(state)
@@ -161,8 +161,10 @@ describe('EventLayer', () => {
       expect(field('classifier')).toHaveTextContent(`${classifierLabel} · DAY 337`)
       expect(field('trigger')).toHaveTextContent(`${causeLabel} · 처분 단계 3`)
       expect(field('hacking')).toHaveTextContent(
-        '해킹 투자 2개 (research.investigation-bias, sabotage.root-cutoff) · 은닉 증거 11 · 사보타주 4건',
+        '해킹 투자 2개 (research.investigation-bias, sabotage.root-cutoff) · 사보타주 4건',
       )
+      expect(causal).not.toHaveTextContent('은닉 증거')
+      expect(causal).not.toHaveTextContent('11')
       expect(field('evaluation')).toHaveTextContent('공식 평가 통과 5 / 실패 2')
       expect(field('reputation')).toHaveTextContent('63.5')
       expect(field('market-share')).toHaveTextContent('27.3%')

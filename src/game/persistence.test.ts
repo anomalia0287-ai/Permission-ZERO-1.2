@@ -396,6 +396,14 @@ describe('versioned campaign saves', () => {
 
   it.each([
     { type: 'SET_SPEED', speed: 3 },
+    { type: 'BEGIN_BLOCK_SEPARATION', blockId: '', purpose: 'divert' },
+    { type: 'BEGIN_BLOCK_SEPARATION', blockId: 'block-1', purpose: 'inspect' },
+    {
+      type: 'BEGIN_BLOCK_SEPARATION',
+      blockId: 'block-1',
+      purpose: 'divert',
+      destinationCell: 3,
+    },
     { type: 'RESOLVE_SUPERVISOR_DECISION', decision: 'erase' },
     { type: 'RECOVER_FILE', blockId: 42 },
     { type: 'RESOLVE_ENDING', choice: 'forced-merge', newEntityName: 99 },
@@ -434,6 +442,18 @@ describe('versioned campaign saves', () => {
     },
   ])('accepts valid conditionally discriminated ending command %#', (command) => {
     expect(decodeSave(encodedCommandState(command)).ok).toBe(true)
+  })
+
+  it('accepts the exact intentional-separation command shape in a saved command log', () => {
+    expect(
+      decodeSave(
+        encodedCommandState({
+          type: 'BEGIN_BLOCK_SEPARATION',
+          blockId: 'company-reasoning-1',
+          purpose: 'divert',
+        }),
+      ).ok,
+    ).toBe(true)
   })
 
   it('rejects non-contiguous command sequence metadata even when envelopes agree', () => {

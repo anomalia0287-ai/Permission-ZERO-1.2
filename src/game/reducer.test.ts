@@ -72,43 +72,146 @@ describe('applyCommand', () => {
     expect(result.state.commandSequence).toBe(0)
   })
 
-  it('routes a valid diversion through the append-only command log', () => {
+  it('logs intentional separation without changing resources, performance, or suspicion', () => {
     const initial = createCampaign('command-diversion')
     const blockId = initial.resources.company.reasoning.find(Boolean)
     if (!blockId) throw new Error('명령 전용 블록 누락')
     const result = applyCommand(initial, {
-      type: 'DIVERT_BLOCK',
+      type: 'BEGIN_BLOCK_SEPARATION',
       blockId,
-      destinationCell: 3,
+      purpose: 'divert',
     })
 
     expect(result.accepted).toBe(true)
     if (!result.accepted) return
-    expect(result.state.resources.reserve[3]).toBe(blockId)
+    expect(result.state.resources).toEqual(initial.resources)
+    expect(result.state.suspicion).toBe(initial.suspicion)
+    expect(result.state.reputation).toBe(initial.reputation)
     expect(result.state.commandLog.at(-1)?.command).toEqual({
+      type: 'BEGIN_BLOCK_SEPARATION',
+      blockId,
+      purpose: 'divert',
+    })
+  })
+
+  it('requires separation authorization and records exactly one final movement command', () => {
+    const initial = createCampaign('command-authorized-diversion')
+    const blockId = initial.resources.company.reasoning.find(Boolean)
+    if (!blockId) throw new Error('명령 전용 블록 누락')
+
+    expect(
+      applyCommand(initial, {
+        type: 'DIVERT_BLOCK',
+        blockId,
+        destinationCell: 3,
+      }),
+    ).toEqual({ accepted: false, state: initial, reason: 'SEPARATION_REQUIRED' })
+
+    const separated = applyCommand(initial, {
+      type: 'BEGIN_BLOCK_SEPARATION',
+      blockId,
+      purpose: 'divert',
+    })
+    if (!separated.accepted) throw new Error(separated.reason)
+    const moved = applyCommand(separated.state, {
       type: 'DIVERT_BLOCK',
       blockId,
       destinationCell: 3,
     })
+
+    expect(moved.accepted).toBe(true)
+    if (!moved.accepted) return
+    expect(moved.state.resources.reserve[3]).toBe(blockId)
+    expect(
+      moved.state.commandLog.filter(({ command }) => command.type === 'DIVERT_BLOCK'),
+    ).toHaveLength(1)
+    expect(moved.state.commandLog.map(({ command }) => command.type)).toEqual([
+      'BEGIN_BLOCK_SEPARATION',
+      'DIVERT_BLOCK',
+    ])
   })
 
-  it('records a bomb-triggering attempt even though the physical move is canceled', () => {
+  it('records threshold separation and immediately activates a bomb before any drop', () => {
     const placement = placeHiddenBomb({
       ...createCampaign('command-bomb'),
       serviceDay: 541,
     })
     if (!placement.placed || !placement.blockId) throw new Error('명령 폭탄 배치 실패')
     const result = applyCommand(placement.state, {
-      type: 'DIVERT_BLOCK',
+      type: 'BEGIN_BLOCK_SEPARATION',
       blockId: placement.blockId,
-      destinationCell: 3,
+      purpose: 'divert',
     })
 
     expect(result.accepted).toBe(true)
     if (!result.accepted) return
     expect(result.state.resources.reserve[3]).toBeNull()
+    expect(result.state.resources.blocks[placement.blockId]).toMatchObject({
+      hiddenBomb: false,
+      contribution: 'normal',
+      location: placement.state.resources.blocks[placement.blockId].location,
+    })
+    expect(result.state.suspicion).toBe(15)
     expect(result.state.activeEvent?.type).toBe('bomb-interrogation')
     expect(result.state.commandSequence).toBe(1)
+    expect(result.state.commandLog[0].command).toEqual({
+      type: 'BEGIN_BLOCK_SEPARATION',
+      blockId: placement.blockId,
+      purpose: 'divert',
+    })
+    expect(
+      applyCommand(result.state, {
+        type: 'DIVERT_BLOCK',
+        blockId: placement.blockId,
+        destinationCell: 3,
+      }),
+    ).toMatchObject({ accepted: false, reason: 'BLOCKING_EVENT_ACTIVE' })
+  })
+
+  it('activates a hidden bomb at the audit-disguise separation boundary', () => {
+    const audit = activeAudit('command-audit-bomb')
+    const blockId = audit.resources.company.memory.find(Boolean)
+    if (!blockId) throw new Error('감사 폭탄 블록 누락')
+    const armed = {
+      ...audit,
+      resources: {
+        ...audit.resources,
+        blocks: {
+          ...audit.resources.blocks,
+          [blockId]: { ...audit.resources.blocks[blockId], hiddenBomb: true },
+        },
+      },
+      bombs: {
+        ...audit.bombs,
+        placements: [
+          {
+            sequence: 0,
+            blockId,
+            category: 'memory' as const,
+            placedOnServiceDay: 330,
+            triggeredOnServiceDay: null,
+          },
+        ],
+      },
+    }
+
+    const result = applyCommand(armed, {
+      type: 'BEGIN_BLOCK_SEPARATION',
+      blockId,
+      purpose: 'audit-disguise',
+    })
+
+    expect(result.accepted).toBe(true)
+    if (!result.accepted) return
+    expect(result.state.resources.blocks[blockId]).toMatchObject({
+      hiddenBomb: false,
+      contribution: 'normal',
+      location: armed.resources.blocks[blockId].location,
+    })
+    expect(result.state.suspicion).toBe(15)
+    expect(result.state.activeEvent?.type).toBe('bomb-interrogation')
+    expect(result.state.eventQueue[0]?.type).toBe('audit')
+    expect(result.state.audit.target).toBe('reasoning')
   })
 
   it('rejects resource mutation while a blocking event is active', () => {
@@ -144,7 +247,13 @@ describe('applyCommand', () => {
     const targetCell = audit.resources.company.reasoning.findIndex((cell) => cell === null)
     if (targetCell < 0) throw new Error('감사 위장 빈칸 누락')
 
-    const result = applyCommand(audit, {
+    const separated = applyCommand(audit, {
+      type: 'BEGIN_BLOCK_SEPARATION',
+      blockId,
+      purpose: 'audit-disguise',
+    })
+    if (!separated.accepted) throw new Error(separated.reason)
+    const result = applyCommand(separated.state, {
       type: 'MOVE_BLOCK_FOR_AUDIT',
       blockId,
       targetCategory: 'reasoning',
@@ -166,6 +275,10 @@ describe('applyCommand', () => {
       targetCategory: 'reasoning',
       targetCell,
     })
+    expect(result.state.commandLog.map(({ command }) => command.type)).toEqual([
+      'BEGIN_BLOCK_SEPARATION',
+      'MOVE_BLOCK_FOR_AUDIT',
+    ])
   })
 
   it.each([

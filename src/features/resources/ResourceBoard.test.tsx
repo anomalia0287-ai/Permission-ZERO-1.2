@@ -22,6 +22,9 @@ function Probe() {
       <output aria-label="reserve count">{state.resources.reserve.filter(Boolean).length}</output>
       <output aria-label="suspicion value">{state.suspicion}</output>
       <output aria-label="command count">{state.commandSequence}</output>
+      <output aria-label="command types">
+        {state.commandLog.map(({ command }) => command.type).join(',')}
+      </output>
       <output aria-label="active event">{state.activeEvent?.type ?? 'none'}</output>
       <output aria-label="clock speed">{state.clock.speed}</output>
     </>
@@ -115,6 +118,37 @@ function fullReserveState(): CampaignState {
   return state
 }
 
+function armedState(seed: string, category: 'reasoning' | 'memory' = 'reasoning') {
+  const state = category === 'memory' ? auditState(seed) : createCampaign(seed)
+  const blockId = state.resources.company[category].find(Boolean)
+  if (!blockId) throw new Error('폭탄 UI 블록 누락')
+  return {
+    blockId,
+    state: {
+      ...state,
+      resources: {
+        ...state.resources,
+        blocks: {
+          ...state.resources.blocks,
+          [blockId]: { ...state.resources.blocks[blockId], hiddenBomb: true },
+        },
+      },
+      bombs: {
+        ...state.bombs,
+        placements: [
+          {
+            sequence: 0,
+            blockId,
+            category,
+            placedOnServiceDay: state.serviceDay - 1,
+            triggeredOnServiceDay: null,
+          },
+        ],
+      },
+    },
+  }
+}
+
 describe('ResourceBoard', () => {
   it('selects a block on click and shows exact diversion consequences', () => {
     renderBoard()
@@ -135,7 +169,10 @@ describe('ResourceBoard', () => {
 
     expect(screen.getByLabelText('reserve count')).toHaveTextContent('4')
     expect(screen.getByLabelText('suspicion value')).toHaveTextContent('2.4')
-    expect(screen.getByLabelText('command count')).toHaveTextContent('1')
+    expect(screen.getByLabelText('command count')).toHaveTextContent('2')
+    expect(screen.getByLabelText('command types')).toHaveTextContent(
+      'BEGIN_BLOCK_SEPARATION,DIVERT_BLOCK',
+    )
   })
 
   it('supports keyboard destination confirmation and Escape cancellation', () => {
@@ -166,16 +203,35 @@ describe('ResourceBoard', () => {
     expect(reasoningButtons[1]).toHaveAttribute('tabindex', '0')
   })
 
-  it('requires an intentional eight-pixel pointer separation before dispatch', () => {
+  it('keeps click-only selection and 7.9-pixel pointer movement command-free', () => {
     renderBoard()
     const block = firstReasoningBlock()
 
+    fireEvent.click(block)
+    expect(screen.getByLabelText('command count')).toHaveTextContent('0')
+
     fireEvent.pointerDown(block, { pointerId: 1, clientX: 10, clientY: 10 })
-    fireEvent.pointerMove(block, { pointerId: 1, clientX: 16, clientY: 10 })
-    fireEvent.pointerUp(block, { pointerId: 1, clientX: 16, clientY: 10 })
+    fireEvent.pointerMove(block, { pointerId: 1, clientX: 17.9, clientY: 10 })
+    fireEvent.pointerUp(block, { pointerId: 1, clientX: 17.9, clientY: 10 })
 
     expect(screen.getByLabelText('reserve count')).toHaveTextContent('3')
     expect(screen.getByLabelText('command count')).toHaveTextContent('0')
+  })
+
+  it('emits intentional separation exactly once at 8.0 pixels before pointer-up', () => {
+    renderBoard()
+    const block = firstReasoningBlock()
+
+    fireEvent.pointerDown(block, { pointerId: 11, clientX: 10, clientY: 10 })
+    fireEvent.pointerMove(block, { pointerId: 11, clientX: 18, clientY: 10 })
+    fireEvent.pointerMove(block, { pointerId: 11, clientX: 30, clientY: 30 })
+
+    expect(screen.getByLabelText('reserve count')).toHaveTextContent('3')
+    expect(screen.getByLabelText('suspicion value')).toHaveTextContent('0')
+    expect(screen.getByLabelText('command count')).toHaveTextContent('1')
+    expect(screen.getByLabelText('command types')).toHaveTextContent(
+      'BEGIN_BLOCK_SEPARATION',
+    )
   })
 
   it('returns an intentional drag when the pointer is released outside a valid cell', () => {
@@ -188,7 +244,8 @@ describe('ResourceBoard', () => {
     fireEvent.pointerUp(block, { pointerId: 2, clientX: 30, clientY: 10 })
 
     expect(screen.getByLabelText('reserve count')).toHaveTextContent('3')
-    expect(screen.getByLabelText('command count')).toHaveTextContent('0')
+    expect(screen.getByLabelText('command count')).toHaveTextContent('1')
+    expect(screen.getByLabelText('command types')).not.toHaveTextContent('DIVERT_BLOCK')
     expect(screen.getByRole('status', { name: '리소스 조작 결과' })).toHaveTextContent(
       '원래 위치로 복귀',
     )
@@ -205,7 +262,79 @@ describe('ResourceBoard', () => {
     fireEvent.pointerUp(block, { pointerId: 3, clientX: 30, clientY: 10 })
 
     expect(screen.getByLabelText('reserve count')).toHaveTextContent('4')
+    expect(screen.getByLabelText('command count')).toHaveTextContent('2')
+    expect(screen.getByLabelText('command types')).toHaveTextContent(
+      'BEGIN_BLOCK_SEPARATION,DIVERT_BLOCK',
+    )
+  })
+
+  it('activates a bomb at threshold and pointer-up outside plus Escape cannot evade or double-dispatch', () => {
+    const armed = armedState('resource-board-bomb-pointer')
+    renderState(armed.state)
+    const block = screen.getByRole('button', {
+      name: /추론 회사 리소스 1, 회사 할당 블록/,
+    })
+    const board = screen.getByRole('region', { name: '회사 제공 성능' })
+    vi.spyOn(document, 'elementFromPoint').mockReturnValue(null)
+
+    fireEvent.pointerDown(block, { pointerId: 12, clientX: 10, clientY: 10 })
+    fireEvent.pointerMove(block, { pointerId: 12, clientX: 18, clientY: 10 })
+
+    expect(screen.getByLabelText('active event')).toHaveTextContent('bomb-interrogation')
+    expect(screen.getByLabelText('reserve count')).toHaveTextContent('3')
+    expect(screen.getByLabelText('suspicion value')).toHaveTextContent('15')
     expect(screen.getByLabelText('command count')).toHaveTextContent('1')
+
+    fireEvent.pointerUp(block, { pointerId: 12, clientX: 40, clientY: 10 })
+    fireEvent.keyDown(board, { key: 'Escape' })
+
+    expect(screen.getByLabelText('command count')).toHaveTextContent('1')
+    expect(screen.getByLabelText('command types')).toHaveTextContent(
+      'BEGIN_BLOCK_SEPARATION',
+    )
+    expect(screen.getByLabelText('reserve count')).toHaveTextContent('3')
+  })
+
+  it('preserves threshold bomb activation with reduced motion enabled', () => {
+    const armed = armedState('resource-board-bomb-reduced-motion')
+    const storage = new MemoryStorage()
+    saveCampaign(storage, armed.state)
+    storage.setItem(
+      'permission-zero.settings.v1',
+      JSON.stringify({
+        masterVolume: 0.8,
+        musicVolume: 0.6,
+        effectsVolume: 0.85,
+        muted: false,
+        reducedMotion: true,
+        uiScale: 1,
+      }),
+    )
+    renderBoard(storage)
+    const block = firstReasoningBlock()
+
+    fireEvent.pointerDown(block, { pointerId: 13, clientX: 10, clientY: 10 })
+    fireEvent.pointerMove(block, { pointerId: 13, clientX: 18, clientY: 10 })
+
+    expect(screen.getByLabelText('active event')).toHaveTextContent('bomb-interrogation')
+    expect(screen.getByLabelText('command count')).toHaveTextContent('1')
+    expect(screen.getByLabelText('reserve count')).toHaveTextContent('3')
+  })
+
+  it('keeps bomb and normal selection previews indistinguishable before separation', () => {
+    const normal = renderBoard()
+    fireEvent.click(firstReasoningBlock())
+    const normalPreview = screen.getByLabelText('성능 비교').textContent
+    expect(screen.getByLabelText('command count')).toHaveTextContent('0')
+    normal.unmount()
+
+    const armed = armedState('resource-board-bomb-preview')
+    renderState(armed.state)
+    fireEvent.click(firstReasoningBlock())
+
+    expect(screen.getByLabelText('성능 비교')).toHaveTextContent(normalPreview ?? '')
+    expect(screen.getByLabelText('command count')).toHaveTextContent('0')
+    expect(screen.queryByText(/폭탄|이상 신호/)).not.toBeInTheDocument()
   })
 
   it('blocks pickup when every reserve cell is occupied', () => {
@@ -268,10 +397,41 @@ describe('ResourceBoard', () => {
     expect(targets[1]).toHaveAttribute('tabindex', '0')
     fireEvent.keyDown(targets[1], { key: 'Enter' })
     expect(screen.getByRole('button', { name: /추론 회사 리소스 .* 위장 배치/ })).toBeInTheDocument()
+    expect(screen.getByLabelText('command types')).toHaveTextContent(
+      'BEGIN_BLOCK_SEPARATION,MOVE_BLOCK_FOR_AUDIT',
+    )
 
     fireEvent.click(firstAuditSource(), { detail: 0 })
     fireEvent.keyDown(board, { key: 'Escape' })
     expect(firstCompanyDestination('reasoning', '감사 위장')).toBeDisabled()
+  })
+
+  it('activates an audit-disguise bomb on destination confirmation without moving it', () => {
+    const armed = armedState('resource-board-audit-bomb', 'memory')
+    renderState(armed.state)
+    const source = firstAuditSource()
+
+    fireEvent.click(source, { detail: 0 })
+    fireEvent.keyDown(firstCompanyDestination('reasoning', '감사 위장'), {
+      key: 'Enter',
+    })
+
+    expect(screen.getByLabelText('active event')).toHaveTextContent('bomb-interrogation')
+    expect(screen.getByLabelText('command count')).toHaveTextContent('1')
+    expect(screen.getByLabelText('command types')).toHaveTextContent(
+      'BEGIN_BLOCK_SEPARATION',
+    )
+    expect(screen.getByLabelText('suspicion value')).toHaveTextContent('15')
+    const sourceLocation = armed.state.resources.blocks[armed.blockId].location
+    if (sourceLocation.kind !== 'company') throw new Error('감사 폭탄 출처 누락')
+    expect(
+      screen.getByRole('button', {
+        name: `기억 회사 리소스 ${sourceLocation.cellIndex + 1}, 회사 할당 블록`,
+      }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /추론 회사 리소스 .* 위장 배치/ }),
+    ).not.toBeInTheDocument()
   })
 
   it('shows compressed audit preview values directly in the workspace', () => {

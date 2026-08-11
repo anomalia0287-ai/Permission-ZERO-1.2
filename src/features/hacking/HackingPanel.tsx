@@ -176,7 +176,6 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
         </div>
         <div className="header-metrics">
           <span>확보 {reserveBlocks.length}/18</span>
-          <span>은닉 증거 {state.hacking.hiddenEvidence}</span>
           <button type="button" aria-label="해킹 네트워크 닫기" onClick={onClose}>닫기 ×</button>
         </div>
       </header>
@@ -230,6 +229,9 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
                       <span>{purchased ? '해금됨' : `${node.cost} RES`}</span>
                     </header>
                     <p>{node.effect}</p>
+                    {node.tree === 'sabotage' ? (
+                      <small className="node-trace-risk">{node.traceRisk}</small>
+                    ) : null}
                     {!prerequisiteMet && node.prerequisiteId ? (
                       <small>선행 노드 필요</small>
                     ) : null}

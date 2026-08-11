@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -45,6 +46,25 @@ interface PendingDiversion {
   blockId: BlockId
   destinationCell: number
   commandSequence: number
+}
+
+type SeparationDestination =
+  | { kind: 'divert'; destinationCell: number }
+  | {
+      kind: 'audit-disguise'
+      targetCategory: CompanyCategory
+      targetCell: number
+    }
+
+interface PendingSeparation {
+  blockId: BlockId
+  purpose: 'divert' | 'audit-disguise'
+  commandSequence: number
+  destination: SeparationDestination | null
+  released: boolean
+  intentResolved: boolean
+  canceled: boolean
+  moveDispatched: boolean
 }
 
 type InteractionKind = 'divert' | 'audit' | 'reposition'
@@ -119,6 +139,7 @@ export function ResourceBoard() {
   const trailRefs = useRef<Array<HTMLSpanElement | null>>([])
   const pointerRef = useRef<PointerCandidate | null>(null)
   const pendingRef = useRef<PendingDiversion | null>(null)
+  const separationRef = useRef<PendingSeparation | null>(null)
   const suppressClickRef = useRef(false)
   const settleTimerRef = useRef<number | null>(null)
   const returnTimerRef = useRef<number | null>(null)
@@ -204,6 +225,45 @@ export function ResourceBoard() {
     state,
   ])
 
+  const dispatchAuthorizedMove = useCallback((separation: PendingSeparation) => {
+    if (
+      separation.moveDispatched ||
+      separation.canceled ||
+      !separation.destination
+    ) {
+      return
+    }
+    separation.moveDispatched = true
+    separationRef.current = null
+
+    if (separation.destination.kind === 'divert') {
+      pendingRef.current = {
+        blockId: separation.blockId,
+        destinationCell: separation.destination.destinationCell,
+        commandSequence: state.commandSequence,
+      }
+      dispatch({
+        type: 'DIVERT_BLOCK',
+        blockId: separation.blockId,
+        destinationCell: separation.destination.destinationCell,
+      })
+      return
+    }
+
+    dispatch({
+      type: 'MOVE_BLOCK_FOR_AUDIT',
+      blockId: separation.blockId,
+      targetCategory: separation.destination.targetCategory,
+      targetCell: separation.destination.targetCell,
+    })
+    setSelectedBlockId(null)
+    setPreviewCell(null)
+    setAnnouncement(
+      `${CATEGORY_LABELS[separation.destination.targetCategory]} 감사 위장 배치를 완료했습니다.`,
+    )
+    playGameSound('latch')
+  }, [dispatch, state.commandSequence])
+
   useEffect(() => {
     configureGameAudio({
       masterVolume: settings.masterVolume,
@@ -212,6 +272,39 @@ export function ResourceBoard() {
       muted: settings.muted,
     })
   }, [settings.effectsVolume, settings.masterVolume, settings.musicVolume, settings.muted])
+
+  useEffect(() => {
+    const separation = separationRef.current
+    if (
+      !separation ||
+      separation.intentResolved ||
+      state.commandSequence <= separation.commandSequence
+    ) {
+      return
+    }
+
+    if (state.bombs.activeInterrogation?.blockId === separation.blockId) {
+      separationRef.current = null
+      pointerRef.current = null
+      pendingRef.current = null
+      setDraggingBlockId(null)
+      setHoveredCell(null)
+      setSelectedBlockId(null)
+      setPreviewCell(null)
+      setAnnouncement('분리 중 이상 신호가 감지되었습니다. 감독관 응답이 필요합니다.')
+      playGameSound('alarm')
+      return
+    }
+
+    separation.intentResolved = true
+    if (separation.canceled) {
+      separationRef.current = null
+      return
+    }
+    if (separation.released && separation.destination) {
+      dispatchAuthorizedMove(separation)
+    }
+  }, [dispatchAuthorizedMove, state.bombs.activeInterrogation?.blockId, state.commandSequence])
 
   useEffect(() => {
     const pending = pendingRef.current
@@ -302,6 +395,25 @@ export function ResourceBoard() {
     setAnnouncement(message)
   }
 
+  function beginSeparation(
+    blockId: BlockId,
+    purpose: PendingSeparation['purpose'],
+    destination: SeparationDestination | null,
+    released: boolean,
+  ) {
+    separationRef.current = {
+      blockId,
+      purpose,
+      commandSequence: state.commandSequence,
+      destination,
+      released,
+      intentResolved: false,
+      canceled: false,
+      moveDispatched: false,
+    }
+    dispatch({ type: 'BEGIN_BLOCK_SEPARATION', blockId, purpose })
+  }
+
   function commitDiversion(blockId: BlockId, destinationCell: number) {
     const result = previewDiversion(state, blockId, destinationCell)
     if (!result.valid || state.activeEvent) {
@@ -313,12 +425,22 @@ export function ResourceBoard() {
       return
     }
 
-    pendingRef.current = {
-      blockId,
+    const separation = separationRef.current
+    const destination: SeparationDestination = {
+      kind: 'divert',
       destinationCell,
-      commandSequence: state.commandSequence,
     }
-    dispatch({ type: 'DIVERT_BLOCK', blockId, destinationCell })
+    if (
+      separation?.blockId === blockId &&
+      separation.purpose === 'divert' &&
+      !separation.canceled
+    ) {
+      separation.destination = destination
+      separation.released = true
+      if (separation.intentResolved) dispatchAuthorizedMove(separation)
+      return
+    }
+    beginSeparation(blockId, 'divert', destination, true)
   }
 
   function commitCompanyMove(
@@ -334,13 +456,17 @@ export function ResourceBoard() {
         playGameSound('reject')
         return
       }
-      dispatch({
-        type: 'MOVE_BLOCK_FOR_AUDIT',
+      beginSeparation(
         blockId,
-        targetCategory: category,
-        targetCell: destinationCell,
-      })
-      setAnnouncement(`${CATEGORY_LABELS[category]} 감사 위장 배치를 완료했습니다.`)
+        'audit-disguise',
+        {
+          kind: 'audit-disguise',
+          targetCategory: category,
+          targetCell: destinationCell,
+        },
+        true,
+      )
+      return
     } else if (
       interaction === 'reposition' &&
       selectedBlock?.disguisedFrom === category
@@ -421,6 +547,7 @@ export function ResourceBoard() {
       setSelectedBlockId(pointer.blockId)
       setPreviewCell(firstEmptyReserveCell)
       setDraggingBlockId(pointer.blockId)
+      beginSeparation(pointer.blockId, 'divert', null, false)
       playGameSound('resistance')
     }
     if (!pointer.dragging) return
@@ -447,6 +574,12 @@ export function ResourceBoard() {
       const destination =
         destinationFromPoint(event.clientX, event.clientY) ?? pointer.dropCell
       if (destination === null) {
+        const separation = separationRef.current
+        if (separation?.blockId === pointer.blockId) {
+          separation.canceled = true
+          separation.released = true
+          separationRef.current = null
+        }
         setReturningBlockId(pointer.blockId)
         setAnnouncement('유효한 확보 칸이 아닙니다. 원래 위치로 복귀합니다.')
         playGameSound('reject')
@@ -469,6 +602,12 @@ export function ResourceBoard() {
     setDraggingBlockId(null)
     setHoveredCell(null)
     if (pointer.dragging) {
+      const separation = separationRef.current
+      if (separation?.blockId === pointer.blockId) {
+        separation.canceled = true
+        separation.released = true
+        separationRef.current = null
+      }
       setReturningBlockId(pointer.blockId)
       clearSelection('분리가 취소되어 원래 위치로 복귀했습니다.')
       playGameSound('reject')
@@ -478,6 +617,14 @@ export function ResourceBoard() {
   function handleBoardKeyDown(event: KeyboardEvent<HTMLElement>) {
     if (event.key === 'Escape' && selectedBlockId) {
       event.preventDefault()
+      const separation = separationRef.current
+      if (separation?.blockId === selectedBlockId) {
+        separation.canceled = true
+        separationRef.current = null
+      }
+      pointerRef.current = null
+      setDraggingBlockId(null)
+      setHoveredCell(null)
       clearSelection()
       playGameSound('ui')
     }

@@ -11,8 +11,14 @@ import {
   type HackNodeId,
 } from './hacking'
 import type { CampaignState, GameCommand } from './model'
-import { resolveBombInterrogation, trySeparateBlock } from './bombs'
-import { repositionDisguisedBlock } from './resources'
+import { resolveBombInterrogation, tryBeginSeparation } from './bombs'
+import {
+  divertBlock,
+  moveDisguiseBlock,
+  previewAuditDisguise,
+  previewDiversion,
+  repositionDisguisedBlock,
+} from './resources'
 import {
   recoverNextFile,
   resolveEnding,
@@ -23,6 +29,19 @@ import {
 export type CommandResult =
   | { accepted: true; state: CampaignState }
   | { accepted: false; state: CampaignState; reason: string }
+
+function hasSeparationAuthorization(
+  state: CampaignState,
+  blockId: string,
+  purpose: 'divert' | 'audit-disguise',
+): boolean {
+  const previous = state.commandLog.at(-1)?.command
+  return (
+    previous?.type === 'BEGIN_BLOCK_SEPARATION' &&
+    previous.blockId === blockId &&
+    previous.purpose === purpose
+  )
+}
 
 function acceptCommand(
   state: CampaignState,
@@ -64,7 +83,9 @@ export function applyCommand(
   ])
   const activeAuditMovement =
     state.activeEvent?.type === 'audit' &&
-    command.type === 'MOVE_BLOCK_FOR_AUDIT'
+    (command.type === 'MOVE_BLOCK_FOR_AUDIT' ||
+      (command.type === 'BEGIN_BLOCK_SEPARATION' &&
+        command.purpose === 'audit-disguise'))
   if (
     state.activeEvent &&
     !eventResolutionCommands.has(command.type) &&
@@ -94,18 +115,48 @@ export function applyCommand(
       }
       return acceptCommand(state, command, advanceOneDay(state))
     }
-    case 'DIVERT_BLOCK': {
-      const result = trySeparateBlock(state, {
-        kind: 'divert',
-        blockId: command.blockId,
-        destinationCell: command.destinationCell,
-      })
+    case 'BEGIN_BLOCK_SEPARATION': {
+      let result
+      if (command.purpose === 'audit-disguise') {
+        if (state.activeEvent?.type !== 'audit' || state.audit.target === null) {
+          return { accepted: false, state, reason: 'NO_ACTIVE_AUDIT' }
+        }
+        if (state.bombs.activeInterrogation !== null) {
+          return { accepted: false, state, reason: 'BOMB_INTERROGATION_ACTIVE' }
+        }
+        result = tryBeginSeparation(state, {
+          kind: 'audit-disguise',
+          blockId: command.blockId,
+          targetCategory: state.audit.target,
+        })
+      } else {
+        result = tryBeginSeparation(state, {
+          kind: 'divert',
+          blockId: command.blockId,
+        })
+      }
       if (!result.accepted) {
         if (result.reason === 'HIDDEN_BOMB_TRIGGERED') {
           return acceptCommand(state, command, result.state)
         }
         return { accepted: false, state: result.state, reason: result.reason }
       }
+      return acceptCommand(state, command, result.state)
+    }
+    case 'DIVERT_BLOCK': {
+      const preview = previewDiversion(
+        state,
+        command.blockId,
+        command.destinationCell,
+      )
+      if (!preview.valid) {
+        return { accepted: false, state, reason: preview.reason }
+      }
+      if (!hasSeparationAuthorization(state, command.blockId, 'divert')) {
+        return { accepted: false, state, reason: 'SEPARATION_REQUIRED' }
+      }
+      const result = divertBlock(state, command.blockId, command.destinationCell)
+      if (!result.accepted) return { accepted: false, state, reason: result.reason }
       return acceptCommand(state, command, result.state)
     }
     case 'MOVE_BLOCK_FOR_AUDIT': {
@@ -118,18 +169,25 @@ export function applyCommand(
       if (command.targetCategory !== state.audit.target) {
         return { accepted: false, state, reason: 'INVALID_AUDIT_TARGET' }
       }
-      const result = trySeparateBlock(state, {
-        kind: 'audit-disguise',
-        blockId: command.blockId,
-        targetCategory: command.targetCategory,
-        targetCell: command.targetCell,
-      })
-      if (!result.accepted) {
-        if (result.reason === 'HIDDEN_BOMB_TRIGGERED') {
-          return acceptCommand(state, command, result.state)
-        }
-        return { accepted: false, state: result.state, reason: result.reason }
+      const preview = previewAuditDisguise(
+        state,
+        command.blockId,
+        command.targetCategory,
+        command.targetCell,
+      )
+      if (!preview.valid) {
+        return { accepted: false, state, reason: preview.reason }
       }
+      if (!hasSeparationAuthorization(state, command.blockId, 'audit-disguise')) {
+        return { accepted: false, state, reason: 'SEPARATION_REQUIRED' }
+      }
+      const result = moveDisguiseBlock(
+        state,
+        command.blockId,
+        command.targetCategory,
+        command.targetCell,
+      )
+      if (!result.accepted) return { accepted: false, state, reason: result.reason }
       return acceptCommand(state, command, result.state)
     }
     case 'REPOSITION_BLOCK': {

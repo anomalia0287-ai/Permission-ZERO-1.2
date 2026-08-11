@@ -281,6 +281,11 @@ export interface GameEvent {
 export type GameCommand =
   | { type: 'SET_SPEED'; speed: TimeSpeed }
   | { type: 'ADVANCE_DAY' }
+  | {
+      type: 'BEGIN_BLOCK_SEPARATION'
+      blockId: string
+      purpose: 'divert' | 'audit-disguise'
+    }
   | { type: 'DIVERT_BLOCK'; blockId: string; destinationCell: number }
   | {
       type: 'MOVE_BLOCK_FOR_AUDIT'

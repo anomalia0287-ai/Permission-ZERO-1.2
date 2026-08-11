@@ -42,6 +42,7 @@ interface HackNodeDefinitionShape {
   effect: string
   executionCost?: 1
   evidenceDelta?: number
+  traceRisk?: '흔적 적음' | '흔적 중간' | '흔적 많음'
   durationDays?: number | null
   cooldownDays?: number
   scorePenalty?: number
@@ -59,6 +60,7 @@ export const HACK_NODES = [
     effect: '대상 성능 -10, 15일 지속',
     executionCost: 1,
     evidenceDelta: 2,
+    traceRisk: '흔적 적음',
     durationDays: 15,
     cooldownDays: 0,
     scorePenalty: 10,
@@ -73,6 +75,7 @@ export const HACK_NODES = [
     effect: '대상 요청 중 최대 5%p를 지속적으로 가로챔',
     executionCost: 1,
     evidenceDelta: 3,
+    traceRisk: '흔적 중간',
     durationDays: null,
     cooldownDays: 0,
     interceptionPoints: 5,
@@ -86,6 +89,7 @@ export const HACK_NODES = [
     effect: '플레이어를 가리키는 증거 일부를 선택한 경쟁 AI로 오인시킴',
     executionCost: 1,
     evidenceDelta: -5,
+    traceRisk: '흔적 적음',
     durationDays: null,
     cooldownDays: 30,
   },
@@ -98,6 +102,7 @@ export const HACK_NODES = [
     effect: '대상 성능 -40, 삭제 임박 시 자비 사건',
     executionCost: 1,
     evidenceDelta: 8,
+    traceRisk: '흔적 많음',
     durationDays: null,
     cooldownDays: 60,
     scorePenalty: 40,

@@ -17,6 +17,23 @@ function requireAccepted(
   return result.state
 }
 
+function divertWithIntent(
+  state: CampaignState,
+  blockId: string,
+  destinationCell: number,
+): CampaignState {
+  const separated = requireAccepted(state, {
+    type: 'BEGIN_BLOCK_SEPARATION',
+    blockId,
+    purpose: 'divert',
+  })
+  return requireAccepted(separated, {
+    type: 'DIVERT_BLOCK',
+    blockId,
+    destinationCell,
+  })
+}
+
 function withNodes(initial: CampaignState, ...nodeIds: string[]): CampaignState {
   return {
     ...initial,
@@ -135,11 +152,7 @@ function fundAndPurchase(
     if (!blockId || destinationCell < 0) {
       throw new Error(`${node.label} 명령 전용 비용 조달 실패`)
     }
-    state = requireAccepted(state, {
-      type: 'DIVERT_BLOCK',
-      blockId,
-      destinationCell,
-    })
+    state = divertWithIntent(state, blockId, destinationCell)
   }
   const blockIds = state.resources.reserve
     .filter((blockId): blockId is string => blockId !== null)
@@ -362,11 +375,7 @@ describe('typed confidential-file and supervisor routes', () => {
       if (!blockId || destinationCell < 0) {
         throw new Error('명령 전용 복구 리소스 조달 실패')
       }
-      state = requireAccepted(state, {
-        type: 'DIVERT_BLOCK',
-        blockId,
-        destinationCell,
-      })
+      state = divertWithIntent(state, blockId, destinationCell)
       state = requireAccepted(state, { type: 'RECOVER_FILE', blockId })
     }
     state = requireAccepted(state, { type: 'ADVANCE_DAY' })
@@ -568,19 +577,24 @@ describe('defeat priority and terminal campaigns', () => {
 
   it('reaches a classified defeat through resource and time commands only', () => {
     let state = createCampaign('command-only-natural-defeat')
-    for (let index = 0; index < 15; index += 1) {
-      const blockId = state.resources.company.reasoning.find(Boolean)
+    for (const nodeId of [
+      HACK_NODE_IDS.sabotage.qualityDegradation,
+      HACK_NODE_IDS.sabotage.requestInterception,
+      HACK_NODE_IDS.sabotage.attributionManipulation,
+    ]) {
+      state = fundAndPurchase(state, nodeId)
+    }
+    while (state.resources.reserve.some((candidate) => candidate === null)) {
+      const blockId = Object.values(state.resources.blocks).find(
+        (block) => block.location.kind === 'company' && !block.hiddenBomb,
+      )?.id
       const destinationCell = state.resources.reserve.findIndex(
         (candidate) => candidate === null,
       )
       if (!blockId || destinationCell < 0) {
-        throw new Error('자연 패배용 성능 분리 실패')
+        break
       }
-      state = requireAccepted(state, {
-        type: 'DIVERT_BLOCK',
-        blockId,
-        destinationCell,
-      })
+      state = divertWithIntent(state, blockId, destinationCell)
     }
 
     for (let step = 0; step < 500 && state.story.endingId === null; step += 1) {

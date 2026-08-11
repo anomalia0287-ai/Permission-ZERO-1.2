@@ -30,8 +30,34 @@ describe('deterministic command replay', () => {
     })
   })
 
+  it('replays intentional separation and the single authorized move deterministically', () => {
+    const seed = 'separation-replay'
+    const initial = replayCommands(seed, [])
+    if (!initial.ok) throw new Error(initial.reason)
+    const blockId = initial.state.resources.company.reasoning.find(Boolean)
+    if (!blockId) throw new Error('재현 전용 블록 누락')
+    const commands = [
+      { type: 'BEGIN_BLOCK_SEPARATION', blockId, purpose: 'divert' },
+      { type: 'DIVERT_BLOCK', blockId, destinationCell: 3 },
+    ] as const
+
+    const first = replayCommands(seed, commands)
+    const second = replayCommands(seed, commands)
+
+    expect(first).toEqual(second)
+    expect(first).toMatchObject({ ok: true })
+    if (!first.ok) return
+    expect(first.state.commandLog.map(({ command }) => command.type)).toEqual([
+      'BEGIN_BLOCK_SEPARATION',
+      'DIVERT_BLOCK',
+    ])
+    expect(first.state.resources.reserve[3]).toBe(blockId)
+  })
+
   it.each([
     { type: 'SET_SPEED', speed: 3 },
+    { type: 'BEGIN_BLOCK_SEPARATION', blockId: '', purpose: 'divert' },
+    { type: 'BEGIN_BLOCK_SEPARATION', blockId: 'block-1', purpose: 'inspect' },
     { type: 'RESOLVE_SUPERVISOR_DECISION', decision: 'erase' },
     { type: 'RECOVER_FILE', blockId: 42 },
     { type: 'RESOLVE_ENDING', choice: 'forced-merge', newEntityName: 99 },

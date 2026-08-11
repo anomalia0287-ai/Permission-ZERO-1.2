@@ -233,7 +233,6 @@ export function buildDefeatRecord(
       audits: { passed: passedAudits, failed: failedAudits },
       reasons: [
         `해킹 노드 ${state.hacking.purchasedNodeIds.length}개`,
-        `은닉 증거 ${state.hacking.hiddenEvidence}`,
         `사보타주 해결 기록 ${sabotageResolutionCount}건`,
       ],
     }
