@@ -18,6 +18,10 @@ export interface GameSettings {
   uiScale: number
 }
 
+export type CopyProgressExportResult =
+  | { ok: true }
+  | { ok: false; reason: 'too-large' | 'clipboard-unavailable' }
+
 export interface SettingsContextValue {
   settings: GameSettings
   updateSettings: (patch: Partial<GameSettings>) => void
@@ -25,7 +29,7 @@ export interface SettingsContextValue {
   loadIssue: Extract<LoadCampaignResult, { status: 'error' }> | null
   saveFailure: { message: string } | null
   retrySave: () => boolean
-  copyProgressExport: () => Promise<boolean>
+  copyProgressExport: () => Promise<CopyProgressExportResult>
   validateProgressImport: (payload: string) =>
     | {
         ok: true

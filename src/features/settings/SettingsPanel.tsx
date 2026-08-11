@@ -88,7 +88,7 @@ function ProgressImportControl({
       <button
         ref={validationButtonRef}
         type="button"
-        disabled={payload.trim().length === 0}
+        disabled={payload.length === 0}
         onClick={validateImport}
       >
         진행 내보내기 검증
@@ -397,7 +397,9 @@ export function StorageRecoveryLayer() {
   const state = useGameState()
   const [dismissed, setDismissed] = useState(false)
   const [confirming, setConfirming] = useState(false)
-  const [copyState, setCopyState] = useState<'idle' | 'seed' | 'export-failed'>('idle')
+  const [copyState, setCopyState] = useState<
+    'idle' | 'seed' | 'export-failed' | 'export-too-large'
+  >('idle')
 
   async function copySeedForRecovery() {
     try {
@@ -410,7 +412,14 @@ export function StorageRecoveryLayer() {
   }
 
   async function copyExportForRecovery() {
-    setCopyState((await copyProgressExport()) ? 'seed' : 'export-failed')
+    const result = await copyProgressExport()
+    if (result.ok) {
+      setCopyState('seed')
+      return
+    }
+    setCopyState(
+      result.reason === 'too-large' ? 'export-too-large' : 'export-failed',
+    )
   }
 
   return (
@@ -424,8 +433,18 @@ export function StorageRecoveryLayer() {
         >
           <strong>자동 저장에 실패했습니다</strong>
           <p>{saveFailure.message} 이 경고가 사라질 때까지 진행은 저장되지 않은 상태입니다.</p>
-          <p>현재 시드 <code>{state.campaignSeed}</code>를 복사하거나 진행 내보내기를 복사해 수동으로 보관하세요.</p>
-          <p>보관한 <code>PZ2:</code> 자료는 설정의 ‘진행 가져오기’에서 검증하고 복원할 수 있습니다.</p>
+          {copyState === 'export-too-large' ? (
+            <>
+              <p>정확한 진행 내보내기가 너무 커서 아무것도 복사하지 않았습니다.</p>
+              <p>현재 시드는 별도로 복사할 수 있습니다.</p>
+              <p>브라우저 로컬 저장으로 계속 진행하거나 기록이 더 작은 새 캠페인을 시작하세요.</p>
+            </>
+          ) : (
+            <>
+              <p>현재 시드 <code>{state.campaignSeed}</code>를 복사하거나 진행 내보내기를 복사해 수동으로 보관하세요.</p>
+              <p>보관한 <code>PZ2:</code> 자료는 설정의 ‘진행 가져오기’에서 검증하고 복원할 수 있습니다.</p>
+            </>
+          )}
           <div>
             <button type="button" onClick={retrySave}>저장 다시 시도</button>
             <button type="button" onClick={copySeedForRecovery}>현재 시드 복사</button>

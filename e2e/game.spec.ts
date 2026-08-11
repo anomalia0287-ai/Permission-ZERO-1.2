@@ -591,7 +591,9 @@ test('uses the app fallback when a settings opener is removed before close', asy
 
 test('imports a validated PZ2 payload only after irreversible confirmation', async ({ page }) => {
   const errors = collectBrowserErrors(page)
-  const payload = encodeProgressExport(createCampaign('browser-imported-progress'))
+  const encoded = encodeProgressExport(createCampaign('browser-imported-progress'))
+  if (!encoded.ok) throw new Error('browser import fixture must fit the export cap')
+  const payload = encoded.payload
   await openFreshCampaign(page)
   await page.getByRole('button', { name: '설정' }).click()
 

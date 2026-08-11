@@ -861,11 +861,22 @@ function progressExportCorrupt(): DecodeSaveResult {
   return corrupt('진행 내보내기 자료가 올바르지 않거나 손상되었습니다.')
 }
 
-export function encodeProgressExport(state: CampaignState): string {
+export type EncodeProgressExportResult =
+  | { ok: true; payload: string }
+  | { ok: false; reason: 'too-large' }
+
+export function encodeProgressExport(
+  state: CampaignState,
+): EncodeProgressExportResult {
   const bytes = new TextEncoder().encode(encodeSave(state))
+  const encodedLength =
+    PROGRESS_EXPORT_PREFIX.length + 4 * Math.ceil(bytes.length / 3)
+  if (encodedLength > PROGRESS_EXPORT_MAX_ENCODED_LENGTH) {
+    return { ok: false, reason: 'too-large' }
+  }
   let binary = ''
   for (const byte of bytes) binary += String.fromCharCode(byte)
-  return `${PROGRESS_EXPORT_PREFIX}${btoa(binary)}`
+  return { ok: true, payload: `${PROGRESS_EXPORT_PREFIX}${btoa(binary)}` }
 }
 
 export function decodeProgressExport(payload: string): DecodeSaveResult {

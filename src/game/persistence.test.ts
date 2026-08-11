@@ -10,8 +10,11 @@ import type {
   GameCommand,
 } from './model'
 import {
+  PROGRESS_EXPORT_MAX_ENCODED_LENGTH,
   SAVE_STORAGE_KEY,
+  decodeProgressExport,
   decodeSave,
+  encodeProgressExport,
   encodeSave,
   exportSeed,
   loadCampaign,
@@ -98,21 +101,61 @@ function encodedLegacyV1State(state: CampaignState): string {
   return JSON.stringify(parsed)
 }
 
+function largeAppendOnlyCommandCampaign(): CampaignState {
+  const state = createCampaign('large-progress-export')
+  state.commandLog = Array.from({ length: 9_000 }, (_, index) => ({
+    sequence: index + 1,
+    serviceDay: state.serviceDay,
+    command: {
+      type: 'SET_SPEED' as const,
+      speed: index % 2 === 0 ? 1 as const : 0 as const,
+    },
+  }))
+  state.commandSequence = state.commandLog.length
+  state.clock.speed = 0
+  return state
+}
+
 describe('versioned campaign saves', () => {
+  it('returns a typed exact progress export for an ordinary campaign', () => {
+    const state = createCampaign('typed-portable-save')
+    const result = encodeProgressExport(state)
+
+    expect(result).toMatchObject({ ok: true })
+    if (!result.ok) return
+    const decoded = decodeProgressExport(result.payload)
+    expect(decoded.ok).toBe(true)
+    if (decoded.ok) {
+      expect(decoded.envelope.state).toEqual({ ...state, saveVersion: 2 })
+    }
+  })
+
+  it('refuses a structurally valid append-only command log whose exact export exceeds the decoder cap', () => {
+    const state = largeAppendOnlyCommandCampaign()
+    const serialized = encodeSave(state)
+    const stateSnapshot = JSON.stringify(state)
+    const encodedLength = 4 + 4 * Math.ceil(new TextEncoder().encode(serialized).length / 3)
+    expect(encodedLength).toBeGreaterThan(PROGRESS_EXPORT_MAX_ENCODED_LENGTH)
+
+    const result = encodeProgressExport(state)
+    expect(result).toEqual({ ok: false, reason: 'too-large' })
+    expect(JSON.stringify(state)).toBe(stateSnapshot)
+  })
+
   it('exposes a PZ2 export boundary that round-trips validated protocol metadata', () => {
     const api = persistenceApi as typeof persistenceApi & {
-      encodeProgressExport?: (state: CampaignState) => string
       decodeProgressExport?: (payload: string) => ReturnType<typeof decodeSave>
     }
-    expect(api.encodeProgressExport).toBeTypeOf('function')
     expect(api.decodeProgressExport).toBeTypeOf('function')
-    if (!api.encodeProgressExport || !api.decodeProgressExport) return
+    if (!api.decodeProgressExport) return
 
     const state = createCampaign('portable-save')
-    const payload = api.encodeProgressExport(state)
-    const decoded = api.decodeProgressExport(payload)
+    const encoded = encodeProgressExport(state)
+    expect(encoded.ok).toBe(true)
+    if (!encoded.ok) return
+    const decoded = api.decodeProgressExport(encoded.payload)
 
-    expect(payload).toMatch(/^PZ2:[A-Za-z0-9+/]+={0,2}$/)
+    expect(encoded.payload).toMatch(/^PZ2:[A-Za-z0-9+/]+={0,2}$/)
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
     expect(decoded.envelope).toMatchObject({

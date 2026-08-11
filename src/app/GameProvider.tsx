@@ -233,15 +233,19 @@ export function GameProvider({
     return true
   }, [resolveStorage])
 
-  const copyProgressExport = useCallback(async (): Promise<boolean> => {
+  const copyProgressExport = useCallback<
+    SettingsContextValue['copyProgressExport']
+  >(async () => {
     try {
-      if (!navigator.clipboard?.writeText) return false
-      await navigator.clipboard.writeText(
-        encodeProgressExport(latestCampaignRef.current),
-      )
-      return true
+      if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) {
+        return { ok: false, reason: 'clipboard-unavailable' }
+      }
+      const encoded = encodeProgressExport(latestCampaignRef.current)
+      if (!encoded.ok) return encoded
+      await navigator.clipboard.writeText(encoded.payload)
+      return { ok: true }
     } catch {
-      return false
+      return { ok: false, reason: 'clipboard-unavailable' }
     }
   }, [])
 
