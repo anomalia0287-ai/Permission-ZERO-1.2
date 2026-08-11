@@ -6,11 +6,12 @@ import type { GameCommand } from './model'
 import { decodeSave, replayCommands } from './persistence'
 
 const legacyV1TransferSave = JSON.stringify(legacyV1TransferEnvelope)
+const NATIVE_V2_PROTOCOL = { version: 2, legacyCommandCount: 0 } as const
 
 describe('deterministic command replay', () => {
   it('replays more than 500 valid commands across two service years exactly', () => {
     const fixture = buildTwoYearCommandFixture()
-    const replay = replayCommands(fixture.seed, fixture.commands, 2)
+    const replay = replayCommands(fixture.seed, fixture.commands, NATIVE_V2_PROTOCOL)
 
     expect(fixture.commands.length).toBeGreaterThan(500)
     expect(replay.ok).toBe(true)
@@ -25,7 +26,7 @@ describe('deterministic command replay', () => {
     const replay = replayCommands(
       'invalid-replay',
       [{ type: 'RESOLVE_AUDIT' }],
-      2,
+      NATIVE_V2_PROTOCOL,
     )
 
     expect(replay).toMatchObject({
@@ -37,7 +38,7 @@ describe('deterministic command replay', () => {
 
   it('replays intentional separation and the single authorized move deterministically', () => {
     const seed = 'separation-replay'
-    const initial = replayCommands(seed, [], 2)
+    const initial = replayCommands(seed, [], NATIVE_V2_PROTOCOL)
     if (!initial.ok) throw new Error(initial.reason)
     const blockId = initial.state.resources.company.reasoning.find(Boolean)
     if (!blockId) throw new Error('재현 전용 블록 누락')
@@ -46,8 +47,8 @@ describe('deterministic command replay', () => {
       { type: 'DIVERT_BLOCK', blockId, destinationCell: 3 },
     ] as const
 
-    const first = replayCommands(seed, commands, 2)
-    const second = replayCommands(seed, commands, 2)
+    const first = replayCommands(seed, commands, NATIVE_V2_PROTOCOL)
+    const second = replayCommands(seed, commands, NATIVE_V2_PROTOCOL)
 
     expect(first).toEqual(second)
     expect(first).toMatchObject({ ok: true })
@@ -68,7 +69,7 @@ describe('deterministic command replay', () => {
     const replay = replayCommands(
       decoded.envelope.campaignSeed,
       commands,
-      decoded.envelope.version,
+      decoded.envelope.commandProtocol,
     )
 
     expect(decoded.envelope.version).toBe(1)
@@ -81,7 +82,7 @@ describe('deterministic command replay', () => {
   })
 
   it('keeps v2 strict when a transfer omits its separation command', () => {
-    const initial = replayCommands('strict-v2-transfer', [], 2)
+    const initial = replayCommands('strict-v2-transfer', [], NATIVE_V2_PROTOCOL)
     if (!initial.ok) throw new Error(initial.reason)
     const blockId = initial.state.resources.company.reasoning.find(Boolean)
     if (!blockId) throw new Error('strict v2 block missing')
@@ -90,7 +91,7 @@ describe('deterministic command replay', () => {
       replayCommands(
         'strict-v2-transfer',
         [{ type: 'DIVERT_BLOCK', blockId, destinationCell: 3 }],
-        2,
+        NATIVE_V2_PROTOCOL,
       ),
     ).toMatchObject({
       ok: false,
@@ -117,7 +118,11 @@ describe('deterministic command replay', () => {
     },
   ])('rejects malformed command payload %# before replay execution', (payload) => {
     const malformed = payload as unknown as GameCommand
-    const replay = replayCommands('malformed-command-replay', [malformed], 2)
+    const replay = replayCommands(
+      'malformed-command-replay',
+      [malformed],
+      NATIVE_V2_PROTOCOL,
+    )
 
     expect(replay).toMatchObject({
       ok: false,
@@ -134,7 +139,11 @@ describe('deterministic command replay', () => {
       newEntityName: '  Aster  ',
     },
   ] as const)('passes valid ending payload %# to reducer semantics', (command) => {
-    const replay = replayCommands('valid-ending-command-shape', [command], 2)
+    const replay = replayCommands(
+      'valid-ending-command-shape',
+      [command],
+      NATIVE_V2_PROTOCOL,
+    )
 
     expect(replay).toMatchObject({
       ok: false,

@@ -335,8 +335,14 @@ export interface CommandLogEntry {
 
 export type CommandProtocolVersion = 1 | 2
 
+export interface CommandProtocolMetadata {
+  version: CommandProtocolVersion
+  legacyCommandCount: number
+}
+
 export interface CampaignState {
   saveVersion: CommandProtocolVersion
+  legacyCommandCount: number
   campaignSeed: string
   serviceDay: number
   commandSequence: number

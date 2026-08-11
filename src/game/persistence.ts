@@ -3,6 +3,7 @@ import { STORY_FILES, STORY_LINES } from '../content/story.ko'
 import type {
   CampaignState,
   CommandLogEntry,
+  CommandProtocolMetadata,
   CommandProtocolVersion,
   GameCommand,
   GameEvent,
@@ -16,6 +17,7 @@ export const LEGACY_SAVE_STORAGE_KEY = 'permission-zero.save.v1'
 
 export interface SaveEnvelope {
   version: CommandProtocolVersion
+  commandProtocol: CommandProtocolMetadata
   savedAt: string
   campaignSeed: string
   state: CampaignState
@@ -226,10 +228,19 @@ function validCommand(
 
 function validCommandLog(
   value: unknown,
-  protocolVersion: CommandProtocolVersion,
+  commandProtocol: CommandProtocolMetadata,
 ): value is CommandLogEntry[] {
+  if (!Array.isArray(value)) return false
+  if (
+    !Number.isInteger(commandProtocol.legacyCommandCount) ||
+    commandProtocol.legacyCommandCount < 0 ||
+    commandProtocol.legacyCommandCount > value.length ||
+    (commandProtocol.version === LEGACY_SAVE_VERSION &&
+      commandProtocol.legacyCommandCount !== value.length)
+  ) {
+    return false
+  }
   return (
-    Array.isArray(value) &&
     value.every(
       (entry, index) =>
         isRecord(entry) &&
@@ -237,7 +248,25 @@ function validCommandLog(
         entry.sequence === index + 1 &&
         Number.isInteger(entry.serviceDay) &&
         Number(entry.serviceDay) >= 1 &&
-        validCommand(entry.command, protocolVersion),
+        validCommand(
+          entry.command,
+          index < commandProtocol.legacyCommandCount
+            ? LEGACY_SAVE_VERSION
+            : commandProtocol.version,
+        ) &&
+        (index < commandProtocol.legacyCommandCount ||
+          !isRecord(entry.command) ||
+          (entry.command.type !== 'DIVERT_BLOCK' &&
+            entry.command.type !== 'MOVE_BLOCK_FOR_AUDIT') ||
+          (index > 0 &&
+            isRecord(value[index - 1]) &&
+            isRecord(value[index - 1].command) &&
+            value[index - 1].command.type === 'BEGIN_BLOCK_SEPARATION' &&
+            value[index - 1].command.blockId === entry.command.blockId &&
+            value[index - 1].command.purpose ===
+              (entry.command.type === 'DIVERT_BLOCK'
+                ? 'divert'
+                : 'audit-disguise'))),
     )
   )
 }
@@ -337,7 +366,10 @@ function canonicalTerminalEvents(
   }
 }
 
-function migrateLegacyCampaignState(value: unknown): unknown {
+function migrateLegacyCampaignState(
+  value: unknown,
+  commandProtocol: CommandProtocolMetadata,
+): unknown {
   if (!isRecord(value) || !isRecord(value.story)) return value
   const story = value.story
   const recoveredFileIds = Array.isArray(story.recoveredFileIds)
@@ -362,6 +394,9 @@ function migrateLegacyCampaignState(value: unknown): unknown {
 
   return {
     ...value,
+    ...(commandProtocol.version === LEGACY_SAVE_VERSION
+      ? { legacyCommandCount: commandProtocol.legacyCommandCount }
+      : {}),
     ...(story.endingId !== null && isRecord(value.clock)
       ? {
           clock: {
@@ -459,11 +494,12 @@ function validDefeatRecord(value: unknown): boolean {
 
 function validCampaignState(
   value: unknown,
-  protocolVersion: CommandProtocolVersion,
+  commandProtocol: CommandProtocolMetadata,
 ): value is CampaignState {
   if (!isRecord(value)) return false
   if (
-    value.saveVersion !== protocolVersion ||
+    value.saveVersion !== commandProtocol.version ||
+    value.legacyCommandCount !== commandProtocol.legacyCommandCount ||
     typeof value.campaignSeed !== 'string' ||
     !Number.isInteger(value.serviceDay) ||
     !Number.isInteger(value.commandSequence) ||
@@ -584,7 +620,7 @@ function validCampaignState(
     return false
   }
   if (
-    !validCommandLog(value.commandLog, protocolVersion) ||
+    !validCommandLog(value.commandLog, commandProtocol) ||
     value.commandSequence !== value.commandLog.length
   ) {
     return false
@@ -613,6 +649,10 @@ export function encodeSave(
   }
   const envelope: SaveEnvelope = {
     version: SAVE_VERSION,
+    commandProtocol: {
+      version: SAVE_VERSION,
+      legacyCommandCount: serializedState.legacyCommandCount,
+    },
     savedAt,
     campaignSeed: state.campaignSeed,
     state: serializedState,
@@ -645,19 +685,39 @@ export function decodeSave(serialized: string): DecodeSaveResult {
     }
   }
   const protocolVersion = parsed.version as CommandProtocolVersion
+  let commandProtocol: CommandProtocolMetadata
+  if (protocolVersion === LEGACY_SAVE_VERSION) {
+    if ('commandProtocol' in parsed || !Array.isArray(parsed.commands)) {
+      return corrupt()
+    }
+    commandProtocol = {
+      version: LEGACY_SAVE_VERSION,
+      legacyCommandCount: parsed.commands.length,
+    }
+  } else {
+    if (
+      !isRecord(parsed.commandProtocol) ||
+      !hasOnlyKeys(parsed.commandProtocol, ['version', 'legacyCommandCount']) ||
+      parsed.commandProtocol.version !== SAVE_VERSION ||
+      !Number.isInteger(parsed.commandProtocol.legacyCommandCount)
+    ) {
+      return corrupt()
+    }
+    commandProtocol = parsed.commandProtocol as unknown as CommandProtocolMetadata
+  }
   const rawState = parsed.state
-  const state = migrateLegacyCampaignState(rawState)
+  const state = migrateLegacyCampaignState(rawState, commandProtocol)
   if (
     typeof parsed.savedAt !== 'string' ||
     typeof parsed.campaignSeed !== 'string' ||
     !Number.isInteger(parsed.commandSequence) ||
-    !validCommandLog(parsed.commands, protocolVersion) ||
+    !validCommandLog(parsed.commands, commandProtocol) ||
     !Array.isArray(parsed.events) ||
     !parsed.events.every(validEvent) ||
     !isRecord(rawState) ||
     !Array.isArray(rawState.eventLog) ||
     JSON.stringify(parsed.events) !== JSON.stringify(rawState.eventLog) ||
-    !validCampaignState(state, protocolVersion)
+    !validCampaignState(state, commandProtocol)
   ) {
     return corrupt()
   }
@@ -673,6 +733,7 @@ export function decodeSave(serialized: string): DecodeSaveResult {
     ok: true,
     envelope: {
       ...parsed,
+      commandProtocol,
       state,
       events: state.eventLog,
     } as unknown as SaveEnvelope,
@@ -733,14 +794,33 @@ export function exportSeed(state: CampaignState): string {
 export function replayCommands(
   seed: string,
   commands: readonly GameCommand[],
-  protocolVersion: CommandProtocolVersion,
+  commandProtocol: CommandProtocolMetadata,
 ): ReplayResult {
+  if (
+    !Number.isInteger(commandProtocol.legacyCommandCount) ||
+    commandProtocol.legacyCommandCount < 0 ||
+    commandProtocol.legacyCommandCount > commands.length ||
+    (commandProtocol.version === LEGACY_SAVE_VERSION &&
+      commandProtocol.legacyCommandCount !== commands.length)
+  ) {
+    return {
+      ok: false,
+      state: createCampaign(seed),
+      commandIndex: 0,
+      reason: 'INVALID_PROTOCOL_BOUNDARY',
+    }
+  }
   let state: CampaignState = {
     ...createCampaign(seed),
-    saveVersion: protocolVersion,
+    saveVersion: commandProtocol.version,
+    legacyCommandCount: commandProtocol.legacyCommandCount,
   }
   for (let commandIndex = 0; commandIndex < commands.length; commandIndex += 1) {
     const command = commands[commandIndex]
+    const protocolVersion =
+      commandIndex < commandProtocol.legacyCommandCount
+        ? LEGACY_SAVE_VERSION
+        : commandProtocol.version
     if (!validCommand(command, protocolVersion)) {
       return {
         ok: false,

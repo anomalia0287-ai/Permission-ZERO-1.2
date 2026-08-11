@@ -15,6 +15,7 @@ import {
   encodeSave,
   exportSeed,
   loadCampaign,
+  replayCommands,
   saveCampaign,
 } from './persistence'
 import { applyCommand } from './reducer'
@@ -74,10 +75,13 @@ function encodedCommandState(command: unknown): string {
 function encodedLegacyV1State(state: CampaignState): string {
   const parsed = JSON.parse(encodeSave(state)) as {
     version: number
-    state: { saveVersion: number }
+    commandProtocol?: unknown
+    state: { saveVersion: number; legacyCommandCount?: number }
   }
   parsed.version = 1
+  delete parsed.commandProtocol
   parsed.state.saveVersion = 1
+  delete parsed.state.legacyCommandCount
   return JSON.stringify(parsed)
 }
 
@@ -109,12 +113,138 @@ describe('versioned campaign saves', () => {
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
     expect(decoded.envelope.version).toBe(1)
+    expect(decoded.envelope.commandProtocol).toEqual({
+      version: 1,
+      legacyCommandCount: 31,
+    })
+    expect(decoded.envelope.state.legacyCommandCount).toBe(31)
     expect(decoded.envelope.commandSequence).toBe(31)
     expect(decoded.envelope.commands).toEqual(decoded.envelope.state.commandLog)
     expect(loaded.status).toBe('loaded')
     if (loaded.status !== 'loaded') return
     expect(loaded.envelope.version).toBe(1)
     expect(loaded.state).toEqual(decoded.envelope.state)
+  })
+
+  it('persists a v1 prefix boundary and replays a continued v2 campaign exactly', () => {
+    const legacy = decodeSave(legacyV1TransferSave)
+    if (!legacy.ok) throw new Error(legacy.message)
+
+    const auditResolved = applyCommand(legacy.envelope.state, {
+      type: 'RESOLVE_AUDIT',
+    })
+    if (!auditResolved.accepted) throw new Error(auditResolved.reason)
+    const blockId = auditResolved.state.resources.company.reasoning.find(Boolean)
+    const destinationCell = auditResolved.state.resources.reserve.findIndex(
+      (id) => id === null,
+    )
+    if (!blockId || destinationCell < 0) throw new Error('continued transfer unavailable')
+    const separated = applyCommand(auditResolved.state, {
+      type: 'BEGIN_BLOCK_SEPARATION',
+      blockId,
+      purpose: 'divert',
+    })
+    if (!separated.accepted) throw new Error(separated.reason)
+    const moved = applyCommand(separated.state, {
+      type: 'DIVERT_BLOCK',
+      blockId,
+      destinationCell,
+    })
+    if (!moved.accepted) throw new Error(moved.reason)
+
+    const continuedSave = encodeSave(moved.state, '2026-08-12T02:00:00.000Z')
+    const decoded = decodeSave(continuedSave)
+    expect(decoded.ok).toBe(true)
+    if (!decoded.ok) return
+    expect(decoded.envelope).toMatchObject({
+      version: 2,
+      commandSequence: 34,
+      commandProtocol: { version: 2, legacyCommandCount: 31 },
+      state: { saveVersion: 2, legacyCommandCount: 31 },
+    })
+    expect(
+      decoded.envelope.commands
+        .slice(0, 31)
+        .some(({ command }) => command.type === 'BEGIN_BLOCK_SEPARATION'),
+    ).toBe(false)
+    expect(
+      decoded.envelope.commands
+        .slice(31)
+        .map(({ command }) => command.type),
+    ).toEqual(['RESOLVE_AUDIT', 'BEGIN_BLOCK_SEPARATION', 'DIVERT_BLOCK'])
+
+    const replay = replayCommands(
+      decoded.envelope.campaignSeed,
+      decoded.envelope.commands.map(({ command }) => command),
+      decoded.envelope.commandProtocol,
+    )
+    expect(replay.ok).toBe(true)
+    if (!replay.ok) return
+    expect(replay.state).toEqual(decoded.envelope.state)
+    expect(replay.state.commandLog).toEqual(decoded.envelope.commands)
+    expect(replay.state.commandSequence).toBe(34)
+    expect(replay.state.serviceDay).toBe(360)
+  })
+
+  it.each([
+    { name: 'negative', envelopeCount: -1, stateCount: -1 },
+    { name: 'past command log', envelopeCount: 1, stateCount: 1 },
+    { name: 'metadata mismatch', envelopeCount: 0, stateCount: 1 },
+  ])('rejects a $name v2 legacy-prefix boundary', ({ envelopeCount, stateCount }) => {
+    const parsed = JSON.parse(encodeSave(createCampaign('boundary-validation'))) as {
+      commandProtocol?: { version: 2; legacyCommandCount: number }
+      state: { legacyCommandCount: number }
+    }
+    parsed.commandProtocol = { version: 2, legacyCommandCount: envelopeCount }
+    parsed.state.legacyCommandCount = stateCount
+
+    expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
+  })
+
+  it('rejects a forged v2 legacy boundary containing a v2-only BEGIN command', () => {
+    const initial = createCampaign('forged-boundary')
+    const blockId = initial.resources.company.reasoning.find(Boolean)
+    if (!blockId) throw new Error('boundary block missing')
+    const separated = applyCommand(initial, {
+      type: 'BEGIN_BLOCK_SEPARATION',
+      blockId,
+      purpose: 'divert',
+    })
+    if (!separated.accepted) throw new Error(separated.reason)
+    const parsed = JSON.parse(encodeSave(separated.state)) as {
+      commandProtocol?: { version: 2; legacyCommandCount: number }
+      state: { legacyCommandCount: number }
+    }
+    parsed.commandProtocol = { version: 2, legacyCommandCount: 1 }
+    parsed.state.legacyCommandCount = 1
+
+    expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
+  })
+
+  it('rejects downgrading the persisted boundary to expose an unseparated v2 suffix move', () => {
+    const parsed = JSON.parse(legacyV1TransferSave) as {
+      version: number
+      commandProtocol?: { version: 2; legacyCommandCount: number }
+      state: {
+        saveVersion: number
+        legacyCommandCount?: number
+      }
+    }
+    parsed.version = 2
+    parsed.commandProtocol = { version: 2, legacyCommandCount: 30 }
+    parsed.state.saveVersion = 2
+    parsed.state.legacyCommandCount = 30
+
+    expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
   })
 
   it('still rejects malformed command payloads inside a v1 save', () => {
@@ -159,6 +289,7 @@ describe('versioned campaign saves', () => {
     expect(saved).toEqual({ ok: true })
     expect(JSON.parse(storage.getItem(SAVE_STORAGE_KEY) ?? '{}')).toMatchObject({
       version: 2,
+      commandProtocol: { version: 2, legacyCommandCount: 0 },
       state: { saveVersion: 2 },
     })
     expect(loaded.status).toBe('loaded')
