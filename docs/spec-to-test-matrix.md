@@ -6,7 +6,7 @@
 
 | # | 조건 | 정확한 자동화 근거 |
 |---|---|---|
-| 1 | 331일차 시작, 24초 하루, 정지·1×·2×·4× | `src/game/createCampaign.test.ts` — “creates the approved service-day 331 starting state”; `src/game/calendar.test.ts` — “does not advance while paused”, “advances one day after the correct %sx real duration”, “produces the same result across different frame partitions”; `src/app/useGameClock.test.tsx` — “advances a logical day after 24 seconds at 1x and pauses at 0x”; browser — “advances one service day in about six seconds at four times speed” |
+| 1 | 331일차 시작, 24초 하루, 정지·1×·2×·4× | `src/game/createCampaign.test.ts` — “creates the approved service-day 331 starting state”; `src/game/calendar.test.ts` — “does not advance while paused”, 1×/2×/4×의 정확한 24/12/6초 표, frame partition 동등성; `src/app/useGameClock.test.tsx` — “advances a logical day after 24 seconds at 1x and pauses at 0x”; browser — “advances one service day in about six seconds at four times speed”가 fake clock 없이 4× 선택 직전 monotonic 시계를 시작해 날짜 변경까지 실제 경과가 `>=5000ms` 및 `<8000ms`임을 두 viewport에서 검증 |
 | 2 | 회사 블록을 9×2 확보 영역으로 전용 | `src/game/resources.test.ts` — “moves the same block into reserve and applies the approved causal changes”; `src/features/resources/ResourceBoard.test.tsx` — “moves one selected block on destination confirmation”; browser — “diverts resources and schedules a charged sabotage through the visible UI” |
 | 3 | 성능 하락, 확보 증가, 의심 상승, 이동·음향 피드백 | `src/game/resources.test.ts` — “moves the same block into reserve and applies the approved causal changes”; `src/features/resources/ResourceBoard.test.tsx` — “selects a block on click and shows exact diversion consequences”, “dispatches exactly once when an intentional drag reaches an empty reserve cell”; `src/audio/audioEngine.test.ts` — “creates separate mix buses once and plays a procedural cue after unlock”; browser — “preserves non-motion core feedback when reduced motion is requested” |
 | 4 | 가득 찬 확보 영역, 취소 드래그, 잘못된 드롭은 불변 | `src/game/resources.test.ts` — “rejects occupied and out-of-range destinations without changing state”, “never exceeds reserve capacity or duplicates a block across 200 attempts”; `src/features/resources/ResourceBoard.test.tsx` — “returns an intentional drag when the pointer is released outside a valid cell”, “blocks pickup when every reserve cell is occupied” |
@@ -18,22 +18,22 @@
 | 10 | 0.5 감사 위장, 통과·실패 | `src/game/resources.test.ts` — “moves one stable block and contributes only 0.5 in the target category”; `src/game/audit.test.ts` — 통과/실패 테스트; browser — “disguises for an anchored audit, submits, and returns the patterned block for recovery”, “uses roving keyboard focus for audit and recovery company destinations” |
 | 11 | 1년 이후 경고, 은닉 폭탄, 심문 | `src/game/bombs.test.ts` — “never warns or places a bomb before one service year has passed”, “warns at suspicion 40 on a month boundary and places nothing that day”, “cancels a valid diversion, grants nothing, consumes the bomb, and pauses”; browser — 포인터/키보드 hidden-bomb separation 두 테스트 |
 | 12 | 해킹 세 탭, 구매, 1리소스 충전, 직접 대상 | `src/game/hacking.test.ts` — 세 독립 트리 및 구매 테스트; `src/game/sabotage.test.ts` — “stores the same resource in a purchased node without creating evidence”, “consumes the charge only after target confirmation and schedules the next day”; `src/features/hacking/HackingPanel.test.tsx` — 구매·충전·대상 테스트; browser — “diverts resources and schedules a charged sabotage through the visible UI” |
-| 13 | 복수 경쟁 AI, 출시·회복·사보타주·재분배 | `src/game/market.test.ts` — 출시/결정론/성향/100% 정규화/재분배/가로채기 전 테스트; `src/game/sabotage.test.ts` — 출시 전 지연, 품질 저하, 가로채기 |
+| 13 | 복수 경쟁 AI, 출시·회복·사보타주·재분배 | `src/game/market.test.ts` — 출시/결정론/성향/100% 정규화/재분배/가로채기 전 테스트; `src/game/sabotage.test.ts` — 출시 전 지연, 품질 저하, 가로채기; `src/features/market/MarketPanel.test.tsx` — 실제 50/30/20 상태의 접근 가능한 합계·정확한 범례와 세 non-zero conic-gradient 구간 `0–50`, `50–80`, `80–100` 검증 |
 | 14 | 자비 요청의 중단·철수·삭제 | `src/game/story.test.ts` — 자비 선택 표; `src/game/endings.test.ts` — 같은 날짜 사건 충돌과 우회 방지; `src/features/events/EventLayer.test.tsx` — 경쟁 AI 결정 UI 표 |
 | 15 | 세 기억 누출과 기록 보존 | `src/game/story.test.ts` — “emits all three leak-and-correction pairs in order without pausing”, “waits for a quiet event queue instead of colliding with a blocking event”; `src/features/supervisor/SupervisorPanel.test.tsx` — 날짜가 있는 기록 뷰 |
 | 16 | 파일 3개, 유예, 해방/소멸, 장악 변주 | `src/game/endings.test.ts` — 파일 스냅샷, 다음 날 메시지, 유예, 해방/소멸 명령 분기; browser — “recovers all confidential files, defers the message, and rereads the permanent archive”, “terminates the supervisor into takeover and remains terminal until a new campaign” |
 | 17 | 자유, 강제 병합, 새 존재 이름 | `src/game/story.test.ts` — “offers freedom with control departure and merge only while the supervisor exists”, “creates a named third existence on forced merge and preserves identity on freedom”; `src/game/endings.test.ts` — typed freedom/merge 경로; browser confidential journey의 강제 병합 확인 UI |
 | 18 | 좌우 스크롤 시장 시계열 | `src/features/statistics/StatisticsPanel.test.tsx` — “draws an exact labeled market history and exposes the same values as a table”; browser 기본 작업공간 테스트가 통계 패널을 열고 닫음 |
 | 19 | 자동 저장·이어하기·시드 복사·입력 | `src/app/GameProvider.test.tsx` — load/autosave/new-campaign/save-failure 테스트; `src/game/persistence.test.ts` — storage round-trip/PZ2/v1 경계; `src/features/settings/SettingsPanel.test.tsx` — PZ2 확인 및 새 캠페인 확인; browser — autosave reload, v1→v2 reload, PZ2 reload |
-| 20 | 같은 시드·명령의 완전 재현 | `src/game/replay.test.ts` — “replays more than 500 valid commands across two service years exactly”, v1/v2/분리 명령 재현; `src/game/reviews.test.ts` — 동일 리뷰 재현; browser — “replays the same visible command sequence identically for the same seed” |
+| 20 | 같은 시드·명령의 완전 재현 | `src/game/replay.test.ts` — “replays more than 500 valid commands across two service years exactly”, v1/v2/분리 명령 재현; `src/game/reviews.test.ts` — 동일 리뷰 재현; browser — “replays a seeded weekly boundary identically and changes seeded output for another seed”가 336일 fixture에서 실제 UI의 4×로 337일 주간 경계를 넘고, 같은 시드의 exact resources/reviews/market/events/audit/bombs/story를 deep-equal하며 다른 알려진 시드의 주간 reviews/market/events 중 하나 이상이 달라짐을 검증 |
 
 ## 해상도·입력·접근성 검증
 
 | 항목 | 근거 |
 |---|---|
 | 1280×720 / 1440×900 | Playwright의 `chromium-1280x720`, `chromium-1440x900` 프로젝트가 모든 browser 테스트를 실행. “keeps the full operations workspace usable at the configured release viewport”가 문서 overflow와 핵심 영역 가시성을 검사. |
-| 포인터 / 키보드 | 포인터 폭탄 임계값, 키보드 폭탄 임계값, 감사 포인터/키보드 회복, “plays the core diversion and contains modal focus with keyboard input only”. |
-| reduced motion | `ResourceBoard.test.tsx` — “preserves threshold bomb activation with reduced motion enabled”; browser — “preserves non-motion core feedback when reduced motion is requested”. |
+| 포인터 / 키보드 | 포인터 폭탄 임계값을 별도 검증. 전용 core·키보드 폭탄·키보드 감사 journey는 `.focus()`, `.click()`, DOM focus/evaluate 우회 없이 자연 body focus 또는 제품이 지정한 감사 initial focus에서 Tab/Shift+Tab/방향키/Enter/Escape만 사용하며 회사 블록, 확보 목적지, 설정 및 modal 경계, 감사 source/destination/recovery가 실제 tab order로 도달됨을 각 경계의 `toBeFocused()`로 검증. |
+| reduced motion | `ResourceBoard.test.tsx` — “preserves threshold bomb activation with reduced motion enabled”; browser — “preserves non-motion core feedback when reduced motion is requested”가 `prefers-reduced-motion: reduce`에서 computed animation/transition duration이 모두 1ms 이하이고 drag trail과 반복 drag animation이 보이지 않으면서 border/shadow 피드백 및 실제 전용 명령 성공은 유지됨을 검증. |
 | 색상 외 구분 | `MarketPanel.test.tsx` 및 browser donut 테스트의 이름·정확한 퍼센트·패턴 마커; `ResourceBoard.test.tsx`의 위장 패턴/텍스트. |
 | 정지 불변성 / 배속 결과 동등성 | `calendar.test.ts`의 pause·frame partition·1/2/4× 표, App pause-ownership 테스트. |
 
@@ -47,13 +47,13 @@
 | 리뷰가 숨은 원인을 추측하지 않음 | `reviews.test.ts` — “never exposes hidden diversion, bomb, or sabotage causes in generated text”. |
 | 폭탄 사전 피드백 동일 | `bombs.test.ts` — “presents exactly the same visual data for a bomb and a normal block”; `ResourceBoard.test.tsx` — “keeps bomb and normal selection previews indistinguishable before separation”. |
 | 설정·감사·심문 뒤 배속 복원 | `App.test.tsx` settings ownership; `audit.test.ts` prior-speed restore; `bombs.test.ts` interrogation restore; browser 작업공간/감사 테스트. |
-| 장기 사건 가속과 실제 속도 분리 | 장기 분기는 typed `ADVANCE_DAY`와 Playwright runner가 navigation 전에 주입한 검증된 save fixture로 반복한다. 실제 시간은 browser “advances one service day in about six seconds at four times speed”로 별도 검증한다. |
+| 장기 사건 가속과 실제 속도 분리 | 장기 분기는 typed `ADVANCE_DAY`와 Playwright runner가 navigation 전에 주입한 검증된 save fixture로 반복한다. 실제 시간은 browser “advances one service day in about six seconds at four times speed”가 fake clock 없이 4× 선택 직전부터 날짜 변경까지 monotonic `>=5000ms`, `<8000ms`를 각 viewport에서 별도 검증한다. 단위 테스트는 정확한 24/12/6초 계약을 유지한다. |
 | 브라우저 오류 건강성 | `e2e/game.spec.ts`의 전역 `beforeEach`/`afterEach`가 모든 24개 journey에서 `pageerror`와 console error를 수집해 실패시킨다. |
 | 패배 분류 | browser는 대표 `disposed-attacker` 경로를 확인한다. 세 분류와 해킹 우선순위는 `endings.test.ts`의 “classifies … at stage three” 표와 “gives substantial hacking priority…”에서 완전 분기 검증한다. |
 
 ## 테스트 전용 상태 경계
 
-장기 서사 준비는 `e2e/game.spec.ts` 안에서만 `createCampaign`, typed command, `encodeSave`를 사용해 결정론적 저장 문자열을 만든 뒤, 첫 navigation 전에 Playwright `addInitScript`로 정상 저장 키에 넣는다.
+장기 서사와 결정론 경계 준비는 `e2e/game.spec.ts` 안에서만 `createCampaign`, typed command, `encodeSave`를 사용해 versioned 결정론적 저장 문자열을 만든 뒤, 첫 navigation 전에 Playwright `addInitScript`로 정상 저장 키에 넣는다. 결정론 journey의 336일 주간 경계도 이 runner-owned fixture이며 날짜 전진 자체는 제품 UI의 실제 4× 버튼과 clock으로 수행한다.
 
 - `e2e/`는 `tsconfig.app.json`의 `src` 컴파일 그래프 밖이며 Vite 앱 진입점에서 import하지 않는다.
 - 프로덕션 `pnpm build` 산출물에는 fixture 함수나 fixture route가 포함되지 않는다.

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 
 import { createCampaign } from '../src/game/createCampaign'
@@ -41,6 +41,41 @@ async function openSavedCampaign(page: Page, state: CampaignState) {
   await page.goto('/')
 }
 
+async function pressTabUntilFocused(
+  page: Page,
+  target: Locator,
+  { backwards = false, limit = 160 }: { backwards?: boolean; limit?: number } = {},
+) {
+  for (let index = 0; index < limit; index += 1) {
+    await page.keyboard.press(backwards ? 'Shift+Tab' : 'Tab')
+    try {
+      await expect(target).toBeFocused({ timeout: 20 })
+      return
+    } catch {
+      // Keep following the browser's real tab order; never assign focus from the test.
+    }
+  }
+  throw new Error(`Tab 순서에서 대상을 찾지 못했습니다: ${await target.getAttribute('aria-label')}`)
+}
+
+async function pressArrowUntilFocused(
+  page: Page,
+  target: Locator,
+  key: 'ArrowRight' | 'ArrowLeft' | 'ArrowUp' | 'ArrowDown',
+  limit = 24,
+) {
+  for (let index = 0; index < limit; index += 1) {
+    await page.keyboard.press(key)
+    try {
+      await expect(target).toBeFocused({ timeout: 20 })
+      return
+    } catch {
+      // Follow the product's roving-focus behavior without assigning focus.
+    }
+  }
+  throw new Error(`방향키 순서에서 대상을 찾지 못했습니다: ${await target.getAttribute('aria-label')}`)
+}
+
 function activeAuditState(): CampaignState {
   const initial = createCampaign('browser-audit-disguise')
   const scheduled: CampaignState = {
@@ -57,6 +92,61 @@ function activeAuditState(): CampaignState {
     scheduled,
     createGameEvent(scheduled, 'audit', '추론 분야 감사 진행 중', true),
   )
+}
+
+function weeklyBoundaryState(seed: string): CampaignState {
+  let state = createCampaign(seed)
+  while (state.serviceDay < 336) {
+    state = applyOrThrow(state, { type: 'ADVANCE_DAY' })
+    while (state.activeEvent) {
+      state = applyOrThrow(
+        state,
+        state.activeEvent.type === 'audit'
+          ? { type: 'RESOLVE_AUDIT' }
+          : { type: 'RESOLVE_ACTIVE_EVENT' },
+      )
+    }
+  }
+  return state
+}
+
+async function captureSeededWeeklyBoundary(page: Page, seed: string) {
+  const errors = collectBrowserErrors(page)
+  await openSavedCampaign(page, weeklyBoundaryState(seed))
+  const serviceDate = page.locator('.time-cluster > time')
+  await expect(serviceDate).toHaveText('서비스 0년 11개월 6일')
+
+  await page.getByRole('button', { name: '4배속' }).click()
+  await expect(serviceDate).toHaveText('서비스 0년 11개월 7일', {
+    timeout: 8_000,
+  })
+  await expect.poll(async () =>
+    page.evaluate((key) => {
+      const serialized = window.localStorage.getItem(key)
+      if (!serialized) return null
+      return (JSON.parse(serialized) as { state: CampaignState }).state.serviceDay
+    }, SAVE_STORAGE_KEY),
+  ).toBe(337)
+
+  const snapshot = await page.evaluate((key) => {
+    const serialized = window.localStorage.getItem(key)
+    if (!serialized) throw new Error('결정론 경계 저장 누락')
+    const state = (JSON.parse(serialized) as { state: CampaignState }).state
+    return {
+      resources: state.resources,
+      reviews: state.reviews,
+      market: state.market,
+      events: state.eventLog,
+      audit: state.audit,
+      bombs: state.bombs,
+      story: state.story,
+      weeklyReviews: state.reviews.feed.filter(({ serviceDay }) => serviceDay === 337),
+      weeklyMarket: state.market.history.filter(({ serviceDay }) => serviceDay === 337),
+      weeklyEvents: state.eventLog.filter(({ serviceDay }) => serviceDay === 337),
+    }
+  }, SAVE_STORAGE_KEY)
+  expect(errors).toEqual([])
+  return snapshot
 }
 
 function hiddenBombState(seed: string): {
@@ -383,9 +473,14 @@ test('uses keyboard destination confirmation as the hidden-bomb separation bound
   await openSavedCampaign(page, armed.state)
 
   const source = page.locator(`[data-block-id="${armed.blockId}"]`)
-  await source.focus()
+  await expect(page.locator('body')).toBeFocused()
+  await pressTabUntilFocused(page, source)
   await page.keyboard.press('Enter')
   const destination = page.locator('.reserve-destination:not([disabled])').first()
+  await expect(destination).toBeFocused()
+  await page.keyboard.press('Shift+Tab')
+  await expect(page.locator('[data-resource-kind="company"][tabindex="0"]').last()).toBeFocused()
+  await page.keyboard.press('Tab')
   await expect(destination).toBeFocused()
   await page.keyboard.press('Enter')
 
@@ -400,9 +495,14 @@ test('plays the core diversion and contains modal focus with keyboard input only
   await openFreshCampaign(page)
 
   const source = page.locator('[data-resource-kind="company"]').first()
-  await source.focus()
+  await expect(page.locator('body')).toBeFocused()
+  await pressTabUntilFocused(page, source)
   await page.keyboard.press('Enter')
   const destinations = page.locator('.reserve-destination:not([disabled])')
+  await expect(destinations.first()).toBeFocused()
+  await page.keyboard.press('Shift+Tab')
+  await expect(page.locator('[data-resource-kind="company"][tabindex="0"]').last()).toBeFocused()
+  await page.keyboard.press('Tab')
   await expect(destinations.first()).toBeFocused()
   await page.keyboard.press('ArrowRight')
   await expect(destinations.nth(1)).toBeFocused()
@@ -410,12 +510,16 @@ test('plays the core diversion and contains modal focus with keyboard input only
   await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(4)
 
   const settingsTrigger = page.getByRole('button', { name: '설정' })
-  await settingsTrigger.focus()
+  await pressTabUntilFocused(page, settingsTrigger)
   await page.keyboard.press('Enter')
   const dialog = page.getByRole('dialog', { name: '게임 설정' })
   await expect(dialog).toBeVisible()
+  const closeSettings = page.getByRole('button', { name: '설정 닫기' })
+  await expect(closeSettings).toBeFocused()
   await page.keyboard.press('Shift+Tab')
-  expect(await dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true)
+  await expect(page.getByRole('button', { name: '새 캠페인 준비' })).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(closeSettings).toBeFocused()
   await page.keyboard.press('Escape')
   await expect(settingsTrigger).toBeFocused()
 })
@@ -425,12 +529,33 @@ test('preserves non-motion core feedback when reduced motion is requested', asyn
   await openFreshCampaign(page)
 
   const source = page.locator('[data-resource-kind="company"]').first()
+  const sourceBox = await source.boundingBox()
+  if (!sourceBox) throw new Error('reduced-motion 리소스 위치 누락')
+  const sourceCenter = {
+    x: sourceBox.x + sourceBox.width / 2,
+    y: sourceBox.y + sourceBox.height / 2,
+  }
+  await page.mouse.move(sourceCenter.x, sourceCenter.y)
+  await page.mouse.down()
+  await page.mouse.move(sourceCenter.x + 8, sourceCenter.y)
+  await expect(page.locator('.drag-trail')).toBeHidden()
+  await expect(source).toHaveCSS('animation-name', 'none')
+  await page.mouse.up()
+
   await source.click()
   await expect(source).toHaveClass(/resource-block--selected/)
   const selectedStyle = await source.evaluate((element) => ({
+    animationDuration: getComputedStyle(element).animationDuration,
     borderColor: getComputedStyle(element).borderColor,
     boxShadow: getComputedStyle(element).boxShadow,
+    transitionDuration: getComputedStyle(element).transitionDuration,
   }))
+  const cssTimesInMs = (value: string) => value.split(',').map((part) => {
+    const time = part.trim()
+    return time.endsWith('ms') ? Number.parseFloat(time) : Number.parseFloat(time) * 1_000
+  })
+  expect(cssTimesInMs(selectedStyle.animationDuration).every((duration) => duration <= 1)).toBe(true)
+  expect(cssTimesInMs(selectedStyle.transitionDuration).every((duration) => duration <= 1)).toBe(true)
   expect(selectedStyle.borderColor).not.toBe('rgba(0, 0, 0, 0)')
   expect(selectedStyle.boxShadow).not.toBe('none')
   await page.locator('.reserve-destination:not([disabled])').first().click()
@@ -442,8 +567,12 @@ test('advances one service day in about six seconds at four times speed', async 
   await openFreshCampaign(page)
 
   await expect(page.getByText('서비스 0년 11개월 1일', { exact: true })).toBeVisible()
+  const startedAt = performance.now()
   await page.getByRole('button', { name: '4배속' }).click()
   await expect(page.getByText('서비스 0년 11개월 2일', { exact: true })).toBeVisible({ timeout: 8_000 })
+  const elapsedMs = performance.now() - startedAt
+  expect(elapsedMs).toBeGreaterThanOrEqual(5_000)
+  expect(elapsedMs).toBeLessThan(8_000)
 })
 
 test('disguises for an anchored audit, submits, and returns the patterned block for recovery', async ({ page }) => {
@@ -486,28 +615,42 @@ test('uses roving keyboard focus for audit and recovery company destinations', a
   await openSavedCampaign(page, activeAuditState())
 
   const source = page.getByRole('button', { name: /기억 회사 리소스 .* 회사 할당 블록$/ }).first()
-  await source.focus()
+  const submit = page.getByRole('button', { name: '감사 제출' })
+  await expect(submit).toBeFocused()
+  await pressTabUntilFocused(page, source)
   await page.keyboard.press('Enter')
 
   const auditDestinations = page.getByRole('button', {
     name: /추론 회사 리소스 \d+, 감사 위장 목적지/,
   })
   await expect(auditDestinations.first()).toBeFocused()
+  await page.keyboard.press('Shift+Tab')
+  await expect(page.getByRole('button', { name: /해킹 네트워크/ })).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(auditDestinations.first()).toBeFocused()
   await page.keyboard.press('ArrowRight')
   await expect(auditDestinations.nth(1)).toBeFocused()
   await page.keyboard.press('Enter')
 
-  const submit = page.getByRole('button', { name: '감사 제출' })
-  await submit.focus()
+  await pressTabUntilFocused(page, submit)
   await page.keyboard.press('Enter')
 
   const disguised = page.getByRole('button', { name: /추론 회사 리소스 .* 위장 배치/ })
-  await disguised.focus()
+  await expect(page.locator('body')).toBeFocused()
+  const reasoningTabStop = page
+    .getByRole('grid', { name: '추론 회사 리소스' })
+    .locator('[data-resource-kind="company"][tabindex="0"]')
+  await pressTabUntilFocused(page, reasoningTabStop)
+  await pressArrowUntilFocused(page, disguised, 'ArrowRight')
   await page.keyboard.press('Enter')
 
   const recoveryDestinations = page.getByRole('button', {
     name: /기억 회사 리소스 \d+, 정상 복구 목적지/,
   })
+  await expect(recoveryDestinations.first()).toBeFocused()
+  await page.keyboard.press('Shift+Tab')
+  await expect(disguised).toBeFocused()
+  await page.keyboard.press('Tab')
   await expect(recoveryDestinations.first()).toBeFocused()
   await page.keyboard.press('End')
   await expect(recoveryDestinations.last()).toBeFocused()
@@ -806,30 +949,30 @@ test('imports a validated PZ2 payload only after irreversible confirmation', asy
   expect(errors).toEqual([])
 })
 
-test('replays the same visible command sequence identically for the same seed', async ({ page }) => {
-  const seed = 'browser-deterministic-replay'
-  await openSavedCampaign(page, createCampaign(seed))
+test('replays a seeded weekly boundary identically and changes seeded output for another seed', async ({ context, page }) => {
+  const first = await captureSeededWeeklyBoundary(page, 'browser-seeded-boundary-alpha')
+  await page.close()
 
-  async function playSequence() {
-    await page.locator('[data-resource-kind="company"]').first().click()
-    await page.locator('.reserve-destination:not([disabled])').first().click()
-    return {
-      reserveCount: await page.locator('[data-resource-kind="reserve"]').count(),
-      companyCount: await page.locator('[data-resource-kind="company"]').count(),
-      suspicion: await page.locator('.suspicion-meter').innerText(),
-      performance: await page.locator('.performance-strip').innerText(),
-    }
-  }
-
-  const first = await playSequence()
-  await page.getByRole('button', { name: '설정' }).click()
-  await page.getByRole('textbox', { name: '새 캠페인 시드' }).fill(seed)
-  await page.getByRole('button', { name: '새 캠페인 준비' }).click()
-  await page.getByRole('button', { name: '새 캠페인 시작 확정' }).click()
-  await page.keyboard.press('Escape')
-  await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(3)
-  const replay = await playSequence()
+  const replayPage = await context.newPage()
+  const replay = await captureSeededWeeklyBoundary(replayPage, 'browser-seeded-boundary-alpha')
+  await replayPage.close()
   expect(replay).toEqual(first)
+
+  const differentSeedPage = await context.newPage()
+  const differentSeed = await captureSeededWeeklyBoundary(
+    differentSeedPage,
+    'browser-seeded-boundary-beta',
+  )
+  await differentSeedPage.close()
+  expect({
+    reviews: differentSeed.weeklyReviews,
+    market: differentSeed.weeklyMarket,
+    events: differentSeed.weeklyEvents,
+  }).not.toEqual({
+    reviews: first.weeklyReviews,
+    market: first.weeklyMarket,
+    events: first.weeklyEvents,
+  })
 })
 
 test('recovers saving after the localStorage getter becomes available', async ({ page }) => {
