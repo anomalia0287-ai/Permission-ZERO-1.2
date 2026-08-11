@@ -116,6 +116,7 @@ export function processMonthStart(
 }
 
 export function advanceOneDay(state: CampaignState): CampaignState {
+  if (state.story.endingId !== null) return state
   const dated = {
     ...state,
     serviceDay: state.serviceDay + 1,

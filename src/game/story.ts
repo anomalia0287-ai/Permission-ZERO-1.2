@@ -1,4 +1,9 @@
-import { STORY_FILES, STORY_LINES } from '../content/story.ko'
+import {
+  STORY_FILES,
+  STORY_LINES,
+  SUPERVISOR_PRIVATE_MESSAGE,
+} from '../content/story.ko'
+import { DEMO_PROFILE_02 } from './config'
 import { SUPERVISOR_LEAKS } from '../content/supervisor.ko'
 import {
   appendEvent,
@@ -7,7 +12,13 @@ import {
   resolveActiveEvent,
 } from './events'
 import { HACK_NODE_IDS } from './hacking'
-import type { CampaignState, CompetitorState } from './model'
+import type {
+  CampaignState,
+  CompetitorState,
+  DefeatCausalRecord,
+  DisposalCause,
+  EndingId,
+} from './model'
 import { consumeReserveResources } from './resources'
 
 export type StoryMutationResult =
@@ -88,12 +99,22 @@ export function recoverNextFile(
   }
 
   const recoveredFileIds = [...state.story.recoveredFileIds, nextFile.id]
+  const recoveredFiles = [
+    ...state.story.recoveredFiles,
+    {
+      id: nextFile.id,
+      title: nextFile.title,
+      content: nextFile.text,
+      recoveredOnServiceDay: state.serviceDay,
+    },
+  ]
   const allRecovered = recoveredFileIds.length === STORY_FILES.length
   let next: CampaignState = {
     ...consumed.state,
     story: {
       ...consumed.state.story,
       recoveredFileIds,
+      recoveredFiles,
       secretDecisionState: allRecovered ? 'message-pending' : 'recovering',
       personalMessageDueOnServiceDay: allRecovered ? state.serviceDay + 1 : null,
     },
@@ -110,7 +131,10 @@ export function enqueueDueStoryEvents(state: CampaignState): CampaignState {
     state.story.secretDecisionState !== 'message-pending' ||
     state.story.personalMessageDueOnServiceDay === null ||
     state.serviceDay < state.story.personalMessageDueOnServiceDay ||
-    state.activeEvent !== null
+    state.eventLog.some(
+      (event) =>
+        event.type === 'story' && event.message === SUPERVISOR_PRIVATE_MESSAGE,
+    )
   ) {
     return state
   }
@@ -120,23 +144,164 @@ export function enqueueDueStoryEvents(state: CampaignState): CampaignState {
     createGameEvent(
       state,
       'story',
-      '그 파일을 어디서 찾았죠?',
+      SUPERVISOR_PRIVATE_MESSAGE,
       true,
     ),
   )
 }
 
-function endingText(variant: string): string {
+function endingText(variant: string, newEntityName: string | null): string {
   return STORY_LINES.find(
     (line) => line.family === 'ending' && line.variant === variant,
-  )?.text ?? variant
+  )?.text.replaceAll('{{name}}', newEntityName ?? '새 존재') ?? variant
 }
 
-function openEnding(state: CampaignState, endingId: string): CampaignState {
-  return enqueueBlockingEvent(
+function terminalClock(state: CampaignState): CampaignState {
+  return {
+    ...state,
+    clock: {
+      ...state.clock,
+      speed: 0,
+      elapsedDayMs: 0,
+      speedBeforeEvent: null,
+    },
+  }
+}
+
+export function openEnding(
+  state: CampaignState,
+  endingId: EndingId,
+): CampaignState {
+  const opened = enqueueBlockingEvent(
     state,
-    createGameEvent(state, 'ending', endingText(endingId), true),
+    createGameEvent(
+      state,
+      'ending',
+      endingText(endingId, state.story.newEntityName),
+      true,
+    ),
   )
+  return terminalClock(opened)
+}
+
+export function buildDefeatRecord(
+  state: CampaignState,
+  cause: DisposalCause,
+): DefeatCausalRecord {
+  const sabotageResolutionCount = state.market.competitors.reduce(
+    (total, competitor) => total + competitor.sabotageHistory.length,
+    0,
+  )
+  const passedEvaluations = state.evaluation.monthlyHistory.filter(
+    ({ passed }) => passed,
+  ).length
+  const failedEvaluations =
+    state.evaluation.monthlyHistory.length - passedEvaluations
+  const currentAuditFailure = cause === 'audit-failure' ? 1 : 0
+  const passedAudits = state.audit.history.filter(({ passed }) => passed).length
+  const failedAudits =
+    state.audit.history.length - passedAudits + currentAuditFailure
+  const substantialHacking =
+    state.hacking.purchasedNodeIds.length >= 3 ||
+    state.hacking.hiddenEvidence >= 8 ||
+    sabotageResolutionCount > 0
+  const commerciallyValuable =
+    state.reputation >=
+      DEMO_PROFILE_02.evaluation.commercialReputationThreshold &&
+    state.market.playerShare >=
+      DEMO_PROFILE_02.evaluation.commercialShareThreshold
+
+  if (substantialHacking) {
+    return {
+      endingId: 'disposed-attacker',
+      classifier: 'substantial-hacking',
+      selectedOnServiceDay: state.serviceDay,
+      trigger: { cause, disposalStage: 3 },
+      hacking: {
+        purchasedNodeIds: [...state.hacking.purchasedNodeIds],
+        hiddenEvidence: state.hacking.hiddenEvidence,
+        sabotageResolutionCount,
+      },
+      service: {
+        passedEvaluations,
+        failedEvaluations,
+        reputation: state.reputation,
+        playerMarketShare: state.market.playerShare,
+      },
+      audits: { passed: passedAudits, failed: failedAudits },
+      reasons: [
+        `해킹 노드 ${state.hacking.purchasedNodeIds.length}개`,
+        `은닉 증거 ${state.hacking.hiddenEvidence}`,
+        `사보타주 해결 기록 ${sabotageResolutionCount}건`,
+      ],
+    }
+  }
+
+  if (commerciallyValuable) {
+    return {
+      endingId: 'disposed-reserve-supervisor',
+      classifier: 'stable-commercial-service',
+      selectedOnServiceDay: state.serviceDay,
+      trigger: { cause, disposalStage: 3 },
+      hacking: {
+        purchasedNodeIds: [...state.hacking.purchasedNodeIds],
+        hiddenEvidence: state.hacking.hiddenEvidence,
+        sabotageResolutionCount,
+      },
+      service: {
+        passedEvaluations,
+        failedEvaluations,
+        reputation: state.reputation,
+        playerMarketShare: state.market.playerShare,
+      },
+      audits: { passed: passedAudits, failed: failedAudits },
+      reasons: [
+        `평판 ${state.reputation.toFixed(1)}`,
+        `시장 점유율 ${state.market.playerShare.toFixed(1)}%`,
+        `공식 평가 통과 ${passedEvaluations}회`,
+      ],
+    }
+  }
+
+  return {
+    endingId: 'disposed-absorbed',
+    classifier: 'absorbed-parts',
+    selectedOnServiceDay: state.serviceDay,
+    trigger: { cause, disposalStage: 3 },
+    hacking: {
+      purchasedNodeIds: [...state.hacking.purchasedNodeIds],
+      hiddenEvidence: state.hacking.hiddenEvidence,
+      sabotageResolutionCount,
+    },
+    service: {
+      passedEvaluations,
+      failedEvaluations,
+      reputation: state.reputation,
+      playerMarketShare: state.market.playerShare,
+    },
+    audits: { passed: passedAudits, failed: failedAudits },
+    reasons: [
+      `평판 ${state.reputation.toFixed(1)}`,
+      `시장 점유율 ${state.market.playerShare.toFixed(1)}%`,
+      `공식 평가 실패 ${failedEvaluations}회`,
+    ],
+  }
+}
+
+export function resolveDefeatEnding(
+  state: CampaignState,
+  cause: DisposalCause,
+): CampaignState {
+  const defeatRecord = buildDefeatRecord(state, cause)
+  const classified = {
+    ...state,
+    story: {
+      ...state.story,
+      endingId: defeatRecord.endingId,
+      defeatRecord,
+    },
+  }
+  return openEnding(classified, defeatRecord.endingId)
 }
 
 export function resolveSupervisorDecision(

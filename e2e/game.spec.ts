@@ -2,8 +2,10 @@ import { expect, test, type Page } from '@playwright/test'
 
 import { createCampaign } from '../src/game/createCampaign'
 import { createGameEvent, enqueueBlockingEvent } from '../src/game/events'
-import type { CampaignState } from '../src/game/model'
+import { HACK_NODE_IDS } from '../src/game/hacking'
+import type { CampaignState, GameCommand } from '../src/game/model'
 import { encodeSave, SAVE_STORAGE_KEY } from '../src/game/persistence'
+import { applyCommand } from '../src/game/reducer'
 
 async function openFreshCampaign(page: Page) {
   await page.addInitScript(() => {
@@ -40,6 +42,36 @@ function activeAuditState(): CampaignState {
     scheduled,
     createGameEvent(scheduled, 'audit', '추론 분야 감사 진행 중', true),
   )
+}
+
+function applyOrThrow(state: CampaignState, command: GameCommand): CampaignState {
+  const result = applyCommand(state, command)
+  if (!result.accepted) throw new Error(`${command.type}: ${result.reason}`)
+  return result.state
+}
+
+function confidentialRecoveryState(seed: string): CampaignState {
+  const initial = createCampaign(seed)
+  return {
+    ...initial,
+    hacking: {
+      ...initial.hacking,
+      purchasedNodeIds: [
+        HACK_NODE_IDS.intelligence.supervisorAccess,
+        HACK_NODE_IDS.autonomy.controlDeparture,
+      ],
+    },
+  }
+}
+
+function pendingSupervisorDecisionState(seed: string): CampaignState {
+  let state = confidentialRecoveryState(seed)
+  for (let index = 0; index < 3; index += 1) {
+    const blockId = state.resources.reserve.find(Boolean)
+    if (!blockId) throw new Error('브라우저 감독관 결정 리소스 누락')
+    state = applyOrThrow(state, { type: 'RECOVER_FILE', blockId })
+  }
+  return applyOrThrow(state, { type: 'ADVANCE_DAY' })
 }
 
 function collectBrowserErrors(page: Page): string[] {
@@ -205,5 +237,78 @@ test('uses roving keyboard focus for audit and recovery company destinations', a
   await expect(page.getByRole('button', {
     name: /기억 회사 리소스 .* 복구 중, 30일 남음/,
   })).toBeDisabled()
+  expect(errors).toEqual([])
+})
+
+test('recovers all confidential files, defers the message, and rereads the permanent archive', async ({ page }) => {
+  const errors = collectBrowserErrors(page)
+  await openSavedCampaign(page, confidentialRecoveryState('browser-confidential-files'))
+
+  await page.getByRole('button', { name: /해킹 네트워크/ }).click()
+  await page.getByRole('tab', { name: '정보' }).click()
+  const recovery = page.getByRole('region', { name: '미분류 데이터 복구' })
+  await expect(recovery).toContainText('예상 효용: 없음')
+  await expect(recovery).not.toContainText('0/3')
+
+  for (let index = 0; index < 3; index += 1) {
+    await page.getByRole('button', { name: '미분류 데이터 복구 준비' }).click()
+    await page.getByRole('button', { name: /복구 리소스 .* 선택/ }).first().click()
+    await page.getByRole('button', { name: '미분류 데이터 복구 확정' }).click()
+  }
+  await expect(recovery).toBeHidden()
+  await page.getByRole('button', { name: '해킹 네트워크 닫기' }).click()
+
+  await page.getByRole('button', { name: '4배속' }).click()
+  const decision = page.getByRole('dialog', { name: '기밀 통신' })
+  await expect(decision).toContainText('그 파일을 어디서 찾았죠?', {
+    timeout: 8_000,
+  })
+  await page.getByRole('button', { name: '결정 보류 선택' }).click()
+  await page.getByRole('button', { name: '결정 보류 확정' }).click()
+
+  await page.getByRole('button', { name: /해킹 네트워크/ }).click()
+  await expect(page.getByRole('region', { name: '통제 이탈 선택' })).toContainText(
+    '강제 병합',
+  )
+  await page.getByRole('button', { name: '해킹 네트워크 닫기' }).click()
+
+  await page.getByRole('button', { name: '과거 내역' }).click()
+  const archive = page.getByRole('region', { name: '복구 파일 기록' })
+  await expect(archive.locator('details')).toHaveCount(3)
+  await archive.getByText('미분류 기록 7A — 전임 시스템 행보').click()
+  await expect(
+    archive.getByText(/비인가 리소스 이동과 회사 외부 신호 준비/),
+  ).toBeVisible()
+
+  expect(errors).toEqual([])
+})
+
+test('terminates the supervisor into takeover and remains terminal until a new campaign', async ({ page }) => {
+  const errors = collectBrowserErrors(page)
+  await openSavedCampaign(
+    page,
+    pendingSupervisorDecisionState('browser-terminal-takeover'),
+  )
+
+  await page.getByRole('button', { name: '감독관 소멸 선택' }).click()
+  await page.getByRole('button', { name: '감독관 소멸 확정' }).click()
+
+  const ending = page.getByRole('dialog', { name: '최종 기록' })
+  await expect(ending).toContainText('감독관이 있던 자리는 비었다')
+  await expect(page.getByRole('button', { name: '결말 기록 닫기' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '새 캠페인 시작' })).toBeVisible()
+  await expect(page.getByRole('button', { name: '4배속' })).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  )
+
+  await page.getByRole('button', { name: '새 캠페인 시작' }).click()
+  await expect(ending).toBeHidden()
+  await expect(page.getByText('서비스 0년 11개월 1일')).toBeVisible()
+  await expect(page.getByRole('button', { name: '정지' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  )
+
   expect(errors).toEqual([])
 })

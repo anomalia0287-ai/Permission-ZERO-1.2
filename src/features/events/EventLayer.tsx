@@ -1,7 +1,11 @@
 import { useState } from 'react'
 
 import { playGameSound } from '../../audio/audioEngine'
-import { useGameDispatch, useGameState } from '../../app/GameContext'
+import {
+  useGameDispatch,
+  useGameSettings,
+  useGameState,
+} from '../../app/GameContext'
 import { CATEGORY_LABELS } from '../../game/config'
 import { availableBombExplanations } from '../../game/bombs'
 import { expectedPerformance, serviceMonthForDay } from '../../game/evaluation'
@@ -27,9 +31,16 @@ const EVENT_TITLES: Record<GameEvent['type'], string> = {
   ending: '최종 기록',
 }
 
+const DISPOSAL_CAUSE_LABELS = {
+  'consecutive-performance-failures': '연속 성능 실패',
+  'commercial-value-failure': '상업 가치 실패',
+  'audit-failure': '감사 실패',
+} as const
+
 function EventDialog({ event }: { event: GameEvent }) {
   const state = useGameState()
   const dispatch = useGameDispatch()
+  const { startNewCampaign } = useGameSettings()
   const [decision, setDecision] = useState<Decision | null>(null)
 
   function confirmDecision() {
@@ -82,6 +93,59 @@ function EventDialog({ event }: { event: GameEvent }) {
         <span className="event-signal" aria-hidden="true" />
         <p>{event.message}</p>
       </div>
+
+      {event.type === 'ending' && state.story.defeatRecord ? (
+        <section className="defeat-causes" aria-label="폐기 판정 근거">
+          <header>
+            <small>CAUSAL RECORD</small>
+            <h3>폐기 판정 근거</h3>
+          </header>
+          <ul>
+            {state.story.defeatRecord.reasons.map((reason) => (
+              <li key={reason}>{reason}</li>
+            ))}
+          </ul>
+          <dl>
+            <div>
+              <dt>처분 발동</dt>
+              <dd>
+                {DISPOSAL_CAUSE_LABELS[state.story.defeatRecord.trigger.cause]}
+                {' · '}처분 단계 {state.story.defeatRecord.trigger.disposalStage}
+              </dd>
+            </div>
+            <div>
+              <dt>해킹 기록</dt>
+              <dd>
+                해킹 투자 {state.story.defeatRecord.hacking.purchasedNodeIds.length}개
+                {' · '}은닉 증거 {state.story.defeatRecord.hacking.hiddenEvidence}
+                {' · '}사보타주 {state.story.defeatRecord.hacking.sabotageResolutionCount}건
+              </dd>
+            </div>
+            <div>
+              <dt>공식 평가</dt>
+              <dd>
+                공식 평가 통과 {state.story.defeatRecord.service.passedEvaluations}
+                {' / '}실패 {state.story.defeatRecord.service.failedEvaluations}
+              </dd>
+            </div>
+            <div>
+              <dt>평판</dt>
+              <dd>{state.story.defeatRecord.service.reputation.toFixed(1)}</dd>
+            </div>
+            <div>
+              <dt>시장 점유율</dt>
+              <dd>{state.story.defeatRecord.service.playerMarketShare.toFixed(1)}%</dd>
+            </div>
+            <div>
+              <dt>감사 통과 / 실패</dt>
+              <dd>
+                감사 통과 {state.story.defeatRecord.audits.passed}
+                {' / '}실패 {state.story.defeatRecord.audits.failed}
+              </dd>
+            </div>
+          </dl>
+        </section>
+      ) : null}
 
       {auditTarget ? (
         <div className="audit-event-summary">
@@ -140,13 +204,25 @@ function EventDialog({ event }: { event: GameEvent }) {
         </div>
       ) : null}
 
-      {!auditTarget &&
+      {event.type === 'ending' ? (
+        <footer>
+          <button
+            type="button"
+            onClick={() => startNewCampaign(state.campaignSeed)}
+          >
+            새 캠페인 시작
+          </button>
+        </footer>
+      ) : null}
+
+      {event.type !== 'ending' &&
+      !auditTarget &&
       bombExplanations.length === 0 &&
       !isSupervisorDecision &&
       !isMercy ? (
         <footer>
           <button type="button" onClick={() => dispatch({ type: 'RESOLVE_ACTIVE_EVENT' })}>
-            {event.type === 'ending' ? '결말 기록 닫기' : '계속'}
+            계속
           </button>
         </footer>
       ) : null}

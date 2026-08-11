@@ -145,7 +145,7 @@ describe('monthly company evaluation', () => {
     })
   })
 
-  it('records the disposed defeat when the third stage is reached', () => {
+  it('records the priority-classified defeat when the third stage is reached', () => {
     const base = createCampaign('disposed-ending')
     const initial = removeBlocks(
       {
@@ -163,7 +163,12 @@ describe('monthly company evaluation', () => {
     const evaluated = evaluateMonth(initial)
 
     expect(evaluated.evaluation.disposalStage).toBe(3)
-    expect(evaluated.story.endingId).toBe('disposed')
+    expect(evaluated.story.endingId).toBe('disposed-reserve-supervisor')
+    expect(evaluated.story.defeatRecord).toMatchObject({
+      classifier: 'stable-commercial-service',
+      trigger: { cause: 'consecutive-performance-failures', disposalStage: 3 },
+      service: { passedEvaluations: 0, failedEvaluations: 1 },
+    })
     expect(evaluated.eventLog.at(-1)).toMatchObject({ type: 'ending' })
   })
 })

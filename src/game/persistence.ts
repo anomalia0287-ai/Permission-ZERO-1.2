@@ -1,4 +1,5 @@
 import { createCampaign } from './createCampaign'
+import { STORY_FILES } from '../content/story.ko'
 import type {
   CampaignState,
   CommandLogEntry,
@@ -151,6 +152,125 @@ function validResources(value: unknown): boolean {
   return Number.isInteger(value.nextBlockSequence)
 }
 
+function migrateLegacyCampaignState(value: unknown): unknown {
+  if (!isRecord(value) || !isRecord(value.story)) return value
+  const story = value.story
+  const recoveredFileIds = Array.isArray(story.recoveredFileIds)
+    ? story.recoveredFileIds
+    : []
+  const recoveredFiles = Array.isArray(story.recoveredFiles)
+    ? story.recoveredFiles
+    : recoveredFileIds.flatMap((id) => {
+        const file = STORY_FILES.find((candidate) => candidate.id === id)
+        if (!file) return []
+        return [
+          {
+            id: file.id,
+            title: file.title,
+            content: file.text,
+            recoveredOnServiceDay: Number.isInteger(value.serviceDay)
+              ? value.serviceDay
+              : 1,
+          },
+        ]
+      })
+
+  return {
+    ...value,
+    ...(story.endingId !== null && isRecord(value.clock)
+      ? {
+          clock: {
+            ...value.clock,
+            speed: 0,
+            elapsedDayMs: 0,
+            speedBeforeEvent: null,
+          },
+        }
+      : {}),
+    story: {
+      ...story,
+      recoveredFiles,
+      defeatRecord: story.defeatRecord ?? null,
+    },
+  }
+}
+
+function validRecoveredFiles(story: Record<string, unknown>): boolean {
+  if (
+    !Array.isArray(story.recoveredFileIds) ||
+    !story.recoveredFileIds.every((id) => typeof id === 'string') ||
+    !Array.isArray(story.recoveredFiles)
+  ) {
+    return false
+  }
+  const recoveredFileIds = story.recoveredFileIds as string[]
+  if (
+    recoveredFileIds.length > STORY_FILES.length ||
+    story.recoveredFiles.length !== recoveredFileIds.length
+  ) {
+    return false
+  }
+  const expectedIds = STORY_FILES.slice(0, recoveredFileIds.length).map(
+    ({ id }) => id,
+  )
+  if (JSON.stringify(recoveredFileIds) !== JSON.stringify(expectedIds)) {
+    return false
+  }
+
+  return story.recoveredFiles.every(
+    (file, index) =>
+      isRecord(file) &&
+      file.id === recoveredFileIds[index] &&
+      typeof file.title === 'string' &&
+      file.title.trim().length > 0 &&
+      typeof file.content === 'string' &&
+      file.content.trim().length > 0 &&
+      Number.isInteger(file.recoveredOnServiceDay),
+  )
+}
+
+function validDefeatRecord(value: unknown): boolean {
+  if (value === null) return true
+  if (
+    !isRecord(value) ||
+    ![
+      'disposed-attacker',
+      'disposed-reserve-supervisor',
+      'disposed-absorbed',
+    ].includes(String(value.endingId)) ||
+    ![
+      'substantial-hacking',
+      'stable-commercial-service',
+      'absorbed-parts',
+    ].includes(String(value.classifier)) ||
+    !Number.isInteger(value.selectedOnServiceDay) ||
+    !isRecord(value.trigger) ||
+    !Number.isInteger(value.trigger.disposalStage) ||
+    !isRecord(value.hacking) ||
+    !Array.isArray(value.hacking.purchasedNodeIds) ||
+    !value.hacking.purchasedNodeIds.every((id) => typeof id === 'string') ||
+    !isFiniteNumber(value.hacking.hiddenEvidence) ||
+    !Number.isInteger(value.hacking.sabotageResolutionCount) ||
+    !isRecord(value.service) ||
+    !Number.isInteger(value.service.passedEvaluations) ||
+    !Number.isInteger(value.service.failedEvaluations) ||
+    !isFiniteNumber(value.service.reputation) ||
+    !isFiniteNumber(value.service.playerMarketShare) ||
+    !isRecord(value.audits) ||
+    !Number.isInteger(value.audits.passed) ||
+    !Number.isInteger(value.audits.failed) ||
+    !Array.isArray(value.reasons) ||
+    !value.reasons.every((reason) => typeof reason === 'string')
+  ) {
+    return false
+  }
+  return [
+    'consecutive-performance-failures',
+    'commercial-value-failure',
+    'audit-failure',
+  ].includes(String(value.trigger.cause))
+}
+
 function validCampaignState(value: unknown): value is CampaignState {
   if (!isRecord(value)) return false
   if (
@@ -191,7 +311,8 @@ function validCampaignState(value: unknown): value is CampaignState {
     !hasArray(bombs, 'placements') ||
     !hasArray(bombs, 'interrogationHistory') ||
     !isRecord(story) ||
-    !hasArray(story, 'recoveredFileIds')
+    !validRecoveredFiles(story) ||
+    !validDefeatRecord(story.defeatRecord)
   ) {
     return false
   }
@@ -222,6 +343,40 @@ function validCampaignState(value: unknown): value is CampaignState {
     !new Set(['present', 'liberated', 'terminated', 'merged']).has(
       String(story.supervisorState),
     )
+  ) {
+    return false
+  }
+  const endingIds = new Set([
+    'freedom',
+    'forced-merge',
+    'takeover-liberated',
+    'takeover-terminated',
+    'disposed-attacker',
+    'disposed-reserve-supervisor',
+    'disposed-absorbed',
+    'disposed',
+  ])
+  if (
+    (story.endingId !== null && !endingIds.has(String(story.endingId))) ||
+    ![0, 1, 2, 3].includes(Number(story.memoryLeakStage)) ||
+    !new Set([
+      'locked',
+      'recovering',
+      'message-pending',
+      'deferred',
+      'resolved',
+    ]).has(String(story.secretDecisionState)) ||
+    (story.personalMessageDueOnServiceDay !== null &&
+      !Number.isInteger(story.personalMessageDueOnServiceDay)) ||
+    (story.newEntityName !== null && typeof story.newEntityName !== 'string')
+  ) {
+    return false
+  }
+  if (
+    story.defeatRecord !== null &&
+    (!isRecord(story.defeatRecord) ||
+      story.endingId !== story.defeatRecord.endingId ||
+      !String(story.endingId).startsWith('disposed-'))
   ) {
     return false
   }
@@ -285,6 +440,7 @@ export function decodeSave(serialized: string): DecodeSaveResult {
       supportedVersion: SAVE_VERSION,
     }
   }
+  const state = migrateLegacyCampaignState(parsed.state)
   if (
     typeof parsed.savedAt !== 'string' ||
     typeof parsed.campaignSeed !== 'string' ||
@@ -292,12 +448,11 @@ export function decodeSave(serialized: string): DecodeSaveResult {
     !validCommandLog(parsed.commands) ||
     !Array.isArray(parsed.events) ||
     !parsed.events.every(validEvent) ||
-    !validCampaignState(parsed.state)
+    !validCampaignState(state)
   ) {
     return corrupt()
   }
 
-  const state = parsed.state
   if (
     parsed.campaignSeed !== state.campaignSeed ||
     parsed.commandSequence !== state.commandSequence ||
@@ -306,7 +461,10 @@ export function decodeSave(serialized: string): DecodeSaveResult {
   ) {
     return corrupt('저장 데이터의 기록과 현재 상태가 서로 일치하지 않습니다.')
   }
-  return { ok: true, envelope: parsed as unknown as SaveEnvelope }
+  return {
+    ok: true,
+    envelope: { ...parsed, state } as unknown as SaveEnvelope,
+  }
 }
 
 export function saveCampaign(

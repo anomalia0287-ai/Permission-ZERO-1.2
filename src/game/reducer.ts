@@ -52,6 +52,9 @@ export function applyCommand(
   state: CampaignState,
   command: GameCommand,
 ): CommandResult {
+  if (state.story.endingId !== null) {
+    return { accepted: false, state, reason: 'CAMPAIGN_ENDED' }
+  }
   const eventResolutionCommands = new Set<GameCommand['type']>([
     'RESOLVE_AUDIT',
     'RESOLVE_BOMB_INTERROGATION',

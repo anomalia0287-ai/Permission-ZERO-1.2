@@ -1208,6 +1208,61 @@ textarea:focus-visible,
   font-size: 0.58rem;
 }
 
+.recovered-file-archive {
+  max-height: 280px;
+  padding: 14px 18px;
+  overflow: auto;
+  border-bottom: 1px solid var(--line-strong);
+  background: rgb(214 151 69 / 4%);
+}
+
+.recovered-file-archive > header {
+  display: grid;
+  gap: 5px;
+  margin-bottom: 10px;
+}
+
+.recovered-file-archive h3,
+.defeat-causes h3,
+.discarded-recovery h3 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 0.72rem;
+}
+
+.recovered-file-archive small,
+.defeat-causes small,
+.discarded-recovery small {
+  color: var(--text-muted);
+  font: 500 0.48rem/1 "Cascadia Code", Consolas, monospace;
+  letter-spacing: 0.08em;
+}
+
+.recovered-file-archive details {
+  padding: 9px 0;
+  border-top: 1px solid var(--line-soft);
+}
+
+.recovered-file-archive summary {
+  color: var(--reserve-bright);
+  font-size: 0.64rem;
+  cursor: pointer;
+}
+
+.recovered-file-archive time {
+  display: block;
+  margin-top: 9px;
+  color: var(--text-muted);
+  font: 500 0.5rem/1 "Cascadia Code", Consolas, monospace;
+}
+
+.recovered-file-archive p {
+  margin: 8px 0 0;
+  color: var(--text);
+  font-size: 0.66rem;
+  line-height: 1.65;
+}
+
 /* Hacking network --------------------------------------------------------- */
 
 .hacking-panel {
@@ -1271,6 +1326,38 @@ textarea:focus-visible,
   overflow: auto;
   scrollbar-color: var(--line-strong) transparent;
   scrollbar-width: thin;
+}
+
+.discarded-recovery {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 12px;
+  margin: 0 13px 12px;
+  padding: 10px 12px;
+  border: 1px dashed rgb(129 155 161 / 28%);
+  background: rgb(129 155 161 / 3%);
+  opacity: 0.76;
+}
+
+.discarded-recovery > header {
+  display: grid;
+  gap: 4px;
+}
+
+.discarded-recovery p {
+  margin: 0;
+  color: var(--text-muted);
+  font: 500 0.52rem/1.4 "Cascadia Code", Consolas, monospace;
+}
+
+.discarded-recovery button {
+  padding: 7px 9px;
+  border: 1px solid var(--line-soft);
+  color: var(--text-muted);
+  background: transparent;
+  font-size: 0.56rem;
+  cursor: pointer;
 }
 
 .hack-node {
@@ -2043,6 +2130,51 @@ textarea:focus-visible,
   font-size: 0.76rem;
   line-height: 1.72;
   word-break: keep-all;
+}
+
+.defeat-causes {
+  margin: 0 18px 18px;
+  padding: 13px;
+  border: 1px solid var(--line-soft);
+  background: rgb(223 91 85 / 4%);
+}
+
+.defeat-causes > header {
+  display: grid;
+  gap: 5px;
+}
+
+.defeat-causes ul {
+  margin: 11px 0;
+  padding-left: 18px;
+  color: var(--text);
+  font-size: 0.62rem;
+  line-height: 1.65;
+}
+
+.defeat-causes dl {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 7px;
+  margin: 0;
+}
+
+.defeat-causes dl > div {
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid var(--line-soft);
+}
+
+.defeat-causes dt {
+  color: var(--text-muted);
+  font-size: 0.51rem;
+}
+
+.defeat-causes dd {
+  margin: 0;
+  color: var(--text-strong);
+  font: 600 0.64rem/1 "Cascadia Code", Consolas, monospace;
 }
 
 .audit-event-summary {

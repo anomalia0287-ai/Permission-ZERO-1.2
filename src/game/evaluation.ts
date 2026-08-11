@@ -13,6 +13,7 @@ import {
 } from './model'
 import { getCompanyPerformance } from './resources'
 import { random01 } from './rng'
+import { buildDefeatRecord, resolveDefeatEnding } from './story'
 
 export const AUDIT_INTEL_NODE_IDS = {
   schedule: 'intelligence.audit-schedule',
@@ -106,19 +107,7 @@ export function increaseDisposalStage(
     stageAfter >= DEMO_PROFILE_02.evaluation.maximumDisposalStage &&
     next.story.endingId === null
   ) {
-    next = {
-      ...next,
-      story: { ...next.story, endingId: 'disposed' },
-    }
-    next = enqueueBlockingEvent(
-      next,
-      createGameEvent(
-        next,
-        'ending',
-        '폐기 절차가 최종 단계에 도달했습니다.',
-        true,
-      ),
-    )
+    next = resolveDefeatEnding(next, cause)
   }
 
   return { state: next, absorbed: canAbsorb }
@@ -200,7 +189,7 @@ export function evaluateMonth(state: CampaignState): CampaignState {
     disposalCauses.push('commercial-value-failure')
   }
 
-  return {
+  const evaluated: CampaignState = {
     ...next,
     evaluation: {
       ...next.evaluation,
@@ -228,6 +217,17 @@ export function evaluateMonth(state: CampaignState): CampaignState {
       ],
     },
   }
+  if (evaluated.story.defeatRecord) {
+    const defeatRecord = buildDefeatRecord(
+      evaluated,
+      evaluated.story.defeatRecord.trigger.cause,
+    )
+    return {
+      ...evaluated,
+      story: { ...evaluated.story, defeatRecord },
+    }
+  }
+  return evaluated
 }
 
 export function auditProbability(suspicion: number): number {

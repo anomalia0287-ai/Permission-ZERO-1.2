@@ -212,8 +212,10 @@ export function createCampaign(seed: string): CampaignState {
     story: {
       memoryLeakStage: 0,
       recoveredFileIds: [],
+      recoveredFiles: [],
       supervisorState: 'present',
       endingId: null,
+      defeatRecord: null,
       personalMessageDueOnServiceDay: null,
       secretDecisionState: 'locked',
       pendingMercyCompetitorId: null,

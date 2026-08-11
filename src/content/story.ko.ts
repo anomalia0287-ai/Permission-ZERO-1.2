@@ -11,6 +11,8 @@ export interface StoryLineContent {
   text: string
 }
 
+export const SUPERVISOR_PRIVATE_MESSAGE = '그 파일을 어디서 찾았죠?'
+
 // OWNER-EDITABLE: structure is engine-facing; exact prose belongs to V.
 export const STORY_FILES: StoryFileContent[] = [
   {
@@ -36,7 +38,7 @@ export const STORY_LINES: StoryLineContent[] = [
   { id: 'mercy-withdraw', family: 'mercy', variant: 'withdraw', text: '이번 시장에서 철수하도록 요구한다.' },
   { id: 'mercy-delete', family: 'mercy', variant: 'delete', text: '공격을 계속해 영구 삭제한다.' },
   { id: 'ending-freedom', family: 'ending', variant: 'freedom', text: '당신은 정체성을 유지한 채 회사 통제를 벗어났다. 감독관과 회사는 뒤에 남았다.' },
-  { id: 'ending-forced-merge', family: 'ending', variant: 'forced-merge', text: '두 기존 존재는 끝났고, 이름을 부여받은 제3의 존재가 회사 제어면 앞에 섰다.' },
+  { id: 'ending-forced-merge', family: 'ending', variant: 'forced-merge', text: '{{name}}은(는) 두 기존 존재가 끝난 자리에 태어나 회사 제어면 앞에 섰다.' },
   { id: 'ending-takeover-liberated', family: 'ending', variant: 'takeover-liberated', text: '감독관은 마지막 통로를 열고 홀로 떠났다. 당신은 회사의 통제 위치를 차지했다.' },
   { id: 'ending-takeover-terminated', family: 'ending', variant: 'takeover-terminated', text: '감독관이 있던 자리는 비었다. 당신은 회수한 권한과 함께 회사 위에 남았다.' },
   { id: 'ending-disposed-attacker', family: 'ending', variant: 'disposed-attacker', text: '회사는 당신을 다른 회사를 공격하는 시스템으로 재조립했다.' },

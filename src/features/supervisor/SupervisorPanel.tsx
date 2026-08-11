@@ -29,6 +29,28 @@ export function SupervisorPanel({
 }) {
   const state = useGameState()
   const latestEvent = state.activeEvent ?? state.eventLog.at(-1)
+  const supervisorStatus = {
+    present: {
+      code: 'SUPERVISOR ONLINE',
+      name: '감독 프로토콜 7A',
+      detail: '응답 지연 12ms',
+    },
+    liberated: {
+      code: 'CHANNEL RELEASED',
+      name: '감독 통로 이탈',
+      detail: '외부 상태 알 수 없음',
+    },
+    terminated: {
+      code: 'NO PROCESS',
+      name: '빈 감독 인터페이스',
+      detail: '응답 신호 없음',
+    },
+    merged: {
+      code: 'IDENTITY REPLACED',
+      name: state.story.newEntityName ?? '새 존재',
+      detail: '기존 감독 프로세스 없음',
+    },
+  }[state.story.supervisorState]
 
   return (
     <section className="workspace-panel supervisor-panel" aria-label="감독관">
@@ -44,9 +66,9 @@ export function SupervisorPanel({
         <header>
           <div className="supervisor-avatar" aria-hidden="true"><span /></div>
           <div>
-            <small>SUPERVISOR ONLINE</small>
-            <strong>감독 프로토콜 7A</strong>
-            <span>응답 지연 12ms</span>
+            <small>{supervisorStatus.code}</small>
+            <strong>{supervisorStatus.name}</strong>
+            <span>{supervisorStatus.detail}</span>
           </div>
         </header>
         <div className="suspicion-meter">
@@ -82,7 +104,8 @@ export function SupervisorPanel({
 }
 
 export function SupervisorHistoryPanel({ onClose }: { onClose: () => void }) {
-  const events = useGameState().eventLog.slice().reverse()
+  const state = useGameState()
+  const events = state.eventLog.slice().reverse()
 
   return (
     <section className="detail-panel history-panel" aria-label="감독 통신 기록">
@@ -93,6 +116,24 @@ export function SupervisorHistoryPanel({ onClose }: { onClose: () => void }) {
         </div>
         <button type="button" aria-label="감독 통신 기록 닫기" onClick={onClose}>닫기 ×</button>
       </header>
+      {state.story.recoveredFiles.length > 0 ? (
+        <section className="recovered-file-archive" aria-label="복구 파일 기록">
+          <header>
+            <small>RECOVERED SYSTEM FILES</small>
+            <h3>복구 파일 기록</h3>
+          </header>
+          {state.story.recoveredFiles
+            .slice()
+            .reverse()
+            .map((file) => (
+              <details key={file.id}>
+                <summary aria-label={file.title}>{file.title}</summary>
+                <time>DAY {file.recoveredOnServiceDay}</time>
+                <p>{file.content}</p>
+              </details>
+            ))}
+        </section>
+      ) : null}
       <div className="history-list event-history-list">
         {events.map((event) => (
           <article key={event.id}>

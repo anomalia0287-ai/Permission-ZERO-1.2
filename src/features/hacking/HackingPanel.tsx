@@ -4,6 +4,7 @@ import { playGameSound, unlockGameAudio } from '../../audio/audioEngine'
 import { useGameDispatch, useGameState } from '../../app/GameContext'
 import {
   eligibleTargets,
+  HACK_NODE_IDS,
   HACK_NODES,
   type HackNodeId,
   type HackTree,
@@ -28,10 +29,12 @@ const TREE_LABELS: Record<HackTree, { label: string; code: string; description: 
   },
 }
 
-type ResourceAction = {
-  mode: 'purchase' | 'charge'
-  nodeId: HackNodeId
-}
+type ResourceAction =
+  | {
+      mode: 'purchase' | 'charge'
+      nodeId: HackNodeId
+    }
+  | { mode: 'recover' }
 
 function gestureSound() {
   void unlockGameAudio().then((unlocked) => {
@@ -59,16 +62,24 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
   const reserveBlocks = state.resources.reserve.flatMap((blockId, cellIndex) =>
     blockId ? [{ blockId, cellIndex }] : [],
   )
-  const actionNode = action
+  const actionNode = action && action.mode !== 'recover'
     ? HACK_NODES.find(({ id }) => id === action.nodeId) ?? null
     : null
   const actionMode = action?.mode ?? null
-  const requiredResources = actionNode
-    ? actionMode === 'charge'
+  const requiredResources = actionMode === 'recover'
+    ? 1
+    : actionNode
+      ? actionMode === 'charge'
       ? 1
       : actionNode.cost
     : 0
   const finalChoices = availableFinalChoices(state)
+  const recoveryAvailable =
+    activeTree === 'intelligence' &&
+    state.hacking.purchasedNodeIds.includes(
+      HACK_NODE_IDS.intelligence.supervisorAccess,
+    ) &&
+    state.story.recoveredFiles.length < 3
 
   const targetNames = useMemo(
     () => Object.fromEntries(state.market.competitors.map(({ id, name }) => [id, name])),
@@ -79,15 +90,17 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
     setAction(nextAction)
     setSelectedBlocks([])
     setTargetConfirmation(null)
-    const node = HACK_NODES.find(({ id }) => id === nextAction.nodeId)
+    const node = nextAction.mode === 'recover'
+      ? null
+      : HACK_NODES.find(({ id }) => id === nextAction.nodeId)
     setAnnouncement(
-      `${node?.label ?? '노드'}에 사용할 확보 리소스를 선택하세요.`,
+      `${nextAction.mode === 'recover' ? '미분류 데이터 복구' : node?.label ?? '노드'}에 사용할 확보 리소스를 선택하세요.`,
     )
     gestureSound()
   }
 
   function toggleResource(blockId: string) {
-    if (!actionNode) return
+    if (!action) return
     setSelectedBlocks((current) => {
       if (current.includes(blockId)) {
         return current.filter((selected) => selected !== blockId)
@@ -99,8 +112,9 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
   }
 
   function confirmResourceAction() {
-    if (!actionNode || selectedBlocks.length !== requiredResources || !action) return
+    if (!action || selectedBlocks.length !== requiredResources) return
     if (action.mode === 'purchase') {
+      if (!actionNode) return
       dispatch({
         type: 'PURCHASE_HACK',
         nodeId: actionNode.id,
@@ -108,7 +122,8 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
       })
       setAnnouncement(`${actionNode.label} 노드를 구매했습니다.`)
       playGameSound('latch')
-    } else {
+    } else if (action.mode === 'charge') {
+      if (!actionNode) return
       dispatch({
         type: 'CHARGE_SABOTAGE',
         nodeId: actionNode.id,
@@ -116,6 +131,10 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
       })
       setAnnouncement(`${actionNode.label} 공격 슬롯을 충전했습니다.`)
       playGameSound('suction')
+    } else {
+      dispatch({ type: 'RECOVER_FILE', blockId: selectedBlocks[0] })
+      setAnnouncement('미분류 데이터 한 건을 복구했습니다.')
+      playGameSound('latch')
     }
     setAction(null)
     setSelectedBlocks([])
@@ -275,6 +294,28 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
             })}
           </div>
 
+          {recoveryAvailable ? (
+            <section
+              className="discarded-recovery"
+              aria-label="미분류 데이터 복구"
+            >
+              <header>
+                <small>LEGACY UTILITY / UNMAINTAINED</small>
+                <h3>미분류 데이터 복구</h3>
+              </header>
+              <p>예상 효용: 없음</p>
+              <p>필요 리소스: 1</p>
+              <button
+                type="button"
+                aria-label="미분류 데이터 복구 준비"
+                disabled={reserveBlocks.length < 1}
+                onClick={() => beginAction({ mode: 'recover' })}
+              >
+                복구 유틸리티 실행
+              </button>
+            </section>
+          ) : null}
+
           {finalChoices.length > 0 ? (
             <section className="departure-controls" aria-label="통제 이탈 선택">
               <header>
@@ -330,7 +371,7 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
                 {blockId ? (
                   <button
                     type="button"
-                    aria-label={action ? `${action.mode === 'purchase' ? '구매' : '충전'} 리소스 ${cellIndex + 1} 선택` : `확보 리소스 ${cellIndex + 1}`}
+                    aria-label={action ? `${action.mode === 'purchase' ? '구매' : action.mode === 'charge' ? '충전' : '복구'} 리소스 ${cellIndex + 1} 선택` : `확보 리소스 ${cellIndex + 1}`}
                     aria-pressed={selectedBlocks.includes(blockId)}
                     disabled={!action}
                     onClick={() => toggleResource(blockId)}
@@ -345,18 +386,37 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
             ))}
           </div>
           <div className="resource-action-summary">
-            {actionNode && actionMode ? (
+            {action && actionMode ? (
               <>
-                <span>{actionMode === 'purchase' ? '노드 구매' : '공격 충전'}</span>
-                <strong>{actionNode.label}</strong>
+                <span>
+                  {actionMode === 'purchase'
+                    ? '노드 구매'
+                    : actionMode === 'charge'
+                      ? '공격 충전'
+                      : '레거시 유틸리티'}
+                </span>
+                <strong>
+                  {actionMode === 'recover'
+                    ? '미분류 데이터 복구'
+                    : actionNode?.label}
+                </strong>
                 <p>정확히 {requiredResources}개의 확보 리소스를 지정하십시오.</p>
                 <button
                   type="button"
-                  aria-label={`${actionNode.label} ${actionMode === 'purchase' ? '구매' : '충전'} 확정`}
+                  aria-label={
+                    actionMode === 'recover'
+                      ? '미분류 데이터 복구 확정'
+                      : `${actionNode?.label ?? '노드'} ${actionMode === 'purchase' ? '구매' : '충전'} 확정`
+                  }
                   disabled={selectedBlocks.length !== requiredResources}
                   onClick={confirmResourceAction}
                 >
-                  {actionMode === 'purchase' ? '구매' : '충전'} 확정
+                  {actionMode === 'purchase'
+                    ? '구매'
+                    : actionMode === 'charge'
+                      ? '충전'
+                      : '복구'}{' '}
+                  확정
                 </button>
               </>
             ) : (

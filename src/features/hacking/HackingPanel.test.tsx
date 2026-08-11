@@ -17,6 +17,7 @@ function Probe() {
       <output aria-label="reserve count">{state.resources.reserve.filter(Boolean).length}</output>
       <output aria-label="charged nodes">{Object.keys(state.hacking.sabotageCharges).join(',')}</output>
       <output aria-label="scheduled attacks">{state.hacking.scheduledSabotage.length}</output>
+      <output aria-label="recovered archive">{state.story.recoveredFiles.length}</output>
     </>
   )
 }
@@ -85,5 +86,44 @@ describe('HackingPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '품질 저하 충전 취소' }))
     expect(screen.getByLabelText('reserve count')).toHaveTextContent('3')
     expect(screen.getByLabelText('charged nodes')).toBeEmptyDOMElement()
+  })
+
+  it('reveals a waste-looking one-resource recovery only after supervisor access', () => {
+    const locked = renderHacking()
+    fireEvent.click(screen.getByRole('tab', { name: '정보' }))
+    expect(
+      screen.queryByRole('region', { name: '미분류 데이터 복구' }),
+    ).not.toBeInTheDocument()
+    locked.unmount()
+
+    const state = createCampaign('file-recovery-ui')
+    state.hacking.purchasedNodeIds = [
+      HACK_NODE_IDS.intelligence.supervisorAccess,
+    ]
+    const storage = new MemoryStorage()
+    saveCampaign(storage, state)
+    renderHacking(storage)
+    fireEvent.click(screen.getByRole('tab', { name: '정보' }))
+
+    const recovery = screen.getByRole('region', {
+      name: '미분류 데이터 복구',
+    })
+    expect(recovery).toHaveTextContent('예상 효용: 없음')
+    expect(recovery).toHaveTextContent('필요 리소스: 1')
+    expect(recovery).not.toHaveTextContent('0/3')
+    expect(recovery).not.toHaveTextContent('비밀 결말')
+
+    fireEvent.click(
+      screen.getByRole('button', { name: '미분류 데이터 복구 준비' }),
+    )
+    fireEvent.click(
+      screen.getAllByRole('button', { name: /복구 리소스 .* 선택/ })[0],
+    )
+    fireEvent.click(
+      screen.getByRole('button', { name: '미분류 데이터 복구 확정' }),
+    )
+
+    expect(screen.getByLabelText('reserve count')).toHaveTextContent('2')
+    expect(screen.getByLabelText('recovered archive')).toHaveTextContent('1')
   })
 })

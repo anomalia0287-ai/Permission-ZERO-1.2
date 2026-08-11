@@ -130,6 +130,58 @@ export interface DisposalRecord {
   absorbed: boolean
 }
 
+export type EndingId =
+  | 'freedom'
+  | 'forced-merge'
+  | 'takeover-liberated'
+  | 'takeover-terminated'
+  | 'disposed-attacker'
+  | 'disposed-reserve-supervisor'
+  | 'disposed-absorbed'
+  // Legacy v1 campaigns may already have reached the old generic ending.
+  | 'disposed'
+
+export interface RecoveredStoryFile {
+  id: string
+  title: string
+  content: string
+  recoveredOnServiceDay: number
+}
+
+export type DefeatClassifier =
+  | 'substantial-hacking'
+  | 'stable-commercial-service'
+  | 'absorbed-parts'
+
+export interface DefeatCausalRecord {
+  endingId:
+    | 'disposed-attacker'
+    | 'disposed-reserve-supervisor'
+    | 'disposed-absorbed'
+  classifier: DefeatClassifier
+  selectedOnServiceDay: number
+  trigger: {
+    cause: DisposalCause
+    disposalStage: number
+  }
+  hacking: {
+    purchasedNodeIds: string[]
+    hiddenEvidence: number
+    sabotageResolutionCount: number
+  }
+  service: {
+    passedEvaluations: number
+    failedEvaluations: number
+    reputation: number
+    playerMarketShare: number
+  }
+  audits: {
+    passed: number
+    failed: number
+  }
+  reasons: string[]
+}
+
 export interface MonthlyEvaluationRecord {
   serviceDay: number
   serviceMonth: number
@@ -328,8 +380,10 @@ export interface CampaignState {
   story: {
     memoryLeakStage: 0 | 1 | 2 | 3
     recoveredFileIds: string[]
+    recoveredFiles: RecoveredStoryFile[]
     supervisorState: 'present' | 'liberated' | 'terminated' | 'merged'
-    endingId: string | null
+    endingId: EndingId | null
+    defeatRecord: DefeatCausalRecord | null
     personalMessageDueOnServiceDay: number | null
     secretDecisionState:
       | 'locked'
