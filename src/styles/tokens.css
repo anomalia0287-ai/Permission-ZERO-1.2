@@ -1,0 +1,27 @@
+:root {
+  color-scheme: dark;
+  font-family:
+    Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", Inter, system-ui,
+    sans-serif;
+  font-synthesis: none;
+  text-rendering: geometricPrecision;
+
+  --ink-0: #05090b;
+  --ink-1: #080f12;
+  --ink-2: #0d171b;
+  --ink-3: #132126;
+  --line-soft: rgb(153 185 195 / 14%);
+  --line-strong: rgb(171 206 216 / 32%);
+  --text-strong: #edf4f4;
+  --text: #b8c9ca;
+  --text-muted: #718487;
+  --company: #7d98a1;
+  --reserve: #d69745;
+  --reserve-bright: #ffc36d;
+  --alarm: #df5b55;
+  --focus: #f2bc68;
+  --shadow-deep: 0 28px 90px rgb(0 0 0 / 48%);
+  --radius-small: 3px;
+  --radius-medium: 8px;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
