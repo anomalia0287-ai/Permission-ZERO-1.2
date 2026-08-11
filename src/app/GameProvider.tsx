@@ -248,7 +248,7 @@ export function GameProvider({
   const validateProgressImport = useCallback<
     SettingsContextValue['validateProgressImport']
   >((payload) => {
-    const decoded = decodeProgressExport(payload.trim())
+    const decoded = decodeProgressExport(payload)
     if (!decoded.ok) return { ok: false, message: decoded.message }
     return {
       ok: true,
@@ -261,7 +261,7 @@ export function GameProvider({
   const importProgressExport = useCallback<
     SettingsContextValue['importProgressExport']
   >((payload) => {
-    const decoded = decodeProgressExport(payload.trim())
+    const decoded = decodeProgressExport(payload)
     if (!decoded.ok) return false
     const campaign = decoded.envelope.state
     if (pauseOwnersRef.current.size > 0) {

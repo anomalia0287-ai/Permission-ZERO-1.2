@@ -131,6 +131,46 @@ describe('App', () => {
     expect(trigger).not.toHaveFocus()
   })
 
+  it('restores every workspace detail to its exact trigger after settings was previously opened', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    const settingsTrigger = screen.getByRole('button', { name: '설정' })
+    await user.click(settingsTrigger)
+    await user.keyboard('{Escape}')
+    expect(settingsTrigger).toHaveFocus()
+
+    const detailEntries = [
+      {
+        trigger: screen.getByRole('button', { name: '전체 리뷰 기록' }),
+        dialogName: '유저 리뷰 기록',
+      },
+      {
+        trigger: screen.getByRole('button', { name: /해킹 네트워크/ }),
+        dialogName: '해킹 네트워크',
+      },
+      {
+        trigger: screen.getByRole('button', { name: '과거 내역' }),
+        dialogName: '감독관 기록',
+      },
+      {
+        trigger: screen.getByRole('button', { name: '시장 통계 열기' }),
+        dialogName: '상세 통계',
+      },
+      {
+        trigger: screen.getByRole('button', { name: '가이드' }),
+        dialogName: '게임 가이드',
+      },
+    ]
+
+    for (const { trigger, dialogName } of detailEntries) {
+      await user.click(trigger)
+      expect(screen.getByRole('dialog', { name: dialogName })).toBeInTheDocument()
+      await user.keyboard('{Escape}')
+      expect(trigger).toHaveFocus()
+    }
+  })
+
   it('restores an explicitly selected paused speed as paused', async () => {
     const user = userEvent.setup()
     render(<App />)

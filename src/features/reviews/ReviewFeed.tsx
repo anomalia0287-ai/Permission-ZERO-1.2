@@ -31,8 +31,8 @@ export function ReviewFeed({
   onOpenHistory,
   onOpenHacking,
 }: {
-  onOpenHistory: () => void
-  onOpenHacking: () => void
+  onOpenHistory: (trigger: HTMLButtonElement) => void
+  onOpenHacking: (trigger: HTMLButtonElement) => void
 }) {
   const reviews = useGameState().reviews.feed.slice(-6).reverse()
 
@@ -44,7 +44,11 @@ export function ReviewFeed({
           <h2>유저 리뷰</h2>
           <p>PUBLIC RESPONSE STREAM</p>
         </div>
-        <button type="button" aria-label="전체 리뷰 기록" onClick={onOpenHistory}>
+        <button
+          type="button"
+          aria-label="전체 리뷰 기록"
+          onClick={(event) => onOpenHistory(event.currentTarget)}
+        >
           전체
         </button>
       </header>
@@ -53,7 +57,11 @@ export function ReviewFeed({
           <ReviewEntry review={review} key={review.id} />
         ))}
       </div>
-      <button className="subsystem-entry" type="button" onClick={onOpenHacking}>
+      <button
+        className="subsystem-entry"
+        type="button"
+        onClick={(event) => onOpenHacking(event.currentTarget)}
+      >
         <span>
           <small>비인가 서브시스템</small>
           해킹 네트워크

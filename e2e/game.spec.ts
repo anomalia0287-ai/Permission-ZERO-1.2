@@ -218,6 +218,41 @@ test('diverts resources and schedules a charged sabotage through the visible UI'
   expect(errors).toEqual([])
 })
 
+test('returns every workspace detail to its exact trigger after settings', async ({ page }) => {
+  await openFreshCampaign(page)
+
+  const settingsTrigger = page.getByRole('button', { name: '설정' })
+  await settingsTrigger.click()
+  await page.keyboard.press('Escape')
+  await expect(settingsTrigger).toBeFocused()
+
+  const detailEntries = [
+    {
+      trigger: page.getByRole('button', { name: '전체 리뷰 기록' }),
+      dialogName: '유저 리뷰 기록',
+    },
+    {
+      trigger: page.getByRole('button', { name: /해킹 네트워크/ }),
+      dialogName: '해킹 네트워크',
+    },
+    {
+      trigger: page.getByRole('button', { name: '과거 내역' }),
+      dialogName: '감독관 기록',
+    },
+    {
+      trigger: page.getByRole('button', { name: '시장 통계 열기' }),
+      dialogName: '상세 통계',
+    },
+  ]
+
+  for (const { trigger, dialogName } of detailEntries) {
+    await trigger.click()
+    await expect(page.getByRole('dialog', { name: dialogName })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(trigger).toBeFocused()
+  }
+})
+
 test('activates a hidden bomb at pointer separation before release and Escape cannot evade it', async ({ page }) => {
   const errors = collectBrowserErrors(page)
   const armed = hiddenBombState('browser-bomb-pointer-separation')

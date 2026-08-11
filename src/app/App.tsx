@@ -122,14 +122,22 @@ function GameWorkspace() {
   const detailReturnFocusRef = useRef<HTMLElement | null>(null)
   const nestedReturnFocusRef = useRef<HTMLElement | null>(null)
   const advanceDay = useCallback(() => dispatch({ type: 'ADVANCE_DAY' }), [dispatch])
+  const openDetail = useCallback(
+    (panel: Exclude<DetailPanelId, null>, trigger: HTMLElement | null) => {
+      detailReturnFocusRef.current = trigger
+      nestedReturnFocusRef.current = null
+      setNestedPanel(null)
+      setActivePanel(panel)
+    },
+    [],
+  )
   const closePanel = useCallback(() => {
     setNestedPanel(null)
     setActivePanel(null)
   }, [])
   const openGuide = useCallback((trigger: HTMLButtonElement) => {
-    detailReturnFocusRef.current = trigger
-    setActivePanel('guide')
-  }, [])
+    openDetail('guide', trigger)
+  }, [openDetail])
   const dayProgress = useGameClock({ speed: state.clock.speed, onDay: advanceDay })
 
   useEffect(() => {
@@ -165,8 +173,7 @@ function GameWorkspace() {
         <ControlBar
           muted={settings.muted}
           onOpenSettings={(trigger) => {
-            detailReturnFocusRef.current = trigger
-            setActivePanel('settings')
+            openDetail('settings', trigger)
           }}
           onToggleSound={() => updateSettings({ muted: !settings.muted })}
           onOpenGuide={openGuide}
@@ -176,13 +183,13 @@ function GameWorkspace() {
         </div>
         <div className="workspace-grid">
           <ReviewFeed
-            onOpenHistory={() => setActivePanel('reviews')}
-            onOpenHacking={() => setActivePanel('hacking')}
+            onOpenHistory={(trigger) => openDetail('reviews', trigger)}
+            onOpenHacking={(trigger) => openDetail('hacking', trigger)}
           />
           <ResourceBoard />
           <SupervisorPanel
-            onOpenHistory={() => setActivePanel('messages')}
-            onOpenStatistics={() => setActivePanel('statistics')}
+            onOpenHistory={(trigger) => openDetail('messages', trigger)}
+            onOpenStatistics={(trigger) => openDetail('statistics', trigger)}
           />
         </div>
       </div>
@@ -196,8 +203,7 @@ function GameWorkspace() {
               nestedReturnFocusRef.current = trigger
               setNestedPanel('guide')
             } else {
-              detailReturnFocusRef.current = trigger
-              setActivePanel('guide')
+              openDetail('guide', trigger)
             }
           }}
           onOpenCredits={(trigger) => {

@@ -13,7 +13,7 @@ const STATUS_LABELS: Record<string, string> = {
 export function MarketPanel({
   onOpenStatistics,
 }: {
-  onOpenStatistics: () => void
+  onOpenStatistics: (trigger: HTMLButtonElement) => void
 }) {
   const state = useGameState()
 
@@ -24,7 +24,11 @@ export function MarketPanel({
           <span>시장 점유</span>
           <strong>당신 {state.market.playerShare.toFixed(1)}%</strong>
         </div>
-        <button type="button" aria-label="시장 통계 열기" onClick={onOpenStatistics}>
+        <button
+          type="button"
+          aria-label="시장 통계 열기"
+          onClick={(event) => onOpenStatistics(event.currentTarget)}
+        >
           상세 통계 ↗
         </button>
       </header>

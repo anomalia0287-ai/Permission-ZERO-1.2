@@ -852,6 +852,9 @@ export function decodeSave(serialized: string): DecodeSaveResult {
 }
 
 const PROGRESS_EXPORT_PREFIX = 'PZ2:'
+// One MiB of encoded body plus the four-character protocol prefix. The check
+// happens before regex, base64 decoding, byte allocation, UTF-8, or JSON work.
+export const PROGRESS_EXPORT_MAX_ENCODED_LENGTH = 1_048_580
 const STRICT_BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/
 
 function progressExportCorrupt(): DecodeSaveResult {
@@ -866,6 +869,9 @@ export function encodeProgressExport(state: CampaignState): string {
 }
 
 export function decodeProgressExport(payload: string): DecodeSaveResult {
+  if (payload.length > PROGRESS_EXPORT_MAX_ENCODED_LENGTH) {
+    return progressExportCorrupt()
+  }
   if (!payload.startsWith(PROGRESS_EXPORT_PREFIX)) return progressExportCorrupt()
   const encoded = payload.slice(PROGRESS_EXPORT_PREFIX.length)
   if (

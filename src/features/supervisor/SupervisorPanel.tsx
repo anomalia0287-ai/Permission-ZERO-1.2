@@ -24,8 +24,8 @@ export function SupervisorPanel({
   onOpenHistory,
   onOpenStatistics,
 }: {
-  onOpenHistory: () => void
-  onOpenStatistics: () => void
+  onOpenHistory: (trigger: HTMLButtonElement) => void
+  onOpenStatistics: (trigger: HTMLButtonElement) => void
 }) {
   const state = useGameState()
   const latestEvent = state.activeEvent ?? state.eventLog.at(-1)
@@ -85,7 +85,12 @@ export function SupervisorPanel({
       <section className="supervisor-message" aria-label="최근 감독 메시지">
         <header>
           <span>최근 통신</span>
-          <button type="button" onClick={onOpenHistory}>과거 내역</button>
+          <button
+            type="button"
+            onClick={(event) => onOpenHistory(event.currentTarget)}
+          >
+            과거 내역
+          </button>
         </header>
         <p>{latestEvent?.message ?? '감독 메시지가 없습니다.'}</p>
         <small>{latestEvent ? `${TYPE_LABELS[latestEvent.type]} · DAY ${latestEvent.serviceDay}` : '감독 채널 대기'}</small>

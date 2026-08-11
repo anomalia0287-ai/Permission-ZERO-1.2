@@ -11,6 +11,7 @@ import { GameProvider } from '../../app/GameProvider'
 import { AccessibleDialog } from '../../app/AccessibleDialog'
 import { createCampaign } from '../../game/createCampaign'
 import {
+  PROGRESS_EXPORT_MAX_ENCODED_LENGTH,
   SAVE_STORAGE_KEY,
   encodeProgressExport,
 } from '../../game/persistence'
@@ -239,6 +240,59 @@ describe('SettingsPanel', () => {
     expect(screen.getByLabelText('current seed')).toHaveTextContent('tamper-safe')
     expect(document.body).not.toHaveTextContent('SyntaxError')
     expect(document.body).not.toHaveTextContent('DOMException')
+  })
+
+  it('does not normalize text before the strict PZ2 prefix and size boundary', () => {
+    const payload = ` ${encodeProgressExport(createCampaign('whitespace-target'))}`
+    render(
+      <GameProvider storage={new MemoryStorage()} initialSeed="whitespace-safe">
+        <SettingsPanel onClose={vi.fn()} onOpenGuide={vi.fn()} />
+        <Probe />
+      </GameProvider>,
+    )
+
+    fireEvent.change(
+      screen.getByRole('textbox', { name: '진행 내보내기 붙여넣기' }),
+      { target: { value: payload } },
+    )
+    fireEvent.click(screen.getByRole('button', { name: '진행 내보내기 검증' }))
+
+    expect(screen.getByRole('alert', { name: '진행 가져오기 오류' })).toHaveTextContent(
+      '진행 내보내기 자료가 올바르지 않거나 손상되었습니다.',
+    )
+    expect(screen.getByLabelText('current seed')).toHaveTextContent('whitespace-safe')
+    expect(screen.queryByRole('alertdialog', {
+      name: '진행 가져오기 최종 확인',
+    })).not.toBeInTheDocument()
+  })
+
+  it('shares the PZ2 input limit and rejects an oversized paste without mutating progress', () => {
+    render(
+      <GameProvider storage={new MemoryStorage()} initialSeed="oversize-safe">
+        <SettingsPanel onClose={vi.fn()} onOpenGuide={vi.fn()} />
+        <Probe />
+      </GameProvider>,
+    )
+
+    const textarea = screen.getByRole('textbox', {
+      name: '진행 내보내기 붙여넣기',
+    })
+    expect(textarea).toHaveAttribute(
+      'maxlength',
+      String(PROGRESS_EXPORT_MAX_ENCODED_LENGTH),
+    )
+
+    const oversized = `PZ2:${'A'.repeat(PROGRESS_EXPORT_MAX_ENCODED_LENGTH - 3)}`
+    fireEvent.change(textarea, { target: { value: oversized } })
+    fireEvent.click(screen.getByRole('button', { name: '진행 내보내기 검증' }))
+
+    expect(screen.getByRole('alert', { name: '진행 가져오기 오류' })).toHaveTextContent(
+      '진행 내보내기 자료가 올바르지 않거나 손상되었습니다.',
+    )
+    expect(screen.getByLabelText('current seed')).toHaveTextContent('oversize-safe')
+    expect(screen.queryByRole('alertdialog', {
+      name: '진행 가져오기 최종 확인',
+    })).not.toBeInTheDocument()
   })
 
   it('imports into memory but remains visibly dirty while storage is unavailable', () => {

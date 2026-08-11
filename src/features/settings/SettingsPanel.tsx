@@ -3,6 +3,7 @@ import { useRef, useState } from 'react'
 import { AccessibleDialog } from '../../app/AccessibleDialog'
 import { useAccessibleDialog } from '../../app/useAccessibleDialog'
 import { useGameSettings, useGameState } from '../../app/GameContext'
+import { PROGRESS_EXPORT_MAX_ENCODED_LENGTH } from '../../game/persistence'
 
 function VolumeControl({
   label,
@@ -74,6 +75,7 @@ function ProgressImportControl({
           aria-label="진행 내보내기 붙여넣기"
           value={payload}
           rows={3}
+          maxLength={PROGRESS_EXPORT_MAX_ENCODED_LENGTH}
           spellCheck={false}
           onChange={(event) => {
             setPayload(event.target.value)
@@ -82,7 +84,7 @@ function ProgressImportControl({
           }}
         />
       </label>
-      <p>복사해 둔 <code>PZ2:</code> 자료를 붙여넣고 검증한 뒤에만 현재 진행을 교체합니다.</p>
+      <p>복사해 둔 최대 1 MiB의 <code>PZ2:</code> 인코딩 자료를 붙여넣고 검증한 뒤에만 현재 진행을 교체합니다.</p>
       <button
         ref={validationButtonRef}
         type="button"

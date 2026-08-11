@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { createCampaign } from './createCampaign'
 import { STORY_FILES } from '../content/story.ko'
@@ -142,6 +142,36 @@ describe('versioned campaign saves', () => {
     expect(decoded.message).toContain('진행 내보내기')
     expect(decoded.message).not.toContain('SyntaxError')
     expect(decoded.message).not.toContain('DOMException')
+  })
+
+  it('rejects an oversized PZ2 input before base64 decoding while allowing the exact encoded boundary', () => {
+    const api = persistenceApi as typeof persistenceApi & {
+      PROGRESS_EXPORT_MAX_ENCODED_LENGTH?: number
+    }
+    expect(api.PROGRESS_EXPORT_MAX_ENCODED_LENGTH).toBeTypeOf('number')
+    if (!api.PROGRESS_EXPORT_MAX_ENCODED_LENGTH) return
+
+    const encodedBodyLength = api.PROGRESS_EXPORT_MAX_ENCODED_LENGTH - 4
+    expect(encodedBodyLength % 4).toBe(0)
+    const atobSpy = vi.spyOn(globalThis, 'atob').mockReturnValue('{}')
+    const exactBoundary = `PZ2:${'A'.repeat(encodedBodyLength)}`
+
+    expect(api.decodeProgressExport(exactBoundary)).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
+    expect(atobSpy).toHaveBeenCalledTimes(1)
+
+    atobSpy.mockClear()
+    const oversized = `${exactBoundary}A`
+    const rejected = api.decodeProgressExport(oversized)
+    expect(rejected).toMatchObject({ ok: false, reason: 'CORRUPT_SAVE' })
+    if (!rejected.ok) {
+      expect(rejected.message).toBe(
+        '진행 내보내기 자료가 올바르지 않거나 손상되었습니다.',
+      )
+    }
+    expect(atobSpy).not.toHaveBeenCalled()
   })
 
   it('round-trips the entire campaign envelope exactly', () => {
