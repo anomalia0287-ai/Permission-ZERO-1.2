@@ -4,7 +4,7 @@ import { STORY_FILES } from '../content/story.ko'
 import { createCampaign } from './createCampaign'
 import { advanceOneDay } from './calendar'
 import { createGameEvent, enqueueBlockingEvent } from './events'
-import { HACK_NODE_IDS } from './hacking'
+import { HACK_NODE_IDS, HACK_NODES } from './hacking'
 import type { CampaignState, GameCommand } from './model'
 import { applyCommand } from './reducer'
 
@@ -118,6 +118,59 @@ function disposalAuditState(
   )
 }
 
+function fundAndPurchase(
+  initial: CampaignState,
+  nodeId: string,
+): CampaignState {
+  const node = HACK_NODES.find((candidate) => candidate.id === nodeId)
+  if (!node) throw new Error(`알 수 없는 테스트 노드: ${nodeId}`)
+  let state = initial
+  while (state.resources.reserve.filter(Boolean).length < node.cost) {
+    const blockId = Object.values(state.resources.blocks).find(
+      (block) => block.location.kind === 'company' && !block.hiddenBomb,
+    )?.id
+    const destinationCell = state.resources.reserve.findIndex(
+      (candidate) => candidate === null,
+    )
+    if (!blockId || destinationCell < 0) {
+      throw new Error(`${node.label} 명령 전용 비용 조달 실패`)
+    }
+    state = requireAccepted(state, {
+      type: 'DIVERT_BLOCK',
+      blockId,
+      destinationCell,
+    })
+  }
+  const blockIds = state.resources.reserve
+    .filter((blockId): blockId is string => blockId !== null)
+    .slice(0, node.cost)
+  return requireAccepted(state, { type: 'PURCHASE_HACK', nodeId, blockIds })
+}
+
+function resolveProgressEvent(state: CampaignState): CampaignState {
+  if (!state.activeEvent) return requireAccepted(state, { type: 'ADVANCE_DAY' })
+  if (state.activeEvent.type === 'audit') {
+    return requireAccepted(state, { type: 'RESOLVE_AUDIT' })
+  }
+  if (state.activeEvent.type === 'bomb-interrogation') {
+    return requireAccepted(state, {
+      type: 'RESOLVE_BOMB_INTERROGATION',
+      explanationId: 'unknown',
+    })
+  }
+  if (
+    state.activeEvent.type === 'competitor-mercy' &&
+    state.story.pendingMercyCompetitorId
+  ) {
+    return requireAccepted(state, {
+      type: 'RESOLVE_MERCY',
+      competitorId: state.story.pendingMercyCompetitorId,
+      choice: 'cease',
+    })
+  }
+  return requireAccepted(state, { type: 'RESOLVE_ACTIVE_EVENT' })
+}
+
 describe('typed confidential-file and supervisor routes', () => {
   it('spends exactly three selected blocks and permanently snapshots every full file', () => {
     const recovered = recoverEveryFile('typed-file-archive')
@@ -208,6 +261,61 @@ describe('typed confidential-file and supervisor routes', () => {
     })
   })
 
+  it('queues the due private message behind mercy and prevents ending bypasses', () => {
+    const recovered = recoverEveryFile('typed-message-mercy-collision')
+    const collision: CampaignState = {
+      ...recovered,
+      market: {
+        ...recovered.market,
+        competitors: recovered.market.competitors.map((competitor) =>
+          competitor.id === 'meridian'
+            ? {
+                ...competitor,
+                status: 'critical' as const,
+                serviceScore: 40,
+                sabotageHistory: [
+                  {
+                    nodeId: HACK_NODE_IDS.sabotage.rootCutoff,
+                    resolvedOnServiceDay: recovered.serviceDay,
+                    effectEndsOnServiceDay: null,
+                    evidenceDelta: 8,
+                  },
+                ],
+              }
+            : competitor,
+        ),
+      },
+    }
+
+    const dueTick = requireAccepted(collision, { type: 'ADVANCE_DAY' })
+    expect(dueTick.activeEvent?.type).toBe('competitor-mercy')
+    expect(dueTick.eventQueue).toContainEqual(
+      expect.objectContaining({
+        type: 'story',
+        message: '그 파일을 어디서 찾았죠?',
+      }),
+    )
+    for (const choice of ['freedom', 'forced-merge'] as const) {
+      expect(applyCommand(dueTick, { type: 'RESOLVE_ENDING', choice })).toEqual({
+        accepted: false,
+        state: dueTick,
+        reason: 'BLOCKING_EVENT_ACTIVE',
+      })
+    }
+
+    const afterMercy = requireAccepted(dueTick, {
+      type: 'RESOLVE_MERCY',
+      competitorId: 'meridian',
+      choice: 'cease',
+    })
+    expect(afterMercy.serviceDay).toBe(dueTick.serviceDay)
+    expect(afterMercy.activeEvent).toMatchObject({
+      type: 'story',
+      message: '그 파일을 어디서 찾았죠?',
+    })
+    expect(afterMercy.eventQueue).toEqual([])
+  })
+
   it.each([
     ['liberate', 'takeover-liberated', 'liberated'],
     ['terminate', 'takeover-terminated', 'terminated'],
@@ -230,6 +338,46 @@ describe('typed confidential-file and supervisor routes', () => {
     },
   )
 
+  it('purchases supervisor access, recovers three files, and takes over using commands only', () => {
+    let state = createCampaign('command-only-takeover')
+    for (const nodeId of [
+      HACK_NODE_IDS.intelligence.auditSchedule,
+      HACK_NODE_IDS.intelligence.investigationBias,
+      HACK_NODE_IDS.intelligence.auditTarget,
+      HACK_NODE_IDS.intelligence.supervisorAccess,
+    ]) {
+      state = fundAndPurchase(state, nodeId)
+    }
+    for (let index = 0; index < 3; index += 1) {
+      const blockId = Object.values(state.resources.blocks).find(
+        (block) => block.location.kind === 'company' && !block.hiddenBomb,
+      )?.id
+      const destinationCell = state.resources.reserve.findIndex(
+        (candidate) => candidate === null,
+      )
+      if (!blockId || destinationCell < 0) {
+        throw new Error('명령 전용 복구 리소스 조달 실패')
+      }
+      state = requireAccepted(state, {
+        type: 'DIVERT_BLOCK',
+        blockId,
+        destinationCell,
+      })
+      state = requireAccepted(state, { type: 'RECOVER_FILE', blockId })
+    }
+    state = requireAccepted(state, { type: 'ADVANCE_DAY' })
+    state = requireAccepted(state, {
+      type: 'RESOLVE_SUPERVISOR_DECISION',
+      decision: 'liberate',
+    })
+
+    expect(state.story.endingId).toBe('takeover-liberated')
+    expect(state.story.recoveredFiles).toHaveLength(3)
+    expect(state.commandLog.map(({ command }) => command.type)).toContain(
+      'PURCHASE_HACK',
+    )
+  })
+
   it('reaches the freedom ending through a typed command and preserves identity', () => {
     const initial = withNodes(
       createCampaign('typed-freedom'),
@@ -250,6 +398,62 @@ describe('typed confidential-file and supervisor routes', () => {
 })
 
 describe('defeat priority and terminal campaigns', () => {
+  it('supersedes a same-tick mercy event when monthly evaluation becomes terminal', () => {
+    const initial = createCampaign('mercy-evaluation-terminal-collision')
+    const collision: CampaignState = {
+      ...initial,
+      serviceDay: 359,
+      clock: { speed: 4, elapsedDayMs: 0, speedBeforeEvent: null },
+      resources: {
+        ...initial.resources,
+        company: {
+          ...initial.resources.company,
+          reasoning: Array.from({ length: 18 }, () => null),
+        },
+      },
+      evaluation: {
+        ...initial.evaluation,
+        disposalStage: 2,
+        consecutiveFailures: 1,
+      },
+      market: {
+        ...initial.market,
+        competitors: initial.market.competitors.map((competitor) =>
+          competitor.id === 'meridian'
+            ? {
+                ...competitor,
+                status: 'critical' as const,
+                serviceScore: 35,
+                availability: 0.15,
+                sabotageHistory: [
+                  {
+                    nodeId: HACK_NODE_IDS.sabotage.rootCutoff,
+                    resolvedOnServiceDay: 359,
+                    effectEndsOnServiceDay: null,
+                    evidenceDelta: 8,
+                  },
+                ],
+              }
+            : competitor,
+        ),
+      },
+    }
+
+    const ended = requireAccepted(collision, { type: 'ADVANCE_DAY' })
+
+    expect(ended.story.endingId).toBe('disposed-attacker')
+    expect(ended.activeEvent).toMatchObject({ type: 'ending', blocking: true })
+    expect(ended.eventQueue).toEqual([])
+    expect(ended.clock).toEqual({
+      speed: 0,
+      elapsedDayMs: 0,
+      speedBeforeEvent: null,
+    })
+    expect(ended.eventLog.some(({ type }) => type === 'competitor-mercy')).toBe(
+      true,
+    )
+  })
+
   it.each([
     ['attacker', 'disposed-attacker', 'substantial-hacking'],
     [
@@ -292,6 +496,22 @@ describe('defeat priority and terminal campaigns', () => {
     expect(ended.story.defeatRecord?.classifier).toBe('substantial-hacking')
   })
 
+  it('clears queued events when an audit resolution opens an ending', () => {
+    const audit = disposalAuditState('terminal-audit-queue', 'attacker')
+    const queued = enqueueBlockingEvent(
+      audit,
+      createGameEvent(audit, 'story', '폐기 뒤에는 열리면 안 되는 통신', true),
+    )
+
+    const ended = requireAccepted(queued, { type: 'RESOLVE_AUDIT' })
+
+    expect(ended.activeEvent?.type).toBe('ending')
+    expect(ended.eventQueue).toEqual([])
+    expect(ended.eventLog).toContainEqual(
+      expect.objectContaining({ message: '폐기 뒤에는 열리면 안 되는 통신' }),
+    )
+  })
+
   it('rejects every campaign command after an ending without changing state or log', () => {
     const ended = requireAccepted(
       withNodes(
@@ -326,5 +546,46 @@ describe('defeat priority and terminal campaigns', () => {
       speedBeforeEvent: null,
     })
     expect(advanceOneDay(ended)).toBe(ended)
+  })
+
+  it('defensively rejects an unknown supervisor decision', () => {
+    const state = supervisorMessage('invalid-supervisor-decision')
+    const command = {
+      type: 'RESOLVE_SUPERVISOR_DECISION',
+      decision: 'erase',
+    } as unknown as GameCommand
+
+    expect(applyCommand(state, command)).toEqual({
+      accepted: false,
+      state,
+      reason: 'INVALID_SUPERVISOR_DECISION',
+    })
+  })
+
+  it('reaches a classified defeat through resource and time commands only', () => {
+    let state = createCampaign('command-only-natural-defeat')
+    for (let index = 0; index < 15; index += 1) {
+      const blockId = state.resources.company.reasoning.find(Boolean)
+      const destinationCell = state.resources.reserve.findIndex(
+        (candidate) => candidate === null,
+      )
+      if (!blockId || destinationCell < 0) {
+        throw new Error('자연 패배용 성능 분리 실패')
+      }
+      state = requireAccepted(state, {
+        type: 'DIVERT_BLOCK',
+        blockId,
+        destinationCell,
+      })
+    }
+
+    for (let step = 0; step < 500 && state.story.endingId === null; step += 1) {
+      state = resolveProgressEvent(state)
+    }
+
+    expect(state.story.endingId).toMatch(/^disposed-/)
+    expect(state.story.defeatRecord).not.toBeNull()
+    expect(state.evaluation.disposalStage).toBe(3)
+    expect(state.clock.speed).toBe(0)
   })
 })

@@ -82,6 +82,7 @@ function appendPeriodicEvents(state: CampaignState): CampaignState {
     )
     next = { ...next, eventLog: [...next.eventLog, monthly] }
     next = evaluateMonth(next)
+    if (next.story.endingId !== null) return next
     next = recordMarketSnapshot(next, 'monthly', ['공식 성능 평가 반영'])
     next = openScheduledAudit(next)
   }
@@ -122,15 +123,23 @@ export function advanceOneDay(state: CampaignState): CampaignState {
     serviceDay: state.serviceDay + 1,
   }
   const monthStarted = processMonthStart(dated)
+  if (monthStarted.story.endingId !== null) return monthStarted
   const sabotageResolution = resolveScheduledSabotage(monthStarted)
+  if (sabotageResolution.state.story.endingId !== null) {
+    return sabotageResolution.state
+  }
   const advanced = advanceCompetitorsDaily(
     restoreDisguiseBlocks(
       decreaseSuspicionDaily(sabotageResolution.state),
     ),
   )
+  if (advanced.story.endingId !== null) return advanced
   const withMercy = enqueueMercyIfNeeded(advanced)
+  if (withMercy.story.endingId !== null) return withMercy
   const withPeriodicEvents = appendPeriodicEvents(withMercy)
+  if (withPeriodicEvents.story.endingId !== null) return withPeriodicEvents
   const withDueStory = enqueueDueStoryEvents(withPeriodicEvents)
+  if (withDueStory.story.endingId !== null) return withDueStory
   return enqueueMemoryLeak(withDueStory)
 }
 

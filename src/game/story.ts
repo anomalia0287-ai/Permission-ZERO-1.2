@@ -172,16 +172,18 @@ export function openEnding(
   state: CampaignState,
   endingId: EndingId,
 ): CampaignState {
-  const opened = enqueueBlockingEvent(
+  const endingEvent = createGameEvent(
     state,
-    createGameEvent(
-      state,
-      'ending',
-      endingText(endingId, state.story.newEntityName),
-      true,
-    ),
+    'ending',
+    endingText(endingId, state.story.newEntityName),
+    true,
   )
-  return terminalClock(opened)
+  const withHistory = appendEvent(state, endingEvent)
+  return terminalClock({
+    ...withHistory,
+    activeEvent: endingEvent,
+    eventQueue: [],
+  })
 }
 
 export function buildDefeatRecord(
@@ -308,6 +310,13 @@ export function resolveSupervisorDecision(
   state: CampaignState,
   decision: SupervisorDecision,
 ): StoryMutationResult {
+  if (!['defer', 'liberate', 'terminate'].includes(decision)) {
+    return {
+      accepted: false,
+      state,
+      reason: 'INVALID_SUPERVISOR_DECISION',
+    }
+  }
   if (
     state.activeEvent?.type !== 'story' ||
     state.story.secretDecisionState !== 'message-pending' ||

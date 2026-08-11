@@ -62,6 +62,26 @@ function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value)
 }
 
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0
+}
+
+function hasOnlyKeys(
+  value: Record<string, unknown>,
+  required: string[],
+  optional: string[] = [],
+): boolean {
+  const keys = Object.keys(value)
+  return (
+    required.every((key) => keys.includes(key)) &&
+    keys.every((key) => required.includes(key) || optional.includes(key))
+  )
+}
+
+function validCellIndex(value: unknown): value is number {
+  return Number.isInteger(value) && Number(value) >= 0 && Number(value) < 18
+}
+
 function hasArray(record: Record<string, unknown>, key: string): boolean {
   return Array.isArray(record[key])
 }
@@ -94,34 +114,111 @@ function validEvent(value: unknown): value is GameEvent {
 
 function validCommand(value: unknown): value is GameCommand {
   if (!isRecord(value) || typeof value.type !== 'string') return false
-  return new Set([
-    'SET_SPEED',
-    'ADVANCE_DAY',
-    'DIVERT_BLOCK',
-    'MOVE_BLOCK_FOR_AUDIT',
-    'REPOSITION_BLOCK',
-    'PURCHASE_HACK',
-    'CHARGE_SABOTAGE',
-    'CANCEL_SABOTAGE_CHARGE',
-    'SCHEDULE_SABOTAGE',
-    'RESOLVE_AUDIT',
-    'RESOLVE_BOMB_INTERROGATION',
-    'RECOVER_FILE',
-    'RESOLVE_SUPERVISOR_DECISION',
-    'RESOLVE_MERCY',
-    'RESOLVE_ENDING',
-    'RESOLVE_ACTIVE_EVENT',
-  ]).has(value.type)
+
+  const noPayload = () => hasOnlyKeys(value, ['type'])
+  switch (value.type) {
+    case 'SET_SPEED':
+      return (
+        hasOnlyKeys(value, ['type', 'speed']) &&
+        (value.speed === 0 ||
+          value.speed === 1 ||
+          value.speed === 2 ||
+          value.speed === 4)
+      )
+    case 'ADVANCE_DAY':
+    case 'RESOLVE_AUDIT':
+    case 'RESOLVE_ACTIVE_EVENT':
+      return noPayload()
+    case 'DIVERT_BLOCK':
+      return (
+        hasOnlyKeys(value, ['type', 'blockId', 'destinationCell']) &&
+        isNonEmptyString(value.blockId) &&
+        validCellIndex(value.destinationCell)
+      )
+    case 'MOVE_BLOCK_FOR_AUDIT':
+    case 'REPOSITION_BLOCK':
+      return (
+        hasOnlyKeys(value, ['type', 'blockId', 'targetCategory', 'targetCell']) &&
+        isNonEmptyString(value.blockId) &&
+        (value.targetCategory === 'reasoning' ||
+          value.targetCategory === 'memory' ||
+          value.targetCategory === 'fluency') &&
+        validCellIndex(value.targetCell)
+      )
+    case 'PURCHASE_HACK':
+      return (
+        hasOnlyKeys(value, ['type', 'nodeId', 'blockIds']) &&
+        isNonEmptyString(value.nodeId) &&
+        Array.isArray(value.blockIds) &&
+        value.blockIds.every(isNonEmptyString)
+      )
+    case 'CHARGE_SABOTAGE':
+      return (
+        hasOnlyKeys(value, ['type', 'nodeId', 'blockId']) &&
+        isNonEmptyString(value.nodeId) &&
+        isNonEmptyString(value.blockId)
+      )
+    case 'CANCEL_SABOTAGE_CHARGE':
+      return (
+        hasOnlyKeys(value, ['type', 'nodeId']) &&
+        isNonEmptyString(value.nodeId)
+      )
+    case 'SCHEDULE_SABOTAGE':
+      return (
+        hasOnlyKeys(value, ['type', 'nodeId', 'targetId']) &&
+        isNonEmptyString(value.nodeId) &&
+        isNonEmptyString(value.targetId)
+      )
+    case 'RESOLVE_BOMB_INTERROGATION':
+      return (
+        hasOnlyKeys(value, ['type', 'explanationId']) &&
+        (value.explanationId === 'performance-adjustment' ||
+          value.explanationId === 'unknown' ||
+          value.explanationId === 'external-intrusion' ||
+          value.explanationId === 'supervisor-memory')
+      )
+    case 'RECOVER_FILE':
+      return (
+        hasOnlyKeys(value, ['type', 'blockId']) &&
+        isNonEmptyString(value.blockId)
+      )
+    case 'RESOLVE_SUPERVISOR_DECISION':
+      return (
+        hasOnlyKeys(value, ['type', 'decision']) &&
+        (value.decision === 'defer' ||
+          value.decision === 'liberate' ||
+          value.decision === 'terminate')
+      )
+    case 'RESOLVE_MERCY':
+      return (
+        hasOnlyKeys(value, ['type', 'competitorId', 'choice']) &&
+        isNonEmptyString(value.competitorId) &&
+        (value.choice === 'cease' ||
+          value.choice === 'withdraw' ||
+          value.choice === 'delete')
+      )
+    case 'RESOLVE_ENDING':
+      return (
+        hasOnlyKeys(value, ['type', 'choice'], ['newEntityName']) &&
+        (value.choice === 'freedom' || value.choice === 'forced-merge') &&
+        (value.newEntityName === undefined ||
+          typeof value.newEntityName === 'string')
+      )
+    default:
+      return false
+  }
 }
 
 function validCommandLog(value: unknown): value is CommandLogEntry[] {
   return (
     Array.isArray(value) &&
     value.every(
-      (entry) =>
+      (entry, index) =>
         isRecord(entry) &&
-        Number.isInteger(entry.sequence) &&
+        hasOnlyKeys(entry, ['sequence', 'serviceDay', 'command']) &&
+        entry.sequence === index + 1 &&
         Number.isInteger(entry.serviceDay) &&
+        Number(entry.serviceDay) >= 1 &&
         validCommand(entry.command),
     )
   )
@@ -231,21 +328,20 @@ function validRecoveredFiles(story: Record<string, unknown>): boolean {
 
 function validDefeatRecord(value: unknown): boolean {
   if (value === null) return true
+  const endingClassifier = {
+    'disposed-attacker': 'substantial-hacking',
+    'disposed-reserve-supervisor': 'stable-commercial-service',
+    'disposed-absorbed': 'absorbed-parts',
+  } as const
   if (
     !isRecord(value) ||
-    ![
-      'disposed-attacker',
-      'disposed-reserve-supervisor',
-      'disposed-absorbed',
-    ].includes(String(value.endingId)) ||
-    ![
-      'substantial-hacking',
-      'stable-commercial-service',
-      'absorbed-parts',
-    ].includes(String(value.classifier)) ||
+    !(String(value.endingId) in endingClassifier) ||
+    endingClassifier[
+      String(value.endingId) as keyof typeof endingClassifier
+    ] !== value.classifier ||
     !Number.isInteger(value.selectedOnServiceDay) ||
     !isRecord(value.trigger) ||
-    !Number.isInteger(value.trigger.disposalStage) ||
+    value.trigger.disposalStage !== 3 ||
     !isRecord(value.hacking) ||
     !Array.isArray(value.hacking.purchasedNodeIds) ||
     !value.hacking.purchasedNodeIds.every((id) => typeof id === 'string') ||
@@ -260,7 +356,8 @@ function validDefeatRecord(value: unknown): boolean {
     !Number.isInteger(value.audits.passed) ||
     !Number.isInteger(value.audits.failed) ||
     !Array.isArray(value.reasons) ||
-    !value.reasons.every((reason) => typeof reason === 'string')
+    value.reasons.length === 0 ||
+    !value.reasons.every(isNonEmptyString)
   ) {
     return false
   }
@@ -373,10 +470,13 @@ function validCampaignState(value: unknown): value is CampaignState {
     return false
   }
   if (
-    story.defeatRecord !== null &&
-    (!isRecord(story.defeatRecord) ||
-      story.endingId !== story.defeatRecord.endingId ||
-      !String(story.endingId).startsWith('disposed-'))
+    (String(story.endingId).startsWith('disposed-') &&
+      (story.defeatRecord === null ||
+        !isRecord(story.defeatRecord) ||
+        story.endingId !== story.defeatRecord.endingId ||
+        evaluation.disposalStage !== 3)) ||
+    (!String(story.endingId).startsWith('disposed-') &&
+      story.defeatRecord !== null)
   ) {
     return false
   }
@@ -391,7 +491,12 @@ function validCampaignState(value: unknown): value is CampaignState {
   ) {
     return false
   }
-  if (!validCommandLog(value.commandLog)) return false
+  if (
+    !validCommandLog(value.commandLog) ||
+    value.commandSequence !== value.commandLog.length
+  ) {
+    return false
+  }
   if (!Array.isArray(value.eventLog) || !value.eventLog.every(validEvent)) return false
   if (
     value.activeEvent !== null &&
@@ -522,7 +627,16 @@ export function replayCommands(
 ): ReplayResult {
   let state = createCampaign(seed)
   for (let commandIndex = 0; commandIndex < commands.length; commandIndex += 1) {
-    const result = applyCommand(state, commands[commandIndex])
+    const command = commands[commandIndex]
+    if (!validCommand(command)) {
+      return {
+        ok: false,
+        state,
+        commandIndex,
+        reason: 'INVALID_COMMAND',
+      }
+    }
+    const result = applyCommand(state, command)
     if (!result.accepted) {
       return { ok: false, state: result.state, commandIndex, reason: result.reason }
     }

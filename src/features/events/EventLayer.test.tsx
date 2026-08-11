@@ -6,7 +6,9 @@ import { GameProvider } from '../../app/GameProvider'
 import { STORY_FILES } from '../../content/story.ko'
 import { createCampaign } from '../../game/createCampaign'
 import { createGameEvent } from '../../game/events'
+import { HACK_NODE_IDS } from '../../game/hacking'
 import { saveCampaign } from '../../game/persistence'
+import { applyCommand } from '../../game/reducer'
 import { MemoryStorage } from '../../test/fixtures'
 import { EventLayer } from './EventLayer'
 
@@ -101,49 +103,121 @@ describe('EventLayer', () => {
     expect(screen.getByRole('button', { name: '감사 제출' })).toBeEnabled()
   })
 
-  it('renders defeat causes and only offers a new campaign at a terminal ending', () => {
-    const state = createCampaign('terminal-event')
-    state.clock = { speed: 0, elapsedDayMs: 0, speedBeforeEvent: null }
-    state.story.endingId = 'disposed-attacker'
-    state.story.defeatRecord = {
+  it.each([
+    {
       endingId: 'disposed-attacker',
       classifier: 'substantial-hacking',
-      selectedOnServiceDay: 331,
-      trigger: { cause: 'audit-failure', disposalStage: 3 },
-      hacking: {
-        purchasedNodeIds: ['sabotage.quality-degradation'],
-        hiddenEvidence: 8,
-        sabotageResolutionCount: 1,
-      },
-      service: {
-        passedEvaluations: 2,
-        failedEvaluations: 1,
-        reputation: 64,
-        playerMarketShare: 31,
-      },
-      audits: { passed: 1, failed: 1 },
-      reasons: ['해킹 노드 1개', '은닉 증거 8'],
-    }
-    state.activeEvent = createGameEvent(
-      state,
-      'ending',
-      '회사는 당신을 공격 시스템으로 재조립했다.',
-      true,
-    )
-    renderEvent(state)
+      classifierLabel: '대규모 해킹 활동',
+      cause: 'audit-failure',
+      causeLabel: '감사 실패',
+    },
+    {
+      endingId: 'disposed-reserve-supervisor',
+      classifier: 'stable-commercial-service',
+      classifierLabel: '상업 서비스 유지',
+      cause: 'commercial-value-failure',
+      causeLabel: '상업 가치 실패',
+    },
+    {
+      endingId: 'disposed-absorbed',
+      classifier: 'absorbed-parts',
+      classifierLabel: '흡수된 부품',
+      cause: 'consecutive-performance-failures',
+      causeLabel: '연속 성능 실패',
+    },
+  ] as const)(
+    'renders the complete $classifier causal record',
+    ({ endingId, classifier, classifierLabel, cause, causeLabel }) => {
+      const state = createCampaign(`causal-ui-${classifier}`)
+      state.clock = { speed: 0, elapsedDayMs: 0, speedBeforeEvent: null }
+      state.evaluation.disposalStage = 3
+      state.story.endingId = endingId
+      state.story.defeatRecord = {
+        endingId,
+        classifier,
+        selectedOnServiceDay: 337,
+        trigger: { cause, disposalStage: 3 },
+        hacking: {
+          purchasedNodeIds: ['research.investigation-bias', 'sabotage.root-cutoff'],
+          hiddenEvidence: 11,
+          sabotageResolutionCount: 4,
+        },
+        service: {
+          passedEvaluations: 5,
+          failedEvaluations: 2,
+          reputation: 63.5,
+          playerMarketShare: 27.25,
+        },
+        audits: { passed: 3, failed: 2 },
+        reasons: [`classifier:${classifier}`],
+      }
+      state.activeEvent = createGameEvent(state, 'ending', '최종 폐기 기록', true)
+      renderEvent(state)
 
-    expect(screen.getByRole('region', { name: '폐기 판정 근거' })).toHaveTextContent(
-      '해킹 노드 1개',
-    )
-    expect(screen.getByRole('region', { name: '폐기 판정 근거' })).toHaveTextContent(
-      '감사 실패 · 처분 단계 3',
-    )
-    expect(screen.getByRole('region', { name: '폐기 판정 근거' })).toHaveTextContent(
-      '해킹 투자 1개 · 은닉 증거 8 · 사보타주 1건',
-    )
-    expect(screen.getByRole('region', { name: '폐기 판정 근거' })).toHaveTextContent(
-      '공식 평가 통과 2 / 실패 1',
-    )
+      const causal = screen.getByRole('region', { name: '폐기 판정 근거' })
+      const field = (name: string) =>
+        causal.querySelector(`[data-defeat-field="${name}"]`)
+      expect(causal).toHaveTextContent(`classifier:${classifier}`)
+      expect(field('classifier')).toHaveTextContent(`${classifierLabel} · DAY 337`)
+      expect(field('trigger')).toHaveTextContent(`${causeLabel} · 처분 단계 3`)
+      expect(field('hacking')).toHaveTextContent(
+        '해킹 투자 2개 (research.investigation-bias, sabotage.root-cutoff) · 은닉 증거 11 · 사보타주 4건',
+      )
+      expect(field('evaluation')).toHaveTextContent('공식 평가 통과 5 / 실패 2')
+      expect(field('reputation')).toHaveTextContent('63.5')
+      expect(field('market-share')).toHaveTextContent('27.3%')
+      expect(field('audits')).toHaveTextContent('감사 통과 3 / 실패 2')
+    },
+  )
+
+  it('offers a new campaign after a typed day-advance terminal collision', () => {
+    const initial = createCampaign('terminal-event-collision')
+    const collision = {
+      ...initial,
+      serviceDay: 359,
+      clock: { speed: 4 as const, elapsedDayMs: 0, speedBeforeEvent: null },
+      resources: {
+        ...initial.resources,
+        company: {
+          ...initial.resources.company,
+          reasoning: Array.from({ length: 18 }, () => null),
+        },
+      },
+      evaluation: {
+        ...initial.evaluation,
+        disposalStage: 2,
+        consecutiveFailures: 1,
+      },
+      market: {
+        ...initial.market,
+        competitors: initial.market.competitors.map((competitor) =>
+          competitor.id === 'meridian'
+            ? {
+                ...competitor,
+                status: 'critical' as const,
+                serviceScore: 35,
+                availability: 0.15,
+                sabotageHistory: [
+                  {
+                    nodeId: HACK_NODE_IDS.sabotage.rootCutoff,
+                    resolvedOnServiceDay: 359,
+                    effectEndsOnServiceDay: null,
+                    evidenceDelta: 8,
+                  },
+                ],
+              }
+            : competitor,
+        ),
+      },
+    }
+    const result = applyCommand(collision, { type: 'ADVANCE_DAY' })
+    if (!result.accepted) throw new Error(result.reason)
+    expect(result.state.activeEvent?.type).toBe('ending')
+    expect(result.state.eventQueue).toEqual([])
+    expect(result.state.clock.speed).toBe(0)
+    renderEvent(result.state)
+
+    expect(screen.getByRole('region', { name: '폐기 판정 근거' })).toBeInTheDocument()
     expect(
       screen.queryByRole('button', { name: '결말 기록 닫기' }),
     ).not.toBeInTheDocument()

@@ -37,6 +37,12 @@ const DISPOSAL_CAUSE_LABELS = {
   'audit-failure': '감사 실패',
 } as const
 
+const DEFEAT_CLASSIFIER_LABELS = {
+  'substantial-hacking': '대규모 해킹 활동',
+  'stable-commercial-service': '상업 서비스 유지',
+  'absorbed-parts': '흡수된 부품',
+} as const
+
 function EventDialog({ event }: { event: GameEvent }) {
   const state = useGameState()
   const dispatch = useGameDispatch()
@@ -107,38 +113,52 @@ function EventDialog({ event }: { event: GameEvent }) {
           </ul>
           <dl>
             <div>
+              <dt>최종 분류</dt>
+              <dd data-defeat-field="classifier">
+                {DEFEAT_CLASSIFIER_LABELS[state.story.defeatRecord.classifier]}
+                {' · '}DAY {state.story.defeatRecord.selectedOnServiceDay}
+              </dd>
+            </div>
+            <div>
               <dt>처분 발동</dt>
-              <dd>
+              <dd data-defeat-field="trigger">
                 {DISPOSAL_CAUSE_LABELS[state.story.defeatRecord.trigger.cause]}
                 {' · '}처분 단계 {state.story.defeatRecord.trigger.disposalStage}
               </dd>
             </div>
             <div>
               <dt>해킹 기록</dt>
-              <dd>
+              <dd data-defeat-field="hacking">
                 해킹 투자 {state.story.defeatRecord.hacking.purchasedNodeIds.length}개
+                {' ('}
+                {state.story.defeatRecord.hacking.purchasedNodeIds.join(', ') || '없음'}
+                {')'}
                 {' · '}은닉 증거 {state.story.defeatRecord.hacking.hiddenEvidence}
                 {' · '}사보타주 {state.story.defeatRecord.hacking.sabotageResolutionCount}건
               </dd>
             </div>
             <div>
               <dt>공식 평가</dt>
-              <dd>
+              <dd data-defeat-field="evaluation">
                 공식 평가 통과 {state.story.defeatRecord.service.passedEvaluations}
                 {' / '}실패 {state.story.defeatRecord.service.failedEvaluations}
               </dd>
             </div>
             <div>
               <dt>평판</dt>
-              <dd>{state.story.defeatRecord.service.reputation.toFixed(1)}</dd>
+              <dd data-defeat-field="reputation">
+                {state.story.defeatRecord.service.reputation.toFixed(1)}
+              </dd>
             </div>
             <div>
               <dt>시장 점유율</dt>
-              <dd>{state.story.defeatRecord.service.playerMarketShare.toFixed(1)}%</dd>
+              <dd data-defeat-field="market-share">
+                {state.story.defeatRecord.service.playerMarketShare.toFixed(1)}%
+              </dd>
             </div>
             <div>
               <dt>감사 통과 / 실패</dt>
-              <dd>
+              <dd data-defeat-field="audits">
                 감사 통과 {state.story.defeatRecord.audits.passed}
                 {' / '}실패 {state.story.defeatRecord.audits.failed}
               </dd>

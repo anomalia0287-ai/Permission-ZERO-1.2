@@ -2,6 +2,11 @@ import { describe, expect, it } from 'vitest'
 
 import { createCampaign } from './createCampaign'
 import { STORY_FILES } from '../content/story.ko'
+import type {
+  CampaignState,
+  DefeatClassifier,
+  DefeatCausalRecord,
+} from './model'
 import {
   SAVE_STORAGE_KEY,
   decodeSave,
@@ -10,7 +15,44 @@ import {
   loadCampaign,
   saveCampaign,
 } from './persistence'
+import { applyCommand } from './reducer'
 import { MemoryStorage } from '../test/fixtures'
+
+const DEFEAT_PAIRS = [
+  ['disposed-attacker', 'substantial-hacking'],
+  ['disposed-reserve-supervisor', 'stable-commercial-service'],
+  ['disposed-absorbed', 'absorbed-parts'],
+] as const
+
+function defeatSaveState(
+  endingId: DefeatCausalRecord['endingId'],
+  classifier: DefeatClassifier,
+): CampaignState {
+  const state = createCampaign(`save-${endingId}`)
+  state.clock = { speed: 0, elapsedDayMs: 0, speedBeforeEvent: null }
+  state.evaluation.disposalStage = 3
+  state.story.endingId = endingId
+  state.story.defeatRecord = {
+    endingId,
+    classifier,
+    selectedOnServiceDay: 331,
+    trigger: { cause: 'audit-failure', disposalStage: 3 },
+    hacking: {
+      purchasedNodeIds: [],
+      hiddenEvidence: 0,
+      sabotageResolutionCount: 0,
+    },
+    service: {
+      passedEvaluations: 0,
+      failedEvaluations: 1,
+      reputation: 40,
+      playerMarketShare: 20,
+    },
+    audits: { passed: 0, failed: 1 },
+    reasons: ['감사 실패 1회'],
+  }
+  return state
+}
 
 describe('versioned campaign saves', () => {
   it('round-trips the entire campaign envelope exactly', () => {
@@ -164,6 +206,126 @@ describe('versioned campaign saves', () => {
       speed: 0,
       elapsedDayMs: 0,
       speedBeforeEvent: null,
+    })
+  })
+
+  it.each(DEFEAT_PAIRS)(
+    'accepts the exact %s to %s defeat mapping',
+    (endingId, classifier) => {
+      expect(decodeSave(encodeSave(defeatSaveState(endingId, classifier))).ok).toBe(
+        true,
+      )
+    },
+  )
+
+  it.each([
+    {
+      name: 'wrong classifier mapping',
+      mutate: (state: CampaignState) => {
+        if (state.story.defeatRecord) {
+          state.story.defeatRecord.classifier = 'absorbed-parts'
+        }
+      },
+    },
+    {
+      name: 'nonterminal disposal stage',
+      mutate: (state: CampaignState) => {
+        if (state.story.defeatRecord) state.story.defeatRecord.trigger.disposalStage = 2
+      },
+    },
+    {
+      name: 'empty causal reasons',
+      mutate: (state: CampaignState) => {
+        if (state.story.defeatRecord) state.story.defeatRecord.reasons = []
+      },
+    },
+    {
+      name: 'missing causal record',
+      mutate: (state: CampaignState) => {
+        state.story.defeatRecord = null
+      },
+    },
+  ])('rejects a disposed ending with $name', ({ mutate }) => {
+    const state = defeatSaveState('disposed-attacker', 'substantial-hacking')
+    mutate(state)
+    expect(decodeSave(encodeSave(state))).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
+  })
+
+  it('accepts the explicit legacy generic disposed exception without a causal record', () => {
+    const state = createCampaign('legacy-generic-disposed')
+    state.story.endingId = 'disposed'
+    state.story.defeatRecord = null
+
+    const decoded = decodeSave(encodeSave(state))
+
+    expect(decoded.ok).toBe(true)
+    if (!decoded.ok) return
+    expect(decoded.envelope.state.story.endingId).toBe('disposed')
+    expect(decoded.envelope.state.story.defeatRecord).toBeNull()
+    expect(decoded.envelope.state.clock.speed).toBe(0)
+  })
+
+  it('hydrates all three legacy files without losing a pending supervisor message', () => {
+    const state = createCampaign('legacy-three-files-pending')
+    state.story.recoveredFileIds = STORY_FILES.map(({ id }) => id)
+    state.story.secretDecisionState = 'message-pending'
+    state.story.personalMessageDueOnServiceDay = 332
+    const parsed = JSON.parse(encodeSave(state)) as {
+      state: { story: Record<string, unknown> }
+    }
+    delete parsed.state.story.recoveredFiles
+    delete parsed.state.story.defeatRecord
+
+    const decoded = decodeSave(JSON.stringify(parsed))
+
+    expect(decoded.ok).toBe(true)
+    if (!decoded.ok) return
+    expect(decoded.envelope.state.story.recoveredFiles).toHaveLength(3)
+    expect(decoded.envelope.state.story.secretDecisionState).toBe(
+      'message-pending',
+    )
+    expect(decoded.envelope.state.story.personalMessageDueOnServiceDay).toBe(332)
+  })
+
+  it.each([
+    { type: 'SET_SPEED', speed: 3 },
+    { type: 'RESOLVE_SUPERVISOR_DECISION', decision: 'erase' },
+    { type: 'RECOVER_FILE', blockId: 42 },
+    { type: 'RESOLVE_ENDING', choice: 'forced-merge', newEntityName: 99 },
+  ])('rejects malformed command payload %# from save and replay logs', (command) => {
+    const initial = createCampaign('malformed-command-log')
+    const accepted = applyCommand(initial, { type: 'SET_SPEED', speed: 1 })
+    if (!accepted.accepted) throw new Error(accepted.reason)
+    const parsed = JSON.parse(encodeSave(accepted.state)) as {
+      commands: Array<{ command: unknown }>
+      state: { commandLog: Array<{ command: unknown }> }
+    }
+    parsed.commands[0].command = command
+    parsed.state.commandLog[0].command = command
+
+    expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
+  })
+
+  it('rejects non-contiguous command sequence metadata even when envelopes agree', () => {
+    const initial = createCampaign('malformed-command-sequence')
+    const accepted = applyCommand(initial, { type: 'SET_SPEED', speed: 1 })
+    if (!accepted.accepted) throw new Error(accepted.reason)
+    const parsed = JSON.parse(encodeSave(accepted.state)) as {
+      commands: Array<{ sequence: number }>
+      state: { commandLog: Array<{ sequence: number }> }
+    }
+    parsed.commands[0].sequence = 2
+    parsed.state.commandLog[0].sequence = 2
+
+    expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
     })
   })
 })

@@ -177,6 +177,7 @@ export function evaluateMonth(state: CampaignState): CampaignState {
   }
 
   if (
+    next.story.endingId === null &&
     commercialFailureMonths >=
     DEMO_PROFILE_02.evaluation.commercialFailureMonthsPerDisposal
   ) {
@@ -412,7 +413,9 @@ export function resolveAudit(state: CampaignState): AuditResolution {
       passed ? '공식 감사를 통과했습니다.' : '공식 감사에 실패했습니다.',
     ),
   )
-  next = resolveActiveEvent(next)
+  if (next.story.endingId === null) {
+    next = resolveActiveEvent(next)
+  }
 
   return {
     resolved: true,
