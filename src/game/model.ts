@@ -28,6 +28,10 @@ export type BlockLocation =
       cellIndex: number
     }
   | {
+      kind: 'hack-charge'
+      nodeId: string
+    }
+  | {
       kind: 'consumed'
       reason: 'hack' | 'sabotage' | 'file-recovery'
     }
@@ -62,12 +66,14 @@ export interface SabotageRecord {
   nodeId: string
   resolvedOnServiceDay: number
   effectEndsOnServiceDay: number | null
+  evidenceDelta: number
 }
 
 export interface CompetitorState {
   id: 'meridian' | 'tallow'
   name: string
   status: CompetitorStatus
+  intrinsicServiceScore: number
   serviceScore: number
   reputation: number
   marketShare: number
@@ -133,6 +139,21 @@ export interface AuditRecord {
   disposalAbsorbed: boolean
 }
 
+export interface SabotageCharge {
+  nodeId: string
+  blockId: BlockId
+  originalReserveCell: number
+}
+
+export interface ScheduledSabotage {
+  id: string
+  sequence: number
+  nodeId: string
+  targetId: string
+  scheduledOnServiceDay: number
+  executeOnServiceDay: number
+}
+
 export type GameEventType =
   | 'campaign-created'
   | 'weekly-update'
@@ -141,6 +162,7 @@ export type GameEventType =
   | 'bomb-interrogation'
   | 'supervisor-message'
   | 'review'
+  | 'sabotage'
   | 'story'
   | 'ending'
 
@@ -189,6 +211,13 @@ export interface CampaignState {
   hacking: {
     purchasedNodeIds: string[]
     hiddenEvidence: number
+    sabotageCharges: Record<string, SabotageCharge>
+    scheduledSabotage: ScheduledSabotage[]
+    nextSabotageSequence: number
+    lastSabotageResolutionServiceDay: number | null
+    cooldownUntil: Record<string, number>
+    rootCutoffTargetIds: string[]
+    lastSelfComputeGrantServiceMonth: number | null
   }
   audit: {
     scheduled: boolean

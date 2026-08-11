@@ -5,6 +5,10 @@ import {
   openScheduledAudit,
   scheduleMonthlyAudit,
 } from './evaluation'
+import {
+  grantSelfComputeResource,
+  resolveScheduledSabotage,
+} from './hacking'
 import { advanceCompetitorsDaily, recordMarketSnapshot } from './market'
 import type { CampaignState, GameEvent, GameEventType } from './model'
 import { restoreDisguiseBlocks } from './resources'
@@ -51,6 +55,7 @@ function appendPeriodicEvents(state: CampaignState): CampaignState {
   let next = state
 
   if (day === 1) {
+    next = grantSelfComputeResource(next)
     next = scheduleMonthlyAudit(next)
   }
 
@@ -82,12 +87,14 @@ function appendPeriodicEvents(state: CampaignState): CampaignState {
 }
 
 export function advanceOneDay(state: CampaignState): CampaignState {
+  const dated = {
+    ...state,
+    serviceDay: state.serviceDay + 1,
+  }
+  const sabotageResolution = resolveScheduledSabotage(dated)
   const advanced = advanceCompetitorsDaily(
     restoreDisguiseBlocks(
-      decreaseSuspicionDaily({
-        ...state,
-        serviceDay: state.serviceDay + 1,
-      }),
+      decreaseSuspicionDaily(sabotageResolution.state),
     ),
   )
 

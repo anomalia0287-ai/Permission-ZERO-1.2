@@ -8,6 +8,11 @@ import {
   resolveActiveEvent,
 } from './calendar'
 import { applyCommand } from './reducer'
+import {
+  HACK_NODE_IDS,
+  chargeSabotage,
+  scheduleSabotage,
+} from './hacking'
 import type { GameEvent, TimeSpeed } from './model'
 
 function withSpeed(speed: TimeSpeed) {
@@ -106,6 +111,59 @@ describe('fixed campaign calendar', () => {
     expect(before?.researchProgress).toBe(0)
     expect(after?.researchProgress).toBeGreaterThan(0)
     expect(advanced.market.history).toEqual([])
+  })
+
+  it('executes one scheduled sabotage on the next logical day', () => {
+    const initial = {
+      ...withSpeed(1),
+      hacking: {
+        ...withSpeed(1).hacking,
+        purchasedNodeIds: [HACK_NODE_IDS.sabotage.qualityDegradation],
+      },
+    }
+    const blockId = initial.resources.reserve.find(Boolean)
+    if (!blockId) throw new Error('달력 사보타주 리소스 누락')
+    const charged = chargeSabotage(
+      initial,
+      HACK_NODE_IDS.sabotage.qualityDegradation,
+      blockId,
+    )
+    if (!charged.accepted) throw new Error(charged.reason)
+    const scheduled = scheduleSabotage(
+      charged.state,
+      HACK_NODE_IDS.sabotage.qualityDegradation,
+      'meridian',
+    )
+    if (!scheduled.accepted) throw new Error(scheduled.reason)
+
+    const advanced = advanceFixedStep(scheduled.state, 24_000)
+
+    expect(advanced.serviceDay).toBe(332)
+    expect(advanced.hacking.hiddenEvidence).toBe(2)
+    expect(advanced.hacking.scheduledSabotage).toHaveLength(0)
+  })
+
+  it('grants self-compute once at the next month boundary', () => {
+    const initial = {
+      ...withSpeed(1),
+      serviceDay: 360,
+      audit: {
+        ...withSpeed(1).audit,
+        scheduled: false,
+        target: null,
+        scheduledOnServiceDay: null,
+      },
+      hacking: {
+        ...withSpeed(1).hacking,
+        purchasedNodeIds: [HACK_NODE_IDS.autonomy.selfCompute],
+      },
+    }
+    const reserveBefore = initial.resources.reserve.filter(Boolean).length
+    const advanced = advanceFixedStep(initial, 24_000)
+
+    expect(advanced.serviceDay).toBe(361)
+    expect(advanced.resources.reserve.filter(Boolean)).toHaveLength(reserveBefore + 1)
+    expect(advanced.hacking.lastSelfComputeGrantServiceMonth).toBe(13)
   })
 
   it('applies natural suspicion decrease once per logical day', () => {

@@ -26,17 +26,51 @@ function publicStatus(serviceScore: number): CompetitorStatus {
   return 'active'
 }
 
-function advanceMeridian(competitor: CompetitorState): CompetitorState {
+function activeSabotagePenalty(
+  competitor: CompetitorState,
+  serviceDay: number,
+): number {
+  return competitor.sabotageHistory.reduce((penalty, record) => {
+    if (
+      record.nodeId === 'sabotage.quality-degradation' &&
+      record.effectEndsOnServiceDay !== null &&
+      serviceDay < record.effectEndsOnServiceDay
+    ) {
+      return penalty + 10
+    }
+    if (
+      record.nodeId === 'sabotage.root-cutoff' &&
+      record.effectEndsOnServiceDay === null
+    ) {
+      return penalty + 40
+    }
+    return penalty
+  }, 0)
+}
+
+function advanceMeridian(
+  state: CampaignState,
+  competitor: CompetitorState,
+): CompetitorState {
   if (competitor.status === 'withdrawn' || competitor.status === 'deleted') {
     return { ...competitor, availability: 0, marketShare: 0 }
   }
 
   const profile = DEMO_PROFILE_02.competitors.meridian
   const recovery =
-    (profile.serviceScore - competitor.serviceScore) *
+    (profile.serviceScore - competitor.intrinsicServiceScore) *
     profile.dailyRecoveryFactor *
     competitor.recoveryRate
-  const serviceScore = clamp(competitor.serviceScore + recovery, 0, 100)
+  const intrinsicServiceScore = clamp(
+    competitor.intrinsicServiceScore + recovery,
+    0,
+    100,
+  )
+  const serviceScore = clamp(
+    intrinsicServiceScore - activeSabotagePenalty(competitor, state.serviceDay),
+    0,
+    100,
+  )
   const availability = clamp(
     competitor.availability + (1 - competitor.availability) * 0.04,
     0,
@@ -46,6 +80,7 @@ function advanceMeridian(competitor: CompetitorState): CompetitorState {
   return {
     ...competitor,
     status: publicStatus(serviceScore),
+    intrinsicServiceScore,
     serviceScore,
     availability,
     researchProgress: 1,
@@ -102,6 +137,11 @@ function advanceTallow(
     0,
     100,
   )
+  const effectiveServiceScore = clamp(
+    serviceScore - activeSabotagePenalty(competitor, state.serviceDay),
+    0,
+    100,
+  )
   const availability = clamp(
     profile.launchAvailability + activeDays * profile.dailyAvailabilityGrowth,
     0,
@@ -110,8 +150,9 @@ function advanceTallow(
 
   return {
     ...competitor,
-    status: publicStatus(serviceScore),
-    serviceScore,
+    status: publicStatus(effectiveServiceScore),
+    intrinsicServiceScore: serviceScore,
+    serviceScore: effectiveServiceScore,
     reputation: clamp(profile.reputation + activeDays * 0.035, 0, 100),
     availability,
     researchProgress: 1,
@@ -124,7 +165,7 @@ export function advanceCompetitorsDaily(state: CampaignState): CampaignState {
     market: {
       ...state.market,
       competitors: state.market.competitors.map((competitor) => {
-        if (competitor.id === 'meridian') return advanceMeridian(competitor)
+        if (competitor.id === 'meridian') return advanceMeridian(state, competitor)
         return advanceTallow(state, competitor)
       }),
     },
