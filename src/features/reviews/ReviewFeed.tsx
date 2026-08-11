@@ -1,6 +1,7 @@
 import { useState } from 'react'
 
 import { useGameState } from '../../app/GameContext'
+import { formatServiceDateLabel } from '../../game/calendar'
 import type { ReviewSentiment } from '../../game/model'
 
 const SENTIMENT_LABELS: Record<ReviewSentiment, string> = {
@@ -20,7 +21,7 @@ function ReviewEntry({
       <header>
         <strong>{review.authorId}</strong>
         <span>{SENTIMENT_LABELS[review.sentiment]}</span>
-        <time>DAY {review.serviceDay}</time>
+        <time>{formatServiceDateLabel(review.serviceDay)}</time>
       </header>
       <p>{review.text}</p>
     </article>

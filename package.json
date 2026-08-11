@@ -6,7 +6,7 @@
   "type": "module",
   "packageManager": "pnpm@11.16.0",
   "engines": {
-    "node": ">=22"
+    "node": "24.14.0"
   },
   "scripts": {
     "dev": "vite",
@@ -16,7 +16,7 @@
     "test": "vitest",
     "test:run": "vitest run",
     "test:e2e": "playwright test",
-    "verify": "pnpm typecheck && pnpm lint && pnpm test:run && pnpm build"
+    "verify": "pnpm typecheck && pnpm lint && pnpm test:run && pnpm build && pnpm test:e2e"
   },
   "dependencies": {
     "react": "^19.2.8",

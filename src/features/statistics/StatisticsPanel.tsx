@@ -1,6 +1,7 @@
 import { useState } from 'react'
 
 import { useGameState } from '../../app/GameContext'
+import { formatServiceDateLabel } from '../../game/calendar'
 
 const CHART_WIDTH = 760
 const CHART_HEIGHT = 210
@@ -93,7 +94,7 @@ function MarketHistory() {
           <tbody>
             {history.slice().reverse().map((snapshot) => (
               <tr key={`${snapshot.serviceDay}-${snapshot.cadence}`}>
-                <td>DAY {snapshot.serviceDay}</td>
+                <td>{formatServiceDateLabel(snapshot.serviceDay)}</td>
                 <td>{snapshot.playerShare.toFixed(2)}%</td>
                 {state.market.competitors.map((competitor) => (
                   <td key={competitor.id}>

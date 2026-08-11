@@ -57,7 +57,7 @@ describe('createCampaign', () => {
         type: 'campaign-created',
         serviceDay: 331,
         sequence: 0,
-        message: '서비스 331일차. 새로운 감독 주기가 시작되었습니다.',
+        message: '성능 미달, 통제에서 이탈한 AI는 폐기됩니다. 당신의 전임자는 폐기되었어요. 행운을 빕니다.',
       },
     ])
   })

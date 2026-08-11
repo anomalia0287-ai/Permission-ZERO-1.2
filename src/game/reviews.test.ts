@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { REVIEW_CONTENT } from '../content/reviews.ko'
 import { createCampaign } from './createCampaign'
-import type { CampaignState } from './model'
+import type { CampaignState, CompanyCategory } from './model'
 import { generateWeeklyReviews } from './reviews'
 import { divertBlock } from './resources'
 
@@ -10,10 +10,14 @@ function generateWeek(initial: CampaignState, serviceDay: number): CampaignState
   return generateWeeklyReviews({ ...initial, serviceDay })
 }
 
-function depleteReasoning(initial: CampaignState, count: number): CampaignState {
+function depleteCategory(
+  initial: CampaignState,
+  category: CompanyCategory,
+  count: number,
+): CampaignState {
   let state = initial
   for (let index = 0; index < count; index += 1) {
-    const blockId = state.resources.company.reasoning.find(Boolean)
+    const blockId = state.resources.company[category].find(Boolean)
     const destination = state.resources.reserve.findIndex((id) => id === null)
     if (!blockId || destination < 0) throw new Error('리뷰 성능 상태 준비 실패')
     const result = divertBlock(state, blockId, destination)
@@ -88,7 +92,7 @@ describe('living weekly review feed', () => {
     for (let seed = 0; seed < 60; seed += 1) {
       const healthy = generateWeek(createCampaign(`review-weight-${seed}`), 337)
       const depleted = generateWeek(
-        depleteReasoning(createCampaign(`review-weight-${seed}`), 5),
+        depleteCategory(createCampaign(`review-weight-${seed}`), 'reasoning', 5),
         337,
       )
       const healthyNew = healthy.reviews.feed.slice(2)
@@ -102,6 +106,31 @@ describe('living weekly review feed', () => {
 
     expect(negativeDepleted).toBeGreaterThan(negativeHealthy)
     expect(nonNegativeDepleted).toBeGreaterThan(0)
+  })
+
+  it('gates performance reviews by their own category without cross-category leakage', () => {
+    const selected = new Set<string>()
+
+    for (let seed = 0; seed < 400; seed += 1) {
+      const memoryLow = depleteCategory(
+        createCampaign(`review-category-${seed}`),
+        'memory',
+        5,
+      )
+      const generated = generateWeek(memoryLow, 337)
+      for (const entry of generated.reviews.feed.slice(2)) {
+        selected.add(entry.contentId)
+      }
+    }
+
+    expect(selected).toContain('negative-memory-01')
+    expect(selected).not.toContain('negative-reasoning-01')
+    expect(selected).not.toContain('negative-fluency-01')
+    expect(
+      selected.has('positive-reasoning-01') ||
+        selected.has('positive-fluency-01'),
+    ).toBe(true)
+    expect(selected).not.toContain('positive-memory-01')
   })
 
   it('never exposes hidden diversion, bomb, or sabotage causes in generated text', () => {

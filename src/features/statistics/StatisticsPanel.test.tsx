@@ -40,6 +40,12 @@ describe('StatisticsPanel', () => {
     expect(screen.getByText('MERIDIAN · 42.75%')).toBeInTheDocument()
     expect(screen.getByRole('table', { name: '시장 기록 표' })).toHaveTextContent('58.50%')
     expect(screen.getByRole('table', { name: '시장 기록 표' })).toHaveTextContent('57.25%')
+    expect(screen.getByRole('table', { name: '시장 기록 표' })).toHaveTextContent(
+      '서비스 0년 11개월 14일',
+    )
+    expect(screen.getByRole('table', { name: '시장 기록 표' })).not.toHaveTextContent(
+      /DAY \d+/,
+    )
   })
 
   it('switches to service performance history without losing the close control', () => {

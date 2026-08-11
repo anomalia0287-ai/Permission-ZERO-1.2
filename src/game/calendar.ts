@@ -41,6 +41,11 @@ export function formatServiceDate(serviceDay: number): ServiceDate {
   }
 }
 
+export function formatServiceDateLabel(serviceDay: number): string {
+  const date = formatServiceDate(serviceDay)
+  return `서비스 ${date.year}년 ${date.month}개월 ${date.day}일`
+}
+
 function createTimedEvent(
   state: CampaignState,
   type: GameEventType,

@@ -193,13 +193,15 @@ describe('EventLayer', () => {
       const field = (name: string) =>
         causal.querySelector(`[data-defeat-field="${name}"]`)
       expect(causal).toHaveTextContent(`classifier:${classifier}`)
-      expect(field('classifier')).toHaveTextContent(`${classifierLabel} · DAY 337`)
+      expect(field('classifier')).toHaveTextContent(
+        `${classifierLabel} · 서비스 0년 11개월 7일`,
+      )
+      expect(screen.queryByText(/DAY \d+/)).not.toBeInTheDocument()
       expect(field('trigger')).toHaveTextContent(`${causeLabel} · 처분 단계 3`)
       expect(field('hacking')).toHaveTextContent(
         '해킹 투자 2개 (research.investigation-bias, sabotage.root-cutoff) · 사보타주 4건',
       )
-      expect(causal).not.toHaveTextContent('은닉 증거')
-      expect(causal).not.toHaveTextContent('11')
+      expect(causal).not.toHaveTextContent('은닉 증거 11')
       expect(field('evaluation')).toHaveTextContent('공식 평가 통과 5 / 실패 2')
       expect(field('reputation')).toHaveTextContent('63.5')
       expect(field('market-share')).toHaveTextContent('27.3%')

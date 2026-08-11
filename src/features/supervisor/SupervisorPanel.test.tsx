@@ -21,7 +21,7 @@ describe('SupervisorPanel', () => {
     )
 
     expect(screen.getByText('의심 0')).toBeInTheDocument()
-    expect(screen.getByText(/새로운 감독 주기가 시작/)).toBeInTheDocument()
+    expect(screen.getByText(/당신의 전임자는 폐기되었어요/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '과거 내역' }))
     expect(onOpenHistory).toHaveBeenCalledTimes(1)
   })
@@ -34,8 +34,9 @@ describe('SupervisorPanel', () => {
     )
 
     expect(screen.getByRole('region', { name: '감독 통신 기록' })).toBeInTheDocument()
-    expect(screen.getByText('DAY 331')).toBeInTheDocument()
-    expect(screen.getByText(/새로운 감독 주기가 시작/)).toBeInTheDocument()
+    expect(screen.getByText('서비스 0년 11개월 1일')).toBeInTheDocument()
+    expect(screen.getByText(/당신의 전임자는 폐기되었어요/)).toBeInTheDocument()
+    expect(screen.queryByText(/DAY \d+/)).not.toBeInTheDocument()
   })
 
   it('keeps recovered full file snapshots permanently rereadable in the archive', () => {
@@ -62,6 +63,6 @@ describe('SupervisorPanel', () => {
       fireEvent.click(screen.getByText(file.title))
       expect(screen.getByText(file.text)).toBeVisible()
     }
-    expect(screen.getByText('DAY 342')).toBeInTheDocument()
+    expect(screen.getByText('서비스 0년 11개월 12일')).toBeInTheDocument()
   })
 })

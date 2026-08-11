@@ -14,11 +14,26 @@ describe('MarketPanel', () => {
       </GameProvider>,
     )
 
-    expect(screen.getByText('당신 60.0%')).toBeInTheDocument()
+    const donut = screen.getByRole('img', {
+      name: '시장 점유율: 당신 60.0%, MERIDIAN 40.0%, TALLOW 0.0%. 합계 100.0%',
+    })
+    expect(donut).toHaveClass('market-share-donut')
+    expect(screen.getByRole('list', { name: '시장 점유율 범례' })).toBeInTheDocument()
+    expect(screen.getByText('당신', { selector: 'strong' })).toBeInTheDocument()
+    expect(screen.getAllByText('60.0%')).toHaveLength(2)
     expect(screen.getByText('MERIDIAN')).toBeInTheDocument()
     expect(screen.getByText('40.0%')).toBeInTheDocument()
+    expect(screen.getByText('TALLOW')).toBeInTheDocument()
+    expect(screen.getByText('0.0%')).toBeInTheDocument()
     expect(screen.getByText('서비스 중')).toBeInTheDocument()
     expect(screen.getByText('준비 중')).toBeInTheDocument()
+    expect(screen.getAllByTestId('market-legend-marker')).toHaveLength(3)
+    expect(
+      screen.getAllByRole('listitem').reduce(
+        (sum, item) => sum + Number(item.getAttribute('data-market-share')),
+        0,
+      ),
+    ).toBe(100)
     fireEvent.click(screen.getByRole('button', { name: '시장 통계 열기' }))
     expect(onOpenStatistics).toHaveBeenCalledTimes(1)
   })

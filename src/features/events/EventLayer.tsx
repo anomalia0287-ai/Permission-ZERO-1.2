@@ -8,6 +8,7 @@ import {
 } from '../../app/GameContext'
 import { CATEGORY_LABELS } from '../../game/config'
 import { availableBombExplanations } from '../../game/bombs'
+import { formatServiceDateLabel } from '../../game/calendar'
 import { expectedPerformance, serviceMonthForDay } from '../../game/evaluation'
 import type { BombExplanationId, GameEvent } from '../../game/model'
 import { getCompanyPerformance } from '../../game/resources'
@@ -96,7 +97,7 @@ function EventDialog({ event }: { event: GameEvent }) {
     >
       <header>
         <div>
-          <small>BLOCKING EVENT · DAY {event.serviceDay}</small>
+          <small>BLOCKING EVENT · {formatServiceDateLabel(event.serviceDay)}</small>
           <h2 id={titleId}>{EVENT_TITLES[event.type]}</h2>
         </div>
         {state.eventQueue.length > 0 ? (
@@ -129,7 +130,7 @@ function EventDialog({ event }: { event: GameEvent }) {
               <dt>최종 분류</dt>
               <dd data-defeat-field="classifier">
                 {DEFEAT_CLASSIFIER_LABELS[state.story.defeatRecord.classifier]}
-                {' · '}DAY {state.story.defeatRecord.selectedOnServiceDay}
+                {' · '}{formatServiceDateLabel(state.story.defeatRecord.selectedOnServiceDay)}
               </dd>
             </div>
             <div>

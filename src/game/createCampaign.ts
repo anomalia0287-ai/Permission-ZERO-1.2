@@ -1,5 +1,6 @@
 import { DEMO_PROFILE_02 } from './config'
 import { STARTING_REVIEW_ENTRIES } from '../content/reviews.ko'
+import { SUPERVISOR_OPENING_WARNING } from '../content/supervisor.ko'
 import { scheduleMonthlyAudit } from './evaluation'
 import {
   COMPANY_CATEGORIES,
@@ -231,7 +232,7 @@ export function createCampaign(seed: string): CampaignState {
         type: 'campaign-created',
         serviceDay: DEMO_PROFILE_02.calendar.startServiceDay,
         sequence: 0,
-        message: '서비스 331일차. 새로운 감독 주기가 시작되었습니다.',
+        message: SUPERVISOR_OPENING_WARNING.text,
       },
     ],
   }

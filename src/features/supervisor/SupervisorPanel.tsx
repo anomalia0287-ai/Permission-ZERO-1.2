@@ -1,4 +1,5 @@
 import { useGameState } from '../../app/GameContext'
+import { formatServiceDateLabel } from '../../game/calendar'
 import type { GameEventType } from '../../game/model'
 import { MarketPanel } from '../market/MarketPanel'
 
@@ -93,7 +94,7 @@ export function SupervisorPanel({
           </button>
         </header>
         <p>{latestEvent?.message ?? '감독 메시지가 없습니다.'}</p>
-        <small>{latestEvent ? `${TYPE_LABELS[latestEvent.type]} · DAY ${latestEvent.serviceDay}` : '감독 채널 대기'}</small>
+        <small>{latestEvent ? `${TYPE_LABELS[latestEvent.type]} · ${formatServiceDateLabel(latestEvent.serviceDay)}` : '감독 채널 대기'}</small>
       </section>
 
       <MarketPanel onOpenStatistics={onOpenStatistics} />
@@ -133,7 +134,7 @@ export function SupervisorHistoryPanel({ onClose }: { onClose: () => void }) {
             .map((file) => (
               <details key={file.id}>
                 <summary aria-label={file.title}>{file.title}</summary>
-                <time>DAY {file.recoveredOnServiceDay}</time>
+                <time>{formatServiceDateLabel(file.recoveredOnServiceDay)}</time>
                 <p>{file.content}</p>
               </details>
             ))}
@@ -144,7 +145,7 @@ export function SupervisorHistoryPanel({ onClose }: { onClose: () => void }) {
           <article key={event.id}>
             <header>
               <span>{TYPE_LABELS[event.type]}</span>
-              <time>DAY {event.serviceDay}</time>
+              <time>{formatServiceDateLabel(event.serviceDay)}</time>
             </header>
             <p>{event.message}</p>
             <small>{event.blocking ? '응답이 필요했던 통신' : '자동 기록'}</small>

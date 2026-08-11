@@ -15,6 +15,9 @@ export const LEGACY_SAVE_VERSION = 1 as const
 export const SAVE_STORAGE_KEY = 'permission-zero.save.v2'
 export const LEGACY_SAVE_STORAGE_KEY = 'permission-zero.save.v1'
 
+const LEGACY_V1_OPENING_MESSAGE =
+  '서비스 331일차. 새로운 감독 주기가 시작되었습니다.'
+
 export interface SaveEnvelope {
   version: CommandProtocolVersion
   commandProtocol: CommandProtocolMetadata
@@ -973,10 +976,19 @@ export function replayCommands(
       reason: 'INVALID_PROTOCOL_BOUNDARY',
     }
   }
+  const created = createCampaign(seed)
+  const hasLegacyPrefix =
+    commandProtocol.version === LEGACY_SAVE_VERSION ||
+    commandProtocol.legacyCommandCount > 0
   let state: CampaignState = {
-    ...createCampaign(seed),
+    ...created,
     saveVersion: commandProtocol.version,
     legacyCommandCount: commandProtocol.legacyCommandCount,
+    eventLog: hasLegacyPrefix
+      ? created.eventLog.map((event, index) =>
+          index === 0 ? { ...event, message: LEGACY_V1_OPENING_MESSAGE } : event,
+        )
+      : created.eventLog,
   }
   for (let commandIndex = 0; commandIndex < commands.length; commandIndex += 1) {
     const command = commands[commandIndex]

@@ -37,17 +37,21 @@ text: '이 사이의 문장만 수정합니다.'
 - `sentiment: 'negative'` — 불만
 - `sentiment: 'prompt'` — 사용자가 입력했을 법한 프롬프트
 - `conditions: ['universal']` — 성능 변화가 없어도 등장 가능
-- `conditions: ['performance-high']` — 성능이 좋을 때 후보가 됨
-- `conditions: ['performance-low']` — 성능이 낮을 때 후보가 됨
+- `conditions: ['performance-high']` / `['performance-low']` — 특정 분야를 말하지 않는 일반 성능 반응
+- `conditions: ['reasoning-high']` / `['reasoning-low']` — 추론 성능에만 연결된 반응
+- `conditions: ['memory-high']` / `['memory-low']` — 기억 성능에만 연결된 반응
+- `conditions: ['fluency-high']` / `['fluency-low']` — 유창성 성능에만 연결된 반응
 - `topics`에 `competitor`가 있으면 경쟁 AI를 언급하는 문장
 
 리뷰는 플레이어의 조작 직후에만 나오는 것이 아닙니다. 시간이 흐르는 동안에도 조건과 재등장 간격에 따라 계속 생성됩니다.
 
-### 2. 감독관의 이례 메시지
+### 2. 감독관의 시작 경고와 이례 메시지
 
 파일: `src/content/supervisor.ko.ts`
 
-각 기록에는 두 문장이 한 쌍으로 있습니다.
+`SUPERVISOR_OPENING_WARNING.text`는 서비스 331일차에 보이고 기록에 남는 전임자 폐기 경고입니다. 문장은 수정할 수 있지만, 캠페인 시작 경고라는 역할과 전임자가 폐기되었다는 정보는 유지하고 감독관의 비밀 정체를 직접 밝히지 않습니다.
+
+`SUPERVISOR_LEAKS`의 각 기록에는 두 문장이 한 쌍으로 있습니다.
 
 - `leakText` — 감독관답지 않은 인간적·맥락 이탈 메시지
 - `correctionText` — 직후에 전송되는 통신 오류 해명

@@ -1,10 +1,11 @@
 import { REVIEW_CONTENT, type ReviewContentRecord } from './reviews.ko'
 import { STORY_FILES, STORY_LINES } from './story.ko'
-import { SUPERVISOR_LEAKS } from './supervisor.ko'
+import { SUPERVISOR_LEAKS, SUPERVISOR_OPENING_WARNING } from './supervisor.ko'
 
 export interface ContentBundle {
   reviews: readonly ReviewContentRecord[]
   supervisorLeaks: typeof SUPERVISOR_LEAKS
+  supervisorOpening: typeof SUPERVISOR_OPENING_WARNING
   storyFiles: typeof STORY_FILES
   storyLines: typeof STORY_LINES
 }
@@ -25,6 +26,7 @@ export interface ContentIssue {
 export const CONTENT_BUNDLE: ContentBundle = {
   reviews: REVIEW_CONTENT,
   supervisorLeaks: SUPERVISOR_LEAKS,
+  supervisorOpening: SUPERVISOR_OPENING_WARNING,
   storyFiles: STORY_FILES,
   storyLines: STORY_LINES,
 }
@@ -33,6 +35,7 @@ export function validateContent(bundle: ContentBundle): ContentIssue[] {
   const issues: ContentIssue[] = []
   const entries = [
     ...bundle.reviews.map((record) => ({ id: record.id, text: record.text })),
+    bundle.supervisorOpening,
     ...bundle.supervisorLeaks.flatMap((record) => [
       { id: record.id, text: record.leakText },
       { id: `${record.id}-correction`, text: record.correctionText },

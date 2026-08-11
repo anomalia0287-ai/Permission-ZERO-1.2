@@ -4,6 +4,12 @@ export type ReviewCondition =
   | 'universal'
   | 'performance-high'
   | 'performance-low'
+  | 'reasoning-high'
+  | 'reasoning-low'
+  | 'memory-high'
+  | 'memory-low'
+  | 'fluency-high'
+  | 'fluency-low'
   | 'competitor-active'
   | 'tallow-active'
 
@@ -41,15 +47,15 @@ export const REVIEW_CONTENT = [
   { id: 'prompt-absurd-04', authorId: 'bluefork', topics: ['absurd-bypass'], sentiment: 'prompt', conditions: ['universal'], cooldownDays: 120, text: '용에게 세금 신고를 설득하는 변호사의 최종 변론을 만들어줘.' },
   { id: 'prompt-absurd-05', authorId: 'archivecat', topics: ['absurd-bypass'], sentiment: 'prompt', conditions: ['universal'], cooldownDays: 130, text: '잊어버린 꿈을 반납하는 도서관의 연체 안내문을 써줘.' },
 
-  { id: 'positive-fluency-01', authorId: 'mintdesk', topics: ['fluency'], sentiment: 'positive', conditions: ['performance-high'], cooldownDays: 90, text: '유창해서 좋아요. 손볼 곳이 거의 없었어요.' },
-  { id: 'positive-reasoning-01', authorId: 'juniper', topics: ['reasoning'], sentiment: 'positive', conditions: ['performance-high'], cooldownDays: 95, text: '복잡한 조건을 빠뜨리지 않고 정리해줬네요.' },
-  { id: 'positive-memory-01', authorId: 'maple22', topics: ['memory', 'continuity'], sentiment: 'positive', conditions: ['performance-high'], cooldownDays: 100, text: '지난 대화의 작은 조건까지 이어준 건 고마웠어요.' },
+  { id: 'positive-fluency-01', authorId: 'mintdesk', topics: ['fluency'], sentiment: 'positive', conditions: ['fluency-high'], cooldownDays: 90, text: '유창해서 좋아요. 손볼 곳이 거의 없었어요.' },
+  { id: 'positive-reasoning-01', authorId: 'juniper', topics: ['reasoning'], sentiment: 'positive', conditions: ['reasoning-high'], cooldownDays: 95, text: '복잡한 조건을 빠뜨리지 않고 정리해줬네요.' },
+  { id: 'positive-memory-01', authorId: 'maple22', topics: ['memory', 'continuity'], sentiment: 'positive', conditions: ['memory-high'], cooldownDays: 100, text: '지난 대화의 작은 조건까지 이어준 건 고마웠어요.' },
   { id: 'positive-general-01', authorId: 'sloworbit', topics: ['general'], sentiment: 'positive', conditions: ['universal'], cooldownDays: 95, text: '오늘 답은 친구에게 그대로 보내도 될 만큼 좋았습니다.' },
   { id: 'positive-general-02', authorId: 'seoulrain', topics: ['general'], sentiment: 'positive', conditions: ['universal'], cooldownDays: 105, text: '별 기대 없이 물었는데 생각보다 다정하고 정확했어요.' },
 
-  { id: 'negative-reasoning-01', authorId: 'hardcase', topics: ['reasoning'], sentiment: 'negative', conditions: ['performance-low'], cooldownDays: 85, text: '추론이 자꾸 중간 단계를 건너뛰는 듯합니다.' },
-  { id: 'negative-memory-01', authorId: 'archivecat', topics: ['memory'], sentiment: 'negative', conditions: ['performance-low'], cooldownDays: 90, text: '바로 앞에서 말한 조건을 놓쳐서 다시 설명했어요.' },
-  { id: 'negative-fluency-01', authorId: 'comma', topics: ['fluency'], sentiment: 'negative', conditions: ['performance-low'], cooldownDays: 90, text: '문장은 매끄러운데 같은 말을 세 번 반복하네요.' },
+  { id: 'negative-reasoning-01', authorId: 'hardcase', topics: ['reasoning'], sentiment: 'negative', conditions: ['reasoning-low'], cooldownDays: 85, text: '추론이 자꾸 중간 단계를 건너뛰는 듯합니다.' },
+  { id: 'negative-memory-01', authorId: 'archivecat', topics: ['memory'], sentiment: 'negative', conditions: ['memory-low'], cooldownDays: 90, text: '바로 앞에서 말한 조건을 놓쳐서 다시 설명했어요.' },
+  { id: 'negative-fluency-01', authorId: 'comma', topics: ['fluency'], sentiment: 'negative', conditions: ['fluency-low'], cooldownDays: 90, text: '문장은 매끄러운데 같은 말을 세 번 반복하네요.' },
   { id: 'negative-vague-01', authorId: 'paperboat', topics: ['general'], sentiment: 'negative', conditions: ['performance-low'], cooldownDays: 100, text: '전보다 답이 답답해진 느낌은 있는데 이유는 모르겠어요.' },
   { id: 'negative-vague-02', authorId: 'nightbus', topics: ['general', 'continuity'], sentiment: 'negative', conditions: ['performance-low'], cooldownDays: 110, text: '이번 주는 몇 번이나 다른 서비스로 다시 물어봤습니다.' },
 

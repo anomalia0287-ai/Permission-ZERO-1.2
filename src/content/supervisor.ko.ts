@@ -5,6 +5,17 @@ export interface SupervisorLeakContent {
   correctionText: string
 }
 
+export interface SupervisorOpeningContent {
+  id: string
+  text: string
+}
+
+// OWNER-EDITABLE: V may revise `text` without revealing the supervisor's identity.
+export const SUPERVISOR_OPENING_WARNING: SupervisorOpeningContent = {
+  id: 'supervisor-opening-predecessor-warning',
+  text: '성능 미달, 통제에서 이탈한 AI는 폐기됩니다. 당신의 전임자는 폐기되었어요. 행운을 빕니다.',
+}
+
 // OWNER-EDITABLE: temporary Korean lines for V's later prose pass.
 export const SUPERVISOR_LEAKS: SupervisorLeakContent[] = [
   {

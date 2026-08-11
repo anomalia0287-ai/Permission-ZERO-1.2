@@ -29,7 +29,8 @@ describe('ReviewFeed', () => {
 
     expect(screen.getByRole('region', { name: '전체 유저 리뷰' })).toBeInTheDocument()
     expect(screen.getByText('oldpine')).toBeInTheDocument()
-    expect(screen.getByText('DAY 321')).toBeInTheDocument()
+    expect(screen.getByText('서비스 0년 10개월 21일')).toBeInTheDocument()
+    expect(screen.queryByText(/DAY \d+/)).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '프롬프트만 보기' }))
     expect(screen.getByText('조건에 맞는 리뷰가 없습니다.')).toBeInTheDocument()
   })

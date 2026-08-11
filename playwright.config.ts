@@ -1,4 +1,4 @@
-import { defineConfig, devices } from '@playwright/test'
+import { defineConfig } from '@playwright/test'
 
 export default defineConfig({
   testDir: './e2e',
@@ -13,13 +13,17 @@ export default defineConfig({
   },
   projects: [
     {
-      name: 'chromium-1280',
-      use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 720 } },
+      name: 'chromium-1280x720',
+      use: { browserName: 'chromium', viewport: { width: 1280, height: 720 } },
+    },
+    {
+      name: 'chromium-1440x900',
+      use: { browserName: 'chromium', viewport: { width: 1440, height: 900 } },
     },
   ],
   webServer: {
-    command: 'pnpm dev --host 127.0.0.1 --port 4173',
+    command: 'pnpm exec vite preview --host 127.0.0.1 --port 4173 --strictPort',
     url: 'http://127.0.0.1:4173',
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: false,
   },
 })

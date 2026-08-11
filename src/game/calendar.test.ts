@@ -5,6 +5,7 @@ import {
   advanceFixedStep,
   enqueueBlockingEvent,
   formatServiceDate,
+  formatServiceDateLabel,
   processMonthStart,
   resolveActiveEvent,
   type MonthStartTransitions,
@@ -42,6 +43,16 @@ function blockingEvent(id: string): GameEvent {
 }
 
 describe('fixed campaign calendar', () => {
+  it.each([
+    [1, '서비스 0년 0개월 1일'],
+    [30, '서비스 0년 0개월 30일'],
+    [31, '서비스 0년 1개월 1일'],
+    [360, '서비스 0년 11개월 30일'],
+    [361, '서비스 1년 0개월 1일'],
+  ])('formats service day %i across month and year boundaries', (serviceDay, label) => {
+    expect(formatServiceDateLabel(serviceDay)).toBe(label)
+  })
+
   it('does not advance while paused', () => {
     const paused = createCampaign('clock-seed')
 

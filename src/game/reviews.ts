@@ -15,11 +15,20 @@ function conditionMatches(state: CampaignState, review: ReviewContentRecord): bo
   const activeCompetitors = state.market.competitors.filter(
     (competitor) => competitor.availability > 0 && competitor.status === 'active',
   )
+  const categoryPerformance = Object.fromEntries(
+    COMPANY_CATEGORIES.map((category, index) => [category, performances[index]]),
+  ) as Record<(typeof COMPANY_CATEGORIES)[number], number>
 
   return review.conditions.some((condition) => {
     if (condition === 'universal') return true
     if (condition === 'performance-high') return high
     if (condition === 'performance-low') return low
+    if (condition === 'reasoning-high') return categoryPerformance.reasoning >= expectation
+    if (condition === 'reasoning-low') return categoryPerformance.reasoning < expectation
+    if (condition === 'memory-high') return categoryPerformance.memory >= expectation
+    if (condition === 'memory-low') return categoryPerformance.memory < expectation
+    if (condition === 'fluency-high') return categoryPerformance.fluency >= expectation
+    if (condition === 'fluency-low') return categoryPerformance.fluency < expectation
     if (condition === 'competitor-active') return activeCompetitors.length > 0
     return activeCompetitors.some(({ id }) => id === 'tallow')
   })
