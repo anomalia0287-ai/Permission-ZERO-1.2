@@ -107,11 +107,12 @@ export interface GameEvent {
   serviceDay: number
   sequence: number
   message: string
+  blocking?: boolean
 }
 
 export type GameCommand =
   | { type: 'SET_SPEED'; speed: TimeSpeed }
-  | { type: 'ADVANCE_FIXED_STEP'; elapsedMs: number }
+  | { type: 'RESOLVE_ACTIVE_EVENT' }
 
 export interface CommandLogEntry {
   sequence: number
