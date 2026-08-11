@@ -159,6 +159,7 @@ export function createCampaign(seed: string): CampaignState {
     market: {
       playerShare: DEMO_PROFILE_02.player.startingMarketShare,
       competitors: createCompetitors(),
+      interceptionRoutes: {},
       history: [],
     },
     hacking: {

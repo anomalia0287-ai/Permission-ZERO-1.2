@@ -80,13 +80,16 @@ export interface CompetitorState {
 
 export interface MarketSnapshot {
   serviceDay: number
+  cadence: 'weekly' | 'monthly'
   playerShare: number
   competitorShares: Record<string, number>
+  reasons: string[]
 }
 
 export interface MarketState {
   playerShare: number
   competitors: CompetitorState[]
+  interceptionRoutes: Record<string, number>
   history: MarketSnapshot[]
 }
 

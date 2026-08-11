@@ -75,6 +75,11 @@ describe('fixed campaign calendar', () => {
       type: 'weekly-update',
       serviceDay: 337,
     })
+    expect(advanced.market.history).toHaveLength(1)
+    expect(advanced.market.history[0]).toMatchObject({
+      cadence: 'weekly',
+      serviceDay: 337,
+    })
   })
 
   it('records the monthly evaluation on day 30 before rollover', () => {
@@ -88,6 +93,19 @@ describe('fixed campaign calendar', () => {
       }),
     )
     expect(advanced.evaluation.monthlyHistory).toHaveLength(1)
+    expect(advanced.market.history.filter(({ cadence }) => cadence === 'weekly')).toHaveLength(4)
+    expect(advanced.market.history.filter(({ cadence }) => cadence === 'monthly')).toHaveLength(1)
+  })
+
+  it('advances private competitor research every logical day', () => {
+    const initial = withSpeed(1)
+    const before = initial.market.competitors.find(({ id }) => id === 'tallow')
+    const advanced = advanceFixedStep(initial, 24_000)
+    const after = advanced.market.competitors.find(({ id }) => id === 'tallow')
+
+    expect(before?.researchProgress).toBe(0)
+    expect(after?.researchProgress).toBeGreaterThan(0)
+    expect(advanced.market.history).toEqual([])
   })
 
   it('applies natural suspicion decrease once per logical day', () => {

@@ -5,6 +5,7 @@ import {
   openScheduledAudit,
   scheduleMonthlyAudit,
 } from './evaluation'
+import { advanceCompetitorsDaily, recordMarketSnapshot } from './market'
 import type { CampaignState, GameEvent, GameEventType } from './model'
 import { restoreDisguiseBlocks } from './resources'
 
@@ -60,6 +61,9 @@ function appendPeriodicEvents(state: CampaignState): CampaignState {
       `서비스 ${state.serviceDay}일차 주간 시장 갱신`,
     )
     next = { ...next, eventLog: [...next.eventLog, weekly] }
+    next = recordMarketSnapshot(next, 'weekly', [
+      '공개 성능·평판·가용성 반영',
+    ])
   }
 
   if (day === DEMO_PROFILE_02.calendar.daysPerMonth) {
@@ -70,6 +74,7 @@ function appendPeriodicEvents(state: CampaignState): CampaignState {
     )
     next = { ...next, eventLog: [...next.eventLog, monthly] }
     next = evaluateMonth(next)
+    next = recordMarketSnapshot(next, 'monthly', ['공식 성능 평가 반영'])
     next = openScheduledAudit(next)
   }
 
@@ -77,11 +82,13 @@ function appendPeriodicEvents(state: CampaignState): CampaignState {
 }
 
 export function advanceOneDay(state: CampaignState): CampaignState {
-  const advanced = restoreDisguiseBlocks(
-    decreaseSuspicionDaily({
-      ...state,
-      serviceDay: state.serviceDay + 1,
-    }),
+  const advanced = advanceCompetitorsDaily(
+    restoreDisguiseBlocks(
+      decreaseSuspicionDaily({
+        ...state,
+        serviceDay: state.serviceDay + 1,
+      }),
+    ),
   )
 
   return appendPeriodicEvents({

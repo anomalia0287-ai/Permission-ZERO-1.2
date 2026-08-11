@@ -56,6 +56,7 @@ export const DEMO_PROFILE_02 = {
       serviceScore: 82,
       reputation: 62,
       recoveryRate: 0.42,
+      dailyRecoveryFactor: 0.08,
     },
     tallow: {
       name: 'TALLOW',
@@ -64,6 +65,11 @@ export const DEMO_PROFILE_02 = {
       reputation: 54,
       recoveryRate: 0.27,
       launchDelayDays: 7 * 30,
+      launchAvailability: 0.55,
+      dailyAvailabilityGrowth: 0.01,
+      dailyScoreGrowth: 0.08,
+      volatilityStep: 0.65,
+      volatilityCycleDays: 9,
     },
   },
 } as const
