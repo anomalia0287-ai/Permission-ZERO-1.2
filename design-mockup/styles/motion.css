@@ -1,0 +1,76 @@
+.deco-button {
+  transition:
+    color var(--motion-fast) var(--ease-ui),
+    background-color var(--motion-fast) var(--ease-ui),
+    border-color var(--motion-fast) var(--ease-ui),
+    transform var(--motion-fast) var(--ease-ui);
+}
+
+.deco-button:hover {
+  transform: translateY(-0.125rem);
+}
+
+.title-screen.is-active .deco-frame__ornament {
+  animation: frame-arrive 760ms var(--ease-ui) both;
+}
+
+.title-screen.is-active .brand-lockup {
+  animation: title-arrive 820ms 100ms var(--ease-ui) both;
+}
+
+.title-screen.is-active .title-divider,
+.title-screen.is-active .title-menu,
+.title-screen.is-active .title-screen__edition {
+  animation: controls-arrive 520ms 360ms var(--ease-ui) both;
+}
+
+@keyframes frame-arrive {
+  from {
+    opacity: 0;
+    transform: scale(1.012);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes title-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(1rem);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes controls-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(0.75rem);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+
+  .deco-button:hover {
+    transform: none;
+  }
+}

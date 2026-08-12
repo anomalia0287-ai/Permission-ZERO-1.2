@@ -1,0 +1,48 @@
+.deco-button {
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  clip-path: polygon(1.125rem 0, calc(100% - 1.125rem) 0, 100% 50%, calc(100% - 1.125rem) 100%, 1.125rem 100%, 0 50%);
+  letter-spacing: 0.02em;
+}
+
+.deco-button::before,
+.deco-button::after {
+  position: absolute;
+  z-index: -1;
+  content: "";
+  pointer-events: none;
+}
+
+.deco-button::before {
+  inset: 0.3125rem 0.5rem;
+  border-top: 0.0625rem solid rgb(244 238 223 / 54%);
+  border-bottom: 0.0625rem solid rgb(244 238 223 / 54%);
+}
+
+.deco-button::after {
+  width: 0.625rem;
+  height: 0.625rem;
+  border: 0.0625rem solid var(--brass-300);
+  background: var(--navy-800);
+  transform: rotate(45deg);
+}
+
+.deco-button:hover,
+.deco-button:focus-visible {
+  border-color: var(--brass-300);
+  background: linear-gradient(90deg, rgb(215 185 110 / 9%), rgb(18 49 86 / 88%), rgb(215 185 110 / 9%));
+  color: var(--ivory-50);
+}
+
+.deco-button:active {
+  background: rgb(215 185 110 / 18%);
+}
+
+.title-divider img {
+  display: block;
+  width: 100%;
+  height: auto;
+}

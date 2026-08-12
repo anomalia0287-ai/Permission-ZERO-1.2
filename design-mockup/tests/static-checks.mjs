@@ -43,6 +43,18 @@ for (const label of ['이어하기', '새 게임', '설정']) {
   assert.match(html, new RegExp(`>${label}<`), `메뉴 문구 누락: ${label}`)
 }
 
+const menuPositions = ['이어하기', '새 게임', '설정'].map((label) => html.indexOf(`>${label}<`))
+assert.ok(menuPositions.every((position) => position >= 0), '시작 메뉴 위치를 찾을 수 없음')
+assert.deepEqual([...menuPositions].sort((a, b) => a - b), menuPositions, '시작 메뉴 순서 오류')
+assert.equal((html.match(/<h1\b/g) ?? []).length, 1, '시작 화면 h1은 정확히 하나여야 함')
+assert.match(html, /class="[^"]*deco-frame[^"]*"/, '아르데코 안전 프레임 누락')
+assert.match(html, /styles\/layout\.css/)
+assert.match(html, /styles\/components\.css/)
+assert.match(html, /styles\/motion\.css/)
+assert.match(html, /rel="icon"/, '브라우저 favicon 요청 오류 방지용 아이콘 누락')
+requiredPath('assets/ornaments/deco-corners.svg')
+requiredPath('assets/ornaments/deco-divider.svg')
+
 const styleText = [tokens, base]
   .concat(
     ['styles/layout.css', 'styles/components.css', 'styles/motion.css']
