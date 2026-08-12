@@ -57,6 +57,10 @@ describe('App', () => {
     expect(screen.getByRole('region', { name: '감독관' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: '확보 리소스' })).toBeInTheDocument()
     expect(screen.getByText('PERMISSION ZERO')).toBeInTheDocument()
+    expect(screen.getByRole('main', { name: 'PERMISSION ZERO' })).toHaveAttribute(
+      'data-campaign-phase',
+      'discovery',
+    )
   })
 
   it('renders the campaign data instead of a decorative mockup', () => {

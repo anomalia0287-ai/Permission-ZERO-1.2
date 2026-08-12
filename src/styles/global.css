@@ -181,10 +181,37 @@ textarea:focus-visible,
 }
 
 .cadence-cluster {
-  justify-content: space-evenly;
+  justify-content: space-between;
   gap: 8px;
   padding-inline: 14px;
   font: 500 0.62rem/1 "Cascadia Code", Consolas, monospace;
+}
+
+.campaign-phase {
+  display: grid;
+  min-width: 112px;
+  max-width: 178px;
+  gap: 3px;
+  padding-right: 10px;
+  border-right: 1px solid var(--line-soft);
+}
+
+.campaign-phase strong,
+.campaign-phase small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.campaign-phase strong {
+  color: var(--reserve-bright);
+  font-size: 0.56rem;
+}
+
+.campaign-phase small {
+  color: var(--text-muted);
+  font: 500 0.45rem/1 "Cascadia Code", Consolas, monospace;
+  letter-spacing: 0;
 }
 
 .cadence-cluster strong {
@@ -259,6 +286,19 @@ textarea:focus-visible,
   height: 1px;
   content: "";
   background: var(--reserve);
+}
+
+.game-shell[data-campaign-phase="discovery"] .resource-panel,
+.game-shell[data-campaign-phase="concealment"] .supervisor-status,
+.game-shell[data-campaign-phase="intervention"] .market-watch,
+.game-shell[data-campaign-phase="identity"] .supervisor-message {
+  box-shadow: inset 0 2px 0 rgb(214 151 69 / 52%);
+}
+
+.game-shell[data-campaign-phase="discovery"] .subsystem-entry,
+.game-shell[data-campaign-phase="intervention"] .subsystem-entry,
+.game-shell[data-campaign-phase="identity"] .subsystem-entry {
+  border-top-color: var(--reserve);
 }
 
 .panel-heading {
