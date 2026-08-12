@@ -236,6 +236,32 @@ export function recordMarketSnapshot(
   cadence: MarketCadence,
   reasons: string[],
 ): CampaignState {
+  const normalized = applyCurrentMarketShares(state)
+
+  return {
+    ...normalized,
+    market: {
+      ...normalized.market,
+      history: [
+        ...normalized.market.history,
+        {
+          serviceDay: normalized.serviceDay,
+          cadence,
+          playerShare: normalized.market.playerShare,
+          competitorShares: Object.fromEntries(
+            normalized.market.competitors.map(({ id, marketShare }) => [
+              id,
+              marketShare,
+            ]),
+          ),
+          reasons: [...reasons],
+        },
+      ],
+    },
+  }
+}
+
+export function applyCurrentMarketShares(state: CampaignState): CampaignState {
   const shares = calculateMarketShares(state)
 
   return {
@@ -247,16 +273,6 @@ export function recordMarketSnapshot(
         ...competitor,
         marketShare: shares.competitors[competitor.id] ?? 0,
       })),
-      history: [
-        ...state.market.history,
-        {
-          serviceDay: state.serviceDay,
-          cadence,
-          playerShare: shares.player,
-          competitorShares: { ...shares.competitors },
-          reasons: [...reasons],
-        },
-      ],
     },
   }
 }

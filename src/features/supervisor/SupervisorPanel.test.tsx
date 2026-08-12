@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 
 import { GameProvider } from '../../app/GameProvider'
@@ -41,6 +42,33 @@ describe('SupervisorPanel', () => {
     expect(screen.queryByText(/DAY \d+/)).not.toBeInTheDocument()
   })
 
+  it('sanitizes legacy internal identifiers at the history display boundary without rewriting the snapshot', () => {
+    const state = createCampaign('legacy-public-history')
+    const storedMessage =
+      'classifier:substantial-hacking · fluency · delete · sabotage.root-cutoff'
+    state.eventLog = createJournal([
+      {
+        id: 'event-legacy-public-message',
+        type: 'story',
+        serviceDay: 331,
+        sequence: 0,
+        message: storedMessage,
+      },
+    ])
+
+    render(
+      <StateContext value={state}>
+        <SupervisorHistoryPanel onClose={vi.fn()} />
+      </StateContext>,
+    )
+
+    expect(
+      screen.getByText('분류:대규모 해킹 활동 · 유창성 · 영구 삭제 · 근원 차단'),
+    ).toBeVisible()
+    expect(screen.queryByText(storedMessage)).not.toBeInTheDocument()
+    expect(state.eventLog.tail[0]?.message).toBe(storedMessage)
+  })
+
   it('keeps recovered full file snapshots permanently rereadable in the archive', () => {
     const state = createCampaign('supervisor-file-archive')
     state.serviceDay = 342
@@ -67,6 +95,53 @@ describe('SupervisorPanel', () => {
       expect(screen.getByText(file.text)).toBeVisible()
     }
     expect(screen.getByText('서비스 0년 11개월 12일')).toBeInTheDocument()
+  })
+
+  it('opens deletion intelligence by pointer and keyboard in a dismissible focus-restoring dialog', async () => {
+    const user = userEvent.setup()
+    const state = createCampaign('competitor-intelligence-ui')
+    state.story.competitorIntelligence = [
+      {
+        id: 'competitor-intelligence-meridian-deletion',
+        competitorId: 'meridian',
+        competitorName: 'MERIDIAN',
+        acquiredOnServiceDay: 341,
+        source: '영구 삭제 직후 회수',
+        title: 'MERIDIAN 잔여 기록 — 유지보수 메모',
+        content: '삭제 직전에 회수한 전체 기록입니다.',
+      },
+    ]
+
+    render(
+      <StateContext value={state}>
+        <div data-app-background>배경</div>
+        <SupervisorHistoryPanel onClose={vi.fn()} />
+      </StateContext>,
+    )
+
+    const archive = screen.getByRole('region', { name: '경쟁 AI 정보 기록' })
+    const trigger = screen.getByRole('button', {
+      name: 'MERIDIAN 잔여 기록 — 유지보수 메모 열기',
+    })
+    expect(archive).toContainElement(trigger)
+
+    await user.click(trigger)
+    const dialog = screen.getByRole('dialog', {
+      name: 'MERIDIAN 잔여 기록 — 유지보수 메모',
+    })
+    expect(dialog).toHaveAttribute('aria-describedby')
+    expect(screen.getByRole('heading', { name: 'MERIDIAN 잔여 기록 — 유지보수 메모' })).toBeVisible()
+    expect(screen.getByText('서비스 0년 11개월 11일')).toBeVisible()
+    expect(screen.getByText('영구 삭제 직후 회수')).toBeVisible()
+    expect(screen.getByText('삭제 직전에 회수한 전체 기록입니다.')).toBeVisible()
+    expect(screen.getByRole('button', { name: '경쟁 AI 정보 닫기' })).toHaveFocus()
+
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog', { name: 'MERIDIAN 잔여 기록 — 유지보수 메모' })).not.toBeInTheDocument()
+    expect(trigger).toHaveFocus()
+
+    await user.keyboard('{Enter}')
+    expect(screen.getByRole('dialog', { name: 'MERIDIAN 잔여 기록 — 유지보수 메모' })).toBeVisible()
   })
 
   it('windows a long event journal while preserving access to its oldest page', () => {

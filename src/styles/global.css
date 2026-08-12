@@ -1228,7 +1228,15 @@ textarea:focus-visible,
 }
 
 .history-panel {
-  grid-template-rows: 62px auto minmax(0, 1fr);
+  grid-template-rows: 62px auto minmax(0, 1fr) auto;
+}
+
+.history-archives {
+  max-height: 300px;
+  overflow: auto;
+  border-bottom: 1px solid var(--line-strong);
+  scrollbar-color: var(--line-strong) transparent;
+  scrollbar-width: thin;
 }
 
 .history-list {
@@ -1268,21 +1276,26 @@ textarea:focus-visible,
   font-size: 0.58rem;
 }
 
-.recovered-file-archive {
-  max-height: 280px;
+.recovered-file-archive,
+.competitor-intelligence-archive {
   padding: 14px 18px;
-  overflow: auto;
-  border-bottom: 1px solid var(--line-strong);
   background: rgb(214 151 69 / 4%);
 }
 
-.recovered-file-archive > header {
+.recovered-file-archive + .competitor-intelligence-archive,
+.competitor-intelligence-archive + .recovered-file-archive {
+  border-top: 1px solid var(--line-soft);
+}
+
+.recovered-file-archive > header,
+.competitor-intelligence-archive > header {
   display: grid;
   gap: 5px;
   margin-bottom: 10px;
 }
 
 .recovered-file-archive h3,
+.competitor-intelligence-archive h3,
 .defeat-causes h3,
 .discarded-recovery h3 {
   margin: 0;
@@ -1291,6 +1304,7 @@ textarea:focus-visible,
 }
 
 .recovered-file-archive small,
+.competitor-intelligence-archive small,
 .defeat-causes small,
 .discarded-recovery small {
   color: var(--text-muted);
@@ -1321,6 +1335,112 @@ textarea:focus-visible,
   color: var(--text);
   font-size: 0.66rem;
   line-height: 1.65;
+}
+
+.competitor-intelligence-archive ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.competitor-intelligence-archive button {
+  display: grid;
+  gap: 5px;
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--line-soft);
+  color: var(--text-strong);
+  background: rgb(4 9 11 / 42%);
+  text-align: left;
+  cursor: pointer;
+}
+
+.competitor-intelligence-archive button:hover,
+.competitor-intelligence-archive button:focus-visible {
+  border-color: rgb(214 151 69 / 45%);
+  background: rgb(214 151 69 / 8%);
+}
+
+.competitor-intelligence-archive button strong {
+  font-size: 0.65rem;
+}
+
+.competitor-intelligence-archive button span {
+  color: var(--text-muted);
+  font: 500 0.5rem/1.35 "Cascadia Code", Consolas, monospace;
+}
+
+.competitor-intelligence-dialog {
+  position: fixed;
+  z-index: 90;
+  inset: 50% auto auto 50%;
+  display: grid;
+  gap: 14px;
+  width: min(620px, calc(100% - 40px));
+  max-height: calc(100% - 40px);
+  padding: 20px;
+  overflow: auto;
+  border: 1px solid rgb(214 151 69 / 52%);
+  color: var(--text);
+  background: var(--ink-1);
+  box-shadow: var(--shadow-deep);
+  transform: translate(-50%, -50%);
+}
+
+.competitor-intelligence-dialog > header {
+  display: grid;
+  gap: 7px;
+}
+
+.competitor-intelligence-dialog h3 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 1rem;
+}
+
+.competitor-intelligence-dialog small,
+.competitor-intelligence-dialog dt {
+  color: var(--text-muted);
+  font: 500 0.52rem/1.3 "Cascadia Code", Consolas, monospace;
+}
+
+.competitor-intelligence-dialog dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+  margin: 0;
+}
+
+.competitor-intelligence-dialog dl > div {
+  display: grid;
+  gap: 5px;
+  padding: 9px;
+  border: 1px solid var(--line-soft);
+}
+
+.competitor-intelligence-dialog dd {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 0.62rem;
+}
+
+.competitor-intelligence-dialog > p:not(.sr-only) {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.72rem;
+  line-height: 1.75;
+  word-break: keep-all;
+}
+
+.competitor-intelligence-dialog > button {
+  justify-self: end;
+  padding: 8px 11px;
+  border: 1px solid rgb(214 151 69 / 38%);
+  color: var(--reserve-bright);
+  background: rgb(214 151 69 / 8%);
+  cursor: pointer;
 }
 
 /* Hacking network --------------------------------------------------------- */

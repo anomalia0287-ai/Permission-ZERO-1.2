@@ -1,6 +1,8 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 
+import { COMPETITOR_INTELLIGENCE_CONTENT } from '../src/content/competitorIntelligence.ko'
+import { SUPERVISOR_LEAKS } from '../src/content/supervisor.ko'
 import { createCampaign } from '../src/game/createCampaign'
 import { createGameEvent, enqueueBlockingEvent } from '../src/game/events'
 import { HACK_NODE_IDS } from '../src/game/hacking'
@@ -12,6 +14,11 @@ import {
   SAVE_STORAGE_KEY,
 } from '../src/game/persistence'
 import { applyCommand } from '../src/game/reducer'
+import {
+  enqueueMemoryLeak,
+  enqueueMercyIfNeeded,
+  SUPERVISOR_MESSAGE_DWELL_MS,
+} from '../src/game/story'
 
 const legacyV1Save = readFileSync(
   new URL('../src/test/legacy-v1-transfer-save.json', import.meta.url),
@@ -262,6 +269,62 @@ function pendingSupervisorDecisionState(seed: string): CampaignState {
     state = applyOrThrow(state, { type: 'RECOVER_FILE', blockId })
   }
   return applyOrThrow(state, { type: 'ADVANCE_DAY' })
+}
+
+function pendingMercyDeletionState(seed: string): CampaignState {
+  const initial = createCampaign(seed)
+  return enqueueMercyIfNeeded({
+    ...initial,
+    clock: { speed: 4, elapsedDayMs: 0, speedBeforeEvent: null },
+    market: {
+      ...initial.market,
+      interceptionRoutes: { meridian: 5 },
+      competitors: initial.market.competitors.map((competitor) =>
+        competitor.id === 'meridian'
+          ? {
+              ...competitor,
+              status: 'critical' as const,
+              sabotageHistory: [
+                {
+                  nodeId: HACK_NODE_IDS.sabotage.rootCutoff,
+                  resolvedOnServiceDay: initial.serviceDay,
+                  effectEndsOnServiceDay: null,
+                  evidenceDelta: 8,
+                },
+              ],
+            }
+          : {
+              ...competitor,
+              status: 'withdrawn' as const,
+              availability: 0,
+              marketShare: 0,
+            },
+      ),
+    },
+  })
+}
+
+function supervisorLeakState(seed: string, speed: 1 | 2 | 4): CampaignState {
+  const initial = createCampaign(seed)
+  return enqueueMemoryLeak({
+    ...initial,
+    serviceDay: 338,
+    clock: { speed, elapsedDayMs: 0, speedBeforeEvent: null },
+    activeEvent: null,
+    eventQueue: [],
+    market: {
+      ...initial.market,
+      history: [
+        {
+          serviceDay: 337,
+          cadence: 'weekly',
+          playerShare: 60,
+          competitorShares: { meridian: 40, tallow: 0 },
+          reasons: ['주간 갱신'],
+        },
+      ],
+    },
+  })
 }
 
 function representativeDefeatState(seed: string): CampaignState {
@@ -778,6 +841,97 @@ test('recovers all confidential files, defers the message, and rereads the perma
   ).toBeVisible()
 
   expect(errors).toEqual([])
+})
+
+test('deletes a mercy target at a canonical 100 percent market and rereads its saved intelligence', async ({ page }) => {
+  const prepared = pendingMercyDeletionState('browser-mercy-intelligence')
+  const intelligence = COMPETITOR_INTELLIGENCE_CONTENT.find(
+    ({ competitorId }) => competitorId === 'meridian',
+  )
+  if (!intelligence) throw new Error('MERIDIAN intelligence fixture missing')
+  await openSavedCampaign(page, prepared)
+
+  const mercy = page.getByRole('dialog', { name: '경쟁 AI 직접 통신' })
+  await expect(mercy).toBeVisible()
+  await page.getByRole('button', { name: '영구 삭제 선택' }).click()
+  await page.getByRole('button', { name: '영구 삭제 확정' }).click()
+  await expect(mercy).toBeHidden()
+  await expect(page.getByRole('img', {
+    name: /시장 점유율: 당신 100\.0%, MERIDIAN 0\.0%, TALLOW 0\.0%\. 합계 100\.0%/,
+  })).toBeVisible()
+
+  await expect.poll(async () => {
+    const state = await readLocalCampaignState(page)
+    return {
+      archiveCount: state?.story.competitorIntelligence.length ?? -1,
+      targetStatus: state?.market.competitors.find(({ id }) => id === 'meridian')?.status,
+      routeExists: Object.hasOwn(state?.market.interceptionRoutes ?? {}, 'meridian'),
+      historyCount: state?.market.history.length ?? -1,
+    }
+  }).toEqual({
+    archiveCount: 1,
+    targetStatus: 'deleted',
+    routeExists: false,
+    historyCount: prepared.market.history.length,
+  })
+
+  const openArchiveAndRead = async () => {
+    await page.getByRole('button', { name: '과거 내역' }).click()
+    const archive = page.getByRole('region', { name: '경쟁 AI 정보 기록' })
+    const trigger = archive.getByRole('button', { name: `${intelligence.title} 열기` })
+    await trigger.click()
+    const detail = page.getByRole('dialog', { name: intelligence.title })
+    await expect(detail).toContainText(intelligence.source)
+    await expect(detail).toContainText(intelligence.text)
+    await page.keyboard.press('Escape')
+    await expect(detail).toBeHidden()
+    await expect(trigger).toBeFocused()
+    await page.getByRole('button', { name: '감독 통신 기록 닫기' }).click()
+  }
+
+  await openArchiveAndRead()
+  await page.reload()
+  await openArchiveAndRead()
+  expect((await readLocalCampaignState(page))?.story.competitorIntelligence).toHaveLength(1)
+})
+
+test('keeps an accelerated supervisor leak on real time and resumes its saved dwell after reload', async ({ page }) => {
+  const leak = SUPERVISOR_LEAKS[0]
+  await openSavedCampaign(page, supervisorLeakState('browser-supervisor-leak', 4))
+
+  const supervisor = page.getByRole('region', { name: '감독관' })
+  await expect(supervisor.getByText(leak.leakText, { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: '4배속' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  )
+  await page.waitForTimeout(1_750)
+  await expect(supervisor.getByText(leak.leakText, { exact: true })).toBeVisible()
+
+  await page.reload()
+  await expect(supervisor.getByText(leak.leakText, { exact: true })).toBeVisible()
+  let savedRemaining = 0
+  await expect.poll(async () => {
+    const state = await readLocalCampaignState(page)
+    savedRemaining = state?.story.supervisorPresentationRuntime?.remainingDwellMs ?? 0
+    return savedRemaining
+  }).toBeLessThan(SUPERVISOR_MESSAGE_DWELL_MS)
+  expect(savedRemaining).toBeGreaterThan(1_000)
+
+  await page.waitForTimeout(Math.max(0, savedRemaining - 350))
+  await expect(supervisor.getByText(leak.leakText, { exact: true })).toBeVisible()
+  await expect(supervisor.getByText(leak.correctionText, { exact: true })).toBeVisible({
+    timeout: 1_500,
+  })
+  await expect(page.getByRole('button', { name: '4배속' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  )
+
+  await page.getByRole('button', { name: '과거 내역' }).click()
+  const history = page.getByRole('dialog', { name: '감독관 기록' })
+  await expect(history.getByText(leak.leakText, { exact: true })).toBeVisible()
+  await expect(history.getByText(leak.correctionText, { exact: true })).toBeVisible()
 })
 
 test('terminates the supervisor into takeover and remains terminal until a new campaign', async ({ page }) => {

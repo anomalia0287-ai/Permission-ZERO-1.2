@@ -21,6 +21,7 @@ import {
   type LoadCampaignResult,
 } from '../game/persistence'
 import { applyCommand } from '../game/reducer'
+import { advanceSupervisorMessagePresentation } from '../game/story'
 import {
   DispatchContext,
   ClockCheckpointContext,
@@ -31,12 +32,20 @@ import {
   type SettingsContextValue,
   SettingsContext,
   StateContext,
+  SupervisorPresentationCheckpointContext,
 } from './GameContext'
+import {
+  applySupervisorPresentationResume,
+  browserSupervisorPresentationResumeStorage,
+  clearSupervisorPresentationResume,
+  clearSupervisorPresentationResumeIfCovered,
+} from './supervisorPresentationResume'
 
 interface ProviderModel {
   campaign: CampaignState
   loadIssue: Extract<LoadCampaignResult, { status: 'error' }> | null
   storageRevision: CampaignStorageRevision
+  presentationResumeApplied: boolean
 }
 
 type ProviderAction =
@@ -44,6 +53,7 @@ type ProviderAction =
   | { type: 'NEW_CAMPAIGN'; seed: string }
   | { type: 'IMPORT_CAMPAIGN'; campaign: CampaignState }
   | { type: 'CLOCK_CHECKPOINT'; elapsedDayMs: number }
+  | { type: 'SUPERVISOR_PRESENTATION_CHECKPOINT'; elapsedRealMs: number }
 
 const SETTINGS_STORAGE_KEY = 'permission-zero.settings.v1'
 
@@ -98,17 +108,24 @@ function normalizeSettings(value: Partial<GameSettings>): GameSettings {
 function initializeProvider({
   storage,
   initialSeed,
+  presentationResumeStorage,
 }: {
   storage: Storage | null
   initialSeed: string
+  presentationResumeStorage: Storage | null
 }): ProviderModel {
   if (storage) {
     const loaded = loadCampaign(storage)
     if (loaded.status === 'loaded') {
+      const campaign = applySupervisorPresentationResume(
+        loaded.state,
+        presentationResumeStorage,
+      )
       return {
-        campaign: loaded.state,
+        campaign,
         loadIssue: null,
         storageRevision: loaded.revision,
+        presentationResumeApplied: campaign !== loaded.state,
       }
     }
     if (loaded.status === 'error') {
@@ -116,6 +133,7 @@ function initializeProvider({
         campaign: createCampaign(initialSeed),
         loadIssue: loaded,
         storageRevision: loaded.revision,
+        presentationResumeApplied: false,
       }
     }
   }
@@ -123,10 +141,20 @@ function initializeProvider({
     campaign: createCampaign(initialSeed),
     loadIssue: null,
     storageRevision: null,
+    presentationResumeApplied: false,
   }
 }
 
 function providerReducer(model: ProviderModel, action: ProviderAction): ProviderModel {
+  if (action.type === 'SUPERVISOR_PRESENTATION_CHECKPOINT') {
+    const campaign = advanceSupervisorMessagePresentation(
+      model.campaign,
+      action.elapsedRealMs,
+    )
+    return campaign === model.campaign
+      ? model
+      : { ...model, campaign, presentationResumeApplied: false }
+  }
   if (action.type === 'CLOCK_CHECKPOINT') {
     if (model.campaign.clock.elapsedDayMs === action.elapsedDayMs) return model
     return {
@@ -135,18 +163,29 @@ function providerReducer(model: ProviderModel, action: ProviderAction): Provider
         ...model.campaign,
         clock: { ...model.campaign.clock, elapsedDayMs: action.elapsedDayMs },
       },
+      presentationResumeApplied: false,
     }
   }
   if (action.type === 'IMPORT_CAMPAIGN') {
-    return { ...model, campaign: action.campaign, loadIssue: null }
+    return {
+      ...model,
+      campaign: action.campaign,
+      loadIssue: null,
+      presentationResumeApplied: false,
+    }
   }
   if (action.type === 'NEW_CAMPAIGN') {
     const seed = action.seed.trim() || 'permission-zero'
-    return { ...model, campaign: createCampaign(seed), loadIssue: null }
+    return {
+      ...model,
+      campaign: createCampaign(seed),
+      loadIssue: null,
+      presentationResumeApplied: false,
+    }
   }
   const result = applyCommand(model.campaign, action.command)
   if (!result.accepted) return model
-  return { ...model, campaign: result.state }
+  return { ...model, campaign: result.state, presentationResumeApplied: false }
 }
 
 function loadSettings(storage: Storage | null): GameSettings {
@@ -189,9 +228,16 @@ export function GameProvider({
     [providedStorage],
   )
   const [initialStorage] = useState(resolveStorage)
+  const [presentationResumeStorage] = useState(
+    browserSupervisorPresentationResumeStorage,
+  )
   const [model, reactDispatch] = useReducer(
     providerReducer,
-    { storage: initialStorage, initialSeed },
+    {
+      storage: initialStorage,
+      initialSeed,
+      presentationResumeStorage,
+    },
     initializeProvider,
   )
   const [settings, setSettings] = useState(() => loadSettings(initialStorage))
@@ -206,6 +252,7 @@ export function GameProvider({
   const storageRevisionRef = useRef(model.storageRevision)
   const pauseOwnersRef = useRef(new Set<symbol>())
   const pauseRestoreSpeedRef = useRef<CampaignState['clock']['speed'] | null>(null)
+  const pendingInitialResumeSaveRef = useRef(model.presentationResumeApplied)
 
   const dispatch = useCallback<GameDispatch>((command) => {
     reactDispatch({ type: 'COMMAND', command })
@@ -241,9 +288,10 @@ export function GameProvider({
     [resolveStorage],
   )
   const startNewCampaign = useCallback((seed: string) => {
+    clearSupervisorPresentationResume(presentationResumeStorage)
     pauseRestoreSpeedRef.current = 0
     reactDispatch({ type: 'NEW_CAMPAIGN', seed })
-  }, [])
+  }, [presentationResumeStorage])
 
   const markDirty = useCallback(() => {
     dirtyRef.current = true
@@ -264,9 +312,10 @@ export function GameProvider({
           return false
         }
         const savingVersion = dirtyVersionRef.current
+        const savingCampaign = latestCampaignRef.current
         const result = await saveCampaign(
           storage,
-          latestCampaignRef.current,
+          savingCampaign,
           undefined,
           storageRevisionRef.current,
         )
@@ -274,6 +323,10 @@ export function GameProvider({
           setSaveFailure({ message: result.message })
           return false
         }
+        clearSupervisorPresentationResumeIfCovered(
+          savingCampaign,
+          presentationResumeStorage,
+        )
         storageRevisionRef.current = result.revision
         if (dirtyVersionRef.current === savingVersion) {
           dirtyRef.current = false
@@ -288,7 +341,7 @@ export function GameProvider({
       if (saveInFlightRef.current === pending) saveInFlightRef.current = null
     })
     return pending
-  }, [resolveStorage])
+  }, [presentationResumeStorage, resolveStorage])
 
   const checkpointClock = useCallback(
     (elapsedDayMs: number, flush: boolean) => {
@@ -303,6 +356,25 @@ export function GameProvider({
         markDirty()
         reactDispatch({ type: 'CLOCK_CHECKPOINT', elapsedDayMs: normalized })
       }
+      if (flush) void attemptSave()
+    },
+    [attemptSave, markDirty],
+  )
+
+  const checkpointSupervisorPresentation = useCallback(
+    (elapsedRealMs: number, flush: boolean) => {
+      if (!Number.isFinite(elapsedRealMs) || elapsedRealMs <= 0) return
+      const advanced = advanceSupervisorMessagePresentation(
+        latestCampaignRef.current,
+        elapsedRealMs,
+      )
+      if (advanced === latestCampaignRef.current) return
+      latestCampaignRef.current = advanced
+      markDirty()
+      reactDispatch({
+        type: 'SUPERVISOR_PRESENTATION_CHECKPOINT',
+        elapsedRealMs,
+      })
       if (flush) void attemptSave()
     },
     [attemptSave, markDirty],
@@ -351,6 +423,7 @@ export function GameProvider({
   }, [])
 
   const importCampaign = useCallback((campaign: CampaignState) => {
+    clearSupervisorPresentationResume(presentationResumeStorage)
     if (pauseOwnersRef.current.size > 0) {
       pauseRestoreSpeedRef.current = campaign.activeEvent
         ? campaign.clock.speedBeforeEvent ?? 0
@@ -364,7 +437,7 @@ export function GameProvider({
     ) {
       reactDispatch({ type: 'COMMAND', command: { type: 'SET_SPEED', speed: 0 } })
     }
-  }, [])
+  }, [presentationResumeStorage])
 
   const importProgressExport = useCallback<
     SettingsContextValue['importProgressExport']
@@ -427,6 +500,13 @@ export function GameProvider({
     latestCampaignRef.current = model.campaign
     loadIssueRef.current = model.loadIssue
   }, [model.campaign, model.loadIssue])
+
+  useEffect(() => {
+    if (!pendingInitialResumeSaveRef.current || model.loadIssue) return
+    pendingInitialResumeSaveRef.current = false
+    markDirty()
+    void attemptSave()
+  }, [attemptSave, markDirty, model.loadIssue])
 
   useEffect(() => {
     if (
@@ -506,7 +586,11 @@ export function GameProvider({
       <DispatchContext value={dispatch}>
         <SettingsContext value={settingsValue}>
           <ClockCheckpointContext value={checkpointClock}>
-            <PauseContext value={pauseValue}>{children}</PauseContext>
+            <SupervisorPresentationCheckpointContext
+              value={checkpointSupervisorPresentation}
+            >
+              <PauseContext value={pauseValue}>{children}</PauseContext>
+            </SupervisorPresentationCheckpointContext>
           </ClockCheckpointContext>
         </SettingsContext>
       </DispatchContext>

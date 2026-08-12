@@ -61,7 +61,7 @@ describe('deterministic command replay', () => {
     expect(first.state.resources.reserve[3]).toBe(blockId)
   })
 
-  it('replays a genuine v1 save with historical one-command transfers exactly', () => {
+  it('replays a genuine v1 save exactly apart from the documented wall-clock presentation cursor', () => {
     const decoded = decodeSave(legacyV1TransferSave)
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
@@ -78,7 +78,23 @@ describe('deterministic command replay', () => {
     expect(commands.map(({ type }) => type)).not.toContain('BEGIN_BLOCK_SEPARATION')
     expect(replay.ok).toBe(true)
     if (!replay.ok) return
-    expect(replay.state).toEqual(decoded.envelope.state)
+    expect({
+      ...replay.state,
+      story: {
+        ...replay.state.story,
+        supervisorPresentationRuntime: null,
+      },
+    }).toEqual({
+      ...decoded.envelope.state,
+      story: {
+        ...decoded.envelope.state.story,
+        supervisorPresentationRuntime: null,
+      },
+    })
+    expect(replay.state.story.supervisorMessageQueue).toEqual(
+      decoded.envelope.state.story.supervisorMessageQueue,
+    )
+    expect(replay.state.eventLog).toEqual(decoded.envelope.state.eventLog)
     expect(replay.state.commandSequence).toBe(31)
     expect(replay.state.commandLog).toEqual(decoded.envelope.state.commandLog)
   })

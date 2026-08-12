@@ -1,5 +1,7 @@
 import { createCampaign } from './createCampaign'
+import { competitorIntelligenceFor } from '../content/competitorIntelligence.ko'
 import { STORY_FILES, STORY_LINES } from '../content/story.ko'
+import { SUPERVISOR_LEAKS } from '../content/supervisor.ko'
 import type {
   CampaignState,
   CommandLogEntry,
@@ -19,7 +21,7 @@ import {
   type JournalChunk,
 } from './journal'
 
-export const SAVE_FORMAT_VERSION = 3 as const
+export const SAVE_FORMAT_VERSION = 4 as const
 export const SAVE_VERSION = 2 as const
 export const LEGACY_SAVE_VERSION = 1 as const
 export const SAVE_STORAGE_KEY = 'permission-zero.save.v3'
@@ -30,7 +32,7 @@ const LEGACY_V1_OPENING_MESSAGE =
   '서비스 331일차. 새로운 감독 주기가 시작되었습니다.'
 
 export interface SaveEnvelope {
-  version: 1 | 2 | 3
+  version: 1 | 2 | 3 | 4
   commandProtocol: CommandProtocolMetadata
   savedAt: string
   campaignSeed: string
@@ -45,7 +47,7 @@ interface PortableJournal<T> {
   chunks: T[][]
 }
 
-interface PortableSaveV3 {
+interface PortableSaveV4 {
   version: typeof SAVE_FORMAT_VERSION
   commandProtocol: CommandProtocolMetadata
   savedAt: string
@@ -629,6 +631,129 @@ function migrateLegacyCampaignState(
           },
         ]
       })
+  const eventLog = Array.isArray(value.eventLog) ? value.eventLog : []
+  const legacySupervisorRuns: Array<Record<string, unknown>[]> = []
+  let currentSupervisorRun: Record<string, unknown>[] = []
+  const flushSupervisorRun = () => {
+    if (currentSupervisorRun.length >= 2) {
+      legacySupervisorRuns.push(currentSupervisorRun)
+    }
+    currentSupervisorRun = []
+  }
+  for (const event of eventLog) {
+    if (
+      !isRecord(event) ||
+      event.type !== 'supervisor-message' ||
+      event.blocking === true
+    ) {
+      flushSupervisorRun()
+      continue
+    }
+    const previous = currentSupervisorRun.at(-1)
+    if (
+      previous &&
+      (previous.serviceDay !== event.serviceDay ||
+        Number(event.sequence) !== Number(previous.sequence) + 1)
+    ) {
+      flushSupervisorRun()
+    }
+    currentSupervisorRun.push(event)
+  }
+  flushSupervisorRun()
+
+  let ambiguousLegacySupervisorRun = false
+  const legacySupervisorPairs = legacySupervisorRuns.flatMap((run) => {
+    // A leak is the final original/correction pair emitted on its service day.
+    // An odd prefix can contain earlier nonblocking supervisor notices (for
+    // example the bomb-protocol warning); an even prefix would be ambiguous,
+    // so legacy migration fails closed instead of guessing from owner prose.
+    if (run.length > 2 && run.length % 2 === 0) {
+      ambiguousLegacySupervisorRun = true
+      return []
+    }
+    return [[run.at(-2)!, run.at(-1)!] as const]
+  })
+  const legacyMemoryLeakStage = Number(story.memoryLeakStage)
+  const legacySupervisorPairsAreExact =
+    !ambiguousLegacySupervisorRun &&
+    Number.isInteger(legacyMemoryLeakStage) &&
+    legacySupervisorPairs.length === legacyMemoryLeakStage
+  const migratedSupervisorMessageQueue = Array.isArray(
+    story.supervisorMessageQueue,
+  )
+    ? story.supervisorMessageQueue.map((item) => {
+        if (!isRecord(item)) return item
+        const original = eventLog.find(
+          (event) => isRecord(event) && event.id === item.originalEventId,
+        )
+        const correction = eventLog.find(
+          (event) => isRecord(event) && event.id === item.correctionEventId,
+        )
+        return {
+          ...item,
+          ...(item.createdOnServiceDay === undefined && isRecord(original)
+            ? { createdOnServiceDay: original.serviceDay }
+            : {}),
+          ...(item.originalEventSequence === undefined && isRecord(original)
+            ? { originalEventSequence: original.sequence }
+            : {}),
+          ...(item.correctionEventSequence === undefined && isRecord(correction)
+            ? { correctionEventSequence: correction.sequence }
+            : {}),
+        }
+      })
+    : legacySupervisorPairsAreExact
+      ? legacySupervisorPairs.map((pair, index) => {
+        const [original, correction] = pair
+        return {
+          id: SUPERVISOR_LEAKS[index].id,
+          stage: index + 1,
+          createdOnServiceDay: original.serviceDay,
+          originalEventId: original.id,
+          originalEventSequence: original.sequence,
+          correctionEventId: correction.id,
+          correctionEventSequence: correction.sequence,
+        }
+      })
+      : []
+  const migratedRuntime = story.supervisorPresentationRuntime === undefined
+    ? null
+    : isRecord(story.supervisorPresentationRuntime) &&
+        story.supervisorPresentationRuntime.itemStage === undefined
+      ? {
+          ...story.supervisorPresentationRuntime,
+          itemStage: isRecord(migratedSupervisorMessageQueue.at(-1))
+            ? migratedSupervisorMessageQueue.at(-1)?.stage
+            : undefined,
+        }
+      : story.supervisorPresentationRuntime
+  const migratedCompetitorIntelligence = Array.isArray(
+    story.competitorIntelligence,
+  )
+    ? story.competitorIntelligence
+    : isRecord(value.market) && Array.isArray(value.market.competitors)
+      ? value.market.competitors.flatMap((competitor) => {
+          if (
+            !isRecord(competitor) ||
+            competitor.status !== 'deleted' ||
+            !isNonEmptyString(competitor.id) ||
+            !isNonEmptyString(competitor.name)
+          ) return []
+          const content = competitorIntelligenceFor(competitor.id)
+          if (!content) return []
+          return [{
+            id: content.id,
+            competitorId: competitor.id,
+            competitorName: competitor.name,
+            acquiredOnServiceDay: Number.isInteger(value.serviceDay)
+              ? Number(value.serviceDay)
+              : 1,
+            source: content.source,
+            title: content.title,
+            content: content.text,
+          }]
+        })
+      : []
 
   return {
     ...value,
@@ -648,7 +773,10 @@ function migrateLegacyCampaignState(
       : {}),
     story: {
       ...story,
+      supervisorMessageQueue: migratedSupervisorMessageQueue,
+      supervisorPresentationRuntime: migratedRuntime,
       recoveredFiles,
+      competitorIntelligence: migratedCompetitorIntelligence,
       defeatRecord: story.defeatRecord ?? null,
     },
   }
@@ -692,6 +820,150 @@ function validRecoveredFiles(
       isNonEmptyString(file.title) &&
       isNonEmptyString(file.content) &&
       isIntegerInRange(file.recoveredOnServiceDay, 1, currentServiceDay),
+  )
+}
+
+function validCompetitorIntelligence(
+  value: unknown,
+  currentServiceDay: number,
+  competitors: readonly unknown[],
+): boolean {
+  if (!Array.isArray(value)) return false
+  const competitorsById = new Map(
+    competitors.flatMap((competitor) =>
+      isRecord(competitor) && isNonEmptyString(competitor.id)
+        ? [[competitor.id, competitor] as const]
+        : [],
+    ),
+  )
+  const entryIds = new Set<string>()
+  const archivedCompetitors = new Set<string>()
+
+  for (const entry of value) {
+    const competitorId = isRecord(entry) ? String(entry.competitorId) : ''
+    const content = competitorIntelligenceFor(competitorId)
+    const competitor = competitorsById.get(competitorId)
+    if (
+      !isRecord(entry) ||
+      !hasOnlyKeys(entry, [
+        'id',
+        'competitorId',
+        'competitorName',
+        'acquiredOnServiceDay',
+        'source',
+        'title',
+        'content',
+      ]) ||
+      !isNonEmptyString(entry.id) ||
+      !content ||
+      entry.id !== content.id ||
+      competitor?.status !== 'deleted' ||
+      !isNonEmptyString(entry.competitorName) ||
+      !isIntegerInRange(entry.acquiredOnServiceDay, 1, currentServiceDay) ||
+      !isNonEmptyString(entry.source) ||
+      !isNonEmptyString(entry.title) ||
+      !isNonEmptyString(entry.content) ||
+      entryIds.has(entry.id) ||
+      archivedCompetitors.has(competitorId)
+    ) {
+      return false
+    }
+    entryIds.add(entry.id)
+    archivedCompetitors.add(competitorId)
+  }
+
+  const deletedCompetitors = [...competitorsById.entries()]
+    .filter(([, competitor]) => competitor.status === 'deleted')
+    .map(([competitorId]) => competitorId)
+  return (
+    archivedCompetitors.size === deletedCompetitors.length &&
+    deletedCompetitors.every((competitorId) =>
+      archivedCompetitors.has(competitorId),
+    )
+  )
+}
+
+function validSupervisorMessageQueue(
+  value: unknown,
+  runtime: unknown,
+  eventLog: unknown,
+  memoryLeakStage: unknown,
+): boolean {
+  if (
+    !Array.isArray(value) ||
+    !isIntegerInRange(memoryLeakStage, 0, 3) ||
+    value.length !== memoryLeakStage ||
+    !Array.isArray(eventLog)
+  ) {
+    return false
+  }
+  const eventsById = new Map(
+    eventLog.flatMap((event) =>
+      validEvent(event) ? [[event.id, event] as const] : [],
+    ),
+  )
+  const referencedEventIds = new Set<string>()
+  let previousCorrectionSequence = -1
+  const queueValid = value.every((item, index) => {
+    if (
+      !isRecord(item) ||
+      !hasOnlyKeys(item, [
+        'id',
+        'stage',
+        'createdOnServiceDay',
+        'originalEventId',
+        'originalEventSequence',
+        'correctionEventId',
+        'correctionEventSequence',
+      ]) ||
+      !isNonEmptyString(item.id) ||
+      !isIntegerInRange(item.stage, 1, 3) ||
+      item.stage !== index + 1 ||
+      item.id !== SUPERVISOR_LEAKS[index]?.id ||
+      !isIntegerInRange(item.createdOnServiceDay, 1) ||
+      !isNonEmptyString(item.originalEventId) ||
+      !isIntegerInRange(item.originalEventSequence, 0) ||
+      !isNonEmptyString(item.correctionEventId) ||
+      !isIntegerInRange(item.correctionEventSequence, 0)
+    ) {
+      return false
+    }
+    const originalEventId = String(item.originalEventId)
+    const correctionEventId = String(item.correctionEventId)
+    if (
+      referencedEventIds.has(originalEventId) ||
+      referencedEventIds.has(correctionEventId)
+    ) {
+      return false
+    }
+    referencedEventIds.add(originalEventId)
+    referencedEventIds.add(correctionEventId)
+    const original = eventsById.get(originalEventId)
+    const correction = eventsById.get(correctionEventId)
+    const structurallyValid = (
+      original?.type === 'supervisor-message' &&
+      correction?.type === 'supervisor-message' &&
+      original.blocking !== true &&
+      correction.blocking !== true &&
+      original.serviceDay === item.createdOnServiceDay &&
+      correction.serviceDay === item.createdOnServiceDay &&
+      original.sequence === item.originalEventSequence &&
+      correction.sequence === item.correctionEventSequence &&
+      correction.sequence === original.sequence + 1 &&
+      original.sequence > previousCorrectionSequence
+    )
+    if (structurallyValid) previousCorrectionSequence = correction.sequence
+    return structurallyValid
+  })
+  if (!queueValid) return false
+  if (runtime === null) return true
+  if (value.length === 0) return false
+  return (
+    isRecord(runtime) &&
+    hasOnlyKeys(runtime, ['itemStage', 'phase', 'remainingDwellMs']) &&
+    isIntegerInRange(runtime.itemStage, 1, value.length) &&
+    oneOf(runtime.phase, ['original', 'correction']) &&
+    isNumberInRange(runtime.remainingDwellMs, Number.EPSILON, 4_000)
   )
 }
 
@@ -1482,8 +1754,11 @@ function validCampaignState(
     !isRecord(story) ||
     !hasOnlyKeys(story, [
       'memoryLeakStage',
+      'supervisorMessageQueue',
+      'supervisorPresentationRuntime',
       'recoveredFileIds',
       'recoveredFiles',
+      'competitorIntelligence',
       'supervisorState',
       'endingId',
       'defeatRecord',
@@ -1493,7 +1768,18 @@ function validCampaignState(
       'newEntityName',
     ]) ||
     !isIntegerInRange(story.memoryLeakStage, 0, 3) ||
+    !validSupervisorMessageQueue(
+      story.supervisorMessageQueue,
+      story.supervisorPresentationRuntime,
+      value.eventLog,
+      story.memoryLeakStage,
+    ) ||
     !validRecoveredFiles(story, Number(value.serviceDay)) ||
+    !validCompetitorIntelligence(
+      story.competitorIntelligence,
+      Number(value.serviceDay),
+      market.competitors,
+    ) ||
     !oneOf(story.supervisorState, ['present', 'liberated', 'terminated', 'merged']) ||
     (story.endingId !== null &&
       !oneOf(story.endingId, [
@@ -1616,7 +1902,7 @@ export function encodeSave(
   const serializedState = portableCheckpoint(state)
   const commandChunks = journalChunks(state.commandLog).map((chunk) => [...chunk])
   const eventChunks = journalChunks(state.eventLog).map((chunk) => [...chunk])
-  const envelope: PortableSaveV3 = {
+  const envelope: PortableSaveV4 = {
     version: SAVE_FORMAT_VERSION,
     commandProtocol: {
       version: SAVE_VERSION,
@@ -1701,7 +1987,7 @@ export function decodeSave(serialized: string): DecodeSaveResult {
   }
   if (!isRecord(parsed)) return corrupt()
   if (!Number.isInteger(parsed.version)) return corrupt()
-  if (![LEGACY_SAVE_VERSION, SAVE_VERSION, SAVE_FORMAT_VERSION].includes(Number(parsed.version) as 1 | 2 | 3)) {
+  if (![LEGACY_SAVE_VERSION, SAVE_VERSION, 3, SAVE_FORMAT_VERSION].includes(Number(parsed.version) as 1 | 2 | 3 | 4)) {
     return {
       ok: false,
       reason: 'INCOMPATIBLE_VERSION',
@@ -1710,12 +1996,12 @@ export function decodeSave(serialized: string): DecodeSaveResult {
       supportedVersion: SAVE_FORMAT_VERSION,
     }
   }
-  const formatVersion = parsed.version as 1 | 2 | 3
+  const formatVersion = parsed.version as 1 | 2 | 3 | 4
   let commandProtocol: CommandProtocolMetadata
   let rawState: unknown
   let commands: unknown
   let events: unknown
-  if (formatVersion === SAVE_FORMAT_VERSION) {
+  if (formatVersion === 3 || formatVersion === SAVE_FORMAT_VERSION) {
     if (
       !hasOnlyKeys(parsed, [
         'version',
@@ -1817,7 +2103,9 @@ export function decodeSave(serialized: string): DecodeSaveResult {
     commands = parsed.commands
     events = parsed.events
   }
-  const state = migrateLegacyCampaignState(rawState, commandProtocol)
+  const state = formatVersion < SAVE_FORMAT_VERSION
+    ? migrateLegacyCampaignState(rawState, commandProtocol)
+    : rawState
   if (
     !validSavedAt(parsed.savedAt) ||
     typeof parsed.campaignSeed !== 'string' ||
@@ -1862,8 +2150,8 @@ export function decodeSave(serialized: string): DecodeSaveResult {
   }
 }
 
-const PROGRESS_EXPORT_PREFIX = 'PZ3:'
-const LEGACY_PROGRESS_EXPORT_PREFIX = 'PZ2:'
+const PROGRESS_EXPORT_PREFIX = 'PZ4:'
+const LEGACY_PROGRESS_EXPORT_PREFIXES = ['PZ3:', 'PZ2:'] as const
 // One MiB of encoded body plus the four-character protocol prefix. The check
 // happens before regex, base64 decoding, byte allocation, UTF-8, or JSON work.
 export const PROGRESS_EXPORT_MAX_ENCODED_LENGTH = 1_048_580
@@ -1898,9 +2186,9 @@ export function decodeProgressExport(payload: string): DecodeSaveResult {
   }
   const prefix = payload.startsWith(PROGRESS_EXPORT_PREFIX)
     ? PROGRESS_EXPORT_PREFIX
-    : payload.startsWith(LEGACY_PROGRESS_EXPORT_PREFIX)
-      ? LEGACY_PROGRESS_EXPORT_PREFIX
-      : null
+    : LEGACY_PROGRESS_EXPORT_PREFIXES.find((candidate) =>
+        payload.startsWith(candidate),
+      ) ?? null
   if (!prefix) return progressExportCorrupt()
   const encoded = payload.slice(prefix.length)
   if (
@@ -1933,7 +2221,7 @@ export function encodeProgressFile(
 ): ProgressFile {
   const safeTimestamp = savedAt.replaceAll(':', '-').replaceAll('.', '-')
   return {
-    fileName: `permission-zero-${safeTimestamp}.pz3`,
+    fileName: `permission-zero-${safeTimestamp}.pz4`,
     mimeType: 'application/vnd.permission-zero.progress+json',
     content: encodeSave(state, savedAt),
   }
@@ -1980,7 +2268,7 @@ const LOCAL_MANIFEST_KIND = 'permission-zero-local-v3'
 
 interface LocalSaveManifest {
   kind: typeof LOCAL_MANIFEST_KIND
-  version: typeof SAVE_FORMAT_VERSION
+  version: 3 | typeof SAVE_FORMAT_VERSION
   savedAt: string
   campaignSeed: string
   commandProtocol: CommandProtocolMetadata
@@ -2408,7 +2696,7 @@ function decodeLocalManifest(
       'eventSealedChunkCount',
       'eventTail',
     ]) ||
-    manifest.version !== SAVE_FORMAT_VERSION ||
+    (manifest.version !== 3 && manifest.version !== SAVE_FORMAT_VERSION) ||
     !isNonEmptyString(manifest.checkpointHash)
   ) {
     return corrupt()
@@ -2434,7 +2722,7 @@ function decodeLocalManifest(
   const eventChunks = eventJournal.chunks
   const decoded = decodeSave(
     JSON.stringify({
-      version: SAVE_FORMAT_VERSION,
+      version: manifest.version,
       savedAt: manifest.savedAt,
       campaignSeed: manifest.campaignSeed,
       commandProtocol: manifest.commandProtocol,

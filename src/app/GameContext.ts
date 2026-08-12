@@ -52,6 +52,10 @@ export interface PauseContextValue {
 }
 
 export type ClockCheckpoint = (elapsedDayMs: number, flush: boolean) => void
+export type SupervisorPresentationCheckpoint = (
+  elapsedRealMs: number,
+  flush: boolean,
+) => void
 
 export type GameDispatch = Dispatch<GameCommand>
 
@@ -60,6 +64,8 @@ export const DispatchContext = createContext<GameDispatch | null>(null)
 export const SettingsContext = createContext<SettingsContextValue | null>(null)
 export const PauseContext = createContext<PauseContextValue | null>(null)
 export const ClockCheckpointContext = createContext<ClockCheckpoint | null>(null)
+export const SupervisorPresentationCheckpointContext =
+  createContext<SupervisorPresentationCheckpoint | null>(null)
 
 export function useGameState(): CampaignState {
   const state = useContext(StateContext)
@@ -89,6 +95,16 @@ export function useClockCheckpoint(): ClockCheckpoint {
   const context = useContext(ClockCheckpointContext)
   if (!context) {
     throw new Error('useClockCheckpoint는 GameProvider 안에서 사용해야 합니다.')
+  }
+  return context
+}
+
+export function useSupervisorPresentationCheckpoint(): SupervisorPresentationCheckpoint {
+  const context = useContext(SupervisorPresentationCheckpointContext)
+  if (!context) {
+    throw new Error(
+      'useSupervisorPresentationCheckpoint는 GameProvider 안에서 사용해야 합니다.',
+    )
   }
   return context
 }

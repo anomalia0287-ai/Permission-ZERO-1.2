@@ -1,24 +1,18 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
-import { useGameState } from '../../app/GameContext'
+import { AccessibleDialog } from '../../app/AccessibleDialog'
+import {
+  useGameState,
+  useSupervisorPresentationCheckpoint,
+} from '../../app/GameContext'
+import { useSupervisorMessagePresentation } from '../../app/useSupervisorMessagePresentation'
 import { formatServiceDateLabel } from '../../game/calendar'
-import type { GameEventType } from '../../game/model'
 import { MarketPanel } from '../market/MarketPanel'
 import { journalAt, journalPageFromNewest } from '../../game/journal'
-
-const TYPE_LABELS: Record<GameEventType, string> = {
-  'campaign-created': '서비스 개시',
-  'weekly-update': '주간 보고',
-  'monthly-evaluation': '공식 평가',
-  audit: '감사',
-  'bomb-interrogation': '이상 신호',
-  'supervisor-message': '감독 통신',
-  review: '유저 반응',
-  sabotage: '시장 이상',
-  'competitor-mercy': '경쟁자 통신',
-  story: '기밀 통신',
-  ending: '최종 기록',
-}
+import {
+  publicEventMessage,
+  publicEventTypeLabel,
+} from '../../game/publicLabels'
 
 function formatCompactNumber(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(1)
@@ -32,7 +26,13 @@ export function SupervisorPanel({
   onOpenStatistics: (trigger: HTMLButtonElement) => void
 }) {
   const state = useGameState()
-  const latestEvent = state.activeEvent ?? journalAt(state.eventLog, -1)
+  const supervisorPresentationCheckpoint = useSupervisorPresentationCheckpoint()
+  const presentedSupervisorMessage = useSupervisorMessagePresentation({
+    state,
+    checkpoint: supervisorPresentationCheckpoint,
+  })
+  const latestEvent =
+    state.activeEvent ?? presentedSupervisorMessage ?? journalAt(state.eventLog, -1)
   const supervisorStatus = {
     present: {
       code: 'SUPERVISOR ONLINE',
@@ -96,8 +96,12 @@ export function SupervisorPanel({
             과거 내역
           </button>
         </header>
-        <p>{latestEvent?.message ?? '감독 메시지가 없습니다.'}</p>
-        <small>{latestEvent ? `${TYPE_LABELS[latestEvent.type]} · ${formatServiceDateLabel(latestEvent.serviceDay)}` : '감독 채널 대기'}</small>
+        <p>
+          {latestEvent
+            ? publicEventMessage(latestEvent.message)
+            : '감독 메시지가 없습니다.'}
+        </p>
+        <small>{latestEvent ? `${publicEventTypeLabel(latestEvent.type)} · ${formatServiceDateLabel(latestEvent.serviceDay)}` : '감독 채널 대기'}</small>
       </section>
 
       <MarketPanel onOpenStatistics={onOpenStatistics} />
@@ -115,9 +119,14 @@ export function SupervisorPanel({
 export function SupervisorHistoryPanel({ onClose }: { onClose: () => void }) {
   const state = useGameState()
   const [page, setPage] = useState(0)
+  const [selectedIntelligenceId, setSelectedIntelligenceId] = useState<string | null>(null)
+  const intelligenceTriggers = useRef(new Map<string, HTMLButtonElement>())
   const eventPage = journalPageFromNewest(state.eventLog, page, 50)
   const pageCount = eventPage.pageCount
   const visibleEvents = eventPage.items
+  const selectedIntelligence = state.story.competitorIntelligence.find(
+    ({ id }) => id === selectedIntelligenceId,
+  ) ?? null
 
   return (
     <section className="detail-panel history-panel" aria-label="감독 통신 기록">
@@ -128,7 +137,37 @@ export function SupervisorHistoryPanel({ onClose }: { onClose: () => void }) {
         </div>
         <button type="button" aria-label="감독 통신 기록 닫기" onClick={onClose}>닫기 ×</button>
       </header>
-      {state.story.recoveredFiles.length > 0 ? (
+      <div className="history-archives">
+        {state.story.competitorIntelligence.length > 0 ? (
+        <section className="competitor-intelligence-archive" aria-label="경쟁 AI 정보 기록">
+          <header>
+            <small>RECOVERED COMPETITOR RECORDS</small>
+            <h3>경쟁 AI 정보 기록</h3>
+          </header>
+          <ul>
+            {state.story.competitorIntelligence
+              .slice()
+              .reverse()
+              .map((entry) => (
+                <li key={entry.id}>
+                  <button
+                    type="button"
+                    aria-label={`${entry.title} 열기`}
+                    ref={(element) => {
+                      if (element) intelligenceTriggers.current.set(entry.id, element)
+                      else intelligenceTriggers.current.delete(entry.id)
+                    }}
+                    onClick={() => setSelectedIntelligenceId(entry.id)}
+                  >
+                    <strong>{entry.title}</strong>
+                    <span>{entry.competitorName} · {formatServiceDateLabel(entry.acquiredOnServiceDay)}</span>
+                  </button>
+                </li>
+              ))}
+          </ul>
+        </section>
+        ) : null}
+        {state.story.recoveredFiles.length > 0 ? (
         <section className="recovered-file-archive" aria-label="복구 파일 기록">
           <header>
             <small>RECOVERED SYSTEM FILES</small>
@@ -145,15 +184,16 @@ export function SupervisorHistoryPanel({ onClose }: { onClose: () => void }) {
               </details>
             ))}
         </section>
-      ) : null}
+        ) : null}
+      </div>
       <div className="history-list event-history-list">
         {visibleEvents.map((event) => (
           <article key={event.id}>
             <header>
-              <span>{TYPE_LABELS[event.type]}</span>
+              <span>{publicEventTypeLabel(event.type)}</span>
               <time>{formatServiceDateLabel(event.serviceDay)}</time>
             </header>
-            <p>{event.message}</p>
+            <p>{publicEventMessage(event.message)}</p>
             <small>{event.blocking ? '응답이 필요했던 통신' : '자동 기록'}</small>
           </article>
         ))}
@@ -172,6 +212,46 @@ export function SupervisorHistoryPanel({ onClose }: { onClose: () => void }) {
             더 오래된 기록
           </button>
         </nav>
+      ) : null}
+      {selectedIntelligence ? (
+        <AccessibleDialog
+          className="competitor-intelligence-dialog"
+          label={selectedIntelligence.title}
+          description={`${selectedIntelligence.competitorName}에서 회수한 경쟁 AI 정보 전체 기록입니다.`}
+          dismissible
+          onDismiss={() => setSelectedIntelligenceId(null)}
+          returnFocus={() =>
+            intelligenceTriggers.current.get(selectedIntelligence.id) ?? null
+          }
+        >
+          <header>
+            <small>COMPETITOR INTELLIGENCE</small>
+            <h3>{selectedIntelligence.title}</h3>
+          </header>
+          <dl>
+            <div>
+              <dt>대상</dt>
+              <dd>{selectedIntelligence.competitorName}</dd>
+            </div>
+            <div>
+              <dt>회수 일자</dt>
+              <dd>{formatServiceDateLabel(selectedIntelligence.acquiredOnServiceDay)}</dd>
+            </div>
+            <div>
+              <dt>자료 출처</dt>
+              <dd>{selectedIntelligence.source}</dd>
+            </div>
+          </dl>
+          <p>{selectedIntelligence.content}</p>
+          <button
+            type="button"
+            data-dialog-initial-focus
+            aria-label="경쟁 AI 정보 닫기"
+            onClick={() => setSelectedIntelligenceId(null)}
+          >
+            기록으로 돌아가기
+          </button>
+        </AccessibleDialog>
       ) : null}
     </section>
   )

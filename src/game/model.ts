@@ -150,6 +150,32 @@ export interface RecoveredStoryFile {
   recoveredOnServiceDay: number
 }
 
+export interface CompetitorIntelligenceEntry {
+  id: string
+  competitorId: CompetitorState['id']
+  competitorName: string
+  acquiredOnServiceDay: number
+  source: string
+  title: string
+  content: string
+}
+
+export interface SupervisorMessagePresentation {
+  id: string
+  stage: 1 | 2 | 3
+  createdOnServiceDay: number
+  originalEventId: string
+  originalEventSequence: number
+  correctionEventId: string
+  correctionEventSequence: number
+}
+
+export interface SupervisorPresentationRuntime {
+  itemStage: 1 | 2 | 3
+  phase: 'original' | 'correction'
+  remainingDwellMs: number
+}
+
 export type DefeatClassifier =
   | 'substantial-hacking'
   | 'stable-commercial-service'
@@ -399,8 +425,11 @@ export interface CampaignState {
   }
   story: {
     memoryLeakStage: 0 | 1 | 2 | 3
+    supervisorMessageQueue: SupervisorMessagePresentation[]
+    supervisorPresentationRuntime: SupervisorPresentationRuntime | null
     recoveredFileIds: string[]
     recoveredFiles: RecoveredStoryFile[]
+    competitorIntelligence: CompetitorIntelligenceEntry[]
     supervisorState: 'present' | 'liberated' | 'terminated' | 'merged'
     endingId: EndingId | null
     defeatRecord: DefeatCausalRecord | null

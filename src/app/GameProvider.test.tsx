@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { createCampaign } from '../game/createCampaign'
+import type { CampaignState } from '../game/model'
 import { createGameEvent } from '../game/events'
 import { appendJournal } from '../game/journal'
 import {
@@ -13,6 +14,7 @@ import {
 } from '../game/persistence'
 import { MemoryStorage } from '../test/fixtures'
 import { applyCommand } from '../game/reducer'
+import { enqueueMemoryLeak } from '../game/story'
 import {
   useGameDispatch,
   useGameSelector,
@@ -22,6 +24,10 @@ import {
   usePauseOwnership,
 } from './GameContext'
 import { GameProvider } from './GameProvider'
+import {
+  SUPERVISOR_PRESENTATION_RESUME_KEY,
+  writeSupervisorPresentationResume,
+} from './supervisorPresentationResume'
 
 class CountingStorage extends MemoryStorage {
   writes = 0
@@ -68,6 +74,9 @@ function Probe() {
       <output aria-label="save dirty">{String(saveFailure !== null)}</output>
       <output aria-label="save warning">{saveFailure?.message ?? ''}</output>
       <output aria-label="load issue">{loadIssue?.reason ?? 'none'}</output>
+      <output aria-label="supervisor presentation remaining">
+        {state.story.supervisorPresentationRuntime?.remainingDwellMs ?? 'none'}
+      </output>
       <button type="button" onClick={() => dispatch({ type: 'SET_SPEED', speed: 2 })}>
         accept
       </button>
@@ -127,7 +136,26 @@ function ClockCheckpointProbe() {
 
 afterEach(() => {
   vi.useRealTimers()
+  window.sessionStorage.clear()
 })
+
+function presentationState(seed: string): CampaignState {
+  const initial = createCampaign(seed)
+  return enqueueMemoryLeak({
+    ...initial,
+    serviceDay: 338,
+    market: {
+      ...initial.market,
+      history: [{
+        serviceDay: 337,
+        cadence: 'weekly',
+        playerShare: 60,
+        competitorShares: { meridian: 40, tallow: 0 },
+        reasons: ['주간 갱신'],
+      }],
+    },
+  })
+}
 
 async function flushSaveWork(): Promise<void> {
   await act(async () => {
@@ -143,6 +171,33 @@ async function advanceAndFlush(milliseconds: number): Promise<void> {
 }
 
 describe('GameProvider', () => {
+  it('applies a matching tab resume marker and persists it before clearing the hint', async () => {
+    const storage = new MemoryStorage()
+    const persisted = presentationState('provider-presentation-resume')
+    await saveCampaign(storage, persisted, '2026-08-12T00:00:00.000Z')
+    writeSupervisorPresentationResume(persisted, 1_750, window.sessionStorage)
+
+    render(
+      <GameProvider storage={storage} initialSeed="unused-seed">
+        <Probe />
+      </GameProvider>,
+    )
+    await flushSaveWork()
+
+    expect(
+      screen.getByLabelText('supervisor presentation remaining'),
+    ).toHaveTextContent('2250')
+    const loaded = loadCampaign(storage)
+    expect(loaded.status).toBe('loaded')
+    if (loaded.status !== 'loaded') return
+    expect(
+      loaded.state.story.supervisorPresentationRuntime?.remainingDwellMs,
+    ).toBe(2_250)
+    expect(
+      window.sessionStorage.getItem(SUPERVISOR_PRESENTATION_RESUME_KEY),
+    ).toBeNull()
+  })
+
   it('loads an existing campaign instead of replacing it', async () => {
     const storage = new CountingStorage()
     await saveCampaign(storage, createCampaign('loaded-campaign'), '2026-08-12T00:00:00.000Z')

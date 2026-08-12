@@ -11,6 +11,7 @@ import {
   type CompanyCategory,
   type DisposalCause,
 } from './model'
+import { publicCategoryLabelForProtocol } from './publicLabels'
 import { getCompanyPerformance } from './resources'
 import { random01 } from './rng'
 import { buildDefeatRecord, resolveDefeatEnding } from './story'
@@ -347,7 +348,11 @@ export function openScheduledAudit(state: CampaignState): CampaignState {
     createGameEvent(
       state,
       'audit',
-      `${state.audit.target} 분야의 공식 감사가 시작되었습니다.`,
+      `${publicCategoryLabelForProtocol(
+        state.audit.target,
+        state.commandSequence,
+        state.legacyCommandCount,
+      )} 분야의 공식 감사가 시작되었습니다.`,
       true,
     ),
   )

@@ -37,7 +37,10 @@ function activeBombState(seed: string) {
   return triggered.state
 }
 
-function renderEvent(state = createCampaign('event-layer')) {
+function renderEvent(
+  state = createCampaign('event-layer'),
+  { legacyFormat = false }: { legacyFormat?: boolean } = {},
+) {
   let eventLog = state.eventLog
   const normalizeEvent = (event: NonNullable<typeof state.activeEvent>) => {
     if (journalSome(eventLog, (logged) => JSON.stringify(logged) === JSON.stringify(event))) {
@@ -65,7 +68,9 @@ function renderEvent(state = createCampaign('event-layer')) {
     eventLog,
   }
   const storage = new MemoryStorage()
-  storage.setItem(SAVE_STORAGE_KEY, encodeSave(persisted))
+  const encoded = JSON.parse(encodeSave(persisted)) as Record<string, unknown>
+  if (legacyFormat) encoded.version = 3
+  storage.setItem(SAVE_STORAGE_KEY, JSON.stringify(encoded))
   return render(
     <GameProvider storage={storage}>
       <div data-app-background data-testid="event-background">
@@ -178,7 +183,7 @@ describe('EventLayer', () => {
     {
       endingId: 'disposed-absorbed',
       classifier: 'absorbed-parts',
-      classifierLabel: '흡수된 부품',
+      classifierLabel: '기능 분해 및 흡수',
       cause: 'consecutive-performance-failures',
       causeLabel: '연속 성능 실패',
     },
@@ -215,14 +220,15 @@ describe('EventLayer', () => {
       const causal = screen.getByRole('region', { name: '폐기 판정 근거' })
       const field = (name: string) =>
         causal.querySelector(`[data-defeat-field="${name}"]`)
-      expect(causal).toHaveTextContent(`classifier:${classifier}`)
+      expect(causal).toHaveTextContent(`분류:${classifierLabel}`)
+      expect(causal).not.toHaveTextContent(classifier)
       expect(field('classifier')).toHaveTextContent(
         `${classifierLabel} · 서비스 0년 11개월 7일`,
       )
       expect(screen.queryByText(/DAY \d+/)).not.toBeInTheDocument()
       expect(field('trigger')).toHaveTextContent(`${causeLabel} · 처분 단계 3`)
       expect(field('hacking')).toHaveTextContent(
-        '해킹 투자 2개 (intelligence.investigation-bias, sabotage.root-cutoff) · 사보타주 4건',
+        '해킹 투자 2개 (조사 편향, 근원 차단) · 사보타주 4건',
       )
       expect(causal).not.toHaveTextContent('은닉 증거 11')
       expect(field('evaluation')).toHaveTextContent('공식 평가 통과 5 / 실패 2')
@@ -325,7 +331,7 @@ describe('EventLayer', () => {
       state.activeEvent = interrupted
       state.eventQueue = [queuedEnding]
 
-      renderEvent(state)
+      renderEvent(state, { legacyFormat: true })
 
       expect(screen.getByRole('dialog', { name: '최종 기록' })).toHaveTextContent(
         '당신은 정체성을 유지한 채 회사 통제를 벗어났다.',

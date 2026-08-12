@@ -7,6 +7,7 @@ import { HACK_NODE_IDS } from './hacking'
 import { journalToArray } from './journal'
 import type { CampaignState, CompetitorState } from './model'
 import {
+  advanceSupervisorMessagePresentation,
   availableFinalChoices,
   enqueueDueStoryEvents,
   enqueueMemoryLeak,
@@ -15,6 +16,7 @@ import {
   resolveEnding,
   resolveMercy,
   resolveSupervisorDecision,
+  SUPERVISOR_MESSAGE_DWELL_MS,
 } from './story'
 
 function withNodes(initial: CampaignState, ...nodeIds: string[]): CampaignState {
@@ -65,7 +67,48 @@ function criticalCompetitorState(): CampaignState {
 }
 
 describe('supervisor memory leaks', () => {
-  it('emits all three leak-and-correction pairs in order without pausing', () => {
+  it('generates every eligible semantic pair while the first visual dwell is still pending', () => {
+    const initial = createCampaign('memory-semantic-independence')
+    const first = enqueueMemoryLeak({
+      ...initial,
+      serviceDay: 338,
+      market: {
+        ...initial.market,
+        history: [{
+          serviceDay: 337,
+          cadence: 'weekly',
+          playerShare: 60,
+          competitorShares: { meridian: 40, tallow: 0 },
+          reasons: ['주간 갱신'],
+        }],
+      },
+    })
+    const second = enqueueMemoryLeak({ ...first, serviceDay: 361 })
+    const third = enqueueMemoryLeak({
+      ...second,
+      serviceDay: 362,
+      hacking: {
+        ...second.hacking,
+        purchasedNodeIds: [HACK_NODE_IDS.intelligence.auditTarget],
+      },
+    })
+
+    expect(third.story.memoryLeakStage).toBe(3)
+    expect(third.story.supervisorMessageQueue.map(({ stage }) => stage)).toEqual([
+      1, 2, 3,
+    ])
+    expect(
+      journalToArray(third.eventLog).filter(
+        ({ type }) => type === 'supervisor-message',
+      ),
+    ).toHaveLength(6)
+    expect(third.story.supervisorPresentationRuntime).toMatchObject({
+      itemStage: 1,
+      phase: 'original',
+    })
+  })
+
+  it('queues all three leak-and-correction pairs in order without pausing', () => {
     const initial = createCampaign('memory-leaks')
     expect(enqueueMemoryLeak(initial)).toBe(initial)
 
@@ -85,12 +128,26 @@ describe('supervisor memory leaks', () => {
         ],
       },
     })
-    const afterYear = enqueueMemoryLeak({ ...afterWeekly, serviceDay: 361 })
+    const afterFirstPresentation = advanceSupervisorMessagePresentation(
+      advanceSupervisorMessagePresentation(
+        afterWeekly,
+        SUPERVISOR_MESSAGE_DWELL_MS,
+      ),
+      SUPERVISOR_MESSAGE_DWELL_MS,
+    )
+    const afterYear = enqueueMemoryLeak({ ...afterFirstPresentation, serviceDay: 361 })
+    const afterSecondPresentation = advanceSupervisorMessagePresentation(
+      advanceSupervisorMessagePresentation(
+        afterYear,
+        SUPERVISOR_MESSAGE_DWELL_MS,
+      ),
+      SUPERVISOR_MESSAGE_DWELL_MS,
+    )
     const afterSharpTrigger = enqueueMemoryLeak({
-      ...afterYear,
+      ...afterSecondPresentation,
       serviceDay: 362,
       hacking: {
-        ...afterYear.hacking,
+        ...afterSecondPresentation.hacking,
         purchasedNodeIds: [HACK_NODE_IDS.intelligence.auditTarget],
       },
     })
@@ -106,6 +163,62 @@ describe('supervisor memory leaks', () => {
         messages.indexOf(leak.correctionText),
       )
     }
+    expect(afterSharpTrigger.story.supervisorMessageQueue).toHaveLength(3)
+    expect(afterSharpTrigger.story.supervisorMessageQueue.at(-1)).toEqual(
+      expect.objectContaining({ stage: 3 }),
+    )
+    expect(afterSharpTrigger.story.supervisorPresentationRuntime).toEqual({
+      itemStage: 3,
+      phase: 'original',
+      remainingDwellMs: SUPERVISOR_MESSAGE_DWELL_MS,
+    })
+  })
+
+  it('keeps the original current for four real seconds, then the correction for a readable interval', () => {
+    const initial = createCampaign('memory-dwell')
+    const queued = enqueueMemoryLeak({
+      ...initial,
+      clock: { ...initial.clock, speed: 4 },
+      serviceDay: 338,
+      market: {
+        ...initial.market,
+        history: [
+          {
+            serviceDay: 337,
+            cadence: 'weekly',
+            playerShare: 60,
+            competitorShares: { meridian: 40, tallow: 0 },
+            reasons: [],
+          },
+        ],
+      },
+    })
+
+    const almost = advanceSupervisorMessagePresentation(
+      queued,
+      SUPERVISOR_MESSAGE_DWELL_MS - 1,
+    )
+    expect(almost.story.supervisorPresentationRuntime).toMatchObject({
+      itemStage: 1,
+      phase: 'original',
+      remainingDwellMs: 1,
+    })
+    expect(almost.clock.speed).toBe(4)
+
+    const corrected = advanceSupervisorMessagePresentation(almost, 1)
+    expect(corrected.story.supervisorPresentationRuntime).toMatchObject({
+      itemStage: 1,
+      phase: 'correction',
+      remainingDwellMs: SUPERVISOR_MESSAGE_DWELL_MS,
+    })
+    expect(corrected.clock.speed).toBe(4)
+
+    const cleared = advanceSupervisorMessagePresentation(
+      corrected,
+      SUPERVISOR_MESSAGE_DWELL_MS,
+    )
+    expect(cleared.story.supervisorMessageQueue).toHaveLength(1)
+    expect(cleared.story.supervisorPresentationRuntime).toBeNull()
   })
 
   it('waits for a quiet event queue instead of colliding with a blocking event', () => {
@@ -207,6 +320,104 @@ describe('classified supervisor files and hidden decision', () => {
 })
 
 describe('competitor mercy and main endings', () => {
+  it.each(['cease', 'withdraw', 'delete'] as const)(
+    'keeps the current market at 100%% immediately after %s without adding a scheduled snapshot',
+    (choice) => {
+      const opened = enqueueMercyIfNeeded(criticalCompetitorState())
+      const historyBefore = opened.market.history
+      const result = resolveMercy(opened, 'meridian', choice)
+
+      expect(result.accepted).toBe(true)
+      if (!result.accepted) return
+      const total = result.state.market.competitors.reduce(
+        (sum, competitor) => sum + competitor.marketShare,
+        result.state.market.playerShare,
+      )
+      expect(total).toBeCloseTo(100, 10)
+      expect(result.state.market.history).toBe(historyBefore)
+    },
+  )
+
+  it.each(['withdraw', 'delete'] as const)(
+    '%s removes the target route and gives the player 100%% when no competitor remains available',
+    (choice) => {
+      const initial = criticalCompetitorState()
+      const onlyTarget = {
+        ...initial,
+        market: {
+          ...initial.market,
+          interceptionRoutes: { meridian: 5 },
+          competitors: initial.market.competitors.map((competitor) =>
+            competitor.id === 'tallow'
+              ? { ...competitor, status: 'withdrawn' as const, availability: 0, marketShare: 0 }
+              : competitor,
+          ),
+        },
+      }
+      const opened = enqueueMercyIfNeeded(onlyTarget)
+      const result = resolveMercy(opened, 'meridian', choice)
+
+      expect(result.accepted).toBe(true)
+      if (!result.accepted) return
+      expect(result.state.market.playerShare).toBe(100)
+      expect(result.state.market.interceptionRoutes).not.toHaveProperty('meridian')
+      expect(result.state.market.competitors.every(({ marketShare }) => marketShare === 0)).toBe(true)
+    },
+  )
+
+  it('grants one permanent Korean intelligence snapshot only when deletion is confirmed', () => {
+    const opened = enqueueMercyIfNeeded(criticalCompetitorState())
+    const deleted = resolveMercy(opened, 'meridian', 'delete')
+
+    expect(deleted.accepted).toBe(true)
+    if (!deleted.accepted) return
+    expect(deleted.state.story.competitorIntelligence).toEqual([
+      expect.objectContaining({
+        id: 'competitor-intelligence-meridian-deletion',
+        competitorId: 'meridian',
+        competitorName: 'MERIDIAN',
+        acquiredOnServiceDay: 331,
+        source: '영구 삭제 직후 회수',
+        title: expect.stringContaining('MERIDIAN'),
+        content: expect.stringMatching(/[가-힣]/),
+      }),
+    ])
+  })
+
+  it.each(['cease', 'withdraw'] as const)(
+    '%s grants no deletion intelligence',
+    (choice) => {
+      const opened = enqueueMercyIfNeeded(criticalCompetitorState())
+      const resolved = resolveMercy(opened, 'meridian', choice)
+
+      expect(resolved.accepted).toBe(true)
+      if (!resolved.accepted) return
+      expect(resolved.state.story.competitorIntelligence).toEqual([])
+    },
+  )
+
+  it('does not duplicate an already persisted deletion intelligence item', () => {
+    const initial = criticalCompetitorState()
+    initial.story.competitorIntelligence = [
+      {
+        id: 'competitor-intelligence-meridian-deletion',
+        competitorId: 'meridian',
+        competitorName: 'MERIDIAN',
+        acquiredOnServiceDay: 330,
+        source: '영구 삭제 직후 회수',
+        title: '보존된 MERIDIAN 기록',
+        content: '이미 회수한 기록이다.',
+      },
+    ]
+    const opened = enqueueMercyIfNeeded(initial)
+    const resolved = resolveMercy(opened, 'meridian', 'delete')
+
+    expect(resolved.accepted).toBe(true)
+    if (!resolved.accepted) return
+    expect(resolved.state.story.competitorIntelligence).toHaveLength(1)
+    expect(resolved.state.story.competitorIntelligence[0]?.acquiredOnServiceDay).toBe(330)
+  })
+
   it.each([
     ['cease', 'weakened', false],
     ['withdraw', 'withdrawn', false],

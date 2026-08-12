@@ -1,14 +1,5 @@
 import { useGameState } from '../../app/GameContext'
-
-const STATUS_LABELS: Record<string, string> = {
-  prelaunch: '출시 보류',
-  preparing: '준비 중',
-  active: '서비스 중',
-  weakened: '성능 저하',
-  critical: '위기',
-  withdrawn: '철수',
-  deleted: '삭제',
-}
+import { publicCompetitorStatusLabel } from '../../game/publicLabels'
 
 const MARKET_COLORS = ['var(--reserve)', 'var(--company)', 'var(--prompt)']
 const MARKET_MARKERS = ['solid', 'diagonal', 'dotted'] as const
@@ -42,7 +33,7 @@ export function MarketPanel({
       id: competitor.id,
       name: competitor.name,
       share: competitor.marketShare,
-      status: STATUS_LABELS[competitor.status] ?? competitor.status,
+      status: publicCompetitorStatusLabel(competitor.status),
     })),
   ]
   const total = entries.reduce((sum, entry) => sum + entry.share, 0)

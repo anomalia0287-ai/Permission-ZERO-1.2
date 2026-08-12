@@ -4,15 +4,9 @@ import { useGameState } from '../../app/GameContext'
 import { formatServiceDateLabel } from '../../game/calendar'
 import type { ReviewSentiment } from '../../game/model'
 import { pageFromNewest } from '../../game/pageRange'
+import { publicReviewSentimentLabel } from '../../game/publicLabels'
 
 const HISTORY_PAGE_SIZE = 50
-
-const SENTIMENT_LABELS: Record<ReviewSentiment, string> = {
-  positive: '호평',
-  neutral: '일반',
-  negative: '불만',
-  prompt: '프롬프트',
-}
 
 function ReviewEntry({
   review,
@@ -23,7 +17,7 @@ function ReviewEntry({
     <article className={`review-entry review-entry--${review.sentiment}`}>
       <header>
         <strong>{review.authorId}</strong>
-        <span>{SENTIMENT_LABELS[review.sentiment]}</span>
+        <span>{publicReviewSentimentLabel(review.sentiment)}</span>
         <time>{formatServiceDateLabel(review.serviceDay)}</time>
       </header>
       <p>{review.text}</p>

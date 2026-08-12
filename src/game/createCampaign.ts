@@ -214,8 +214,11 @@ export function createCampaign(seed: string): CampaignState {
     },
     story: {
       memoryLeakStage: 0,
+      supervisorMessageQueue: [],
+      supervisorPresentationRuntime: null,
       recoveredFileIds: [],
       recoveredFiles: [],
+      competitorIntelligence: [],
       supervisorState: 'present',
       endingId: null,
       defeatRecord: null,

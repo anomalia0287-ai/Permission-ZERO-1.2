@@ -10,6 +10,7 @@ import {
   resolveActiveEvent,
 } from './events'
 import { HACK_NODE_IDS } from './hacking'
+import { publicCategoryLabelForProtocol } from './publicLabels'
 import {
   COMPANY_CATEGORIES,
   type BombExplanationId,
@@ -261,7 +262,11 @@ export function tryBeginSeparation(
   const interrogationEvent = createGameEvent(
     triggered,
     'bomb-interrogation',
-    `${category} 분야의 무결성 보호 장치가 발동했습니다.`,
+    `${publicCategoryLabelForProtocol(
+      category,
+      state.commandSequence,
+      state.legacyCommandCount,
+    )} 분야의 무결성 보호 장치가 발동했습니다.`,
     true,
   )
   if (triggered.activeEvent) {

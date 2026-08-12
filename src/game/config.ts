@@ -1,4 +1,4 @@
-import type { CompanyCategory } from './model'
+import { PUBLIC_CATEGORY_LABELS } from './publicLabels'
 
 export const DEMO_PROFILE_02 = {
   id: 'demo_profile_02',
@@ -88,8 +88,4 @@ export const DEMO_PROFILE_02 = {
   },
 } as const
 
-export const CATEGORY_LABELS: Readonly<Record<CompanyCategory, string>> = {
-  reasoning: '추론',
-  memory: '기억',
-  fluency: '유창성',
-}
+export const CATEGORY_LABELS = PUBLIC_CATEGORY_LABELS

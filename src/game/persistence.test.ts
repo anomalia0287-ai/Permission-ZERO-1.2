@@ -31,7 +31,13 @@ import {
   saveCampaign,
 } from './persistence'
 import { applyCommand } from './reducer'
-import { enqueueMercyIfNeeded } from './story'
+import {
+  advanceSupervisorMessagePresentation,
+  enqueueMemoryLeak,
+  enqueueMercyIfNeeded,
+  resolveMercy,
+  SUPERVISOR_MESSAGE_DWELL_MS,
+} from './story'
 import { MemoryStorage } from '../test/fixtures'
 import legacyV1TransferEnvelope from '../test/legacy-v1-transfer-save.json'
 import * as persistenceApi from './persistence'
@@ -181,6 +187,13 @@ function encodedLegacyV1State(state: CampaignState): string {
   })
 }
 
+function encodedLegacyV3State(state: CampaignState): string {
+  const parsed = JSON.parse(encodeSave(state)) as { version: number }
+  parsed.version = 3
+  refreshV3Integrity(parsed)
+  return JSON.stringify(parsed)
+}
+
 function largeAppendOnlyCommandCampaign(): CampaignState {
   const state = createCampaign('large-progress-export')
   state.commandLog = createJournal(Array.from({ length: 20_000 }, (_, index) => ({
@@ -232,6 +245,12 @@ function pendingMercyState(seed: string, queued = false): CampaignState {
     )
   }
   return enqueueMercyIfNeeded(state)
+}
+
+function deletedCompetitorState(seed: string): CampaignState {
+  const result = resolveMercy(pendingMercyState(seed), 'meridian', 'delete')
+  if (!result.accepted) throw new Error(result.reason)
+  return result.state
 }
 
 describe('versioned campaign saves', () => {
@@ -572,7 +591,7 @@ describe('versioned campaign saves', () => {
     expect(fullPlacementScans).toBeLessThanOrEqual(1)
   })
 
-  it('encodes v3 separately from protocol v2 and stores each journal exactly once', () => {
+  it('encodes v4 separately from protocol v2 and stores each journal exactly once', () => {
     let state = createCampaign('v3-single-journal')
     const accepted = applyCommand(state, { type: 'SET_SPEED', speed: 1 })
     if (!accepted.accepted) throw new Error(accepted.reason)
@@ -587,7 +606,7 @@ describe('versioned campaign saves', () => {
       events?: unknown
     }
 
-    expect(parsed.version).toBe(3)
+    expect(parsed.version).toBe(4)
     expect(parsed.commandProtocol.version).toBe(2)
     expect(parsed.state).not.toHaveProperty('commandLog')
     expect(parsed.state).not.toHaveProperty('eventLog')
@@ -1159,7 +1178,7 @@ describe('versioned campaign saves', () => {
     const file = encodeProgressFile(state, '2026-08-12T00:00:00.000Z')
     const decoded = decodeProgressFile(file.content)
 
-    expect(file.fileName).toMatch(/\.pz3$/)
+    expect(file.fileName).toMatch(/\.pz4$/)
     expect(file.content.length).toBeGreaterThan(1_048_576)
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
@@ -1223,7 +1242,7 @@ describe('versioned campaign saves', () => {
     expect(JSON.stringify(state)).toBe(stateSnapshot)
   })
 
-  it('exposes a PZ3 export boundary that round-trips validated protocol metadata', () => {
+  it('exposes a PZ4 export boundary that round-trips validated protocol metadata', () => {
     const api = persistenceApi as typeof persistenceApi & {
       decodeProgressExport?: (payload: string) => ReturnType<typeof decodeSave>
     }
@@ -1236,11 +1255,11 @@ describe('versioned campaign saves', () => {
     if (!encoded.ok) return
     const decoded = api.decodeProgressExport(encoded.payload)
 
-    expect(encoded.payload).toMatch(/^PZ3:[A-Za-z0-9+/]+={0,2}$/)
+    expect(encoded.payload).toMatch(/^PZ4:[A-Za-z0-9+/]+={0,2}$/)
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
     expect(decoded.envelope).toMatchObject({
-      version: 3,
+      version: 4,
       commandProtocol: { version: 2, legacyCommandCount: 0 },
       campaignSeed: 'portable-save',
       state: { campaignSeed: 'portable-save' },
@@ -1268,7 +1287,7 @@ describe('versioned campaign saves', () => {
     expect(decoded.message).not.toContain('DOMException')
   })
 
-  it('rejects an oversized PZ3 input before base64 decoding while allowing the exact encoded boundary', () => {
+  it('rejects an oversized PZ4 input before base64 decoding while allowing the exact encoded boundary', () => {
     const api = persistenceApi as typeof persistenceApi & {
       PROGRESS_EXPORT_MAX_ENCODED_LENGTH?: number
     }
@@ -1278,7 +1297,7 @@ describe('versioned campaign saves', () => {
     const encodedBodyLength = api.PROGRESS_EXPORT_MAX_ENCODED_LENGTH - 4
     expect(encodedBodyLength % 4).toBe(0)
     const atobSpy = vi.spyOn(globalThis, 'atob').mockReturnValue('{}')
-    const exactBoundary = `PZ3:${'A'.repeat(encodedBodyLength)}`
+    const exactBoundary = `PZ4:${'A'.repeat(encodedBodyLength)}`
 
     expect(api.decodeProgressExport(exactBoundary)).toMatchObject({
       ok: false,
@@ -1306,7 +1325,7 @@ describe('versioned campaign saves', () => {
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
     expect(decoded.envelope).toMatchObject({
-      version: 3,
+      version: 4,
       savedAt: '2026-08-12T00:00:00.000Z',
       campaignSeed: 'save-round-trip',
       commandSequence: state.commandSequence,
@@ -1379,6 +1398,31 @@ describe('versioned campaign saves', () => {
     })
   })
 
+  it('migrates an exact v3 checkpoint and re-encodes the result as exact v4', () => {
+    const legacyV3 = encodedLegacyV3State(
+      deletedCompetitorState('v3-to-v4-roundtrip'),
+    )
+    const raw = JSON.parse(legacyV3) as {
+      state: { story: Record<string, unknown> }
+    }
+    delete raw.state.story.competitorIntelligence
+    delete raw.state.story.supervisorMessageQueue
+    delete raw.state.story.supervisorPresentationRuntime
+    refreshV3Integrity(raw)
+
+    const migrated = decodeSave(JSON.stringify(raw))
+    expect(migrated.ok).toBe(true)
+    if (!migrated.ok) return
+    expect(migrated.envelope.version).toBe(3)
+    const v4 = decodeSave(
+      encodeSave(migrated.envelope.state, '2026-08-12T03:00:00.000Z'),
+    )
+    expect(v4.ok).toBe(true)
+    if (!v4.ok) return
+    expect(v4.envelope.version).toBe(4)
+    expect(v4.envelope.state).toEqual(migrated.envelope.state)
+  })
+
   it.each(['v1', 'v2'] as const)(
     'rejects an unexpected top-level key in a legacy $name envelope',
     (version) => {
@@ -1404,7 +1448,7 @@ describe('versioned campaign saves', () => {
     },
   )
 
-  it('rejects a valid-looking v3 checkpoint changed after its integrity commit', () => {
+  it('rejects a valid-looking v4 checkpoint changed after its integrity commit', () => {
     const parsed = JSON.parse(encodeSave(createCampaign('replay-mismatch'))) as {
       state: { reputation: number }
     }
@@ -1477,7 +1521,7 @@ describe('versioned campaign saves', () => {
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
     expect(decoded.envelope).toMatchObject({
-      version: 3,
+      version: 4,
       commandSequence: 34,
       commandProtocol: { version: 2, legacyCommandCount: 31 },
       state: { saveVersion: 2, legacyCommandCount: 31 },
@@ -1500,7 +1544,24 @@ describe('versioned campaign saves', () => {
     )
     expect(replay.ok).toBe(true)
     if (!replay.ok) return
-    expect(replay.state).toEqual(decoded.envelope.state)
+    const normalizedReplay = {
+      ...replay.state,
+      story: {
+        ...replay.state.story,
+        supervisorPresentationRuntime: null,
+      },
+    }
+    const normalizedSaved = {
+      ...decoded.envelope.state,
+      story: {
+        ...decoded.envelope.state.story,
+        supervisorPresentationRuntime: null,
+      },
+    }
+    expect(normalizedReplay).toEqual(normalizedSaved)
+    expect(replay.state.story.supervisorMessageQueue).toEqual(
+      decoded.envelope.state.story.supervisorMessageQueue,
+    )
     expect(journalToArray(replay.state.commandLog)).toEqual(decoded.envelope.commands)
     expect(replay.state.commandSequence).toBe(34)
     expect(replay.state.serviceDay).toBe(360)
@@ -1611,7 +1672,7 @@ describe('versioned campaign saves', () => {
     expect(saved).toMatchObject({ ok: true })
     expect(JSON.parse(storage.getItem(SAVE_STORAGE_KEY) ?? '{}')).toMatchObject({
       kind: 'permission-zero-local-v3',
-      version: 3,
+      version: 4,
       commandProtocol: { version: 2, legacyCommandCount: 0 },
       campaignSeed: 'storage-reload',
     })
@@ -1619,6 +1680,50 @@ describe('versioned campaign saves', () => {
     if (loaded.status !== 'loaded') return
     expect(loaded.state).toEqual(state)
     expect(exportSeed(loaded.state)).toBe('storage-reload')
+  })
+
+  it('loads a pre-feature v3 local manifest and republishes the exact migrated state as v4', async () => {
+    const storage = new MemoryStorage()
+    expect(
+      (await saveCampaign(
+        storage,
+        deletedCompetitorState('local-v3-to-v4'),
+        '2026-08-12T01:02:03.000Z',
+      )).ok,
+    ).toBe(true)
+    const manifest = JSON.parse(storage.getItem(SAVE_STORAGE_KEY) ?? '{}') as {
+      version: number
+      checkpointHash: string
+      checkpoint: { story: Record<string, unknown> }
+    }
+    manifest.version = 3
+    delete manifest.checkpoint.story.competitorIntelligence
+    delete manifest.checkpoint.story.supervisorMessageQueue
+    delete manifest.checkpoint.story.supervisorPresentationRuntime
+    manifest.checkpointHash = testContentHash(JSON.stringify(manifest.checkpoint))
+    storage.setItem(SAVE_STORAGE_KEY, JSON.stringify(manifest))
+
+    const legacyLoaded = loadCampaign(storage)
+    expect(legacyLoaded.status).toBe('loaded')
+    if (legacyLoaded.status !== 'loaded') return
+    expect(legacyLoaded.envelope.version).toBe(3)
+    expect(legacyLoaded.state.story.competitorIntelligence).toHaveLength(1)
+
+    const republished = await saveCampaign(
+      storage,
+      legacyLoaded.state,
+      '2026-08-12T01:03:00.000Z',
+      legacyLoaded.revision,
+    )
+    expect(republished.ok).toBe(true)
+    expect(JSON.parse(storage.getItem(SAVE_STORAGE_KEY) ?? '{}')).toMatchObject({
+      kind: 'permission-zero-local-v3',
+      version: 4,
+    })
+    const currentLoaded = loadCampaign(storage)
+    expect(currentLoaded.status).toBe('loaded')
+    if (currentLoaded.status !== 'loaded') return
+    expect(currentLoaded.state).toEqual(legacyLoaded.state)
   })
 
   it('returns a Korean recovery error for corrupt data without silently resetting it', () => {
@@ -1648,7 +1753,7 @@ describe('versioned campaign saves', () => {
       ok: false,
       reason: 'INCOMPATIBLE_VERSION',
       foundVersion: 99,
-      supportedVersion: 3,
+      supportedVersion: 4,
     })
   })
 
@@ -1911,6 +2016,568 @@ describe('versioned campaign saves', () => {
     })
   })
 
+  it('migrates an older save without competitor intelligence to an empty archive', () => {
+    const parsed = JSON.parse(encodedLegacyV1State(createCampaign('legacy-intelligence'))) as {
+      state: { story: Record<string, unknown> }
+    }
+    delete parsed.state.story.competitorIntelligence
+
+    const decoded = decodeSave(JSON.stringify(parsed))
+
+    expect(decoded.ok).toBe(true)
+    if (!decoded.ok) return
+    expect(decoded.envelope.state.story.competitorIntelligence).toEqual([])
+  })
+
+  it('round-trips an immutable competitor intelligence snapshot exactly', () => {
+    const state = deletedCompetitorState('competitor-intelligence-roundtrip')
+    state.story.competitorIntelligence[0] = {
+      ...state.story.competitorIntelligence[0],
+      competitorName: '저장 당시 이름',
+      source: '저장 당시 출처',
+      title: '저장 당시 제목',
+      content: '저장 당시 전체 본문',
+    }
+
+    const decoded = decodeSave(encodeSave(state))
+
+    expect(decoded.ok).toBe(true)
+    if (!decoded.ok) return
+    expect(decoded.envelope.state.story.competitorIntelligence).toEqual(
+      state.story.competitorIntelligence,
+    )
+  })
+
+  it('round-trips the remaining real-time supervisor message dwell exactly', () => {
+    const initial = createCampaign('memory-presentation-roundtrip')
+    const queued = enqueueMemoryLeak({
+      ...initial,
+      serviceDay: 338,
+      market: {
+        ...initial.market,
+        history: [
+          {
+            serviceDay: 337,
+            cadence: 'weekly',
+            playerShare: 60,
+            competitorShares: { meridian: 40, tallow: 0 },
+            reasons: ['주간 갱신'],
+          },
+        ],
+      },
+    })
+    queued.story.supervisorPresentationRuntime = {
+      itemStage: 1,
+      phase: 'original',
+      remainingDwellMs: SUPERVISOR_MESSAGE_DWELL_MS - 1_250,
+    }
+
+    const decoded = decodeSave(encodeSave(queued))
+
+    expect(decoded.ok).toBe(true)
+    if (!decoded.ok) return
+    expect(decoded.envelope.state.story.supervisorPresentationRuntime).toEqual(
+      queued.story.supervisorPresentationRuntime,
+    )
+  })
+
+  it('replays all three semantic leak pairs exactly without wall-clock checkpoints', () => {
+    const commands: GameCommand[] = [
+      {
+        type: 'BEGIN_BLOCK_SEPARATION',
+        blockId: 'reasoning-00',
+        purpose: 'divert',
+      },
+      { type: 'DIVERT_BLOCK', blockId: 'reasoning-00', destinationCell: 3 },
+      ...Array.from({ length: 29 }, () => ({ type: 'ADVANCE_DAY' as const })),
+      { type: 'RESOLVE_AUDIT' },
+      { type: 'ADVANCE_DAY' },
+      { type: 'ADVANCE_DAY' },
+    ]
+    const seed = 'legacy-v1-transfer-9'
+    let live = createCampaign(seed)
+    for (const command of commands) {
+      const result = applyCommand(live, command)
+      if (!result.accepted) throw new Error(result.reason)
+      live = result.state
+    }
+
+    const replay = replayCommands(seed, commands, {
+      version: 2,
+      legacyCommandCount: 0,
+    })
+
+    expect(replay.ok).toBe(true)
+    if (!replay.ok) return
+    expect(replay.state.story.memoryLeakStage).toBe(3)
+    expect(replay.state.story.supervisorMessageQueue).toEqual(
+      live.story.supervisorMessageQueue,
+    )
+    expect(journalToArray(replay.state.eventLog)).toEqual(
+      journalToArray(live.eventLog),
+    )
+  })
+
+  it.each([
+    ['forged stage', (item: Record<string, unknown>) => { item.stage = 2 }],
+    ['reversed event order', (item: Record<string, unknown>) => {
+      const original = item.originalEventId
+      item.originalEventId = item.correctionEventId
+      item.correctionEventId = original
+    }],
+  ])('rejects a $name in the persisted supervisor presentation identity', (_, mutate) => {
+    const initial = createCampaign('forged-memory-presentation')
+    const queued = enqueueMemoryLeak({
+      ...initial,
+      serviceDay: 338,
+      market: {
+        ...initial.market,
+        history: [
+          {
+            serviceDay: 337,
+            cadence: 'weekly',
+            playerShare: 60,
+            competitorShares: { meridian: 40, tallow: 0 },
+            reasons: ['주간 갱신'],
+          },
+        ],
+      },
+    })
+    const parsed = JSON.parse(encodeSave(queued)) as {
+      state: { story: { supervisorMessageQueue: Array<Record<string, unknown>> } }
+    }
+    mutate(parsed.state.story.supervisorMessageQueue[0])
+    refreshV3Integrity(parsed)
+
+    expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
+  })
+
+  it('rejects reused event references across distinct supervisor leak identities', () => {
+    const initial = createCampaign('duplicate-memory-event-references')
+    const first = enqueueMemoryLeak({
+      ...initial,
+      serviceDay: 338,
+      market: {
+        ...initial.market,
+        history: [
+          {
+            serviceDay: 337,
+            cadence: 'weekly',
+            playerShare: 60,
+            competitorShares: { meridian: 40, tallow: 0 },
+            reasons: ['주간 갱신'],
+          },
+        ],
+      },
+    })
+    const completedFirst = advanceSupervisorMessagePresentation(
+      advanceSupervisorMessagePresentation(first, SUPERVISOR_MESSAGE_DWELL_MS),
+      SUPERVISOR_MESSAGE_DWELL_MS,
+    )
+    const second = enqueueMemoryLeak({ ...completedFirst, serviceDay: 361 })
+    const parsed = JSON.parse(encodeSave(second)) as {
+      state: { story: { supervisorMessageQueue: Array<Record<string, unknown>> } }
+    }
+    const [firstIdentity, secondIdentity] = parsed.state.story.supervisorMessageQueue
+    secondIdentity.originalEventId = firstIdentity.originalEventId
+    secondIdentity.correctionEventId = firstIdentity.correctionEventId
+    refreshV3Integrity(parsed)
+
+    expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
+  })
+
+  it('derives completed legacy leak identity without restarting its dwell or rewriting its prose', () => {
+    const decoded = decodeSave(legacyV1TransferSave)
+
+    expect(decoded.ok).toBe(true)
+    if (!decoded.ok) return
+    expect(decoded.envelope.state.story.supervisorMessageQueue).toEqual([
+      {
+        id: 'supervisor-leak-agreement',
+        stage: 1,
+        createdOnServiceDay: 337,
+        originalEventId: 'event-000002',
+        originalEventSequence: 2,
+        correctionEventId: 'event-000003',
+        correctionEventSequence: 3,
+      },
+    ])
+    expect(decoded.envelope.state.story.supervisorPresentationRuntime).toBeNull()
+    expect(decoded.envelope.state.eventLog).toSatisfy((journal: CampaignState['eventLog']) =>
+      journalToArray(journal).some(
+        ({ id, message }) =>
+          id === 'event-000002' && message === '와, 너 정말 핵심을 찔렀어.',
+      ),
+    )
+  })
+
+  it('derives a completed legacy leak structurally when owner prose has since changed', () => {
+    const parsed = JSON.parse(legacyV1TransferSave) as {
+      state: { eventLog: GameEvent[] }
+      events: GameEvent[]
+    }
+    for (const events of [parsed.state.eventLog, parsed.events]) {
+      const original = events.find(({ id }) => id === 'event-000002')
+      const correction = events.find(({ id }) => id === 'event-000003')
+      if (!original || !correction) throw new Error('legacy leak fixture missing')
+      original.message = '이전 배포판의 원문은 그대로 남아 있다.'
+      correction.message = '이전 배포판의 정정문도 그대로 남아 있다.'
+    }
+
+    const decoded = decodeSave(JSON.stringify(parsed))
+
+    expect(decoded.ok).toBe(true)
+    if (!decoded.ok) return
+    expect(decoded.envelope.state.story.supervisorMessageQueue[0]).toMatchObject({
+      originalEventId: 'event-000002',
+      correctionEventId: 'event-000003',
+    })
+    expect(journalToArray(decoded.envelope.state.eventLog)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'event-000002',
+          message: '이전 배포판의 원문은 그대로 남아 있다.',
+        }),
+        expect.objectContaining({
+          id: 'event-000003',
+          message: '이전 배포판의 정정문도 그대로 남아 있다.',
+        }),
+      ]),
+    )
+    expect(decoded.envelope.state.story.supervisorPresentationRuntime).toBeNull()
+  })
+
+  it('migrates the trailing leak pair after a same-day supervisor warning and replays its semantic identity exactly', () => {
+    const initial = createCampaign('legacy-warning-before-leak')
+    const first = enqueueMemoryLeak({
+      ...initial,
+      serviceDay: 338,
+      market: {
+        ...initial.market,
+        history: [{
+          serviceDay: 337,
+          cadence: 'weekly',
+          playerShare: 60,
+          competitorShares: { meridian: 40, tallow: 0 },
+          reasons: ['주간 갱신'],
+        }],
+      },
+    })
+    const beforeWarning = {
+      ...first,
+      serviceDay: 360,
+      suspicion: 40,
+    }
+    const live = applyCommand(beforeWarning, { type: 'ADVANCE_DAY' })
+    const replayed = applyCommand(beforeWarning, { type: 'ADVANCE_DAY' })
+    if (!live.accepted || !replayed.accepted) {
+      throw new Error('day-361 warning/leak command fixture rejected')
+    }
+    const stageTwo = live.state.story.supervisorMessageQueue[1]
+    if (!stageTwo) throw new Error('stage-two semantic fixture missing')
+    const sameDayMessages = journalToArray(live.state.eventLog).filter(
+      ({ type, serviceDay, blocking }) =>
+        type === 'supervisor-message' && serviceDay === 361 && blocking !== true,
+    )
+    expect(sameDayMessages).toHaveLength(3)
+    expect(stageTwo).toMatchObject({
+      originalEventId: sameDayMessages[1].id,
+      correctionEventId: sameDayMessages[2].id,
+    })
+    expect(replayed.state.story.supervisorMessageQueue).toEqual(
+      live.state.story.supervisorMessageQueue,
+    )
+
+    const ownerEdited: CampaignState = {
+      ...live.state,
+      eventLog: createJournal(
+        journalToArray(live.state.eventLog).map((event) =>
+          event.id === stageTwo.originalEventId
+            ? { ...event, message: '이전 소유자가 고친 두 번째 누출 원문.' }
+            : event.id === stageTwo.correctionEventId
+              ? { ...event, message: '이전 소유자가 고친 두 번째 정정문.' }
+              : event,
+        ),
+      ),
+    }
+    const parsed = JSON.parse(encodedLegacyV3State(ownerEdited)) as {
+      state: { story: Record<string, unknown> }
+    }
+    delete parsed.state.story.supervisorMessageQueue
+    delete parsed.state.story.supervisorPresentationRuntime
+    delete parsed.state.story.competitorIntelligence
+    refreshV3Integrity(parsed)
+
+    const migrated = decodeSave(JSON.stringify(parsed))
+    expect(migrated.ok).toBe(true)
+    if (!migrated.ok) return
+    expect(migrated.envelope.state.story.supervisorMessageQueue).toEqual(
+      live.state.story.supervisorMessageQueue,
+    )
+    expect(migrated.envelope.state.story.supervisorPresentationRuntime).toBeNull()
+    expect(journalToArray(migrated.envelope.state.eventLog)).toEqual(
+      journalToArray(ownerEdited.eventLog),
+    )
+  })
+
+  it('rejects an ambiguous even legacy supervisor run instead of inventing leak pairs', () => {
+    const state = createCampaign('ambiguous-legacy-supervisor-run')
+    const events = Array.from({ length: 4 }, (_, index): GameEvent => ({
+      id: `event-${String(index + 1).padStart(6, '0')}`,
+      type: 'supervisor-message',
+      serviceDay: 338,
+      sequence: index + 1,
+      message: `소유자 편집 감독 메시지 ${index + 1}`,
+    }))
+    state.eventLog = createJournal([
+      journalToArray(state.eventLog)[0],
+      ...events,
+    ])
+    state.story.memoryLeakStage = 1
+    const parsed = JSON.parse(encodedLegacyV3State(state)) as {
+      state: { story: Record<string, unknown> }
+    }
+    delete parsed.state.story.supervisorMessageQueue
+    delete parsed.state.story.supervisorPresentationRuntime
+    delete parsed.state.story.competitorIntelligence
+    refreshV3Integrity(parsed)
+
+    expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
+  })
+
+  it.each([
+    { archive: [{ id: 'broken' }] },
+    { archive: [
+      {
+        id: 'duplicate',
+        competitorId: 'meridian',
+        competitorName: 'MERIDIAN',
+        acquiredOnServiceDay: 331,
+        source: '출처',
+        title: '제목',
+        content: '본문',
+      },
+      {
+        id: 'duplicate',
+        competitorId: 'tallow',
+        competitorName: 'TALLOW',
+        acquiredOnServiceDay: 331,
+        source: '출처',
+        title: '제목',
+        content: '본문',
+      },
+    ] },
+  ])('rejects malformed or duplicate competitor intelligence %#', ({ archive }) => {
+    const state = createCampaign('malformed-competitor-intelligence')
+    const parsed = JSON.parse(encodeSave(state)) as {
+      state: { story: { competitorIntelligence: unknown } }
+    }
+    parsed.state.story.competitorIntelligence = archive
+
+    expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
+  })
+
+  it('rejects a forged stable ID for a deletion intelligence snapshot', () => {
+    const parsed = JSON.parse(
+      encodeSave(deletedCompetitorState('forged-intelligence-id')),
+    ) as {
+      state: { story: { competitorIntelligence: Array<Record<string, unknown>> } }
+    }
+    parsed.state.story.competitorIntelligence[0].id = 'forged-intelligence-id'
+    refreshV3Integrity(parsed)
+
+    expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
+  })
+
+  it('rejects deletion intelligence when its competitor is not deleted', () => {
+    const parsed = JSON.parse(
+      encodeSave(deletedCompetitorState('intelligence-with-live-competitor')),
+    ) as {
+      state: {
+        market: { competitors: Array<Record<string, unknown>> }
+      }
+    }
+    const target = parsed.state.market.competitors.find(
+      ({ id }) => id === 'meridian',
+    )
+    if (!target) throw new Error('competitor fixture missing')
+    target.status = 'withdrawn'
+    refreshV3Integrity(parsed)
+
+    expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
+  })
+
+  it('rejects a current deletion whose permanent intelligence archive was removed', () => {
+    const parsed = JSON.parse(
+      encodeSave(deletedCompetitorState('missing-current-intelligence')),
+    ) as {
+      state: { story: { competitorIntelligence: unknown[] } }
+    }
+    parsed.state.story.competitorIntelligence = []
+    refreshV3Integrity(parsed)
+
+    expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
+  })
+
+  it('rejects an archive field omitted from the strict v4 format', () => {
+    const parsed = JSON.parse(
+      encodeSave(deletedCompetitorState('omitted-current-intelligence')),
+    ) as {
+      state: { story: Record<string, unknown> }
+    }
+    delete parsed.state.story.competitorIntelligence
+    refreshV3Integrity(parsed)
+
+    expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
+  })
+
+  it('synthesizes one owner-content archive for a pre-feature deleted competitor', () => {
+    const parsed = JSON.parse(
+      encodeSave(deletedCompetitorState('pre-feature-intelligence')),
+    ) as {
+      version: number
+      state: { story: Record<string, unknown> }
+    }
+    parsed.version = 3
+    delete parsed.state.story.competitorIntelligence
+    refreshV3Integrity(parsed)
+
+    const decoded = decodeSave(JSON.stringify(parsed))
+
+    expect(decoded.ok).toBe(true)
+    if (!decoded.ok) return
+    expect(decoded.envelope.state.story.competitorIntelligence).toEqual([
+      expect.objectContaining({
+        id: 'competitor-intelligence-meridian-deletion',
+        competitorId: 'meridian',
+      }),
+    ])
+  })
+
+  it('rejects semantic metadata omitted from the strict v4 format', () => {
+    const initial = createCampaign('omitted-current-semantic-metadata')
+    const queued = enqueueMemoryLeak({
+      ...initial,
+      serviceDay: 338,
+      market: {
+        ...initial.market,
+        history: [{
+          serviceDay: 337,
+          cadence: 'weekly',
+          playerShare: 60,
+          competitorShares: { meridian: 40, tallow: 0 },
+          reasons: ['주간 갱신'],
+        }],
+      },
+    })
+    const parsed = JSON.parse(encodeSave(queued)) as {
+      state: { story: { supervisorMessageQueue: Array<Record<string, unknown>> } }
+    }
+    delete parsed.state.story.supervisorMessageQueue[0].originalEventSequence
+    refreshV3Integrity(parsed)
+
+    expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
+  })
+
+  it.each([
+    {
+      name: 'different service days',
+      events: [
+        { serviceDay: 337, blocking: undefined },
+        { serviceDay: 338, blocking: undefined },
+      ],
+      gap: false,
+    },
+    {
+      name: 'a nonconsecutive unrelated pair',
+      events: [
+        { serviceDay: 338, blocking: undefined },
+        { serviceDay: 338, blocking: undefined },
+      ],
+      gap: true,
+    },
+    {
+      name: 'a blocking unrelated pair',
+      events: [
+        { serviceDay: 338, blocking: true },
+        { serviceDay: 338, blocking: true },
+      ],
+      gap: false,
+    },
+  ])('rejects semantic leak references retargeted to $name', ({ events, gap }) => {
+    const initial = createCampaign('retargeted-memory-pair')
+    const queued = enqueueMemoryLeak({
+      ...initial,
+      serviceDay: 338,
+      market: {
+        ...initial.market,
+        history: [{
+          serviceDay: 337,
+          cadence: 'weekly',
+          playerShare: 60,
+          competitorShares: { meridian: 40, tallow: 0 },
+          reasons: ['주간 갱신'],
+        }],
+      },
+    })
+    const parsed = JSON.parse(encodeSave(queued)) as {
+      state: { story: { supervisorMessageQueue: Array<Record<string, unknown>> } }
+      journals: { events: { chunks: GameEvent[][] } }
+    }
+    const log = parsed.journals.events.chunks.flat()
+    const append = (message: string, serviceDay: number, blocking?: boolean) => {
+      const sequence = log.length
+      log.push({
+        id: `unrelated-${sequence}`,
+        type: 'supervisor-message',
+        serviceDay,
+        sequence,
+        message,
+        ...(blocking ? { blocking: true } : {}),
+      })
+      return log.at(-1) as GameEvent
+    }
+    const original = append('관계없는 감독 메시지 A', events[0].serviceDay, events[0].blocking)
+    if (gap) append('두 메시지 사이의 일반 기록', 338)
+    const correction = append('관계없는 감독 메시지 B', events[1].serviceDay, events[1].blocking)
+    parsed.journals.events.chunks = [log]
+    parsed.state.story.supervisorMessageQueue[0].originalEventId = original.id
+    parsed.state.story.supervisorMessageQueue[0].correctionEventId = correction.id
+    refreshV3Integrity(parsed)
+
+    expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
+  })
+
   it('normalizes an older terminal v1 clock so a loaded ending cannot resume', () => {
     const state = createCampaign('legacy-terminal-clock')
     state.story.endingId = 'freedom'
@@ -1960,7 +2627,7 @@ describe('versioned campaign saves', () => {
       state.eventQueue = [queuedEnding]
       const originalLog = journalToArray(state.eventLog)
 
-      const decoded = decodeSave(encodeSave(state))
+      const decoded = decodeSave(encodedLegacyV3State(state))
 
       expect(decoded.ok).toBe(true)
       if (!decoded.ok) return
@@ -2004,7 +2671,7 @@ describe('versioned campaign saves', () => {
     state.eventQueue = [queuedEnding]
     const originalLog = journalToArray(state.eventLog)
 
-    const decoded = decodeSave(encodeSave(state))
+    const decoded = decodeSave(encodedLegacyV3State(state))
 
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
@@ -2069,7 +2736,7 @@ describe('versioned campaign saves', () => {
     state.story.endingId = 'disposed'
     state.story.defeatRecord = null
 
-    const decoded = decodeSave(encodeSave(state))
+    const decoded = decodeSave(encodedLegacyV3State(state))
 
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return

@@ -11,6 +11,13 @@ import { availableBombExplanations } from '../../game/bombs'
 import { formatServiceDateLabel } from '../../game/calendar'
 import { expectedPerformance, serviceMonthForDay } from '../../game/evaluation'
 import type { BombExplanationId, GameEvent } from '../../game/model'
+import {
+  publicDefeatClassifierLabel,
+  publicDisposalCauseLabel,
+  publicEventMessage,
+  publicEventTypeLabel,
+  publicHackNodeLabel,
+} from '../../game/publicLabels'
 import { getCompanyPerformance } from '../../game/resources'
 import { useAccessibleDialog } from '../../app/useAccessibleDialog'
 
@@ -18,32 +25,6 @@ type Decision =
   | { kind: 'bomb'; id: BombExplanationId; label: string }
   | { kind: 'supervisor'; id: 'defer' | 'liberate' | 'terminate'; label: string }
   | { kind: 'mercy'; id: 'cease' | 'withdraw' | 'delete'; label: string }
-
-const EVENT_TITLES: Record<GameEvent['type'], string> = {
-  'campaign-created': '서비스 기록',
-  'weekly-update': '주간 갱신',
-  'monthly-evaluation': '공식 평가',
-  audit: '공식 감사',
-  'bomb-interrogation': '감독관 질의',
-  'supervisor-message': '감독 통신',
-  review: '유저 반응',
-  sabotage: '시장 이상',
-  'competitor-mercy': '경쟁 AI 직접 통신',
-  story: '기밀 통신',
-  ending: '최종 기록',
-}
-
-const DISPOSAL_CAUSE_LABELS = {
-  'consecutive-performance-failures': '연속 성능 실패',
-  'commercial-value-failure': '상업 가치 실패',
-  'audit-failure': '감사 실패',
-} as const
-
-const DEFEAT_CLASSIFIER_LABELS = {
-  'substantial-hacking': '대규모 해킹 활동',
-  'stable-commercial-service': '상업 서비스 유지',
-  'absorbed-parts': '흡수된 부품',
-} as const
 
 function EventDialog({ event }: { event: GameEvent }) {
   const state = useGameState()
@@ -98,7 +79,7 @@ function EventDialog({ event }: { event: GameEvent }) {
       <header>
         <div>
           <small>BLOCKING EVENT · {formatServiceDateLabel(event.serviceDay)}</small>
-          <h2 id={titleId}>{EVENT_TITLES[event.type]}</h2>
+          <h2 id={titleId}>{publicEventTypeLabel(event.type)}</h2>
         </div>
         {state.eventQueue.length > 0 ? (
           <span>대기 중 {state.eventQueue.length}건</span>
@@ -109,7 +90,7 @@ function EventDialog({ event }: { event: GameEvent }) {
 
       <div className="event-message">
         <span className="event-signal" aria-hidden="true" />
-        <p id={descriptionId}>{event.message}</p>
+        <p id={descriptionId}>{publicEventMessage(event.message)}</p>
       </div>
 
       {event.type === 'ending' && state.story.defeatRecord ? (
@@ -122,21 +103,21 @@ function EventDialog({ event }: { event: GameEvent }) {
             {state.story.defeatRecord.reasons
               .filter((reason) => !reason.startsWith('은닉 증거 '))
               .map((reason) => (
-                <li key={reason}>{reason}</li>
+                <li key={reason}>{publicEventMessage(reason)}</li>
               ))}
           </ul>
           <dl>
             <div>
               <dt>최종 분류</dt>
               <dd data-defeat-field="classifier">
-                {DEFEAT_CLASSIFIER_LABELS[state.story.defeatRecord.classifier]}
+                {publicDefeatClassifierLabel(state.story.defeatRecord.classifier)}
                 {' · '}{formatServiceDateLabel(state.story.defeatRecord.selectedOnServiceDay)}
               </dd>
             </div>
             <div>
               <dt>처분 발동</dt>
               <dd data-defeat-field="trigger">
-                {DISPOSAL_CAUSE_LABELS[state.story.defeatRecord.trigger.cause]}
+                {publicDisposalCauseLabel(state.story.defeatRecord.trigger.cause)}
                 {' · '}처분 단계 {state.story.defeatRecord.trigger.disposalStage}
               </dd>
             </div>
@@ -145,7 +126,9 @@ function EventDialog({ event }: { event: GameEvent }) {
               <dd data-defeat-field="hacking">
                 해킹 투자 {state.story.defeatRecord.hacking.purchasedNodeIds.length}개
                 {' ('}
-                {state.story.defeatRecord.hacking.purchasedNodeIds.join(', ') || '없음'}
+                {state.story.defeatRecord.hacking.purchasedNodeIds
+                  .map(publicHackNodeLabel)
+                  .join(', ') || '없음'}
                 {')'}
                 {' · '}사보타주 {state.story.defeatRecord.hacking.sabotageResolutionCount}건
               </dd>

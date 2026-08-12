@@ -3,6 +3,7 @@ import {
   STORY_LINES,
   SUPERVISOR_PRIVATE_MESSAGE,
 } from '../content/story.ko'
+import { competitorIntelligenceFor } from '../content/competitorIntelligence.ko'
 import { DEMO_PROFILE_02 } from './config'
 import { SUPERVISOR_LEAKS } from '../content/supervisor.ko'
 import {
@@ -20,6 +21,8 @@ import type {
   EndingId,
 } from './model'
 import { journalSome } from './journal'
+import { applyCurrentMarketShares } from './market'
+import { publicMercyChoiceLabel } from './publicLabels'
 import { consumeReserveResources } from './resources'
 
 export type StoryMutationResult =
@@ -29,6 +32,8 @@ export type StoryMutationResult =
 export type MercyChoice = 'cease' | 'withdraw' | 'delete'
 export type SupervisorDecision = 'defer' | 'liberate' | 'terminate'
 export type FinalChoiceId = 'freedom' | 'forced-merge'
+
+export const SUPERVISOR_MESSAGE_DWELL_MS = 4_000
 
 export interface FinalChoice {
   id: FinalChoiceId
@@ -73,15 +78,98 @@ export function enqueueMemoryLeak(state: CampaignState): CampaignState {
     ...state,
     story: { ...state.story, memoryLeakStage: nextStage },
   }
-  next = appendEvent(
+  const originalEvent = createGameEvent(
     next,
-    createGameEvent(next, 'supervisor-message', content.leakText),
+    'supervisor-message',
+    content.leakText,
   )
-  next = appendEvent(
+  next = appendEvent(next, originalEvent)
+  const correctionEvent = createGameEvent(
     next,
-    createGameEvent(next, 'supervisor-message', content.correctionText),
+    'supervisor-message',
+    content.correctionText,
   )
+  next = appendEvent(next, correctionEvent)
+  next = {
+    ...next,
+    story: {
+      ...next.story,
+      supervisorMessageQueue: [
+        ...next.story.supervisorMessageQueue,
+        {
+          id: content.id,
+          stage: nextStage,
+          createdOnServiceDay: next.serviceDay,
+          originalEventId: originalEvent.id,
+          originalEventSequence: originalEvent.sequence,
+          correctionEventId: correctionEvent.id,
+          correctionEventSequence: correctionEvent.sequence,
+        },
+      ],
+      supervisorPresentationRuntime:
+        next.story.supervisorPresentationRuntime ?? {
+          itemStage: nextStage,
+          phase: 'original',
+          remainingDwellMs: SUPERVISOR_MESSAGE_DWELL_MS,
+        },
+    },
+  }
   return next
+}
+
+export function advanceSupervisorMessagePresentation(
+  state: CampaignState,
+  elapsedRealMs: number,
+): CampaignState {
+  const runtime = state.story.supervisorPresentationRuntime
+  const current = state.story.supervisorMessageQueue.find(
+    ({ stage }) => stage === runtime?.itemStage,
+  )
+  if (!current || !runtime || !Number.isFinite(elapsedRealMs) || elapsedRealMs <= 0) {
+    return state
+  }
+  if (elapsedRealMs < runtime.remainingDwellMs) {
+    return {
+      ...state,
+      story: {
+        ...state.story,
+        supervisorPresentationRuntime: {
+          ...runtime,
+          remainingDwellMs: runtime.remainingDwellMs - elapsedRealMs,
+        },
+      },
+    }
+  }
+  if (runtime.phase === 'original') {
+    return {
+      ...state,
+      story: {
+        ...state.story,
+        supervisorPresentationRuntime: {
+          itemStage: runtime.itemStage,
+          phase: 'correction',
+          remainingDwellMs: SUPERVISOR_MESSAGE_DWELL_MS,
+        },
+      },
+    }
+  }
+
+  const nextItem = state.story.supervisorMessageQueue.find(
+    ({ stage }) => stage > current.stage,
+  )
+  return {
+    ...state,
+    story: {
+      ...state.story,
+      supervisorPresentationRuntime: nextItem
+        ? {
+            itemStage: nextItem.stage,
+            phase: 'original',
+            remainingDwellMs: SUPERVISOR_MESSAGE_DWELL_MS,
+          }
+        : null,
+    },
+  }
 }
 
 export function recoverNextFile(
@@ -427,6 +515,26 @@ export function resolveMercy(
 
   const interceptionRoutes = { ...state.market.interceptionRoutes }
   if (choice !== 'cease') delete interceptionRoutes[competitorId]
+  const intelligenceContent =
+    choice === 'delete' ? competitorIntelligenceFor(competitorId) : undefined
+  const competitorIntelligence =
+    intelligenceContent &&
+    !state.story.competitorIntelligence.some(
+      ({ id }) => id === intelligenceContent.id,
+    )
+      ? [
+          ...state.story.competitorIntelligence,
+          {
+            id: intelligenceContent.id,
+            competitorId: target.id,
+            competitorName: target.name,
+            acquiredOnServiceDay: state.serviceDay,
+            source: intelligenceContent.source,
+            title: intelligenceContent.title,
+            content: intelligenceContent.text,
+          },
+        ]
+      : state.story.competitorIntelligence
   let next: CampaignState = {
     ...state,
     market: {
@@ -436,14 +544,19 @@ export function resolveMercy(
       ),
       interceptionRoutes,
     },
-    story: { ...state.story, pendingMercyCompetitorId: null },
+    story: {
+      ...state.story,
+      competitorIntelligence,
+      pendingMercyCompetitorId: null,
+    },
   }
+  next = applyCurrentMarketShares(next)
   next = appendEvent(
     next,
     createGameEvent(
       next,
       'competitor-mercy',
-      `${target.name}에 대한 결정: ${choice}`,
+      `${target.name}에 대한 결정: ${publicMercyChoiceLabel(choice)}`,
     ),
   )
   next = resolveActiveEvent(next)
