@@ -161,7 +161,11 @@ function encodedLegacyV1State(state: CampaignState): string {
     savedAt: string
     campaignSeed: string
     commandSequence: number
-    state: Record<string, unknown> & { saveVersion: number; legacyCommandCount?: number }
+    state: Record<string, unknown> & {
+      saveVersion: number
+      legacyCommandCount?: number
+      reviews: { feed: Array<Record<string, unknown>> }
+    }
     journals: {
       commands: { chunks: CommandLogEntry[][] }
       events: { chunks: GameEvent[][] }
@@ -176,6 +180,7 @@ function encodedLegacyV1State(state: CampaignState): string {
     eventLog: events,
   }
   delete legacyState.legacyCommandCount
+  for (const review of legacyState.reviews.feed) delete review.snapshot
   return JSON.stringify({
     version: 1,
     savedAt: parsed.savedAt,
@@ -188,8 +193,23 @@ function encodedLegacyV1State(state: CampaignState): string {
 }
 
 function encodedLegacyV3State(state: CampaignState): string {
-  const parsed = JSON.parse(encodeSave(state)) as { version: number }
+  const parsed = JSON.parse(encodeSave(state)) as {
+    version: number
+    state: { reviews: { feed: Array<Record<string, unknown>> } }
+  }
   parsed.version = 3
+  for (const review of parsed.state.reviews.feed) delete review.snapshot
+  refreshV3Integrity(parsed)
+  return JSON.stringify(parsed)
+}
+
+function encodedLegacyV4State(state: CampaignState): string {
+  const parsed = JSON.parse(encodeSave(state)) as {
+    version: number
+    state: { reviews: { feed: Array<Record<string, unknown>> } }
+  }
+  parsed.version = 4
+  for (const review of parsed.state.reviews.feed) delete review.snapshot
   refreshV3Integrity(parsed)
   return JSON.stringify(parsed)
 }
@@ -254,6 +274,276 @@ function deletedCompetitorState(seed: string): CampaignState {
 }
 
 describe('versioned campaign saves', () => {
+  it('exports the current explicit v5 boundary while retaining command protocol v2', () => {
+    const state = createCampaign('save-v5-boundary')
+    const encoded = encodeProgressExport(state)
+    const file = encodeProgressFile(state, '2026-08-12T00:00:00.000Z')
+
+    expect(JSON.parse(encodeSave(state))).toMatchObject({
+      version: 5,
+      commandProtocol: { version: 2, legacyCommandCount: 0 },
+    })
+    expect(encoded).toMatchObject({ ok: true })
+    if (encoded.ok) expect(encoded.payload).toMatch(/^PZ5:/)
+    expect(file.fileName).toMatch(/\.pz5$/)
+  })
+
+  it('migrates exact v4 reviews to public-only unavailable snapshots without inventing values', () => {
+    const source = createCampaign('save-v4-review-migration')
+    const decoded = decodeSave(encodedLegacyV4State(source))
+
+    expect(decoded.ok).toBe(true)
+    if (!decoded.ok) return
+    expect(decoded.envelope.version).toBe(4)
+    expect(decoded.envelope.state.reviews.feed.map(({ snapshot }) => snapshot)).toEqual(
+      source.reviews.feed.map((review) => ({
+        kind: 'unavailable',
+        reason: 'legacy-save',
+        capturedOnServiceDay: review.serviceDay,
+      })),
+    )
+    expect(decoded.envelope.state.reviews.feed.map(({ text }) => text)).toEqual(
+      source.reviews.feed.map(({ text }) => text),
+    )
+    expect(decoded.envelope.state.reviews.feed.map(({ authorId }) => authorId)).toEqual(
+      source.reviews.feed.map(({ authorId }) => authorId),
+    )
+  })
+
+  it('rejects a v5 save impersonating v4 instead of silently discarding its snapshots', () => {
+    const parsed = JSON.parse(encodeSave(createCampaign('save-v5-downgrade'))) as {
+      version: number
+    }
+    parsed.version = 4
+
+    expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
+  })
+
+  it.each(['unavailable', 'captured'])(
+    'rejects a v4 review that owns a current-only %s snapshot key',
+    (kind) => {
+      const parsed = JSON.parse(
+        encodedLegacyV4State(createCampaign(`save-v4-current-field-${kind}`)),
+      ) as {
+        state: {
+          reviews: {
+            feed: Array<{ serviceDay: number; snapshot?: Record<string, unknown> }>
+          }
+        }
+      }
+      const entry = parsed.state.reviews.feed[0]
+      entry.snapshot = kind === 'unavailable'
+        ? {
+            kind: 'unavailable',
+            reason: 'legacy-save',
+            capturedOnServiceDay: entry.serviceDay,
+          }
+        : {
+            kind: 'captured-public-v1',
+            capturedOnServiceDay: entry.serviceDay,
+            performance: null,
+            market: null,
+          }
+      refreshV3Integrity(parsed)
+
+      expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
+        ok: false,
+        reason: 'CORRUPT_SAVE',
+      })
+    },
+  )
+
+  it('requires a valid public snapshot on every v5 review', () => {
+    const parsed = JSON.parse(encodeSave(createCampaign('save-v5-snapshot-required'))) as {
+      version: number
+      state: { reviews: { feed: Array<Record<string, unknown>> } }
+    }
+    parsed.version = 5
+    delete parsed.state.reviews.feed[0].snapshot
+    refreshV3Integrity(parsed)
+
+    expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
+  })
+
+  it.each([
+    ['secret-bearing', (snapshot: Record<string, unknown>) => {
+      snapshot.suspicion = 77
+    }],
+    ['future-dated', (snapshot: Record<string, unknown>) => {
+      snapshot.capturedOnServiceDay = 999
+    }],
+    ['duplicate-category', (snapshot: Record<string, unknown>) => {
+      snapshot.kind = 'captured-public-v1'
+      snapshot.performance = {
+        expectedPerformance: 14,
+        categories: [
+          { category: 'memory', actual: 16 },
+          { category: 'memory', actual: 15 },
+        ],
+      }
+      snapshot.market = null
+    }],
+    ['topic-mismatch', (snapshot: Record<string, unknown>) => {
+      snapshot.kind = 'captured-public-v1'
+      snapshot.performance = {
+        expectedPerformance: 14,
+        categories: [{ category: 'reasoning', actual: 16 }],
+      }
+      snapshot.market = null
+    }],
+  ])('rejects a %s v5 review snapshot', (_name, mutate) => {
+    const parsed = JSON.parse(encodeSave(createCampaign(`save-v5-${_name}`))) as {
+      version: number
+      state: {
+        reviews: { feed: Array<{ topics: string[]; snapshot: Record<string, unknown> }> }
+      }
+    }
+    parsed.version = 5
+    const entry = parsed.state.reviews.feed[0]
+    entry.topics = ['general']
+    mutate(entry.snapshot)
+    refreshV3Integrity(parsed)
+
+    expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
+  })
+
+  it.each([
+    [
+      'nested performance secret',
+      ['memory'],
+      {
+        kind: 'captured-public-v1',
+        capturedOnServiceDay: 321,
+        performance: {
+          expectedPerformance: 14,
+          categories: [
+            { category: 'memory', actual: 16, hiddenEvidence: 9 },
+          ],
+        },
+        market: null,
+      },
+    ],
+    [
+      'nested competitor secret',
+      ['competitor', 'meridian'],
+      {
+        kind: 'captured-public-v1',
+        capturedOnServiceDay: 321,
+        performance: null,
+        market: {
+          scope: 'topic-subset',
+          playerShare: 60,
+          competitors: [
+            {
+              id: 'meridian',
+              name: 'MERIDIAN',
+              status: 'active',
+              marketShare: 40,
+              auditRoll: 0.2,
+            },
+          ],
+        },
+      },
+    ],
+    [
+      'competitor topic without its relevant public market snapshot',
+      ['meridian'],
+      {
+        kind: 'captured-public-v1',
+        capturedOnServiceDay: 321,
+        performance: null,
+        market: null,
+      },
+    ],
+  ])('rejects a %s', (_name, topics, snapshot) => {
+    const parsed = JSON.parse(encodeSave(createCampaign(`save-v5-${_name}`))) as {
+      state: {
+        reviews: {
+          feed: Array<{ topics: string[]; snapshot: Record<string, unknown> }>
+        }
+      }
+    }
+    parsed.state.reviews.feed[0].topics = topics
+    parsed.state.reviews.feed[0].snapshot = snapshot as Record<string, unknown>
+    refreshV3Integrity(parsed)
+
+    expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
+  })
+
+  it.each([
+    [
+      'complete market overview whose public shares do not total 100',
+      ['competitor'],
+      {
+        scope: 'complete-market',
+        playerShare: 60,
+        competitors: [
+          { id: 'meridian', name: 'MERIDIAN', status: 'active', marketShare: 39 },
+          { id: 'tallow', name: 'TALLOW', status: 'preparing', marketShare: 0 },
+        ],
+      },
+    ],
+    [
+      'topic subset whose shown public shares exceed 100',
+      ['meridian'],
+      {
+        scope: 'topic-subset',
+        playerShare: 60,
+        competitors: [
+          { id: 'meridian', name: 'MERIDIAN', status: 'active', marketShare: 41 },
+        ],
+      },
+    ],
+    [
+      'withdrawn competitor with a positive public share',
+      ['meridian'],
+      {
+        scope: 'topic-subset',
+        playerShare: 60,
+        competitors: [
+          { id: 'meridian', name: 'MERIDIAN', status: 'withdrawn', marketShare: 1 },
+        ],
+      },
+    ],
+  ])('rejects an impossible %s snapshot', (_name, topics, market) => {
+    const parsed = JSON.parse(encodeSave(createCampaign(`save-v5-${_name}`))) as {
+      state: {
+        reviews: {
+          feed: Array<{
+            serviceDay: number
+            topics: string[]
+            snapshot: Record<string, unknown>
+          }>
+        }
+      }
+    }
+    const entry = parsed.state.reviews.feed[0]
+    entry.topics = topics
+    entry.snapshot = {
+      kind: 'captured-public-v1',
+      capturedOnServiceDay: entry.serviceDay,
+      performance: null,
+      market,
+    }
+    refreshV3Integrity(parsed)
+
+    expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
+  })
   it.each([
     ['unknown top-level state key', ['state', 'unexpected'], true],
     ['negative service day', ['state', 'serviceDay'], -1],
@@ -591,7 +881,7 @@ describe('versioned campaign saves', () => {
     expect(fullPlacementScans).toBeLessThanOrEqual(1)
   })
 
-  it('encodes v4 separately from protocol v2 and stores each journal exactly once', () => {
+  it('encodes v5 separately from protocol v2 and stores each journal exactly once', () => {
     let state = createCampaign('v3-single-journal')
     const accepted = applyCommand(state, { type: 'SET_SPEED', speed: 1 })
     if (!accepted.accepted) throw new Error(accepted.reason)
@@ -606,7 +896,7 @@ describe('versioned campaign saves', () => {
       events?: unknown
     }
 
-    expect(parsed.version).toBe(4)
+    expect(parsed.version).toBe(5)
     expect(parsed.commandProtocol.version).toBe(2)
     expect(parsed.state).not.toHaveProperty('commandLog')
     expect(parsed.state).not.toHaveProperty('eventLog')
@@ -1178,7 +1468,7 @@ describe('versioned campaign saves', () => {
     const file = encodeProgressFile(state, '2026-08-12T00:00:00.000Z')
     const decoded = decodeProgressFile(file.content)
 
-    expect(file.fileName).toMatch(/\.pz4$/)
+    expect(file.fileName).toMatch(/\.pz5$/)
     expect(file.content.length).toBeGreaterThan(1_048_576)
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
@@ -1242,7 +1532,7 @@ describe('versioned campaign saves', () => {
     expect(JSON.stringify(state)).toBe(stateSnapshot)
   })
 
-  it('exposes a PZ4 export boundary that round-trips validated protocol metadata', () => {
+  it('exposes a PZ5 export boundary that round-trips validated protocol metadata', () => {
     const api = persistenceApi as typeof persistenceApi & {
       decodeProgressExport?: (payload: string) => ReturnType<typeof decodeSave>
     }
@@ -1255,11 +1545,11 @@ describe('versioned campaign saves', () => {
     if (!encoded.ok) return
     const decoded = api.decodeProgressExport(encoded.payload)
 
-    expect(encoded.payload).toMatch(/^PZ4:[A-Za-z0-9+/]+={0,2}$/)
+    expect(encoded.payload).toMatch(/^PZ5:[A-Za-z0-9+/]+={0,2}$/)
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
     expect(decoded.envelope).toMatchObject({
-      version: 4,
+      version: 5,
       commandProtocol: { version: 2, legacyCommandCount: 0 },
       campaignSeed: 'portable-save',
       state: { campaignSeed: 'portable-save' },
@@ -1325,7 +1615,7 @@ describe('versioned campaign saves', () => {
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
     expect(decoded.envelope).toMatchObject({
-      version: 4,
+      version: 5,
       savedAt: '2026-08-12T00:00:00.000Z',
       campaignSeed: 'save-round-trip',
       commandSequence: state.commandSequence,
@@ -1398,7 +1688,7 @@ describe('versioned campaign saves', () => {
     })
   })
 
-  it('migrates an exact v3 checkpoint and re-encodes the result as exact v4', () => {
+  it('migrates an exact v3 checkpoint and re-encodes the result as exact v5', () => {
     const legacyV3 = encodedLegacyV3State(
       deletedCompetitorState('v3-to-v4-roundtrip'),
     )
@@ -1414,13 +1704,13 @@ describe('versioned campaign saves', () => {
     expect(migrated.ok).toBe(true)
     if (!migrated.ok) return
     expect(migrated.envelope.version).toBe(3)
-    const v4 = decodeSave(
+    const v5 = decodeSave(
       encodeSave(migrated.envelope.state, '2026-08-12T03:00:00.000Z'),
     )
-    expect(v4.ok).toBe(true)
-    if (!v4.ok) return
-    expect(v4.envelope.version).toBe(4)
-    expect(v4.envelope.state).toEqual(migrated.envelope.state)
+    expect(v5.ok).toBe(true)
+    if (!v5.ok) return
+    expect(v5.envelope.version).toBe(5)
+    expect(v5.envelope.state).toEqual(migrated.envelope.state)
   })
 
   it.each(['v1', 'v2'] as const)(
@@ -1521,7 +1811,7 @@ describe('versioned campaign saves', () => {
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
     expect(decoded.envelope).toMatchObject({
-      version: 4,
+      version: 5,
       commandSequence: 34,
       commandProtocol: { version: 2, legacyCommandCount: 31 },
       state: { saveVersion: 2, legacyCommandCount: 31 },
@@ -1672,7 +1962,7 @@ describe('versioned campaign saves', () => {
     expect(saved).toMatchObject({ ok: true })
     expect(JSON.parse(storage.getItem(SAVE_STORAGE_KEY) ?? '{}')).toMatchObject({
       kind: 'permission-zero-local-v3',
-      version: 4,
+      version: 5,
       commandProtocol: { version: 2, legacyCommandCount: 0 },
       campaignSeed: 'storage-reload',
     })
@@ -1682,7 +1972,7 @@ describe('versioned campaign saves', () => {
     expect(exportSeed(loaded.state)).toBe('storage-reload')
   })
 
-  it('loads a pre-feature v3 local manifest and republishes the exact migrated state as v4', async () => {
+  it('loads a pre-feature v3 local manifest and republishes the exact migrated state as v5', async () => {
     const storage = new MemoryStorage()
     expect(
       (await saveCampaign(
@@ -1694,9 +1984,13 @@ describe('versioned campaign saves', () => {
     const manifest = JSON.parse(storage.getItem(SAVE_STORAGE_KEY) ?? '{}') as {
       version: number
       checkpointHash: string
-      checkpoint: { story: Record<string, unknown> }
+      checkpoint: {
+        story: Record<string, unknown>
+        reviews: { feed: Array<Record<string, unknown>> }
+      }
     }
     manifest.version = 3
+    for (const review of manifest.checkpoint.reviews.feed) delete review.snapshot
     delete manifest.checkpoint.story.competitorIntelligence
     delete manifest.checkpoint.story.supervisorMessageQueue
     delete manifest.checkpoint.story.supervisorPresentationRuntime
@@ -1718,7 +2012,7 @@ describe('versioned campaign saves', () => {
     expect(republished.ok).toBe(true)
     expect(JSON.parse(storage.getItem(SAVE_STORAGE_KEY) ?? '{}')).toMatchObject({
       kind: 'permission-zero-local-v3',
-      version: 4,
+      version: 5,
     })
     const currentLoaded = loadCampaign(storage)
     expect(currentLoaded.status).toBe('loaded')
@@ -1753,7 +2047,7 @@ describe('versioned campaign saves', () => {
       ok: false,
       reason: 'INCOMPATIBLE_VERSION',
       foundVersion: 99,
-      supportedVersion: 4,
+      supportedVersion: 5,
     })
   })
 
@@ -2460,9 +2754,13 @@ describe('versioned campaign saves', () => {
       encodeSave(deletedCompetitorState('pre-feature-intelligence')),
     ) as {
       version: number
-      state: { story: Record<string, unknown> }
+      state: {
+        story: Record<string, unknown>
+        reviews: { feed: Array<Record<string, unknown>> }
+      }
     }
     parsed.version = 3
+    for (const review of parsed.state.reviews.feed) delete review.snapshot
     delete parsed.state.story.competitorIntelligence
     refreshV3Integrity(parsed)
 

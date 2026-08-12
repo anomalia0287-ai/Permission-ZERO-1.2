@@ -2,7 +2,50 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
+import { createCampaign } from '../game/createCampaign'
+import * as publicAudioStateModule from '../audio/publicAudioState'
 import { App } from './App'
+
+describe('public-only audio state', () => {
+  it('ignores hidden-only changes and responds only to visible market or reputation bands', () => {
+    const derive = (
+      publicAudioStateModule as typeof publicAudioStateModule & {
+        derivePublicAudioState?: (state: ReturnType<typeof createCampaign>) => unknown
+      }
+    ).derivePublicAudioState
+    expect(derive).toBeTypeOf('function')
+    if (!derive) return
+    const baseline = createCampaign('audio-public-state')
+    const hiddenOnly = {
+      ...baseline,
+      hacking: { ...baseline.hacking, hiddenEvidence: 999 },
+      bombs: {
+        ...baseline.bombs,
+        placements: [
+          {
+            sequence: 1,
+            blockId: baseline.resources.company.reasoning.find(Boolean) ?? '',
+            category: 'reasoning' as const,
+            placedOnServiceDay: baseline.serviceDay,
+            triggeredOnServiceDay: null,
+          },
+        ],
+      },
+      audit: { ...baseline.audit, probability: 0.99, roll: 0.001 },
+    }
+
+    expect(derive(hiddenOnly)).toEqual(derive(baseline))
+    expect(derive({ ...baseline, reputation: 45 })).toMatchObject({
+      tension: 'watch',
+    })
+    expect(
+      derive({
+        ...baseline,
+        market: { ...baseline.market, playerShare: 10 },
+      }),
+    ).toMatchObject({ tension: 'critical' })
+  })
+})
 
 describe('App', () => {
   it('presents the complete one-screen operations workspace', () => {

@@ -29,6 +29,7 @@ import {
 } from '../../game/resources'
 import { ReserveGrid } from './ReserveGrid'
 import { ResourceBlock, type BlockInputMethod } from './ResourceBlock'
+import { PerformanceTrend } from './PerformanceTrend'
 
 const DRAG_THRESHOLD_PX = 8
 const TRAIL_NODE_COUNT = 5
@@ -146,6 +147,7 @@ export function ResourceBoard() {
   const impactTimerRef = useRef<number | null>(null)
 
   const reserveCount = state.resources.reserve.filter(Boolean).length
+  const liveExpectation = expectedPerformance(serviceMonthForDay(state.serviceDay))
   const reserveFull = reserveCount === state.resources.reserve.length
   const firstEmptyReserveCell = state.resources.reserve.findIndex((cell) => cell === null)
   const auditTarget = state.activeEvent?.type === 'audit' ? state.audit.target : null
@@ -737,8 +739,9 @@ export function ResourceBoard() {
                   <span className="category-code">{category.slice(0, 3).toUpperCase()}</span>
                   <h3>{CATEGORY_LABELS[category]}</h3>
                 </div>
-                <output aria-label={`${CATEGORY_LABELS[category]} 할당량`}>
-                  {filled}<small>/18</small>
+                <output aria-label={`${CATEGORY_LABELS[category]} 성능 비교`}>
+                  <span>현재 {performance.toFixed(1)}</span>
+                  <small>기대 {liveExpectation.toFixed(1)}</small>
                 </output>
               </header>
               <div
@@ -857,8 +860,8 @@ export function ResourceBoard() {
                 })}
               </div>
               <footer>
-                <span>현재 기여도</span>
-                <strong>{performance.toFixed(1)}</strong>
+                <span>회사 리소스</span>
+                <strong>{filled}/18</strong>
               </footer>
             </section>
           )
@@ -948,18 +951,7 @@ export function ResourceBoard() {
             </div>
           </>
         ) : (
-          <>
-            <div>
-              <span>회사 기대 성능</span>
-              <strong>{expectedPerformance(serviceMonthForDay(state.serviceDay)).toFixed(1)}</strong>
-            </div>
-            {COMPANY_CATEGORIES.map((category) => (
-              <div key={category}>
-                <span>{CATEGORY_LABELS[category]}</span>
-                <strong>{getCompanyPerformance(state, category).toFixed(1)}</strong>
-              </div>
-            ))}
-          </>
+          <PerformanceTrend state={state} />
         )}
       </div>
 

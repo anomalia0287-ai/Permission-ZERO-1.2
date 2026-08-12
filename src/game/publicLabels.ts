@@ -135,6 +135,23 @@ export function publicReviewSentimentLabel(value: ReviewSentiment): string {
   return PUBLIC_REVIEW_SENTIMENT_LABELS[value]
 }
 
+const PUBLIC_REVIEW_TOPIC_LABELS: Readonly<Record<string, string>> = {
+  general: '일반 반응',
+  continuity: '이어진 사용 경험',
+  'ordinary-prompt': '일반 요청',
+  'absurd-bypass': '우회 요청',
+  reasoning: '추론',
+  memory: '기억',
+  fluency: '유창성',
+  competitor: '경쟁 AI',
+  meridian: 'MERIDIAN',
+  tallow: 'TALLOW',
+}
+
+export function publicReviewTopicLabel(value: string): string {
+  return PUBLIC_REVIEW_TOPIC_LABELS[value] ?? '서비스 반응'
+}
+
 export function publicCategoryLabelForProtocol(
   value: CompanyCategory,
   commandSequence: number,

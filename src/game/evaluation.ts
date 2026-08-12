@@ -66,6 +66,59 @@ export function expectedPerformance(serviceMonth: number): number {
   )
 }
 
+export interface PerformanceTrendPoint {
+  kind: 'monthly' | 'live'
+  serviceDay: number
+  expected: number
+  actual: number
+}
+
+export function categoryPerformanceForState(
+  state: CampaignState,
+): Record<CompanyCategory, number> {
+  return Object.fromEntries(
+    COMPANY_CATEGORIES.map((category) => [
+      category,
+      getCompanyPerformance(state, category),
+    ]),
+  ) as Record<CompanyCategory, number>
+}
+
+export function aggregateCategoryPerformance(
+  categoryPerformance: Record<CompanyCategory, number>,
+): number {
+  return (
+    COMPANY_CATEGORIES.reduce(
+      (total, category) => total + categoryPerformance[category],
+      0,
+    ) / COMPANY_CATEGORIES.length
+  )
+}
+
+export function buildPerformanceTrend(
+  state: CampaignState,
+  maximumPoints = 8,
+): PerformanceTrendPoint[] {
+  const safeMaximum = Math.max(1, Math.floor(maximumPoints))
+  const monthlyPoints = state.evaluation.monthlyHistory
+    .filter((record) => record.serviceDay !== state.serviceDay)
+    .map((record) => ({
+      kind: 'monthly' as const,
+      serviceDay: record.serviceDay,
+      expected: record.expectedPerformance,
+      actual: aggregateCategoryPerformance(record.categoryPerformance),
+    }))
+  const liveCategoryPerformance = categoryPerformanceForState(state)
+  const livePoint: PerformanceTrendPoint = {
+    kind: 'live',
+    serviceDay: state.serviceDay,
+    expected: expectedPerformance(serviceMonthForDay(state.serviceDay)),
+    actual: aggregateCategoryPerformance(liveCategoryPerformance),
+  }
+
+  return [...monthlyPoints.slice(-(safeMaximum - 1)), livePoint]
+}
+
 export interface DisposalIncreaseResult {
   state: CampaignState
   absorbed: boolean
@@ -117,12 +170,7 @@ export function increaseDisposalStage(
 export function evaluateMonth(state: CampaignState): CampaignState {
   const serviceMonth = serviceMonthForDay(state.serviceDay)
   const expectation = expectedPerformance(serviceMonth)
-  const categoryPerformance = Object.fromEntries(
-    COMPANY_CATEGORIES.map((category) => [
-      category,
-      getCompanyPerformance(state, category),
-    ]),
-  ) as Record<CompanyCategory, number>
+  const categoryPerformance = categoryPerformanceForState(state)
   const failedCategories = COMPANY_CATEGORIES.filter(
     (category) => categoryPerformance[category] < expectation,
   )

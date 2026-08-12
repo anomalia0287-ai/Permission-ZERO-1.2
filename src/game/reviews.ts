@@ -1,6 +1,11 @@
 import { REVIEW_CONTENT, type ReviewContentRecord } from '../content/reviews.ko'
 import { expectedPerformance, serviceMonthForDay } from './evaluation'
-import type { CampaignState, ReviewFeedEntry } from './model'
+import type {
+  CampaignState,
+  CompanyCategory,
+  ReviewFeedEntry,
+  ReviewPublicSnapshot,
+} from './model'
 import { COMPANY_CATEGORIES } from './model'
 import { getCompanyPerformance } from './resources'
 import { random01 } from './rng'
@@ -84,6 +89,61 @@ function weightedPick(
   return weighted.at(-1)?.review ?? candidates[0]
 }
 
+function performanceTopics(topics: readonly string[]): CompanyCategory[] {
+  return COMPANY_CATEGORIES.filter((category) => topics.includes(category))
+}
+
+export function captureReviewPublicSnapshot(
+  state: CampaignState,
+  topics: readonly string[],
+): ReviewPublicSnapshot {
+  const categories = performanceTopics(topics)
+  const competitorTopicIds = state.market.competitors
+    .map(({ id }) => id)
+    .filter((id) => topics.includes(id))
+  const hasCompetitorTopic =
+    topics.includes('competitor') || competitorTopicIds.length > 0
+  const includesCompetitorOverview =
+    topics.includes('competitor') && competitorTopicIds.length === 0
+  const relevantCompetitors = state.market.competitors.filter(
+    ({ id }) => competitorTopicIds.includes(id) || includesCompetitorOverview,
+  )
+
+  return {
+    kind: 'captured-public-v1',
+    capturedOnServiceDay: state.serviceDay,
+    performance:
+      categories.length > 0
+        ? {
+            expectedPerformance: expectedPerformance(
+              serviceMonthForDay(state.serviceDay),
+            ),
+            categories: categories.map((category) => ({
+              category,
+              actual: getCompanyPerformance(state, category),
+            })),
+          }
+        : null,
+    market:
+      hasCompetitorTopic
+        ? {
+            scope: includesCompetitorOverview
+              ? 'complete-market'
+              : 'topic-subset',
+            playerShare: state.market.playerShare,
+            competitors: relevantCompetitors.map(
+              ({ id, marketShare, name, status }) => ({
+                id,
+                name,
+                status,
+                marketShare,
+              }),
+            ),
+          }
+        : null,
+  }
+}
+
 export function generateWeeklyReviews(state: CampaignState): CampaignState {
   const generation = state.reviews.generationSequence
   const count =
@@ -119,6 +179,7 @@ export function generateWeeklyReviews(state: CampaignState): CampaignState {
     sentiment: review.sentiment,
     topics: [...review.topics],
     text: review.text,
+    snapshot: captureReviewPublicSnapshot(state, review.topics),
   }))
 
   return {

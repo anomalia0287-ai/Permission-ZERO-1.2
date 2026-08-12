@@ -36,6 +36,72 @@ describe('living weekly review feed', () => {
       true,
     )
     expect(state.reviews.feed.every(({ serviceDay }) => serviceDay < 331)).toBe(true)
+    expect(
+      state.reviews.feed.map((entry) =>
+        (entry as unknown as { snapshot?: unknown }).snapshot,
+      ),
+    ).toEqual([
+      {
+        kind: 'unavailable',
+        reason: 'prior-service',
+        capturedOnServiceDay: 321,
+      },
+      {
+        kind: 'unavailable',
+        reason: 'prior-service',
+        capturedOnServiceDay: 327,
+      },
+    ])
+  })
+
+  it('captures an immutable topic-relevant public snapshot without secret state', () => {
+    let matchingEntry: CampaignState['reviews']['feed'][number] | undefined
+
+    for (let seed = 0; seed < 400 && !matchingEntry; seed += 1) {
+      const memoryLow = depleteCategory(
+        createCampaign(`review-snapshot-${seed}`),
+        'memory',
+        5,
+      )
+      const generated = generateWeek(memoryLow, 337)
+      matchingEntry = generated.reviews.feed
+        .slice(2)
+        .find(({ contentId }) => contentId === 'negative-memory-01')
+    }
+
+    expect(matchingEntry).toBeDefined()
+    const snapshot = (
+      matchingEntry as unknown as {
+        snapshot?: {
+          kind: string
+          capturedOnServiceDay: number
+          performance: {
+            expectedPerformance: number
+            categories: Array<{ category: string; actual: number }>
+          } | null
+          market: unknown
+        }
+      }
+    ).snapshot
+    expect(snapshot).toMatchObject({
+      kind: 'captured-public-v1',
+      capturedOnServiceDay: 337,
+      performance: {
+        categories: [{ category: 'memory', actual: 11 }],
+      },
+      market: null,
+    })
+    const serialized = JSON.stringify(snapshot)
+    expect(serialized).not.toMatch(
+      /suspicion|hiddenEvidence|hiddenBomb|audit|reserve|hacking|sabotage/i,
+    )
+
+    const frozenHistory = serialized
+    const laterState = depleteCategory(createCampaign('later-state'), 'memory', 2)
+    expect(laterState.resources).not.toEqual(
+      createCampaign('later-state').resources,
+    )
+    expect(JSON.stringify(snapshot)).toBe(frozenHistory)
   })
 
   it('adds one or two items every week even when performance never changes', () => {

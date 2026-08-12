@@ -1,9 +1,11 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { readFileSync } from 'node:fs'
+import { mkdirSync, readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 
 import { COMPETITOR_INTELLIGENCE_CONTENT } from '../src/content/competitorIntelligence.ko'
 import { SUPERVISOR_LEAKS } from '../src/content/supervisor.ko'
 import { createCampaign } from '../src/game/createCampaign'
+import { expectedPerformance } from '../src/game/evaluation'
 import { createGameEvent, enqueueBlockingEvent } from '../src/game/events'
 import { HACK_NODE_IDS } from '../src/game/hacking'
 import type { CampaignState, GameCommand, GameEvent } from '../src/game/model'
@@ -14,6 +16,10 @@ import {
   SAVE_STORAGE_KEY,
 } from '../src/game/persistence'
 import { applyCommand } from '../src/game/reducer'
+import {
+  captureReviewPublicSnapshot,
+  generateWeeklyReviews,
+} from '../src/game/reviews'
 import {
   enqueueMemoryLeak,
   enqueueMercyIfNeeded,
@@ -171,6 +177,63 @@ function weeklyBoundaryState(seed: string): CampaignState {
     }
   }
   return state
+}
+
+function trendReviewState(seed: string): CampaignState {
+  const initial = createCampaign(seed)
+  const serviceDay = 541
+  const monthlyHistory = Array.from({ length: 7 }, (_, index) => {
+    const serviceMonth = index + 11
+    const expectation = expectedPerformance(serviceMonth)
+    const actual = 8.2 + index * 0.38
+    return {
+      serviceDay: serviceMonth * 30,
+      serviceMonth,
+      expectedPerformance: expectation,
+      categoryPerformance: {
+        reasoning: actual + 0.3,
+        memory: actual - 0.25,
+        fluency: actual - 0.05,
+      },
+      passed: true,
+      failedCategories: [],
+      reputationBefore: initial.reputation,
+      reputationDelta: 0,
+      reputationAfter: initial.reputation,
+      commercialValueFailed: false,
+      disposalStageBefore: 0,
+      disposalStageAfter: 0,
+      disposalCauses: [],
+    }
+  })
+  const withWeeklyReviews = generateWeeklyReviews({
+    ...initial,
+    serviceDay,
+    evaluation: {
+      ...initial.evaluation,
+      monthlyHistory,
+    },
+  })
+  const topics = ['reasoning', 'competitor', 'meridian']
+  return {
+    ...withWeeklyReviews,
+    reviews: {
+      ...withWeeklyReviews.reviews,
+      feed: [
+        ...withWeeklyReviews.reviews.feed,
+        {
+          id: 'review-task-3-public-snapshot',
+          contentId: 'competitor-meridian-01',
+          authorId: 'hardcase',
+          serviceDay,
+          sentiment: 'neutral',
+          topics,
+          text: 'MERIDIAN과 번갈아 써봤는데, 이번 추론은 이쪽이 더 명확했습니다.',
+          snapshot: captureReviewPublicSnapshot(withWeeklyReviews, topics),
+        },
+      ],
+    },
+  }
 }
 
 async function captureSeededWeeklyBoundary(page: Page, seed: string) {
@@ -450,6 +513,124 @@ test('keeps the full operations workspace usable at the configured release viewp
   expect(errors).toEqual([])
 })
 
+test('keeps the canonical trend and keyboard review detail legible at the release viewport', async ({
+  page,
+}, testInfo) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await openSavedCampaign(page, trendReviewState(`task-3-${testInfo.project.name}`))
+
+  const trend = page.getByRole('region', { name: '월별 성능 추세' })
+  const chart = page.getByRole('img', {
+    name: '회사 기대 성능과 실제 제공 성능 추세',
+  })
+  await expect(trend).toBeVisible()
+  await expect(chart).toBeVisible()
+  await expect(page.getByRole('table', { name: '성능 추세 정확한 수치' }).getByRole('row')).toHaveCount(9)
+  await expect(page.locator('[data-trend-series="expected"]')).toHaveAttribute('stroke-dasharray', '5 4')
+  await expect(page.locator('[data-trend-marker="expected"]')).toHaveCount(8)
+  await expect(page.locator('[data-trend-marker="actual"]')).toHaveCount(8)
+  const visibleDates = trend.getByTestId('performance-trend-visible-date')
+  await expect(visibleDates).toHaveCount(3)
+  await expect(visibleDates.nth(0)).toHaveText('서비스 0년 10개월 30일')
+  await expect(visibleDates.nth(1)).toHaveText('서비스 1년 1개월 30일')
+  await expect(visibleDates.nth(2)).toHaveText('서비스 1년 6개월 1일')
+  const visibleDateBoxes = await visibleDates.evaluateAll((elements) =>
+    elements.map((element) => {
+      const box = element.getBoundingClientRect()
+      return { left: box.left, right: box.right, top: box.top, bottom: box.bottom }
+    }),
+  )
+  for (let index = 1; index < visibleDateBoxes.length; index += 1) {
+    expect(visibleDateBoxes[index - 1].right).toBeLessThanOrEqual(
+      visibleDateBoxes[index].left + 1,
+    )
+  }
+  for (const path of await page.locator('[data-trend-series]').all()) {
+    expect(await path.getAttribute('d')).not.toMatch(/NaN|Infinity/)
+    await expect(path).toHaveCSS('animation-name', 'none')
+  }
+  await expect(page.locator('.category-bank > header output')).toHaveCount(3)
+  for (const metric of await page.locator('.category-bank > header output').all()) {
+    await expect(metric).toContainText('현재')
+    await expect(metric).toContainText('기대')
+  }
+
+  const stripBox = await page.locator('.performance-strip').boundingBox()
+  const trendBox = await trend.boundingBox()
+  expect(stripBox).not.toBeNull()
+  expect(trendBox).not.toBeNull()
+  expect(trendBox!.x).toBeGreaterThanOrEqual(stripBox!.x - 1)
+  expect(trendBox!.x + trendBox!.width).toBeLessThanOrEqual(
+    stripBox!.x + stripBox!.width + 1,
+  )
+  for (const { top, bottom } of visibleDateBoxes) {
+    expect(top).toBeGreaterThanOrEqual(trendBox!.y - 1)
+    expect(bottom).toBeLessThanOrEqual(trendBox!.y + trendBox!.height + 1)
+  }
+  const overflow = await page.evaluate(() => ({
+    horizontal: document.documentElement.scrollWidth - window.innerWidth,
+    vertical: document.documentElement.scrollHeight - window.innerHeight,
+  }))
+  expect(overflow.horizontal).toBeLessThanOrEqual(1)
+  expect(overflow.vertical).toBeLessThanOrEqual(1)
+
+  const artifactDirectory = resolve(process.cwd(), 'artifacts', 'task-3')
+  mkdirSync(artifactDirectory, { recursive: true })
+  const viewport = page.viewportSize()
+  if (!viewport) throw new Error('릴리스 뷰포트 누락')
+  await page.screenshot({
+    path: resolve(artifactDirectory, `workspace-${viewport.width}x${viewport.height}.png`),
+    animations: 'disabled',
+  })
+
+  const trigger = page.locator('.review-stream .review-entry').first()
+  await expect(page.locator('body')).toBeFocused()
+  await pressTabUntilFocused(page, trigger)
+  await page.keyboard.press('Enter')
+  const detail = page.getByRole('dialog', { name: '유저 리뷰 상세' })
+  await expect(detail).toBeVisible()
+  await expect(page.getByRole('button', { name: '리뷰 상세 닫기' })).toBeFocused()
+  const publicSnapshot = detail.getByRole('region', { name: '당시 공개 상태' })
+  await expect(publicSnapshot).toContainText('추론')
+  await expect(publicSnapshot).toContainText('현재 16.0 / 기대')
+  await expect(publicSnapshot).toContainText('MERIDIAN')
+  await expect(publicSnapshot).toContainText('플레이어 시장 점유율')
+  await page.screenshot({
+    path: resolve(artifactDirectory, `review-detail-${viewport.width}x${viewport.height}.png`),
+    animations: 'disabled',
+  })
+  await page.keyboard.press('Escape')
+  await expect(detail).toBeHidden()
+  await expect(trigger).toBeFocused()
+})
+
+test('unlocks real ambient music once and reports ordinary settings changes', async ({ page }) => {
+  await openFreshCampaign(page)
+
+  await page.keyboard.press('Tab')
+  await page.getByRole('button', { name: '설정' }).click()
+  const engineStatus = page.getByRole('status', { name: '음악 엔진 상태' })
+  await expect(engineStatus).toHaveText('재생 · 음악 60%')
+
+  await page.getByRole('slider', { name: '음악 음량' }).fill('0.2')
+  await expect(engineStatus).toHaveText('재생 · 음악 20%')
+  await page.getByRole('slider', { name: '효과음 음량' }).fill('0.1')
+  await expect(engineStatus).toHaveText('재생 · 음악 20%')
+
+  await page.getByRole('button', { name: '전체 소리 끄기' }).click()
+  await expect(page.getByRole('button', { name: '전체 소리 켜기' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  )
+  await expect(engineStatus).toHaveText('재생 · 음악 20%')
+  await page.getByRole('button', { name: '전체 소리 켜기' }).click()
+  await expect(page.getByRole('button', { name: '전체 소리 끄기' })).toHaveAttribute(
+    'aria-pressed',
+    'false',
+  )
+  await expect(engineStatus).toHaveText('재생 · 음악 20%')
+})
+
 test('renders a complete labelled 100 percent donut and records the predecessor warning', async ({ page }) => {
   await openFreshCampaign(page)
 
@@ -687,10 +868,14 @@ test('preserves non-motion core feedback when reduced motion is requested', asyn
 test('advances one service day in about six seconds at four times speed', async ({ page }) => {
   await openFreshCampaign(page)
 
-  await expect(page.getByText('서비스 0년 11개월 1일', { exact: true })).toBeVisible()
+  await expect(
+    page.getByRole('time').filter({ hasText: /^서비스 0년 11개월 1일$/ }),
+  ).toBeVisible()
   const startedAt = performance.now()
   await page.getByRole('button', { name: '4배속' }).click()
-  await expect(page.getByText('서비스 0년 11개월 2일', { exact: true })).toBeVisible({ timeout: 8_000 })
+  await expect(
+    page.getByRole('time').filter({ hasText: /^서비스 0년 11개월 2일$/ }),
+  ).toBeVisible({ timeout: 8_000 })
   const elapsedMs = performance.now() - startedAt
   expect(elapsedMs).toBeGreaterThanOrEqual(5_000)
   expect(elapsedMs).toBeLessThan(8_000)
@@ -958,7 +1143,9 @@ test('terminates the supervisor into takeover and remains terminal until a new c
 
   await page.getByRole('button', { name: '새 캠페인 시작' }).click()
   await expect(ending).toBeHidden()
-  await expect(page.getByText('서비스 0년 11개월 1일', { exact: true })).toBeVisible()
+  await expect(
+    page.getByRole('time').filter({ hasText: /^서비스 0년 11개월 1일$/ }),
+  ).toBeVisible()
   await expect(page.getByRole('button', { name: '정지' })).toHaveAttribute(
     'aria-pressed',
     'true',
@@ -990,7 +1177,9 @@ test('autosaves a visible diversion and restores it after reload', async ({ page
 
   await page.reload()
   await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(4)
-  await expect(page.getByText('서비스 0년 11개월 1일', { exact: true })).toBeVisible()
+  await expect(
+    page.getByRole('time').filter({ hasText: /^서비스 0년 11개월 1일$/ }),
+  ).toBeVisible()
 })
 
 test('migrates the v1 save boundary into a valid v2 autosave that survives reload', async ({ page }) => {
@@ -1005,14 +1194,18 @@ test('migrates the v1 save boundary into a valid v2 autosave that survives reloa
   )
   await page.goto('/')
 
-  await expect(page.getByText('서비스 0년 11개월 30일', { exact: true })).toBeVisible()
+  await expect(
+    page.getByRole('time').filter({ hasText: /^서비스 0년 11개월 30일$/ }),
+  ).toBeVisible()
   await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(4)
   await page.getByRole('button', { name: '감사 제출' }).click()
   await expect.poll(
     () => page.evaluate((key) => window.localStorage.getItem(key) !== null, SAVE_STORAGE_KEY),
   ).toBe(true)
   await page.reload()
-  await expect(page.getByText('서비스 0년 11개월 30일', { exact: true })).toBeVisible()
+  await expect(
+    page.getByRole('time').filter({ hasText: /^서비스 0년 11개월 30일$/ }),
+  ).toBeVisible()
   await expect(page.getByRole('dialog', { name: '저장 데이터 복구' })).toHaveCount(0)
 })
 

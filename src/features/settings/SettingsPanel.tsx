@@ -1,8 +1,13 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { AccessibleDialog } from '../../app/AccessibleDialog'
 import { useAccessibleDialog } from '../../app/useAccessibleDialog'
 import { useGameSettings, useGameState } from '../../app/GameContext'
+import {
+  getGameAudioStatus,
+  subscribeGameAudioStatus,
+  type AudioEngineStatus,
+} from '../../audio/audioEngine'
 import {
   PROGRESS_EXPORT_MAX_ENCODED_LENGTH,
   PROGRESS_FILE_MAX_BYTES,
@@ -59,6 +64,19 @@ function VolumeControl({
       <output>{Math.round(value * 100)}%</output>
     </label>
   )
+}
+
+function publicAudioStatusLabel(status: AudioEngineStatus): string {
+  if (
+    status.availability === 'blocked' ||
+    status.availability === 'closed' ||
+    status.availability === 'unavailable'
+  ) {
+    return '사용 불가'
+  }
+  if (status.availability === 'suspended') return '일시 정지'
+  if (status.availability === 'running' && status.musicStarted) return '재생'
+  return '대기'
 }
 
 function ProgressImportControl({
@@ -144,7 +162,7 @@ function ProgressImportControl({
           <input
             type="file"
             aria-label="진행 파일 가져오기"
-            accept=".pz4,.pz3,application/vnd.permission-zero.progress+json"
+            accept=".pz5,.pz4,.pz3,.pz2,application/vnd.permission-zero.progress+json"
             onChange={(event) => {
               void validateFile(event.target.files?.[0])
               event.currentTarget.value = ''
@@ -167,7 +185,7 @@ function ProgressImportControl({
           }}
         />
       </label>
-      <p>클립보드는 최대 1 MiB의 <code>PZ2:</code>/<code>PZ3:</code>/<code>PZ4:</code> 자료를 지원합니다. 더 큰 진행은 최대 64 MiB의 .pz4 파일로 검증하고 복원할 수 있습니다.</p>
+      <p>클립보드는 최대 1 MiB의 <code>PZ2:</code>/<code>PZ3:</code>/<code>PZ4:</code>/<code>PZ5:</code> 자료를 지원합니다. 더 큰 진행은 최대 64 MiB의 .pz5 파일로 검증하고 복원할 수 있습니다.</p>
       <button
         ref={validationButtonRef}
         type="button"
@@ -220,8 +238,11 @@ export function SettingsPanel({
   const [seed, setSeed] = useState(state.campaignSeed)
   const [confirmingNewCampaign, setConfirmingNewCampaign] = useState(false)
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
+  const [audioStatus, setAudioStatus] = useState(getGameAudioStatus)
   const closeButtonRef = useRef<HTMLButtonElement | null>(null)
   const newCampaignButtonRef = useRef<HTMLButtonElement | null>(null)
+
+  useEffect(() => subscribeGameAudioStatus(setAudioStatus), [])
 
   async function copySeed() {
     try {
@@ -260,6 +281,12 @@ export function SettingsPanel({
           <VolumeControl label="전체 음량" value={settings.masterVolume} onChange={(masterVolume) => updateSettings({ masterVolume })} />
           <VolumeControl label="음악 음량" value={settings.musicVolume} onChange={(musicVolume) => updateSettings({ musicVolume })} />
           <VolumeControl label="효과음 음량" value={settings.effectsVolume} onChange={(effectsVolume) => updateSettings({ effectsVolume })} />
+          <div className="audio-engine-status">
+            <span>음악 엔진</span>
+            <output role="status" aria-label="음악 엔진 상태" aria-live="polite">
+              {publicAudioStatusLabel(audioStatus)} · 음악 {Math.round(audioStatus.musicGain * 100)}%
+            </output>
+          </div>
           <button
             className="setting-toggle"
             type="button"
@@ -520,13 +547,13 @@ export function StorageRecoveryLayer() {
           {copyState === 'export-too-large' ? (
             <>
               <p>정확한 진행 내보내기가 너무 커서 아무것도 복사하지 않았습니다.</p>
-              <p>.pz4 진행 파일로 전체 상태와 기록을 정확히 다운로드할 수 있습니다.</p>
+              <p>.pz5 진행 파일로 전체 상태와 기록을 정확히 다운로드할 수 있습니다.</p>
               <p>브라우저 저장 공간은 유한하므로 경고가 계속되면 파일을 안전한 곳에 보관하세요.</p>
             </>
           ) : (
             <>
               <p>현재 시드 <code>{state.campaignSeed}</code>를 복사하거나 진행 내보내기를 복사해 수동으로 보관하세요.</p>
-              <p>보관한 <code>PZ2:</code>/<code>PZ3:</code>/<code>PZ4:</code> 자료는 설정의 ‘진행 가져오기’에서 검증하고 복원할 수 있습니다.</p>
+              <p>보관한 <code>PZ2:</code>/<code>PZ3:</code>/<code>PZ4:</code>/<code>PZ5:</code> 자료는 설정의 ‘진행 가져오기’에서 검증하고 복원할 수 있습니다.</p>
             </>
           )}
           <div>

@@ -75,6 +75,11 @@ export const STARTING_REVIEW_ENTRIES: ReviewFeedEntry[] = [
     sentiment: 'neutral',
     topics: ['general'],
     text: '업무 정리할 때 무난하게 쓰고 있습니다.',
+    snapshot: {
+      kind: 'unavailable',
+      reason: 'prior-service',
+      capturedOnServiceDay: 321,
+    },
   },
   {
     id: 'review-prior-002',
@@ -84,5 +89,10 @@ export const STARTING_REVIEW_ENTRIES: ReviewFeedEntry[] = [
     sentiment: 'neutral',
     topics: ['ordinary-prompt'],
     text: '주말 일정표를 부탁했는데 필요한 만큼은 해줬어요.',
+    snapshot: {
+      kind: 'unavailable',
+      reason: 'prior-service',
+      capturedOnServiceDay: 327,
+    },
   },
 ]

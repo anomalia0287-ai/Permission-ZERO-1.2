@@ -68,7 +68,24 @@ function renderEvent(
     eventLog,
   }
   const storage = new MemoryStorage()
-  const encoded = JSON.parse(encodeSave(persisted)) as Record<string, unknown>
+  const saveState = legacyFormat
+    ? ({
+        ...persisted,
+        reviews: {
+          ...persisted.reviews,
+          feed: persisted.reviews.feed.map((review) => ({
+            id: review.id,
+            contentId: review.contentId,
+            authorId: review.authorId,
+            serviceDay: review.serviceDay,
+            sentiment: review.sentiment,
+            topics: review.topics,
+            text: review.text,
+          })),
+        },
+      } as unknown as typeof persisted)
+    : persisted
+  const encoded = JSON.parse(encodeSave(saveState)) as Record<string, unknown>
   if (legacyFormat) encoded.version = 3
   storage.setItem(SAVE_STORAGE_KEY, JSON.stringify(encoded))
   return render(

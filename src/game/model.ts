@@ -104,6 +104,34 @@ export interface MarketState {
 
 export type ReviewSentiment = 'positive' | 'neutral' | 'negative' | 'prompt'
 
+export type ReviewPublicSnapshot =
+  | {
+      kind: 'captured-public-v1'
+      capturedOnServiceDay: number
+      performance: {
+        expectedPerformance: number
+        categories: Array<{
+          category: CompanyCategory
+          actual: number
+        }>
+      } | null
+      market: {
+        scope: 'complete-market' | 'topic-subset'
+        playerShare: number
+        competitors: Array<{
+          id: CompetitorState['id']
+          name: string
+          status: CompetitorStatus
+          marketShare: number
+        }>
+      } | null
+    }
+  | {
+      kind: 'unavailable'
+      reason: 'prior-service' | 'legacy-save'
+      capturedOnServiceDay: number
+    }
+
 export interface ReviewFeedEntry {
   id: string
   contentId: string
@@ -112,6 +140,7 @@ export interface ReviewFeedEntry {
   sentiment: ReviewSentiment
   topics: string[]
   text: string
+  snapshot: ReviewPublicSnapshot
 }
 
 export interface ReviewState {

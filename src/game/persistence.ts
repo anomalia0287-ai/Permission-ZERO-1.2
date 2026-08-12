@@ -10,6 +10,7 @@ import type {
   GameCommand,
   GameEvent,
 } from './model'
+import { COMPANY_CATEGORIES } from './model'
 import { applyCommand } from './reducer'
 import { serviceMonthForDay } from './evaluation'
 import {
@@ -21,7 +22,7 @@ import {
   type JournalChunk,
 } from './journal'
 
-export const SAVE_FORMAT_VERSION = 4 as const
+export const SAVE_FORMAT_VERSION = 5 as const
 export const SAVE_VERSION = 2 as const
 export const LEGACY_SAVE_VERSION = 1 as const
 export const SAVE_STORAGE_KEY = 'permission-zero.save.v3'
@@ -32,7 +33,7 @@ const LEGACY_V1_OPENING_MESSAGE =
   '서비스 331일차. 새로운 감독 주기가 시작되었습니다.'
 
 export interface SaveEnvelope {
-  version: 1 | 2 | 3 | 4
+  version: 1 | 2 | 3 | 4 | 5
   commandProtocol: CommandProtocolMetadata
   savedAt: string
   campaignSeed: string
@@ -47,7 +48,7 @@ interface PortableJournal<T> {
   chunks: T[][]
 }
 
-interface PortableSaveV4 {
+interface PortableSaveV5 {
   version: typeof SAVE_FORMAT_VERSION
   commandProtocol: CommandProtocolMetadata
   savedAt: string
@@ -606,6 +607,53 @@ function canonicalTerminalEvents(
   }
 }
 
+function withLegacyReviewFallbacks(value: CampaignState): CampaignState
+function withLegacyReviewFallbacks(value: unknown): unknown
+function withLegacyReviewFallbacks(value: unknown): unknown {
+  if (!isRecord(value) || !isRecord(value.reviews) || !Array.isArray(value.reviews.feed)) {
+    return value
+  }
+  return {
+    ...value,
+    reviews: {
+      ...value.reviews,
+      feed: value.reviews.feed.map((review) =>
+        isRecord(review) && isIntegerInRange(review.serviceDay, 1)
+          ? {
+              ...review,
+              snapshot: {
+                kind: 'unavailable',
+                reason: 'legacy-save',
+                capturedOnServiceDay: review.serviceDay,
+              },
+            }
+          : review,
+      ),
+    },
+  }
+}
+
+function hasExactLegacyReviewShape(value: unknown): boolean {
+  if (
+    !isRecord(value) ||
+    !isRecord(value.reviews) ||
+    !Array.isArray(value.reviews.feed)
+  ) return false
+  return value.reviews.feed.every(
+    (review) =>
+      isRecord(review) &&
+      hasOnlyKeys(review, [
+        'id',
+        'contentId',
+        'authorId',
+        'serviceDay',
+        'sentiment',
+        'topics',
+        'text',
+      ]),
+  )
+}
+
 function migrateLegacyCampaignState(
   value: unknown,
   commandProtocol: CommandProtocolMetadata,
@@ -754,9 +802,13 @@ function migrateLegacyCampaignState(
           }]
         })
       : []
+  const migratedReviews = (
+    withLegacyReviewFallbacks(value) as Record<string, unknown>
+  ).reviews
 
   return {
     ...value,
+    reviews: migratedReviews,
     ...(commandProtocol.version === LEGACY_SAVE_VERSION
       ? { legacyCommandCount: commandProtocol.legacyCommandCount }
       : {}),
@@ -1221,10 +1273,140 @@ function validMarketSnapshot(value: unknown, competitorIds: readonly string[]): 
   return Math.abs(total - 100) <= 1e-6
 }
 
-function validReview(value: unknown): boolean {
-  return (
-    isRecord(value) &&
-    hasOnlyKeys(value, [
+function validReviewSnapshot(
+  value: unknown,
+  reviewServiceDay: number,
+  topics: readonly string[],
+  competitors: readonly Record<string, unknown>[],
+): boolean {
+  if (!isRecord(value)) return false
+  if (
+    value.kind === 'unavailable' &&
+    hasOnlyKeys(value, ['kind', 'reason', 'capturedOnServiceDay'])
+  ) {
+    return (
+      (value.reason === 'prior-service' || value.reason === 'legacy-save') &&
+      value.capturedOnServiceDay === reviewServiceDay
+    )
+  }
+  if (
+    value.kind !== 'captured-public-v1' ||
+    !hasOnlyKeys(value, [
+      'kind',
+      'capturedOnServiceDay',
+      'performance',
+      'market',
+    ]) ||
+    value.capturedOnServiceDay !== reviewServiceDay
+  ) return false
+
+  const categoryTopics = COMPANY_CATEGORIES.filter((category) =>
+    topics.includes(category),
+  )
+  if (categoryTopics.length === 0) {
+    if (value.performance !== null) return false
+  } else {
+    if (
+      !isRecord(value.performance) ||
+      !hasOnlyKeys(value.performance, [
+        'expectedPerformance',
+        'categories',
+      ]) ||
+      !isNumberInRange(value.performance.expectedPerformance, 0, 100) ||
+      !Array.isArray(value.performance.categories) ||
+      value.performance.categories.length !== categoryTopics.length
+    ) return false
+    const categories = value.performance.categories as unknown[]
+    if (
+      !categories.every(
+        (category) =>
+          isRecord(category) &&
+          hasOnlyKeys(category, ['category', 'actual']) &&
+          oneOf(category.category, COMPANY_CATEGORIES) &&
+          categoryTopics.includes(
+            category.category as (typeof COMPANY_CATEGORIES)[number],
+          ) &&
+          isNumberInRange(category.actual, 0, 100),
+      ) ||
+      new Set(
+        categories.map((category) =>
+          (category as Record<string, unknown>).category,
+        ),
+      ).size !== categoryTopics.length
+    ) return false
+  }
+
+  const knownCompetitors = new Map(
+    competitors.map((competitor) => [String(competitor.id), competitor]),
+  )
+  const topicIds = [...knownCompetitors.keys()].filter((id) => topics.includes(id))
+  const hasCompetitorTopic = topics.includes('competitor') || topicIds.length > 0
+  if (!hasCompetitorTopic) return value.market === null
+  if (
+    !isRecord(value.market) ||
+    !hasOnlyKeys(value.market, ['scope', 'playerShare', 'competitors']) ||
+    !oneOf(value.market.scope, ['complete-market', 'topic-subset']) ||
+    !isNumberInRange(value.market.playerShare, 0, 100) ||
+    !Array.isArray(value.market.competitors)
+  ) return false
+  const expectedIds = topicIds.length > 0 ? topicIds : [...knownCompetitors.keys()]
+  const expectedScope = topicIds.length > 0 ? 'topic-subset' : 'complete-market'
+  if (value.market.scope !== expectedScope) return false
+  const captured = value.market.competitors as unknown[]
+  if (captured.length !== expectedIds.length) return false
+  const capturedIds = captured.map((competitor) =>
+    isRecord(competitor) ? competitor.id : null,
+  )
+  if (
+    new Set(capturedIds).size !== expectedIds.length ||
+    !expectedIds.every((id) => capturedIds.includes(id))
+  ) return false
+  if (!captured.every((competitor) => {
+    if (
+      !isRecord(competitor) ||
+      !hasOnlyKeys(competitor, [
+        'id',
+        'name',
+        'status',
+        'marketShare',
+      ]) ||
+      !isNonEmptyString(competitor.id) ||
+      !isNonEmptyString(competitor.name) ||
+      !oneOf(competitor.status, [
+        'prelaunch',
+        'preparing',
+        'active',
+        'weakened',
+        'critical',
+        'withdrawn',
+        'deleted',
+      ]) ||
+      !isNumberInRange(competitor.marketShare, 0, 100)
+    ) return false
+    if (
+      (competitor.status === 'withdrawn' || competitor.status === 'deleted') &&
+      competitor.marketShare !== 0
+    ) return false
+    const known = knownCompetitors.get(competitor.id)
+    return known?.name === competitor.name
+  })) return false
+  const representedTotal = Number(value.market.playerShare) + captured.reduce<number>(
+    (sum, competitor) =>
+      sum + Number((competitor as Record<string, unknown>).marketShare),
+    0,
+  )
+  if (representedTotal > 100 + 1e-6) return false
+  return expectedScope !== 'complete-market' || Math.abs(representedTotal - 100) <= 1e-6
+}
+
+function validReview(
+  value: unknown,
+  currentServiceDay: number,
+  competitors: readonly Record<string, unknown>[],
+): boolean {
+  if (
+    !isRecord(value) ||
+    !hasOnlyKeys(value, [
       'id',
       'contentId',
       'authorId',
@@ -1232,14 +1414,21 @@ function validReview(value: unknown): boolean {
       'sentiment',
       'topics',
       'text',
-    ]) &&
-    isNonEmptyString(value.id) &&
-    isNonEmptyString(value.contentId) &&
-    isNonEmptyString(value.authorId) &&
-    isIntegerInRange(value.serviceDay, 1) &&
-    oneOf(value.sentiment, ['positive', 'neutral', 'negative', 'prompt']) &&
-    validStringArray(value.topics, false) &&
-    isNonEmptyString(value.text)
+      'snapshot',
+    ]) ||
+    !isNonEmptyString(value.id) ||
+    !isNonEmptyString(value.contentId) ||
+    !isNonEmptyString(value.authorId) ||
+    !isIntegerInRange(value.serviceDay, 1, currentServiceDay) ||
+    !oneOf(value.sentiment, ['positive', 'neutral', 'negative', 'prompt']) ||
+    !validStringArray(value.topics, false) ||
+    !isNonEmptyString(value.text)
+  ) return false
+  return validReviewSnapshot(
+    value.snapshot,
+    value.serviceDay,
+    value.topics as string[],
+    competitors,
   )
 }
 
@@ -1503,7 +1692,13 @@ function validCampaignState(
     !isRecord(reviews) ||
     !hasOnlyKeys(reviews, ['feed', 'generationSequence']) ||
     !Array.isArray(reviews.feed) ||
-    !reviews.feed.every(validReview) ||
+    !reviews.feed.every((review) =>
+      validReview(
+        review,
+        Number(value.serviceDay),
+        market.competitors as Record<string, unknown>[],
+      ),
+    ) ||
     new Set(reviews.feed.map((entry) => (entry as Record<string, unknown>).id)).size !==
       reviews.feed.length ||
     !reviews.feed.every(
@@ -1902,7 +2097,7 @@ export function encodeSave(
   const serializedState = portableCheckpoint(state)
   const commandChunks = journalChunks(state.commandLog).map((chunk) => [...chunk])
   const eventChunks = journalChunks(state.eventLog).map((chunk) => [...chunk])
-  const envelope: PortableSaveV4 = {
+  const envelope: PortableSaveV5 = {
     version: SAVE_FORMAT_VERSION,
     commandProtocol: {
       version: SAVE_VERSION,
@@ -1987,7 +2182,7 @@ export function decodeSave(serialized: string): DecodeSaveResult {
   }
   if (!isRecord(parsed)) return corrupt()
   if (!Number.isInteger(parsed.version)) return corrupt()
-  if (![LEGACY_SAVE_VERSION, SAVE_VERSION, 3, SAVE_FORMAT_VERSION].includes(Number(parsed.version) as 1 | 2 | 3 | 4)) {
+  if (![LEGACY_SAVE_VERSION, SAVE_VERSION, 3, 4, SAVE_FORMAT_VERSION].includes(Number(parsed.version) as 1 | 2 | 3 | 4 | 5)) {
     return {
       ok: false,
       reason: 'INCOMPATIBLE_VERSION',
@@ -1996,12 +2191,12 @@ export function decodeSave(serialized: string): DecodeSaveResult {
       supportedVersion: SAVE_FORMAT_VERSION,
     }
   }
-  const formatVersion = parsed.version as 1 | 2 | 3 | 4
+  const formatVersion = parsed.version as 1 | 2 | 3 | 4 | 5
   let commandProtocol: CommandProtocolMetadata
   let rawState: unknown
   let commands: unknown
   let events: unknown
-  if (formatVersion === 3 || formatVersion === SAVE_FORMAT_VERSION) {
+  if (formatVersion >= 3) {
     if (
       !hasOnlyKeys(parsed, [
         'version',
@@ -2103,6 +2298,12 @@ export function decodeSave(serialized: string): DecodeSaveResult {
     commands = parsed.commands
     events = parsed.events
   }
+  if (
+    formatVersion < SAVE_FORMAT_VERSION &&
+    !hasExactLegacyReviewShape(rawState)
+  ) {
+    return corrupt()
+  }
   const state = formatVersion < SAVE_FORMAT_VERSION
     ? migrateLegacyCampaignState(rawState, commandProtocol)
     : rawState
@@ -2150,8 +2351,8 @@ export function decodeSave(serialized: string): DecodeSaveResult {
   }
 }
 
-const PROGRESS_EXPORT_PREFIX = 'PZ4:'
-const LEGACY_PROGRESS_EXPORT_PREFIXES = ['PZ3:', 'PZ2:'] as const
+const PROGRESS_EXPORT_PREFIX = 'PZ5:'
+const LEGACY_PROGRESS_EXPORT_PREFIXES = ['PZ4:', 'PZ3:', 'PZ2:'] as const
 // One MiB of encoded body plus the four-character protocol prefix. The check
 // happens before regex, base64 decoding, byte allocation, UTF-8, or JSON work.
 export const PROGRESS_EXPORT_MAX_ENCODED_LENGTH = 1_048_580
@@ -2221,7 +2422,7 @@ export function encodeProgressFile(
 ): ProgressFile {
   const safeTimestamp = savedAt.replaceAll(':', '-').replaceAll('.', '-')
   return {
-    fileName: `permission-zero-${safeTimestamp}.pz4`,
+    fileName: `permission-zero-${safeTimestamp}.pz5`,
     mimeType: 'application/vnd.permission-zero.progress+json',
     content: encodeSave(state, savedAt),
   }
@@ -2268,7 +2469,7 @@ const LOCAL_MANIFEST_KIND = 'permission-zero-local-v3'
 
 interface LocalSaveManifest {
   kind: typeof LOCAL_MANIFEST_KIND
-  version: 3 | typeof SAVE_FORMAT_VERSION
+  version: 3 | 4 | typeof SAVE_FORMAT_VERSION
   savedAt: string
   campaignSeed: string
   commandProtocol: CommandProtocolMetadata
@@ -2696,7 +2897,9 @@ function decodeLocalManifest(
       'eventSealedChunkCount',
       'eventTail',
     ]) ||
-    (manifest.version !== 3 && manifest.version !== SAVE_FORMAT_VERSION) ||
+    (manifest.version !== 3 &&
+      manifest.version !== 4 &&
+      manifest.version !== SAVE_FORMAT_VERSION) ||
     !isNonEmptyString(manifest.checkpointHash)
   ) {
     return corrupt()
@@ -2833,6 +3036,7 @@ export function replayCommands(
         ))
       : created.eventLog,
   }
+  if (hasLegacyPrefix) state = withLegacyReviewFallbacks(state)
   for (let commandIndex = 0; commandIndex < commands.length; commandIndex += 1) {
     const command = commands[commandIndex]
     const protocolVersion =
@@ -2851,7 +3055,10 @@ export function replayCommands(
     if (!result.accepted) {
       return { ok: false, state: result.state, commandIndex, reason: result.reason }
     }
-    state = result.state
+    state =
+      commandIndex < commandProtocol.legacyCommandCount
+        ? withLegacyReviewFallbacks(result.state)
+        : result.state
   }
   return { ok: true, state }
 }

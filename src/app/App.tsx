@@ -6,7 +6,14 @@ import {
   useState,
 } from 'react'
 
-import { configureGameAudio } from '../audio/audioEngine'
+import {
+  configureGameAudio,
+  configureGameAudioPublicState,
+  disposeGameAudio,
+  setGameAudioBackgroundHidden,
+  unlockGameAudio,
+} from '../audio/audioEngine'
+import { derivePublicAudioState } from '../audio/publicAudioState'
 import { ControlBar } from '../features/control/ControlBar'
 import { EventLayer } from '../features/events/EventLayer'
 import { HackingPanel } from '../features/hacking/HackingPanel'
@@ -156,6 +163,43 @@ function GameWorkspace() {
       muted: settings.muted,
     })
   }, [settings.effectsVolume, settings.masterVolume, settings.musicVolume, settings.muted])
+
+  useEffect(() => {
+    configureGameAudioPublicState(derivePublicAudioState(state))
+  }, [state])
+
+  useEffect(() => {
+    let handled = false
+    const cleanup = () => {
+      window.removeEventListener('pointerdown', activate, true)
+      window.removeEventListener('keydown', activate, true)
+    }
+    const activate = () => {
+      if (handled) return
+      handled = true
+      cleanup()
+      void unlockGameAudio()
+    }
+    window.addEventListener('pointerdown', activate, true)
+    window.addEventListener('keydown', activate, true)
+    return cleanup
+  }, [])
+
+  useEffect(() => {
+    const synchronizeVisibility = () => {
+      void setGameAudioBackgroundHidden(document.hidden)
+    }
+    document.addEventListener('visibilitychange', synchronizeVisibility)
+    return () =>
+      document.removeEventListener('visibilitychange', synchronizeVisibility)
+  }, [])
+
+  useEffect(
+    () => () => {
+      void disposeGameAudio()
+    },
+    [],
+  )
 
   useEffect(() => {
     const root = document.documentElement

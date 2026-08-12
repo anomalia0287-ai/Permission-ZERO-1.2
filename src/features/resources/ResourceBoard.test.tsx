@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { useGameState } from '../../app/GameContext'
@@ -152,6 +152,92 @@ function armedState(seed: string, category: 'reasoning' | 'memory' = 'reasoning'
 }
 
 describe('ResourceBoard', () => {
+  it('renders the canonical monthly-plus-live trend as an accessible non-color-only chart', () => {
+    const initial = createCampaign('resource-board-trend')
+    const state: CampaignState = {
+      ...initial,
+      serviceDay: 361,
+      evaluation: {
+        ...initial.evaluation,
+        monthlyHistory: [
+          {
+            serviceDay: 330,
+            serviceMonth: 11,
+            expectedPerformance: 13.8,
+            categoryPerformance: { reasoning: 12, memory: 15, fluency: 18 },
+            passed: false,
+            failedCategories: ['reasoning'],
+            reputationBefore: 59,
+            reputationDelta: -2,
+            reputationAfter: 57,
+            commercialValueFailed: false,
+            disposalStageBefore: 0,
+            disposalStageAfter: 0,
+            disposalCauses: [],
+          },
+          {
+            serviceDay: 360,
+            serviceMonth: 12,
+            expectedPerformance: 14,
+            categoryPerformance: { reasoning: 14, memory: 15, fluency: 16 },
+            passed: true,
+            failedCategories: [],
+            reputationBefore: 57,
+            reputationDelta: 1,
+            reputationAfter: 58,
+            commercialValueFailed: false,
+            disposalStageBefore: 0,
+            disposalStageAfter: 0,
+            disposalCauses: [],
+          },
+        ],
+      },
+    }
+    renderState(state)
+
+    const chart = screen.getByRole('img', {
+      name: '회사 기대 성능과 실제 제공 성능 추세',
+    })
+    const table = screen.getByRole('table', { name: '성능 추세 정확한 수치' })
+    expect(chart.querySelector('[data-trend-series="expected"]')).toHaveAttribute(
+      'stroke-dasharray',
+    )
+    expect(chart.querySelectorAll('[data-trend-marker="expected"]')).toHaveLength(3)
+    expect(chart.querySelectorAll('[data-trend-marker="actual"]')).toHaveLength(3)
+    expect(table).toHaveTextContent('서비스 0년 11개월 30일')
+    expect(table).toHaveTextContent('13.8')
+    expect(table).toHaveTextContent('15.0')
+    expect(table).toHaveTextContent('서비스 1년 0개월 1일 (현재)')
+    expect(table.querySelectorAll('tbody tr')).toHaveLength(3)
+    const visibleDates = within(
+      screen.getByRole('region', { name: '월별 성능 추세' }),
+    ).getAllByTestId('performance-trend-visible-date')
+    expect(visibleDates).toHaveLength(3)
+    expect(visibleDates[0]).toHaveTextContent('서비스 0년 10개월 30일')
+    expect(visibleDates[2]).toHaveTextContent('서비스 1년 0개월 1일')
+  })
+
+  it('keeps a one-point live trend finite and compares every category with expectation in its header', () => {
+    renderBoard()
+
+    const chart = screen.getByRole('img', {
+      name: '회사 기대 성능과 실제 제공 성능 추세',
+    })
+    expect(chart.querySelectorAll('path')).toHaveLength(2)
+    for (const path of chart.querySelectorAll('path')) {
+      expect(path.getAttribute('d')).not.toMatch(/NaN|Infinity/)
+    }
+    expect(screen.getByLabelText('추론 성능 비교')).toHaveTextContent(
+      /현재 16\.0.*기대 14\.0/,
+    )
+    expect(screen.getByLabelText('기억 성능 비교')).toHaveTextContent(
+      /현재 16\.0.*기대 14\.0/,
+    )
+    expect(screen.getByLabelText('유창성 성능 비교')).toHaveTextContent(
+      /현재 16\.0.*기대 14\.0/,
+    )
+  })
+
   it('selects a block on click and shows exact diversion consequences', () => {
     renderBoard()
 
