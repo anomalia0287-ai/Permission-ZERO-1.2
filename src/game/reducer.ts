@@ -30,6 +30,7 @@ import {
   resolveSupervisorDecision,
 } from './story'
 import { appendJournal, journalAt } from './journal'
+import { isGenericDismissibleEvent } from './events'
 
 export type CommandResult =
   | { accepted: true; state: CampaignState }
@@ -317,6 +318,13 @@ export function applyCommand(
     case 'RESOLVE_ACTIVE_EVENT': {
       if (!state.activeEvent) {
         return { accepted: false, state, reason: 'NO_ACTIVE_EVENT' }
+      }
+      if (!isGenericDismissibleEvent(state, state.activeEvent)) {
+        return {
+          accepted: false,
+          state,
+          reason: 'EVENT_REQUIRES_TYPED_RESOLUTION',
+        }
       }
 
       return acceptCommand(state, command, resolveActiveEvent(state))

@@ -10,6 +10,7 @@ import {
   appendEvent,
   createGameEvent,
   enqueueBlockingEvent,
+  isSupervisorDecisionEvent,
   resolveActiveEvent,
 } from './events'
 import { HACK_NODE_IDS } from './hacking'
@@ -406,9 +407,8 @@ export function resolveSupervisorDecision(
     }
   }
   if (
-    state.activeEvent?.type !== 'story' ||
-    state.story.secretDecisionState !== 'message-pending' ||
-    state.story.recoveredFileIds.length !== STORY_FILES.length
+    state.activeEvent === null ||
+    !isSupervisorDecisionEvent(state, state.activeEvent)
   ) {
     return { accepted: false, state, reason: 'NO_SUPERVISOR_DECISION' }
   }

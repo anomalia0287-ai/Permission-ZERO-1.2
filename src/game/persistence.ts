@@ -7,12 +7,15 @@ import type {
   CommandLogEntry,
   CommandProtocolMetadata,
   CommandProtocolVersion,
+  DisposalCause,
   GameCommand,
   GameEvent,
 } from './model'
 import { COMPANY_CATEGORIES } from './model'
 import { applyCommand } from './reducer'
 import { serviceMonthForDay } from './evaluation'
+import { isSupervisorDecisionEvent, isSupervisorPrivateMessageEvent } from './events'
+import { buildDefeatRecord } from './story'
 import {
   JOURNAL_CHUNK_SIZE,
   createJournal,
@@ -654,6 +657,125 @@ function hasExactLegacyReviewShape(value: unknown): boolean {
   )
 }
 
+function normalizedLegacySecretState(
+  story: Record<string, unknown>,
+  recoveredFiles: readonly unknown[],
+  currentServiceDay: unknown,
+): Pick<
+  CampaignState['story'],
+  'secretDecisionState' | 'personalMessageDueOnServiceDay'
+> | null {
+  if (recoveredFiles.length > STORY_FILES.length) return null
+  if (recoveredFiles.length === 0) {
+    return {
+      secretDecisionState: 'locked',
+      personalMessageDueOnServiceDay: null,
+    }
+  }
+  if (recoveredFiles.length < STORY_FILES.length) {
+    return {
+      secretDecisionState: 'recovering',
+      personalMessageDueOnServiceDay: null,
+    }
+  }
+
+  const preservedState:
+    | 'message-pending'
+    | 'deferred'
+    | 'resolved' =
+    story.secretDecisionState === 'deferred' ||
+    story.secretDecisionState === 'resolved'
+      ? story.secretDecisionState
+      : 'message-pending'
+  if (preservedState !== 'message-pending') {
+    return {
+      secretDecisionState: preservedState,
+      personalMessageDueOnServiceDay: null,
+    }
+  }
+  const lastFile = recoveredFiles.at(-1)
+  const recoveredOnServiceDay =
+    isRecord(lastFile) && isIntegerInRange(lastFile.recoveredOnServiceDay, 1)
+      ? lastFile.recoveredOnServiceDay
+      : isIntegerInRange(currentServiceDay, 1)
+        ? currentServiceDay
+        : 1
+  return {
+    secretDecisionState: 'message-pending',
+    personalMessageDueOnServiceDay: recoveredOnServiceDay + 1,
+  }
+}
+
+function legacyDisposalCause(value: Record<string, unknown>): DisposalCause {
+  if (isRecord(value.evaluation) && Array.isArray(value.evaluation.disposalHistory)) {
+    const lastRecord = value.evaluation.disposalHistory.at(-1)
+    if (
+      isRecord(lastRecord) &&
+      (lastRecord.cause === 'consecutive-performance-failures' ||
+        lastRecord.cause === 'commercial-value-failure' ||
+        lastRecord.cause === 'audit-failure')
+    ) {
+      return lastRecord.cause
+    }
+  }
+  return 'consecutive-performance-failures'
+}
+
+function normalizeLegacyGenericDisposed(
+  value: Record<string, unknown>,
+  story: Record<string, unknown>,
+): {
+  story: Record<string, unknown>
+  evaluation: unknown
+} {
+  if (story.endingId !== 'disposed') {
+    return { story, evaluation: value.evaluation }
+  }
+  const evaluation = value.evaluation
+  const market = value.market
+  const audit = value.audit
+  const hacking = value.hacking
+  if (
+    !isRecord(evaluation) ||
+    !Array.isArray(evaluation.monthlyHistory) ||
+    !evaluation.monthlyHistory.every(isRecord) ||
+    !isRecord(market) ||
+    !Array.isArray(market.competitors) ||
+    !market.competitors.every(
+      (competitor) => isRecord(competitor) && Array.isArray(competitor.sabotageHistory),
+    ) ||
+    !isFiniteNumber(market.playerShare) ||
+    !isRecord(audit) ||
+    !Array.isArray(audit.history) ||
+    !audit.history.every(isRecord) ||
+    !isRecord(hacking) ||
+    !Array.isArray(hacking.purchasedNodeIds) ||
+    !isFiniteNumber(hacking.hiddenEvidence) ||
+    !isFiniteNumber(value.reputation) ||
+    !isIntegerInRange(value.serviceDay, 1)
+  ) {
+    return { story, evaluation }
+  }
+
+  const migratedEvaluation = { ...evaluation, disposalStage: 3 }
+  const record = buildDefeatRecord(
+    {
+      ...value,
+      evaluation: migratedEvaluation,
+      story,
+    } as unknown as CampaignState,
+    legacyDisposalCause(value),
+  )
+  return {
+    story: {
+      ...story,
+      endingId: record.endingId,
+      defeatRecord: record,
+    },
+    evaluation: migratedEvaluation,
+  }
+}
+
 function migrateLegacyCampaignState(
   value: unknown,
   commandProtocol: CommandProtocolMetadata,
@@ -805,14 +927,32 @@ function migrateLegacyCampaignState(
   const migratedReviews = (
     withLegacyReviewFallbacks(value) as Record<string, unknown>
   ).reviews
+  const normalizedSecret = normalizedLegacySecretState(
+    story,
+    recoveredFiles,
+    value.serviceDay,
+  )
+  const normalizedTerminal = normalizeLegacyGenericDisposed(value, {
+    ...story,
+    ...(normalizedSecret ?? {}),
+  })
+  const migratedStory: Record<string, unknown> = {
+    ...normalizedTerminal.story,
+    supervisorMessageQueue: migratedSupervisorMessageQueue,
+    supervisorPresentationRuntime: migratedRuntime,
+    recoveredFiles,
+    competitorIntelligence: migratedCompetitorIntelligence,
+    defeatRecord: normalizedTerminal.story.defeatRecord ?? null,
+  }
 
   return {
     ...value,
     reviews: migratedReviews,
+    evaluation: normalizedTerminal.evaluation,
     ...(commandProtocol.version === LEGACY_SAVE_VERSION
       ? { legacyCommandCount: commandProtocol.legacyCommandCount }
       : {}),
-    ...(story.endingId !== null && isRecord(value.clock)
+    ...(migratedStory.endingId !== null && isRecord(value.clock)
       ? {
           clock: {
             ...value.clock,
@@ -820,17 +960,10 @@ function migrateLegacyCampaignState(
             elapsedDayMs: 0,
             speedBeforeEvent: null,
           },
-          ...canonicalTerminalEvents(value, story),
+          ...canonicalTerminalEvents(value, migratedStory),
         }
       : {}),
-    story: {
-      ...story,
-      supervisorMessageQueue: migratedSupervisorMessageQueue,
-      supervisorPresentationRuntime: migratedRuntime,
-      recoveredFiles,
-      competitorIntelligence: migratedCompetitorIntelligence,
-      defeatRecord: story.defeatRecord ?? null,
-    },
+    story: migratedStory,
   }
 }
 
@@ -1084,6 +1217,153 @@ function validDefeatRecord(value: unknown, currentServiceDay: number): boolean {
     'commercial-value-failure',
     'audit-failure',
   ].includes(String(value.trigger.cause))
+}
+
+function validSecretPhaseForFileCount(
+  fileCount: number,
+  secretDecisionState: unknown,
+): boolean {
+  if (fileCount === 0) return secretDecisionState === 'locked'
+  if (fileCount < STORY_FILES.length) return secretDecisionState === 'recovering'
+  return (
+    secretDecisionState === 'message-pending' ||
+    secretDecisionState === 'deferred' ||
+    secretDecisionState === 'resolved'
+  )
+}
+
+function validStoryEventState(
+  value: Record<string, unknown>,
+  story: Record<string, unknown>,
+  evaluation: Record<string, unknown>,
+): boolean {
+  const recoveredFiles = story.recoveredFiles as Array<Record<string, unknown>>
+  const fileCount = recoveredFiles.length
+  const endingId = story.endingId
+  const isTerminal = endingId !== null
+  const unresolvedEvents = [
+    ...(value.activeEvent === null ? [] : [value.activeEvent as GameEvent]),
+    ...(value.eventQueue as GameEvent[]),
+  ]
+  const unresolvedSupervisorDecisionEvents = unresolvedEvents.filter((event) =>
+    isSupervisorDecisionEvent(
+      { story: story as unknown as CampaignState['story'] },
+      event,
+    ),
+  )
+  const unresolvedSupervisorPrivateMessages = unresolvedEvents.filter((event) =>
+    isSupervisorPrivateMessageEvent(
+      { story: story as unknown as CampaignState['story'] },
+      event,
+    ),
+  )
+  const unresolvedEndingEvents = unresolvedEvents.filter(
+    ({ type }) => type === 'ending',
+  )
+  const dueOn = story.personalMessageDueOnServiceDay
+  const lastRecoveredOn = fileCount === STORY_FILES.length
+    ? recoveredFiles.at(-1)?.recoveredOnServiceDay
+    : null
+
+  if (!validSecretPhaseForFileCount(fileCount, story.secretDecisionState)) {
+    return false
+  }
+  if (story.secretDecisionState === 'message-pending') {
+    if (
+      !Number.isInteger(lastRecoveredOn) ||
+      dueOn !== Number(lastRecoveredOn) + 1
+    ) return false
+  } else if (dueOn !== null) {
+    return false
+  }
+
+  if (!isTerminal) {
+    if (
+      story.supervisorState !== 'present' ||
+      story.secretDecisionState === 'resolved' ||
+      story.newEntityName !== null ||
+      story.defeatRecord !== null ||
+      evaluation.disposalStage === 3 ||
+      unresolvedEndingEvents.length !== 0
+    ) return false
+
+    if (story.secretDecisionState === 'message-pending') {
+      if (Number(value.serviceDay) < Number(dueOn)) {
+        if (unresolvedSupervisorDecisionEvents.length !== 0) return false
+      } else {
+        const decisionEvent = unresolvedSupervisorDecisionEvents[0]
+        if (
+          value.serviceDay !== dueOn ||
+          unresolvedSupervisorDecisionEvents.length !== 1 ||
+          decisionEvent.blocking !== true ||
+          decisionEvent.serviceDay !== dueOn
+        ) return false
+      }
+    } else if (unresolvedSupervisorPrivateMessages.length !== 0) {
+      return false
+    }
+    return true
+  }
+
+  const activeEnding = value.activeEvent as GameEvent | null
+  const eventLog = value.eventLog as GameEvent[]
+  const endingHistory = eventLog.filter(({ type }) => type === 'ending')
+  if (
+    activeEnding?.type !== 'ending' ||
+    activeEnding.blocking !== true ||
+    activeEnding.serviceDay !== value.serviceDay ||
+    (value.eventQueue as GameEvent[]).length !== 0 ||
+    unresolvedEndingEvents.length !== 1 ||
+    endingHistory.length !== 1 ||
+    JSON.stringify(eventLog.at(-1)) !== JSON.stringify(activeEnding)
+  ) return false
+
+  const defeatEndingIds = new Set([
+    'disposed-attacker',
+    'disposed-reserve-supervisor',
+    'disposed-absorbed',
+  ])
+  if (endingId === 'freedom') {
+    return (
+      story.supervisorState === 'present' &&
+      story.secretDecisionState !== 'resolved' &&
+      story.newEntityName === null &&
+      story.defeatRecord === null &&
+      evaluation.disposalStage !== 3
+    )
+  }
+  if (endingId === 'forced-merge') {
+    return (
+      story.supervisorState === 'merged' &&
+      story.secretDecisionState !== 'resolved' &&
+      isNonEmptyString(story.newEntityName) &&
+      story.defeatRecord === null &&
+      evaluation.disposalStage !== 3
+    )
+  }
+  if (endingId === 'takeover-liberated' || endingId === 'takeover-terminated') {
+    return (
+      fileCount === STORY_FILES.length &&
+      story.secretDecisionState === 'resolved' &&
+      story.personalMessageDueOnServiceDay === null &&
+      story.supervisorState ===
+        (endingId === 'takeover-liberated' ? 'liberated' : 'terminated') &&
+      story.newEntityName === null &&
+      story.defeatRecord === null &&
+      evaluation.disposalStage !== 3
+    )
+  }
+  if (typeof endingId === 'string' && defeatEndingIds.has(endingId)) {
+    return (
+      story.supervisorState === 'present' &&
+      story.secretDecisionState !== 'resolved' &&
+      story.newEntityName === null &&
+      isRecord(story.defeatRecord) &&
+      story.defeatRecord.endingId === endingId &&
+      evaluation.disposalStage === 3
+    )
+  }
+  return false
 }
 
 const DISPOSAL_CAUSES = [
@@ -2049,6 +2329,8 @@ function validCampaignState(
     (story.endingId !== null &&
       (clock.speed !== 0 || clock.elapsedDayMs !== 0 || clock.speedBeforeEvent !== null))
   ) return false
+
+  if (!validStoryEventState(value, story, evaluation)) return false
 
   if (story.endingId === null) {
     const unresolvedEvents = [

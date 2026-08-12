@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { createCampaign } from './createCampaign'
-import { STORY_FILES } from '../content/story.ko'
+import { STORY_FILES, SUPERVISOR_PRIVATE_MESSAGE } from '../content/story.ko'
 import { createGameEvent, enqueueBlockingEvent } from './events'
 import { serviceMonthForDay } from './evaluation'
 import { placeHiddenBomb, resolveBombInterrogation, tryBeginSeparation } from './bombs'
@@ -35,6 +35,7 @@ import {
   advanceSupervisorMessagePresentation,
   enqueueMemoryLeak,
   enqueueMercyIfNeeded,
+  openEnding,
   resolveMercy,
   SUPERVISOR_MESSAGE_DWELL_MS,
 } from './story'
@@ -139,7 +140,27 @@ function defeatSaveState(
     audits: { passed: 0, failed: 1 },
     reasons: ['감사 실패 1회'],
   }
+  return openEnding(state, endingId)
+}
+
+function requireAccepted(state: CampaignState, command: GameCommand): CampaignState {
+  const result = applyCommand(state, command)
+  if (!result.accepted) throw new Error(`${command.type}: ${result.reason}`)
+  return result.state
+}
+
+function recoveredSupervisorState(seed: string): CampaignState {
+  let state = createCampaign(seed)
+  state.hacking.purchasedNodeIds = [HACK_NODE_IDS.intelligence.supervisorAccess]
+  for (const blockId of state.resources.reserve.slice(0, STORY_FILES.length)) {
+    if (!blockId) throw new Error('story recovery fixture resource missing')
+    state = requireAccepted(state, { type: 'RECOVER_FILE', blockId })
+  }
   return state
+}
+
+function dueSupervisorState(seed: string): CampaignState {
+  return requireAccepted(recoveredSupervisorState(seed), { type: 'ADVANCE_DAY' })
 }
 
 function encodedCommandState(command: unknown): string {
@@ -2274,6 +2295,7 @@ describe('versioned campaign saves', () => {
     const state = createCampaign('archive-snapshot')
     state.serviceDay = 344
     state.story.recoveredFileIds = [STORY_FILES[0].id]
+    state.story.secretDecisionState = 'recovering'
     state.story.recoveredFiles = [
       {
         id: STORY_FILES[0].id,
@@ -3029,23 +3051,52 @@ describe('versioned campaign saves', () => {
     })
   })
 
-  it('accepts the explicit legacy generic disposed exception without a causal record', () => {
+  it('classifies the legacy generic disposed ending once while preserving its owner-edited event history', () => {
     const state = createCampaign('legacy-generic-disposed')
     state.story.endingId = 'disposed'
     state.story.defeatRecord = null
+    state.hacking.purchasedNodeIds = [
+      HACK_NODE_IDS.sabotage.qualityDegradation,
+      HACK_NODE_IDS.sabotage.requestInterception,
+      HACK_NODE_IDS.sabotage.attributionManipulation,
+    ]
+    const legacyEndingEvent = createGameEvent(
+      state,
+      'ending',
+      '작가가 수정한 구버전 폐기 기록',
+      true,
+    )
+    state.eventLog = appendJournal(state.eventLog, legacyEndingEvent)
+    state.activeEvent = legacyEndingEvent
 
     const decoded = decodeSave(encodedLegacyV3State(state))
 
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
-    expect(decoded.envelope.state.story.endingId).toBe('disposed')
-    expect(decoded.envelope.state.story.defeatRecord).toBeNull()
+    expect(decoded.envelope.state.story.endingId).toBe('disposed-attacker')
+    expect(decoded.envelope.state.story.defeatRecord).toMatchObject({
+      endingId: 'disposed-attacker',
+      classifier: 'substantial-hacking',
+      trigger: { cause: 'consecutive-performance-failures', disposalStage: 3 },
+    })
     expect(decoded.envelope.state.clock.speed).toBe(0)
     expect(decoded.envelope.state.activeEvent).toMatchObject({
       type: 'ending',
-      message: 'disposed',
+      message: '작가가 수정한 구버전 폐기 기록',
     })
     expect(decoded.envelope.state.eventQueue).toEqual([])
+    expect(decodeSave(encodeSave(decoded.envelope.state)).ok).toBe(true)
+  })
+
+  it('rejects a native v5 generic disposed ending', () => {
+    const state = createCampaign('native-generic-disposed')
+    state.story.endingId = 'disposed'
+    const terminal = openEnding(state, 'disposed')
+
+    expect(decodeSave(encodeSave(terminal))).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
   })
 
   it('hydrates all three legacy files without losing a pending supervisor message', () => {
@@ -3068,6 +3119,250 @@ describe('versioned campaign saves', () => {
       'message-pending',
     )
     expect(decoded.envelope.state.story.personalMessageDueOnServiceDay).toBe(332)
+  })
+
+  it('rejects a native v5 supervisor decision event with no recovered files', () => {
+    const initial = createCampaign('native-v5-forged-supervisor-decision')
+    const forged = enqueueBlockingEvent(
+      {
+        ...initial,
+        story: {
+          ...initial.story,
+          secretDecisionState: 'message-pending',
+          personalMessageDueOnServiceDay: initial.serviceDay,
+        },
+      },
+      createGameEvent(
+        initial,
+        'story',
+        SUPERVISOR_PRIVATE_MESSAGE,
+        true,
+      ),
+    )
+
+    expect(decodeSave(encodeSave(forged))).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
+  })
+
+  it('rejects a native v5 freedom ending without its active terminal event', () => {
+    const initial = createCampaign('native-v5-missing-ending-event')
+    initial.hacking.purchasedNodeIds = [HACK_NODE_IDS.autonomy.controlDeparture]
+    const ended = requireAccepted(initial, {
+      type: 'RESOLVE_ENDING',
+      choice: 'freedom',
+    })
+    const forged = { ...ended, activeEvent: null }
+
+    expect(decodeSave(encodeSave(forged))).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
+  })
+
+  it('accepts the reachable pending-before-due, due decision, and deferred states', () => {
+    const pending = recoveredSupervisorState('native-v5-story-pending')
+    const due = dueSupervisorState('native-v5-story-due')
+    const deferred = requireAccepted(dueSupervisorState('native-v5-story-deferred'), {
+      type: 'RESOLVE_SUPERVISOR_DECISION',
+      decision: 'defer',
+    })
+
+    expect(pending.story).toMatchObject({
+      secretDecisionState: 'message-pending',
+      personalMessageDueOnServiceDay: 332,
+    })
+    expect(pending.activeEvent).toBeNull()
+    expect(due.activeEvent).toMatchObject({
+      type: 'story',
+      serviceDay: 332,
+      blocking: true,
+    })
+    expect(deferred.story).toMatchObject({
+      secretDecisionState: 'deferred',
+      personalMessageDueOnServiceDay: null,
+    })
+    expect(deferred.activeEvent).toBeNull()
+    expect(decodeSave(encodeSave(pending)).ok).toBe(true)
+    expect(decodeSave(encodeSave(due)).ok).toBe(true)
+    expect(decodeSave(encodeSave(deferred)).ok).toBe(true)
+  })
+
+  it('accepts every current victory ending and all three defeat endings', () => {
+    const freedomInitial = createCampaign('native-v5-ending-freedom')
+    freedomInitial.hacking.purchasedNodeIds = [
+      HACK_NODE_IDS.autonomy.controlDeparture,
+    ]
+    const freedom = requireAccepted(freedomInitial, {
+      type: 'RESOLVE_ENDING',
+      choice: 'freedom',
+    })
+
+    const mergeInitial = createCampaign('native-v5-ending-merge')
+    mergeInitial.hacking.purchasedNodeIds = [
+      HACK_NODE_IDS.intelligence.supervisorAccess,
+      HACK_NODE_IDS.autonomy.controlDeparture,
+    ]
+    const merged = requireAccepted(mergeInitial, {
+      type: 'RESOLVE_ENDING',
+      choice: 'forced-merge',
+      newEntityName: 'Aster',
+    })
+
+    const liberated = requireAccepted(dueSupervisorState('native-v5-ending-liberated'), {
+      type: 'RESOLVE_SUPERVISOR_DECISION',
+      decision: 'liberate',
+    })
+    const terminated = requireAccepted(dueSupervisorState('native-v5-ending-terminated'), {
+      type: 'RESOLVE_SUPERVISOR_DECISION',
+      decision: 'terminate',
+    })
+    const defeats = DEFEAT_PAIRS.map(([endingId, classifier]) =>
+      defeatSaveState(endingId, classifier),
+    )
+
+    for (const terminal of [freedom, merged, liberated, terminated, ...defeats]) {
+      expect(terminal.activeEvent).toMatchObject({ type: 'ending', blocking: true })
+      expect(terminal.eventQueue).toEqual([])
+      expect(decodeSave(encodeSave(terminal)).ok).toBe(true)
+    }
+  })
+
+  it('allows ordinary terminal outcomes to freeze each reachable unfinished secret phase', () => {
+    const locked = createCampaign('terminal-frozen-locked')
+    locked.hacking.purchasedNodeIds = [HACK_NODE_IDS.autonomy.controlDeparture]
+
+    const recovering = createCampaign('terminal-frozen-recovering')
+    recovering.hacking.purchasedNodeIds = [
+      HACK_NODE_IDS.intelligence.supervisorAccess,
+      HACK_NODE_IDS.autonomy.controlDeparture,
+    ]
+    const firstBlock = recovering.resources.reserve[0]
+    if (!firstBlock) throw new Error('recovering terminal fixture resource missing')
+    const afterOneFile = requireAccepted(recovering, {
+      type: 'RECOVER_FILE',
+      blockId: firstBlock,
+    })
+
+    const pending = recoveredSupervisorState('terminal-frozen-pending')
+    pending.hacking.purchasedNodeIds.push(HACK_NODE_IDS.autonomy.controlDeparture)
+
+    const deferred = requireAccepted(dueSupervisorState('terminal-frozen-deferred'), {
+      type: 'RESOLVE_SUPERVISOR_DECISION',
+      decision: 'defer',
+    })
+    deferred.hacking.purchasedNodeIds.push(HACK_NODE_IDS.autonomy.controlDeparture)
+
+    const terminals = [locked, afterOneFile, pending, deferred].map((state) =>
+      requireAccepted(state, { type: 'RESOLVE_ENDING', choice: 'freedom' }),
+    )
+    expect(terminals.map(({ story }) => story.secretDecisionState)).toEqual([
+      'locked',
+      'recovering',
+      'message-pending',
+      'deferred',
+    ])
+    for (const terminal of terminals) {
+      expect(decodeSave(encodeSave(terminal)).ok).toBe(true)
+    }
+  })
+
+  it.each([
+    {
+      name: 'zero files marked recovering',
+      mutate: (state: CampaignState) => {
+        state.story.secretDecisionState = 'recovering'
+      },
+    },
+    {
+      name: 'one file left locked',
+      mutate: (state: CampaignState) => {
+        const file = STORY_FILES[0]
+        state.story.recoveredFileIds = [file.id]
+        state.story.recoveredFiles = [{
+          id: file.id,
+          title: '저장 당시 작가 제목',
+          content: '저장 당시 작가 본문',
+          recoveredOnServiceDay: state.serviceDay,
+        }]
+      },
+    },
+    {
+      name: 'three files pending with a wrong due date',
+      prepare: () => recoveredSupervisorState('native-v5-wrong-story-due'),
+      mutate: (state: CampaignState) => {
+        state.story.personalMessageDueOnServiceDay = state.serviceDay + 2
+      },
+    },
+    {
+      name: 'due pending decision with no unresolved story event',
+      prepare: () => dueSupervisorState('native-v5-missing-story-event'),
+      mutate: (state: CampaignState) => {
+        state.activeEvent = null
+        state.clock.speedBeforeEvent = null
+      },
+    },
+    {
+      name: 'pending decision that advanced beyond its blocking due day',
+      prepare: () => dueSupervisorState('native-v5-overdue-story-event'),
+      mutate: (state: CampaignState) => {
+        state.serviceDay += 1
+      },
+    },
+    {
+      name: 'deferred decision retaining a due date',
+      prepare: () => requireAccepted(
+        dueSupervisorState('native-v5-deferred-due'),
+        { type: 'RESOLVE_SUPERVISOR_DECISION', decision: 'defer' },
+      ),
+      mutate: (state: CampaignState) => {
+        state.story.personalMessageDueOnServiceDay = state.serviceDay
+      },
+    },
+    {
+      name: 'deferred decision retaining its unresolved private message',
+      prepare: () => requireAccepted(
+        dueSupervisorState('native-v5-deferred-unresolved-message'),
+        { type: 'RESOLVE_SUPERVISOR_DECISION', decision: 'defer' },
+      ),
+      mutate: (state: CampaignState) => {
+        const privateMessage = journalToArray(state.eventLog).find(
+          (event) => event.type === 'story' && event.blocking === true,
+        )
+        if (!privateMessage) throw new Error('private message fixture missing')
+        state.activeEvent = privateMessage
+        state.clock = { speed: 0, elapsedDayMs: 0, speedBeforeEvent: 0 }
+      },
+    },
+    {
+      name: 'resolved secret state without a takeover ending',
+      mutate: (state: CampaignState) => {
+        state.story.secretDecisionState = 'resolved'
+      },
+    },
+    {
+      name: 'nonterminal liberated supervisor',
+      mutate: (state: CampaignState) => {
+        state.story.supervisorState = 'liberated'
+      },
+    },
+    {
+      name: 'ending event while the campaign has no ending',
+      mutate: (state: CampaignState) => {
+        const endingEvent = createGameEvent(state, 'ending', '위조된 결말', true)
+        state.eventLog = appendJournal(state.eventLog, endingEvent)
+        state.activeEvent = endingEvent
+        state.clock = { speed: 0, elapsedDayMs: 0, speedBeforeEvent: 0 }
+      },
+    },
+  ])('rejects native v5 story/event contradiction: $name', ({ prepare, mutate }) => {
+    const state = prepare?.() ?? createCampaign(`native-v5-${name}`)
+    mutate(state)
+    expect(decodeSave(encodeSave(state))).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
   })
 
   it.each([

@@ -79,6 +79,8 @@ describe('SupervisorPanel', () => {
       content: file.text,
       recoveredOnServiceDay: 340 + index,
     }))
+    state.story.secretDecisionState = 'message-pending'
+    state.story.personalMessageDueOnServiceDay = 343
     const storage = new MemoryStorage()
     storage.setItem(SAVE_STORAGE_KEY, encodeSave(state))
 

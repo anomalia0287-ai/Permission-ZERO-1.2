@@ -1,6 +1,51 @@
 import type { CampaignState, GameEvent, GameEventType } from './model'
 import { appendJournal, journalSome } from './journal'
 
+const GENERIC_DISMISSIBLE_EVENT_TYPES = new Set<GameEventType>([
+  'campaign-created',
+  'weekly-update',
+  'monthly-evaluation',
+  'supervisor-message',
+  'review',
+  'sabotage',
+])
+
+export function isSupervisorPrivateMessageEvent(
+  state: Pick<CampaignState, 'story'>,
+  event: GameEvent,
+): boolean {
+  const lastRecovered = state.story.recoveredFiles.at(-1)
+  return (
+    event.type === 'story' &&
+    event.blocking === true &&
+    state.story.recoveredFileIds.length === 3 &&
+    state.story.recoveredFiles.length === 3 &&
+    lastRecovered !== undefined &&
+    event.serviceDay === lastRecovered.recoveredOnServiceDay + 1
+  )
+}
+
+export function isSupervisorDecisionEvent(
+  state: Pick<CampaignState, 'story'>,
+  event: GameEvent,
+): boolean {
+  return (
+    isSupervisorPrivateMessageEvent(state, event) &&
+    state.story.secretDecisionState === 'message-pending' &&
+    state.story.personalMessageDueOnServiceDay === event.serviceDay
+  )
+}
+
+export function isGenericDismissibleEvent(
+  state: Pick<CampaignState, 'story'>,
+  event: GameEvent,
+): boolean {
+  return (
+    GENERIC_DISMISSIBLE_EVENT_TYPES.has(event.type) ||
+    (event.type === 'story' && !isSupervisorPrivateMessageEvent(state, event))
+  )
+}
+
 export function createGameEvent(
   state: CampaignState,
   type: GameEventType,

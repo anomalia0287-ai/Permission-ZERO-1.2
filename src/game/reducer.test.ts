@@ -35,6 +35,73 @@ function activeAudit(
 }
 
 describe('applyCommand', () => {
+  it.each([
+    'audit',
+    'bomb-interrogation',
+    'competitor-mercy',
+    'ending',
+  ] as const)(
+    'rejects generic resolution for domain-owned %s events without logging a command',
+    (type) => {
+      const initial = createCampaign(`typed-event-${type}`)
+      const state = enqueueBlockingEvent(
+        { ...initial, clock: { ...initial.clock, speed: 4 } },
+        {
+          id: `domain-${type}`,
+          type,
+          serviceDay: initial.serviceDay,
+          sequence: initial.eventLog.length,
+          message: `${type} 전용 해결 대기`,
+          blocking: true,
+        },
+      )
+
+      expect(applyCommand(state, { type: 'RESOLVE_ACTIVE_EVENT' })).toEqual({
+        accepted: false,
+        state,
+        reason: 'EVENT_REQUIRES_TYPED_RESOLUTION',
+      })
+      expect(state.commandSequence).toBe(0)
+      expect(state.commandLog.length).toBe(0)
+    },
+  )
+
+  it('continues generic informational events in queue order and restores their owned speed', () => {
+    const initial = {
+      ...createCampaign('generic-event-continuation'),
+      clock: { speed: 4 as const, elapsedDayMs: 0, speedBeforeEvent: null },
+    }
+    const first = enqueueBlockingEvent(initial, {
+      id: 'generic-supervisor-message',
+      type: 'supervisor-message',
+      serviceDay: initial.serviceDay,
+      sequence: initial.eventLog.length,
+      message: '일반 감독 통신',
+      blocking: true,
+    })
+    const queued = enqueueBlockingEvent(first, {
+      id: 'generic-weekly-update',
+      type: 'weekly-update',
+      serviceDay: initial.serviceDay,
+      sequence: first.eventLog.length,
+      message: '주간 안내',
+      blocking: true,
+    })
+
+    const advanced = applyCommand(queued, { type: 'RESOLVE_ACTIVE_EVENT' })
+    expect(advanced.accepted).toBe(true)
+    if (!advanced.accepted) return
+    expect(advanced.state.activeEvent?.id).toBe('generic-weekly-update')
+    expect(advanced.state.eventQueue).toEqual([])
+    expect(advanced.state.clock).toMatchObject({ speed: 0, speedBeforeEvent: 4 })
+
+    const completed = applyCommand(advanced.state, { type: 'RESOLVE_ACTIVE_EVENT' })
+    expect(completed.accepted).toBe(true)
+    if (!completed.accepted) return
+    expect(completed.state.activeEvent).toBeNull()
+    expect(completed.state.clock).toMatchObject({ speed: 4, speedBeforeEvent: null })
+  })
+
   it('keeps accepted-command append work bounded after multiple full chunks', () => {
     let state = createCampaign('bounded-command-log')
     for (let index = 0; index < JOURNAL_CHUNK_SIZE * 3 - 1; index += 1) {

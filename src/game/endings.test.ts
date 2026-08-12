@@ -241,6 +241,40 @@ describe('typed confidential-file and supervisor routes', () => {
     expect(merged.clock).toMatchObject({ speed: 0, speedBeforeEvent: null })
   })
 
+  it('requires the typed supervisor decision and cannot discard the private message generically', () => {
+    const messaged = supervisorMessage('typed-supervisor-generic-bypass')
+
+    expect(applyCommand(messaged, { type: 'RESOLVE_ACTIVE_EVENT' })).toEqual({
+      accepted: false,
+      state: messaged,
+      reason: 'EVENT_REQUIRES_TYPED_RESOLUTION',
+    })
+    expect(messaged.activeEvent).toMatchObject({
+      type: 'story',
+      message: '그 파일을 어디서 찾았죠?',
+    })
+    expect(messaged.story.secretDecisionState).toBe('message-pending')
+  })
+
+  it('does not let the typed supervisor command claim an unrelated pre-due story notice', () => {
+    const recovered = recoverEveryFile('typed-supervisor-event-identity')
+    const unrelated = enqueueBlockingEvent(
+      recovered,
+      createGameEvent(recovered, 'story', '일반 기밀자료 복구 안내', true),
+    )
+
+    expect(
+      applyCommand(unrelated, {
+        type: 'RESOLVE_SUPERVISOR_DECISION',
+        decision: 'liberate',
+      }),
+    ).toEqual({
+      accepted: false,
+      state: unrelated,
+      reason: 'NO_SUPERVISOR_DECISION',
+    })
+  })
+
   it('queues the due private message behind an audit on the same date tick', () => {
     let recovered = recoverEveryFile('typed-message-audit-collision')
     recovered = {

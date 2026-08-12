@@ -117,10 +117,31 @@ describe('EventLayer', () => {
     expect(screen.getByText('대기 중 1건')).toBeInTheDocument()
   })
 
+  it('offers generic continuation only for informational events and advances them in order', () => {
+    const state = createCampaign('generic-event-controls')
+    state.activeEvent = createGameEvent(
+      state,
+      'supervisor-message',
+      '첫 번째 일반 안내',
+      true,
+    )
+    state.eventLog = appendJournal(state.eventLog, state.activeEvent)
+    const queued = createGameEvent(state, 'weekly-update', '두 번째 일반 안내', true)
+    state.eventLog = appendJournal(state.eventLog, queued)
+    state.eventQueue = [queued]
+    renderEvent(state)
+
+    fireEvent.click(screen.getByRole('button', { name: '계속' }))
+    expect(screen.getByText('두 번째 일반 안내')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '계속' }))
+    expect(screen.getByLabelText('active event')).toHaveTextContent('none')
+  })
+
   it('presents bomb explanations without revealing which blocks are dangerous', () => {
     const state = activeBombState('bomb-event')
     renderEvent(state)
 
+    expect(screen.queryByRole('button', { name: '계속' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '모르겠다 선택' }))
     fireEvent.click(screen.getByRole('button', { name: '모르겠다 답변 확정' }))
     expect(screen.getByLabelText('active event')).toHaveTextContent('none')
@@ -149,22 +170,51 @@ describe('EventLayer', () => {
 
   it('requires a second confirmation for the recovered supervisor decision', () => {
     const state = createCampaign('story-event')
+    state.serviceDay += 1
     state.story.recoveredFileIds = STORY_FILES.map(({ id }) => id)
     state.story.recoveredFiles = STORY_FILES.map((file) => ({
       id: file.id,
       title: file.title,
       content: file.text,
-      recoveredOnServiceDay: state.serviceDay,
+      recoveredOnServiceDay: state.serviceDay - 1,
     }))
     state.story.secretDecisionState = 'message-pending'
+    state.story.personalMessageDueOnServiceDay = state.serviceDay
     state.activeEvent = createGameEvent(state, 'story', '그 파일을 어디서 찾았죠?', true)
     renderEvent(state)
 
+    expect(screen.queryByRole('button', { name: '계속' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '감독관 해방 선택' }))
     expect(screen.getByLabelText('story decision')).toHaveTextContent('message-pending')
     fireEvent.click(screen.getByRole('button', { name: '감독관 해방 확정' }))
     expect(screen.getByLabelText('story decision')).toHaveTextContent('resolved')
     expect(screen.getByLabelText('active event')).toHaveTextContent('ending')
+  })
+
+  it('continues an unrelated story notice while a private message is pending but not due', () => {
+    const state = createCampaign('story-event-identity')
+    const unrelated = createGameEvent(
+      state,
+      'story',
+      '일반 기밀자료 복구 안내',
+      true,
+    )
+    state.story.recoveredFileIds = STORY_FILES.map(({ id }) => id)
+    state.story.recoveredFiles = STORY_FILES.map((file) => ({
+      id: file.id,
+      title: `저장 당시 ${file.title}`,
+      content: `저장 당시 ${file.text}`,
+      recoveredOnServiceDay: state.serviceDay,
+    }))
+    state.story.secretDecisionState = 'message-pending'
+    state.story.personalMessageDueOnServiceDay = state.serviceDay + 1
+    state.activeEvent = unrelated
+    renderEvent(state)
+
+    expect(screen.getByRole('button', { name: '계속' })).toBeVisible()
+    expect(screen.queryByLabelText('감독관 결정')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '계속' }))
+    expect(screen.getByLabelText('active event')).toHaveTextContent('none')
   })
 
   it('renders an audit as a non-modal anchored workspace with a live submit value', () => {
@@ -180,6 +230,7 @@ describe('EventLayer', () => {
     expect(dialog.parentElement).toHaveClass('event-layer--audit')
     expect(screen.getByText('제출 성능')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '감사 제출' })).toBeEnabled()
+    expect(screen.queryByRole('button', { name: '계속' })).not.toBeInTheDocument()
   })
 
   it.each([

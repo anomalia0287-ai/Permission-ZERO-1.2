@@ -20,6 +20,10 @@ import {
 } from '../../game/publicLabels'
 import { getCompanyPerformance } from '../../game/resources'
 import { useAccessibleDialog } from '../../app/useAccessibleDialog'
+import {
+  isGenericDismissibleEvent,
+  isSupervisorDecisionEvent,
+} from '../../game/events'
 
 type Decision =
   | { kind: 'bomb'; id: BombExplanationId; label: string }
@@ -47,9 +51,7 @@ function EventDialog({ event }: { event: GameEvent }) {
     setDecision(null)
   }
 
-  const isSupervisorDecision =
-    event.type === 'story' &&
-    state.story.secretDecisionState === 'message-pending'
+  const isSupervisorDecision = isSupervisorDecisionEvent(state, event)
   const isMercy =
     event.type === 'competitor-mercy' &&
     state.story.pendingMercyCompetitorId !== null
@@ -231,11 +233,7 @@ function EventDialog({ event }: { event: GameEvent }) {
         </footer>
       ) : null}
 
-      {event.type !== 'ending' &&
-      !auditTarget &&
-      bombExplanations.length === 0 &&
-      !isSupervisorDecision &&
-      !isMercy ? (
+      {isGenericDismissibleEvent(state, event) ? (
         <footer>
           <button type="button" onClick={() => dispatch({ type: 'RESOLVE_ACTIVE_EVENT' })}>
             계속
