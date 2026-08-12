@@ -33,6 +33,49 @@ function renderHacking(storage = new MemoryStorage()) {
 }
 
 describe('HackingPanel', () => {
+  it('shows the next and final qualitative payoff of the active path', () => {
+    renderHacking()
+
+    const sabotageProgress = screen.getByRole('region', {
+      name: '해킹 경로 진척',
+    })
+    expect(sabotageProgress).toHaveTextContent('경로 진척 0/4 · 완성까지 34 RES')
+    expect(sabotageProgress).toHaveTextContent(
+      '다음 · 품질 저하 · 3 RES · 대상 성능 -10, 15일 지속',
+    )
+    expect(sabotageProgress).toHaveTextContent(
+      '최종 · 근원 차단 · 대상 성능 -40, 삭제 임박 시 자비 사건',
+    )
+
+    fireEvent.click(screen.getByRole('tab', { name: '정보' }))
+    const intelligenceProgress = screen.getByRole('region', {
+      name: '해킹 경로 진척',
+    })
+    expect(intelligenceProgress).toHaveTextContent('경로 진척 0/4 · 완성까지 30 RES')
+    expect(intelligenceProgress).toHaveTextContent(
+      '다음 · 감사 일정 · 3 RES · 이번 달 말 감사 예정 여부 공개',
+    )
+    expect(intelligenceProgress).toHaveTextContent(
+      '최종 · 감독관 접근 · 감독관 기록과 숨은 선택 경로 해금',
+    )
+  })
+
+  it('marks a fully purchased path complete without a next-node line', () => {
+    const state = createCampaign('completed-hack-path')
+    state.hacking.purchasedNodeIds = Object.values(HACK_NODE_IDS.autonomy)
+    const storage = new MemoryStorage()
+    storage.setItem(SAVE_STORAGE_KEY, encodeSave(state))
+    renderHacking(storage)
+
+    fireEvent.click(screen.getByRole('tab', { name: '자율성' }))
+    const progress = screen.getByRole('region', { name: '해킹 경로 진척' })
+    expect(progress).toHaveTextContent('경로 진척 4/4 · 경로 완성')
+    expect(progress).not.toHaveTextContent('다음 ·')
+    expect(progress).toHaveTextContent(
+      '최종 · 통제 이탈 · 캠페인의 최종 행동 해금',
+    )
+  })
+
   it('compares the immediate payoff and next action of all three first paths', () => {
     renderHacking()
 

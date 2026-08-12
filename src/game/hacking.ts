@@ -175,6 +175,37 @@ export const HACK_NODES = [
 ] as const satisfies readonly HackNodeDefinitionShape[]
 
 export type HackNodeId = (typeof HACK_NODES)[number]['id']
+export type HackNodeDefinition = (typeof HACK_NODES)[number]
+
+export interface HackTreeProgress {
+  purchasedCount: number
+  totalCount: number
+  remainingCost: number
+  nextNode: HackNodeDefinition | null
+  finalNode: HackNodeDefinition
+  complete: boolean
+}
+
+export function getHackTreeProgress(
+  state: CampaignState,
+  tree: HackTree,
+): HackTreeProgress {
+  const nodes = HACK_NODES.filter((node) => node.tree === tree)
+  const purchased = new Set(state.hacking.purchasedNodeIds)
+  const unpurchased = nodes.filter(({ id }) => !purchased.has(id))
+  const finalNode = nodes.at(-1)
+  if (!finalNode) throw new Error(`UNKNOWN_HACK_TREE:${tree}`)
+
+  return {
+    purchasedCount: nodes.length - unpurchased.length,
+    totalCount: nodes.length,
+    remainingCost: unpurchased.reduce((total, node) => total + node.cost, 0),
+    nextNode: unpurchased[0] ?? null,
+    finalNode,
+    complete: unpurchased.length === 0,
+  }
+}
+
 type SabotageNode = Extract<(typeof HACK_NODES)[number], { tree: 'sabotage' }>
 
 export type HackingMutationResult =

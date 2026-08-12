@@ -5,6 +5,7 @@ import {
   HACK_NODE_IDS,
   HACK_NODES,
   canControlDeparture,
+  getHackTreeProgress,
   grantSelfComputeResource,
   hasSupervisorAccess,
   purchaseHackNode,
@@ -43,6 +44,41 @@ function buy(
 }
 
 describe('typed hacking trees', () => {
+  it('derives ordered progress, remaining cost, and the terminal payoff for a path', () => {
+    const initial = createCampaign('hack-progress')
+    expect(getHackTreeProgress(initial, 'sabotage')).toMatchObject({
+      purchasedCount: 0,
+      totalCount: 4,
+      remainingCost: 34,
+      complete: false,
+      nextNode: {
+        id: HACK_NODE_IDS.sabotage.qualityDegradation,
+        label: '품질 저하',
+        cost: 3,
+      },
+      finalNode: {
+        id: HACK_NODE_IDS.sabotage.rootCutoff,
+        label: '근원 차단',
+      },
+    })
+
+    const complete = {
+      ...initial,
+      hacking: {
+        ...initial.hacking,
+        purchasedNodeIds: Object.values(HACK_NODE_IDS.autonomy),
+      },
+    }
+    expect(getHackTreeProgress(complete, 'autonomy')).toMatchObject({
+      purchasedCount: 4,
+      totalCount: 4,
+      remainingCost: 0,
+      complete: true,
+      nextNode: null,
+      finalNode: { id: HACK_NODE_IDS.autonomy.controlDeparture },
+    })
+  })
+
   it('defines three independent ordered trees whose first nodes all cost 3', () => {
     for (const tree of ['sabotage', 'intelligence', 'autonomy'] as const) {
       const nodes = HACK_NODES.filter((node) => node.tree === tree)

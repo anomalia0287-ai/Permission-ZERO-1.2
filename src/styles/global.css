@@ -1972,6 +1972,27 @@ textarea:focus-visible,
   border-bottom: 0;
 }
 
+.hack-path-progress {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr);
+  gap: 7px 12px;
+  align-items: center;
+  padding: 0 13px 9px;
+  font: 500 0.5rem/1.35 "Cascadia Code", Consolas, monospace;
+}
+
+.hack-path-progress strong {
+  color: var(--reserve-bright);
+  white-space: nowrap;
+}
+
+.hack-path-progress span {
+  overflow: hidden;
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .first-hack-comparison {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

@@ -9,6 +9,7 @@ import {
 } from '../../app/GameContext'
 import {
   eligibleTargets,
+  getHackTreeProgress,
   HACK_NODE_IDS,
   HACK_NODES,
   type HackNodeId,
@@ -65,6 +66,7 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
   const [announcement, setAnnouncement] = useState('')
 
   const nodes = HACK_NODES.filter(({ tree }) => tree === activeTree)
+  const treeProgress = getHackTreeProgress(state, activeTree)
   const reserveBlocks = state.resources.reserve.flatMap((blockId, cellIndex) =>
     blockId ? [{ blockId, cellIndex }] : [],
   )
@@ -226,6 +228,23 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
           </div>
           <div className="hack-context">
             <p className="tree-description">{TREE_LABELS[activeTree].description}</p>
+            <section className="hack-path-progress" aria-label="해킹 경로 진척">
+              <strong>
+                경로 진척 {treeProgress.purchasedCount}/{treeProgress.totalCount} ·{' '}
+                {treeProgress.complete
+                  ? '경로 완성'
+                  : `완성까지 ${treeProgress.remainingCost} RES`}
+              </strong>
+              {treeProgress.nextNode ? (
+                <span>
+                  다음 · {treeProgress.nextNode.label} · {treeProgress.nextNode.cost} RES ·{' '}
+                  {treeProgress.nextNode.effect}
+                </span>
+              ) : null}
+              <span>
+                최종 · {treeProgress.finalNode.label} · {treeProgress.finalNode.effect}
+              </span>
+            </section>
 
             {showFirstHackComparison ? (
               <section className="first-hack-comparison" aria-label="첫 해킹 비교">
