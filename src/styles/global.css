@@ -1180,6 +1180,35 @@ textarea:focus-visible,
   color: var(--reserve-bright);
 }
 
+.bomb-protocol-schedule {
+  display: grid;
+  gap: 5px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line-soft);
+  font: 600 0.49rem/1.25 "Cascadia Code", Consolas, monospace;
+}
+
+.bomb-protocol-schedule > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.bomb-protocol-schedule span,
+.bomb-protocol-schedule small {
+  color: var(--text-muted);
+}
+
+.bomb-protocol-schedule strong {
+  color: var(--reserve-bright);
+  font-size: 0.52rem;
+  white-space: normal;
+}
+
+.bomb-protocol-schedule--accelerated strong {
+  color: var(--alarm);
+}
+
 .meter-track {
   display: block;
   height: 4px;

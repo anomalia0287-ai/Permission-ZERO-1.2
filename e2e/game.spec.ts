@@ -467,6 +467,24 @@ test('keeps the full operations workspace usable at the configured release viewp
   await expect(page.getByRole('region', { name: '감독관' })).toBeVisible()
   await expect(page.getByRole('region', { name: '확보 리소스' })).toBeVisible()
 
+  const bombProtocolSchedule = page.getByRole('region', {
+    name: '무결성 보호 검사 일정',
+  })
+  await expect(bombProtocolSchedule).toContainText('활성 40 · 가속 70')
+  await expect(bombProtocolSchedule).toContainText('기본 6개월 · 가속 3개월')
+  await expect(bombProtocolSchedule).toContainText(
+    '현재 미활성 · 최초 활성 가능 서비스 1년 0개월 1일',
+  )
+  const supervisorStatusBox = await page
+    .getByRole('region', { name: '감독 상태' })
+    .boundingBox()
+  const bombProtocolScheduleBox = await bombProtocolSchedule.boundingBox()
+  expect(supervisorStatusBox).not.toBeNull()
+  expect(bombProtocolScheduleBox).not.toBeNull()
+  expect(bombProtocolScheduleBox!.y + bombProtocolScheduleBox!.height).toBeLessThanOrEqual(
+    supervisorStatusBox!.y + supervisorStatusBox!.height + 1,
+  )
+
   const publicInputs = page.getByRole('group', { name: '공개 계산 입력' })
   await publicInputs.locator('summary').click()
   await expect(publicInputs).toContainText('평균 성능 16.0 / 기대 14.0')

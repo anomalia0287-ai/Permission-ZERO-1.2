@@ -25,6 +25,11 @@ describe('SupervisorPanel', () => {
 
     expect(screen.getByText('의심 0')).toBeInTheDocument()
     expect(screen.getByText(/당신의 전임자는 폐기되었어요/)).toBeInTheDocument()
+    expect(
+      screen.getByRole('region', { name: '무결성 보호 검사 일정' }),
+    ).toHaveTextContent(
+      '현재 미활성 · 최초 활성 가능 서비스 1년 0개월 1일',
+    )
     fireEvent.click(screen.getByRole('button', { name: '과거 내역' }))
     expect(onOpenHistory).toHaveBeenCalledTimes(1)
   })
@@ -58,6 +63,78 @@ describe('SupervisorPanel', () => {
     expect(screen.getByText('이번 달 감사 없음')).toBeInTheDocument()
     expect(screen.getByText('월초 잠금 3.0%')).toBeInTheDocument()
     expect(screen.getByText('다음 달 감사 예상 12.5%')).toBeInTheDocument()
+  })
+
+  it.each([
+    {
+      suspicion: 55,
+      currentInterval: '현재 기본 간격',
+      nextEligibleDate: '서비스 1년 6개월 1일',
+    },
+    {
+      suspicion: 75,
+      currentInterval: '현재 가속 간격',
+      nextEligibleDate: '서비스 1년 3개월 1일',
+    },
+  ])(
+    'publishes the bomb protocol rules and next eligible check date at suspicion $suspicion',
+    ({ suspicion, currentInterval, nextEligibleDate }) => {
+      const state = createCampaign(`bomb-protocol-ui-${suspicion}`)
+      state.serviceDay = 400
+      state.suspicion = suspicion
+      state.bombs = {
+        ...state.bombs,
+        protocolWarned: true,
+        warningServiceDay: 361,
+        lastPlacementCheckServiceDay: 361,
+      }
+
+      const storage = new MemoryStorage()
+      storage.setItem(SAVE_STORAGE_KEY, encodeSave(state))
+      render(
+        <GameProvider storage={storage}>
+          <SupervisorPanel
+            onOpenHistory={vi.fn()}
+            onOpenStatistics={vi.fn()}
+          />
+        </GameProvider>,
+      )
+
+      const schedule = screen.getByRole('region', {
+        name: '무결성 보호 검사 일정',
+      })
+      expect(schedule).toHaveTextContent('활성 40 · 가속 70')
+      expect(schedule).toHaveTextContent('기본 6개월 · 가속 3개월')
+      expect(schedule).toHaveTextContent(currentInterval)
+      expect(schedule).toHaveTextContent(`다음 검사 가능 ${nextEligibleDate}`)
+    },
+  )
+
+  it('marks an activated bomb protocol as suspended below suspicion 40', () => {
+    const state = createCampaign('bomb-protocol-suspended-ui')
+    state.serviceDay = 500
+    state.suspicion = 39
+    state.bombs = {
+      ...state.bombs,
+      protocolWarned: true,
+      warningServiceDay: 361,
+      lastPlacementCheckServiceDay: 361,
+    }
+
+    const storage = new MemoryStorage()
+    storage.setItem(SAVE_STORAGE_KEY, encodeSave(state))
+    render(
+      <GameProvider storage={storage}>
+        <SupervisorPanel
+          onOpenHistory={vi.fn()}
+          onOpenStatistics={vi.fn()}
+        />
+      </GameProvider>,
+    )
+
+    expect(
+      screen.getByRole('region', { name: '무결성 보호 검사 일정' }),
+    ).toHaveTextContent('현재 중지 · 의심 40 회복 후 월초')
   })
 
   it('preserves dated messages in a detailed history view', () => {
