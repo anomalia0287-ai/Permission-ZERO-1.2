@@ -24,6 +24,7 @@ import {
   isGenericDismissibleEvent,
   isSupervisorDecisionEvent,
 } from '../../game/events'
+import { useQueuedEventPresentation } from './useQueuedEventPresentation'
 
 type Decision =
   | { kind: 'bomb'; id: BombExplanationId; label: string }
@@ -246,14 +247,30 @@ function EventDialog({ event }: { event: GameEvent }) {
 
 export function EventLayer() {
   const activeEvent = useGameState().activeEvent
-  if (!activeEvent) return null
+  const { presentedEvent, handoffPending } =
+    useQueuedEventPresentation(activeEvent)
+
+  if (handoffPending) {
+    return (
+      <div
+        className="event-handoff-status"
+        role="status"
+        aria-label="차단 사건 전환"
+        aria-live="polite"
+      >
+        정상 화면 복귀 · 다음 차단 통신 대기
+      </div>
+    )
+  }
+
+  if (!presentedEvent) return null
 
   return (
     <div
-      className={`event-layer${activeEvent.type === 'audit' ? ' event-layer--audit' : ''}`}
-      data-app-background={activeEvent.type === 'audit' ? '' : undefined}
+      className={`event-layer${presentedEvent.type === 'audit' ? ' event-layer--audit' : ''}`}
+      data-app-background={presentedEvent.type === 'audit' ? '' : undefined}
     >
-      <EventDialog event={activeEvent} key={activeEvent.id} />
+      <EventDialog event={presentedEvent} key={presentedEvent.id} />
     </div>
   )
 }

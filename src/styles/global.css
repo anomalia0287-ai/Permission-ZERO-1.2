@@ -2870,6 +2870,20 @@ textarea:focus-visible,
 
 /* Blocking events and save recovery -------------------------------------- */
 
+.event-handoff-status {
+  position: absolute;
+  top: 75px;
+  right: 18px;
+  z-index: 55;
+  padding: 8px 11px;
+  border: 1px solid rgb(214 151 69 / 36%);
+  color: var(--reserve-bright);
+  background: rgb(7 13 16 / 92%);
+  box-shadow: var(--shadow-panel);
+  font: 600 0.52rem/1 "Cascadia Code", Consolas, monospace;
+  pointer-events: none;
+}
+
 .event-layer,
 .storage-recovery-layer {
   z-index: 40;
