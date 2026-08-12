@@ -1,0 +1,10 @@
+.worktrees/
+node_modules/
+dist/
+coverage/
+test-results/
+playwright-report/
+.playwright-cli/
+artifacts/
+*.local
+*.log
