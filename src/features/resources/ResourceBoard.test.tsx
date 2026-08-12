@@ -215,6 +215,12 @@ describe('ResourceBoard', () => {
     expect(visibleDates).toHaveLength(3)
     expect(visibleDates[0]).toHaveTextContent('서비스 0년 10개월 30일')
     expect(visibleDates[2]).toHaveTextContent('서비스 1년 0개월 1일')
+    const receipt = screen.getByRole('region', { name: '최근 월간 평가' })
+    expect(receipt).toHaveTextContent('기준 충족 · 평판 +1')
+    expect(receipt).toHaveTextContent(
+      '추론 14.0 · 기억 15.0 · 유창 16.0 / 기대 14.0',
+    )
+    expect(receipt).toHaveTextContent('실패 0/2 · 폐기 0→0')
   })
 
   it('keeps a one-point live trend finite and compares every category with expectation in its header', () => {
@@ -234,8 +240,9 @@ describe('ResourceBoard', () => {
       /현재 16\.0.*기대 14\.0/,
     )
     expect(screen.getByLabelText('유창성 성능 비교')).toHaveTextContent(
-      /현재 16\.0.*기대 14\.0/,
+      /현재 16\.0.*기대 14\.0.*여유 \+2\.0/,
     )
+    expect(screen.getAllByText('동일 분야 블록')).toHaveLength(3)
   })
 
   it('selects a block on click and shows exact diversion consequences', () => {
@@ -246,6 +253,7 @@ describe('ResourceBoard', () => {
     expect(screen.getByText('추론 16.0 → 15.0')).toBeInTheDocument()
     expect(screen.getByText('확보 3 → 4')).toBeInTheDocument()
     expect(screen.getByText('의심 0.0 → 2.4')).toBeInTheDocument()
+    expect(screen.getByText('기준 유지 · 여유 +1.0')).toBeInTheDocument()
     expect(firstEmptyReserve()).toBeEnabled()
   })
 
@@ -261,6 +269,8 @@ describe('ResourceBoard', () => {
     expect(screen.getByLabelText('command types')).toHaveTextContent(
       'BEGIN_BLOCK_SEPARATION,DIVERT_BLOCK',
     )
+    expect(screen.getByText('전용 완료')).toBeInTheDocument()
+    expect(screen.getByText('기준 유지 · 여유 +1.0')).toBeInTheDocument()
   })
 
   it('supports keyboard destination confirmation and Escape cancellation', () => {
@@ -526,9 +536,9 @@ describe('ResourceBoard', () => {
     renderState(compressedAuditState())
     fireEvent.click(firstAuditSource())
 
-    expect(screen.getByText('기억 17.6 → 16.5')).toBeInTheDocument()
-    expect(screen.getByText('추론 17.6 → 18.1')).toBeInTheDocument()
-    expect(screen.getByText('위장 기여 +0.55')).toBeInTheDocument()
+    expect(screen.getByText('기억 16.8 → 15.8')).toBeInTheDocument()
+    expect(screen.getByText('추론 16.8 → 17.3')).toBeInTheDocument()
+    expect(screen.getByText('위장 기여 +0.525')).toBeInTheDocument()
   })
 
   it('offers only the audited category as a destination', () => {

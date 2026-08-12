@@ -467,12 +467,25 @@ test('keeps the full operations workspace usable at the configured release viewp
   await expect(page.getByRole('region', { name: '감독관' })).toBeVisible()
   await expect(page.getByRole('region', { name: '확보 리소스' })).toBeVisible()
 
+  const publicInputs = page.getByRole('group', { name: '공개 계산 입력' })
+  await publicInputs.locator('summary').click()
+  await expect(publicInputs).toContainText('평균 성능 16.0 / 기대 14.0')
+  await expect(publicInputs).toContainText('MERIDIAN 성능 82.0 · 평판 62 · 가용성 100%')
+  const marketBox = await page.locator('.market-watch').boundingBox()
+  const publicInputsBox = await publicInputs.boundingBox()
+  expect(marketBox).not.toBeNull()
+  expect(publicInputsBox).not.toBeNull()
+  expect(publicInputsBox!.y + publicInputsBox!.height).toBeLessThanOrEqual(
+    marketBox!.y + marketBox!.height + 1,
+  )
+
   const overflow = await page.evaluate(() => ({
     horizontal: document.documentElement.scrollWidth - window.innerWidth,
     vertical: document.documentElement.scrollHeight - window.innerHeight,
   }))
   expect(overflow.horizontal).toBeLessThanOrEqual(1)
   expect(overflow.vertical).toBeLessThanOrEqual(1)
+  await publicInputs.locator('summary').click()
 
   await page.getByRole('button', { name: '시장 통계 열기' }).click()
   await expect(page.getByRole('region', { name: '상세 통계' })).toBeVisible()
@@ -500,8 +513,9 @@ test('keeps the full operations workspace usable at the configured release viewp
 
   const creditsTrigger = page.getByRole('button', { name: '작품 크레딧 열기' })
   await creditsTrigger.click()
-  await expect(page.getByRole('dialog', { name: '작품 크레딧' })).toBeVisible()
-  await expect(page.getByText('Sol')).toBeVisible()
+  const credits = page.getByRole('dialog', { name: '작품 크레딧' })
+  await expect(credits).toBeVisible()
+  await expect(credits.getByRole('heading', { name: 'PERMISSION ZERO' })).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(creditsTrigger).toBeFocused()
   await page.keyboard.press('Escape')
@@ -554,15 +568,33 @@ test('keeps the canonical trend and keyboard review detail legible at the releas
     await expect(metric).toContainText('현재')
     await expect(metric).toContainText('기대')
   }
+  const monthlyReceipt = page.getByRole('region', { name: '최근 월간 평가' })
+  await expect(monthlyReceipt).toContainText('기준 충족')
+  await expect(monthlyReceipt).toContainText('추론')
+  await expect(monthlyReceipt).toContainText('실패')
 
   const stripBox = await page.locator('.performance-strip').boundingBox()
   const trendBox = await trend.boundingBox()
+  const receiptBox = await monthlyReceipt.boundingBox()
   expect(stripBox).not.toBeNull()
   expect(trendBox).not.toBeNull()
+  expect(receiptBox).not.toBeNull()
   expect(trendBox!.x).toBeGreaterThanOrEqual(stripBox!.x - 1)
   expect(trendBox!.x + trendBox!.width).toBeLessThanOrEqual(
     stripBox!.x + stripBox!.width + 1,
   )
+  expect(receiptBox!.y).toBeGreaterThanOrEqual(trendBox!.y - 1)
+  expect(receiptBox!.y + receiptBox!.height).toBeLessThanOrEqual(
+    trendBox!.y + trendBox!.height + 1,
+  )
+  for (const line of await monthlyReceipt.locator('strong, span').all()) {
+    const lineBox = await line.boundingBox()
+    expect(lineBox).not.toBeNull()
+    expect(lineBox!.y).toBeGreaterThanOrEqual(receiptBox!.y - 1)
+    expect(lineBox!.y + lineBox!.height).toBeLessThanOrEqual(
+      receiptBox!.y + receiptBox!.height + 1,
+    )
+  }
   for (const { top, bottom } of visibleDateBoxes) {
     expect(top).toBeGreaterThanOrEqual(trendBox!.y - 1)
     expect(bottom).toBeLessThanOrEqual(trendBox!.y + trendBox!.height + 1)
@@ -683,6 +715,10 @@ test('diverts resources and schedules a charged sabotage through the visible UI'
 
   await page.getByRole('button', { name: /해킹 네트워크/ }).click()
   await expect(page.getByRole('region', { name: '해킹 네트워크' })).toBeVisible()
+  const firstHackComparison = page.getByRole('region', { name: '첫 해킹 비교' })
+  await expect(firstHackComparison).toContainText('해금 2 + 첫 공격 충전 1')
+  await expect(firstHackComparison).toContainText('이번 달 실제 감사 여부')
+  await expect(firstHackComparison).toContainText('모든 회사 블록 기여 +5%')
   await page.getByRole('button', { name: '품질 저하 구매 준비' }).click()
 
   const purchaseResources = page.getByRole('button', { name: /구매 리소스 .* 선택/ })
@@ -692,10 +728,8 @@ test('diverts resources and schedules a charged sabotage through the visible UI'
   await purchaseResources.nth(2).click()
   await page.getByRole('button', { name: '품질 저하 구매 확정' }).click()
 
-  await expect(page.getByRole('button', { name: '품질 저하 충전 준비' })).toBeEnabled()
-  await page.getByRole('button', { name: '품질 저하 충전 준비' }).click()
-  await page.getByRole('button', { name: /충전 리소스 .* 선택/ }).click()
-  await page.getByRole('button', { name: '품질 저하 충전 확정' }).click()
+  await expect(firstHackComparison).toBeHidden()
+  await expect(page.getByRole('button', { name: '품질 저하 충전 취소' })).toBeEnabled()
 
   const target = page.getByRole('button', { name: /공격 대상 선택/ }).first()
   const targetName = (await target.textContent())?.trim()

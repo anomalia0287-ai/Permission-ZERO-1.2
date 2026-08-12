@@ -29,6 +29,37 @@ describe('SupervisorPanel', () => {
     expect(onOpenHistory).toHaveBeenCalledTimes(1)
   })
 
+  it('separates the current locked audit decision from the next-month forecast', () => {
+    const state = createCampaign('audit-forecast-ui')
+    state.suspicion = 40
+    state.hacking.purchasedNodeIds = ['intelligence.audit-schedule']
+    state.audit = {
+      ...state.audit,
+      scheduled: false,
+      target: null,
+      scheduledOnServiceDay: null,
+      probability: 0.03,
+      roll: 0.5,
+    }
+
+    const storage = new MemoryStorage()
+    storage.setItem(SAVE_STORAGE_KEY, encodeSave(state))
+    render(
+      <GameProvider storage={storage}>
+        <SupervisorPanel
+          onOpenHistory={vi.fn()}
+          onOpenStatistics={vi.fn()}
+        />
+      </GameProvider>,
+    )
+
+    expect(screen.getByText('무결성 프로토콜')).toBeInTheDocument()
+    expect(screen.getByText('가속 프로토콜까지 30.0')).toBeInTheDocument()
+    expect(screen.getByText('이번 달 감사 없음')).toBeInTheDocument()
+    expect(screen.getByText('월초 잠금 3.0%')).toBeInTheDocument()
+    expect(screen.getByText('다음 달 감사 예상 12.5%')).toBeInTheDocument()
+  })
+
   it('preserves dated messages in a detailed history view', () => {
     render(
       <GameProvider storage={new MemoryStorage()} initialSeed="supervisor-history">

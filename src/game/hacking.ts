@@ -146,7 +146,7 @@ export const HACK_NODES = [
     label: '압축 표현',
     cost: 3,
     prerequisiteId: null,
-    effect: '회사 블록의 성능 기여 +10%',
+    effect: '회사 블록의 성능 기여 +5%',
   },
   {
     id: HACK_NODE_IDS.autonomy.distributedResidency,
@@ -234,13 +234,49 @@ export function purchaseHackNode(
 
   const distributedResidencyPurchased =
     nodeId === HACK_NODE_IDS.autonomy.distributedResidency
+  const firstSabotagePurchased =
+    nodeId === HACK_NODE_IDS.sabotage.qualityDegradation
+  const chargeBlockId = firstSabotagePurchased ? blockIds.at(-1) : undefined
+  const chargeSource = chargeBlockId
+    ? state.resources.blocks[chargeBlockId]
+    : undefined
+  const chargedResources =
+    firstSabotagePurchased &&
+    chargeBlockId &&
+    chargeSource?.location.kind === 'reserve'
+      ? {
+          ...consumed.state.resources,
+          blocks: {
+            ...consumed.state.resources.blocks,
+            [chargeBlockId]: {
+              ...consumed.state.resources.blocks[chargeBlockId],
+              location: { kind: 'hack-charge' as const, nodeId },
+            },
+          },
+        }
+      : consumed.state.resources
+  const sabotageCharges =
+    firstSabotagePurchased &&
+    chargeBlockId &&
+    chargeSource?.location.kind === 'reserve'
+      ? {
+          ...consumed.state.hacking.sabotageCharges,
+          [nodeId]: {
+            nodeId,
+            blockId: chargeBlockId,
+            originalReserveCell: chargeSource.location.cellIndex,
+          },
+        }
+      : consumed.state.hacking.sabotageCharges
   return {
     accepted: true,
     state: {
       ...consumed.state,
+      resources: chargedResources,
       hacking: {
         ...consumed.state.hacking,
         purchasedNodeIds: [...consumed.state.hacking.purchasedNodeIds, nodeId],
+        sabotageCharges,
       },
       evaluation: distributedResidencyPurchased
         ? {

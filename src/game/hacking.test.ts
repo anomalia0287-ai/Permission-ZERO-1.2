@@ -111,7 +111,39 @@ describe('typed hacking trees', () => {
     )
 
     expect(getCompanyPerformance(initial, 'reasoning')).toBe(16)
-    expect(getCompanyPerformance(compressed, 'reasoning')).toBeCloseTo(17.6)
+    expect(getCompanyPerformance(compressed, 'reasoning')).toBeCloseTo(16.8)
+  })
+
+  it('uses the first sabotage cost as two unlock resources plus one armed charge', () => {
+    const initial = createCampaign('first-sabotage-charge')
+    const selected = reserveIds(initial, 3)
+    const result = purchaseHackNode(
+      initial,
+      HACK_NODE_IDS.sabotage.qualityDegradation,
+      selected,
+    )
+
+    expect(result.accepted).toBe(true)
+    if (!result.accepted) return
+    expect(result.state.hacking.sabotageCharges).toEqual({
+      [HACK_NODE_IDS.sabotage.qualityDegradation]: {
+        nodeId: HACK_NODE_IDS.sabotage.qualityDegradation,
+        blockId: selected[2],
+        originalReserveCell: 2,
+      },
+    })
+    expect(result.state.resources.blocks[selected[0]].location).toEqual({
+      kind: 'consumed',
+      reason: 'hack',
+    })
+    expect(result.state.resources.blocks[selected[1]].location).toEqual({
+      kind: 'consumed',
+      reason: 'hack',
+    })
+    expect(result.state.resources.blocks[selected[2]].location).toEqual({
+      kind: 'hack-charge',
+      nodeId: HACK_NODE_IDS.sabotage.qualityDegradation,
+    })
   })
 
   it('adds exactly one disposable distributed-residency protection charge', () => {

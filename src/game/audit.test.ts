@@ -6,6 +6,7 @@ import {
   auditProbability,
   auditTargetWeights,
   getAuditIntel,
+  getSuspicionBand,
   openScheduledAudit,
   resolveAudit,
   scheduleMonthlyAudit,
@@ -46,6 +47,22 @@ function removeReasoningBlocks(initial: CampaignState, count: number): CampaignS
 }
 
 describe('monthly audit selection', () => {
+  it.each([
+    [39.9, 'routine', '정상 감시', 0.1],
+    [40, 'integrity', '무결성 프로토콜', 30],
+    [69.9, 'integrity', '무결성 프로토콜', 0.1],
+    [70, 'accelerated', '가속 프로토콜', 0],
+  ])(
+    'classifies suspicion %s at the public protocol boundary',
+    (suspicion, id, label, remaining) => {
+      expect(getSuspicionBand(suspicion)).toMatchObject({
+        id,
+        label,
+        remainingToNext: remaining,
+      })
+    },
+  )
+
   it.each([
     [0, 0.03],
     [25, 0.0726],

@@ -74,4 +74,44 @@ describe('MarketPanel', () => {
     expect(screen.getByText('30.0%')).toBeInTheDocument()
     expect(screen.getByText('20.0%')).toBeInTheDocument()
   })
+
+  it('shows the exact latest share delta and current public calculation inputs', () => {
+    const state = createCampaign('market-feedback-ui')
+    state.serviceDay = 344
+    state.market.playerShare = 57.25
+    state.market.competitors = state.market.competitors.map((competitor, index) => ({
+      ...competitor,
+      marketShare: index === 0 ? 42.75 : 0,
+    }))
+    state.market.history = [
+      {
+        serviceDay: 337,
+        cadence: 'weekly',
+        playerShare: 55,
+        competitorShares: { meridian: 45, tallow: 0 },
+        reasons: ['이전 공개 입력'],
+      },
+      {
+        serviceDay: 344,
+        cadence: 'weekly',
+        playerShare: 57.25,
+        competitorShares: { meridian: 42.75, tallow: 0 },
+        reasons: ['현재 공개 입력'],
+      },
+    ]
+    const storage = new MemoryStorage()
+    storage.setItem(SAVE_STORAGE_KEY, encodeSave(state))
+
+    render(
+      <GameProvider storage={storage}>
+        <MarketPanel onOpenStatistics={vi.fn()} />
+      </GameProvider>,
+    )
+
+    expect(screen.getByText('직전 기록 대비 +2.25%p')).toBeInTheDocument()
+    const inputs = screen.getByRole('group', { name: '공개 계산 입력' })
+    expect(inputs).toHaveTextContent('평균 성능 16.0 / 기대 14.0')
+    expect(inputs).toHaveTextContent('평판 60')
+    expect(inputs).toHaveTextContent('MERIDIAN 성능 82.0 · 평판 62 · 가용성 100%')
+  })
 })

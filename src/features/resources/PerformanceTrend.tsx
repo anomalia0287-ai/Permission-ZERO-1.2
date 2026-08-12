@@ -70,6 +70,9 @@ export function PerformanceTrend({ state }: { state: CampaignState }) {
   const series = buildPerformanceTrend(state, 8)
   const points = plotPoints(series)
   const visibleDates = visibleDatePoints(series)
+  const latestEvaluation = state.evaluation.monthlyHistory.at(-1)
+  const reputationDelta = latestEvaluation?.reputationDelta ?? 0
+  const signedReputationDelta = `${reputationDelta >= 0 ? '+' : ''}${reputationDelta}`
 
   return (
     <section className="performance-trend" role="region" aria-labelledby={titleId}>
@@ -88,6 +91,24 @@ export function PerformanceTrend({ state }: { state: CampaignState }) {
             실제 평균
           </span>
         </div>
+        {latestEvaluation ? (
+          <section
+            className="monthly-evaluation-receipt"
+            aria-label="최근 월간 평가"
+          >
+            <strong>
+              {latestEvaluation.passed ? '기준 충족' : '기준 미달'} · 평판{' '}
+              {signedReputationDelta} · 실패 {state.evaluation.consecutiveFailures}/2 · 폐기{' '}
+              {latestEvaluation.disposalStageBefore}→{latestEvaluation.disposalStageAfter}
+            </strong>
+            <span>
+              추론 {latestEvaluation.categoryPerformance.reasoning.toFixed(1)} · 기억{' '}
+              {latestEvaluation.categoryPerformance.memory.toFixed(1)} · 유창{' '}
+              {latestEvaluation.categoryPerformance.fluency.toFixed(1)} / 기대{' '}
+              {latestEvaluation.expectedPerformance.toFixed(1)}
+            </span>
+          </section>
+        ) : null}
       </div>
       <div className="performance-trend__plot">
       <svg

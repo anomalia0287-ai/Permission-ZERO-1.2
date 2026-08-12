@@ -100,6 +100,7 @@ describe('fixed campaign calendar', () => {
     expect(advanced.market.history[0]).toMatchObject({
       cadence: 'weekly',
       serviceDay: 337,
+      reasons: ['공개 성능·평판·가용성 반영'],
     })
     expect(advanced.reviews.feed.length).toBeGreaterThanOrEqual(3)
     expect(advanced.reviews.feed.length).toBeLessThanOrEqual(4)

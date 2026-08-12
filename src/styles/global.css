@@ -873,7 +873,7 @@ textarea:focus-visible,
 
 .performance-trend {
   display: grid;
-  grid-template-columns: minmax(140px, 0.85fr) minmax(0, 2.15fr);
+  grid-template-columns: minmax(250px, 1.25fr) minmax(0, 1.75fr);
   grid-template-rows: minmax(0, 1fr);
   height: 100%;
   min-width: 0;
@@ -904,6 +904,7 @@ textarea:focus-visible,
 }
 
 .performance-trend__summary h3 {
+  margin: 0;
   color: var(--text-strong);
   font-size: 0.61rem;
   font-weight: 620;
@@ -920,6 +921,31 @@ textarea:focus-visible,
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  letter-spacing: 0;
+}
+
+.monthly-evaluation-receipt {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+  padding-top: 2px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.monthly-evaluation-receipt strong,
+.monthly-evaluation-receipt span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.monthly-evaluation-receipt strong {
+  color: var(--reserve-bright);
+  font: 620 0.45rem/1 "Cascadia Code", Consolas, monospace;
+}
+
+.monthly-evaluation-receipt span {
+  font-size: 0.4rem;
   letter-spacing: 0;
 }
 
@@ -1128,6 +1154,32 @@ textarea:focus-visible,
   color: var(--text-muted);
 }
 
+.suspicion-meter > .suspicion-band,
+.suspicion-meter > .audit-forecast {
+  gap: 8px;
+  font-size: 0.49rem;
+}
+
+.suspicion-band strong {
+  color: var(--text-strong);
+}
+
+.suspicion-band--integrity strong,
+.suspicion-band--accelerated strong {
+  color: var(--alarm);
+}
+
+.audit-forecast {
+  flex-wrap: wrap;
+  padding-top: 5px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.audit-forecast strong {
+  margin-left: auto;
+  color: var(--reserve-bright);
+}
+
 .meter-track {
   display: block;
   height: 4px;
@@ -1191,8 +1243,8 @@ textarea:focus-visible,
 
 .market-watch {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 10px;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 8px;
 }
 
 .market-watch > header > div {
@@ -1203,6 +1255,12 @@ textarea:focus-visible,
 .market-watch > header strong {
   color: var(--text-strong);
   font-size: 0.72rem;
+}
+
+.market-watch > header small {
+  color: var(--reserve);
+  font-size: 0.46rem;
+  letter-spacing: 0;
 }
 
 .market-share-layout {
@@ -1311,6 +1369,23 @@ textarea:focus-visible,
   padding-left: 11px;
   color: var(--text-muted);
   font-size: 0.48rem;
+}
+
+.market-calculation-inputs {
+  border-top: 1px solid var(--line-soft);
+  color: var(--text-muted);
+  font: 500 0.5rem/1.35 "Cascadia Code", Consolas, monospace;
+}
+
+.market-calculation-inputs summary {
+  padding-top: 5px;
+  cursor: pointer;
+}
+
+.market-calculation-inputs > div {
+  display: grid;
+  gap: 3px;
+  padding-top: 5px;
 }
 
 .supervision-footer {
@@ -1819,6 +1894,50 @@ textarea:focus-visible,
   font-size: 0.64rem;
 }
 
+.hack-context {
+  min-width: 0;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.hack-context .tree-description {
+  border-bottom: 0;
+}
+
+.first-hack-comparison {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  padding: 0 13px 10px;
+}
+
+.first-hack-comparison article {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--line-soft);
+  background: rgb(255 255 255 / 1.5%);
+}
+
+.first-hack-comparison strong {
+  color: var(--reserve-bright);
+  font-size: 0.61rem;
+}
+
+.first-hack-comparison span,
+.first-hack-comparison small {
+  color: var(--text-muted);
+  font: 500 0.52rem/1.35 "Cascadia Code", Consolas, monospace;
+}
+
+.node-result span {
+  overflow: hidden;
+  color: var(--text-muted);
+  font: 500 0.47rem/1.25 "Cascadia Code", Consolas, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .hack-node-list {
   min-height: 0;
   padding: 10px 13px 18px;
@@ -1929,6 +2048,21 @@ textarea:focus-visible,
   color: var(--text-muted);
   font-size: 0.62rem;
   line-height: 1.45;
+}
+
+.node-result {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 9px;
+  margin-top: 7px;
+  padding-top: 7px;
+  border-top: 1px solid var(--line-soft);
+}
+
+.node-result strong {
+  flex-basis: 100%;
+  color: var(--reserve-bright);
+  font-size: 0.58rem;
 }
 
 .node-actions {

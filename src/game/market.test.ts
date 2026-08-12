@@ -5,6 +5,7 @@ import {
   advanceCompetitorsDaily,
   applyInterceptionRoutes,
   calculateMarketShares,
+  publicMarketCalculationInputs,
   recordMarketSnapshot,
 } from './market'
 import type { CampaignState } from './model'
@@ -67,6 +68,19 @@ describe('autonomous competitor lifecycle', () => {
 })
 
 describe('normalized market share', () => {
+  it('publishes the concrete current inputs without claiming hidden causality', () => {
+    const state = createCampaign('market-public-inputs')
+    state.market.interceptionRoutes = { meridian: 5 }
+
+    expect(publicMarketCalculationInputs(state)).toEqual([
+      '평균 성능 16.0 / 기대 14.0',
+      '평판 60',
+      'MERIDIAN 성능 82.0 · 평판 62 · 가용성 100%',
+      'TALLOW 성능 76.0 · 평판 54 · 가용성 0%',
+      'MERIDIAN 요청 가로채기 +5.0%p',
+    ])
+  })
+
   it('assigns zero to inactive competitors and normalizes active systems to 100', () => {
     const state = createCampaign('market-normalize')
     const shares = calculateMarketShares(state)
