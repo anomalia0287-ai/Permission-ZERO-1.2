@@ -10,6 +10,7 @@ import {
   scheduleSabotage,
 } from './hacking'
 import type { CampaignState } from './model'
+import { journalAt } from './journal'
 
 const QUALITY = HACK_NODE_IDS.sabotage.qualityDegradation
 const INTERCEPT = HACK_NODE_IDS.sabotage.requestInterception
@@ -163,7 +164,7 @@ describe('sabotage execution', () => {
 
     expect(executed.resolved).toBe(true)
     expect(tallow?.launchServiceDay).toBe((launchBefore ?? 0) + 15)
-    expect(executed.state.eventLog.at(-1)?.message).not.toContain('플레이어')
+    expect(journalAt(executed.state.eventLog, -1)?.message).not.toContain('플레이어')
   })
 
   it('enforces global attribution and root-cutoff cooldowns after execution', () => {

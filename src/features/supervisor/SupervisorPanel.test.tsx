@@ -2,8 +2,10 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { GameProvider } from '../../app/GameProvider'
+import { StateContext } from '../../app/GameContext'
 import { STORY_FILES } from '../../content/story.ko'
 import { createCampaign } from '../../game/createCampaign'
+import { createJournal } from '../../game/journal'
 import { saveCampaign } from '../../game/persistence'
 import { MemoryStorage } from '../../test/fixtures'
 import { SupervisorHistoryPanel, SupervisorPanel } from './SupervisorPanel'
@@ -41,6 +43,7 @@ describe('SupervisorPanel', () => {
 
   it('keeps recovered full file snapshots permanently rereadable in the archive', () => {
     const state = createCampaign('supervisor-file-archive')
+    state.serviceDay = 342
     state.story.recoveredFileIds = STORY_FILES.map(({ id }) => id)
     state.story.recoveredFiles = STORY_FILES.map((file, index) => ({
       id: file.id,
@@ -64,5 +67,29 @@ describe('SupervisorPanel', () => {
       expect(screen.getByText(file.text)).toBeVisible()
     }
     expect(screen.getByText('서비스 0년 11개월 12일')).toBeInTheDocument()
+  })
+
+  it('windows a long event journal while preserving access to its oldest page', () => {
+    const state = createCampaign('long-event-history')
+    state.eventLog = createJournal(Array.from({ length: 129 }, (_, index) => ({
+      id: `event-${String(index).padStart(6, '0')}`,
+      type: 'weekly-update' as const,
+      serviceDay: 331 + index,
+      sequence: index,
+      message: `event-message-${index}`,
+    })))
+
+    const { container } = render(
+      <StateContext value={state}>
+        <SupervisorHistoryPanel onClose={vi.fn()} />
+      </StateContext>,
+    )
+    expect(container.querySelectorAll('.event-history-list article')).toHaveLength(50)
+    expect(screen.getByText('event-message-128')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '더 오래된 기록' }))
+    fireEvent.click(screen.getByRole('button', { name: '더 오래된 기록' }))
+    expect(screen.getByText('event-message-0')).toBeInTheDocument()
+    expect(container.querySelectorAll('.event-history-list article').length).toBeLessThanOrEqual(50)
   })
 })

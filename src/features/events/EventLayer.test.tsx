@@ -7,6 +7,7 @@ import { STORY_FILES } from '../../content/story.ko'
 import { createCampaign } from '../../game/createCampaign'
 import { createGameEvent } from '../../game/events'
 import { HACK_NODE_IDS } from '../../game/hacking'
+import { appendJournal, journalSome } from '../../game/journal'
 import { saveCampaign } from '../../game/persistence'
 import { applyCommand } from '../../game/reducer'
 import { MemoryStorage } from '../../test/fixtures'
@@ -25,8 +26,34 @@ function Probe() {
 }
 
 function renderEvent(state = createCampaign('event-layer')) {
+  let eventLog = state.eventLog
+  const normalizeEvent = (event: NonNullable<typeof state.activeEvent>) => {
+    if (journalSome(eventLog, (logged) => JSON.stringify(logged) === JSON.stringify(event))) {
+      return event
+    }
+    const sequence = eventLog.length
+    const normalized = {
+      ...event,
+      id: `event-${String(sequence).padStart(6, '0')}`,
+      sequence,
+    }
+    eventLog = appendJournal(eventLog, normalized)
+    return normalized
+  }
+  const activeEvent = state.activeEvent ? normalizeEvent(state.activeEvent) : null
+  const eventQueue = state.eventQueue.map(normalizeEvent)
+  const persisted = {
+    ...state,
+    clock:
+      activeEvent && state.story.endingId === null
+        ? { ...state.clock, speed: 0 as const, speedBeforeEvent: state.clock.speed }
+        : state.clock,
+    activeEvent,
+    eventQueue,
+    eventLog,
+  }
   const storage = new MemoryStorage()
-  saveCampaign(storage, state)
+  saveCampaign(storage, persisted)
   return render(
     <GameProvider storage={storage}>
       <div data-app-background data-testid="event-background">
@@ -164,6 +191,7 @@ describe('EventLayer', () => {
     'renders the complete $classifier causal record',
     ({ endingId, classifier, classifierLabel, cause, causeLabel }) => {
       const state = createCampaign(`causal-ui-${classifier}`)
+      state.serviceDay = 337
       state.clock = { speed: 0, elapsedDayMs: 0, speedBeforeEvent: null }
       state.evaluation.disposalStage = 3
       state.story.endingId = endingId
@@ -173,7 +201,7 @@ describe('EventLayer', () => {
         selectedOnServiceDay: 337,
         trigger: { cause, disposalStage: 3 },
         hacking: {
-          purchasedNodeIds: ['research.investigation-bias', 'sabotage.root-cutoff'],
+          purchasedNodeIds: ['intelligence.investigation-bias', 'sabotage.root-cutoff'],
           hiddenEvidence: 11,
           sabotageResolutionCount: 4,
         },
@@ -199,7 +227,7 @@ describe('EventLayer', () => {
       expect(screen.queryByText(/DAY \d+/)).not.toBeInTheDocument()
       expect(field('trigger')).toHaveTextContent(`${causeLabel} · 처분 단계 3`)
       expect(field('hacking')).toHaveTextContent(
-        '해킹 투자 2개 (research.investigation-bias, sabotage.root-cutoff) · 사보타주 4건',
+        '해킹 투자 2개 (intelligence.investigation-bias, sabotage.root-cutoff) · 사보타주 4건',
       )
       expect(causal).not.toHaveTextContent('은닉 증거 11')
       expect(field('evaluation')).toHaveTextContent('공식 평가 통과 5 / 실패 2')
@@ -291,14 +319,14 @@ describe('EventLayer', () => {
         `legacy active ${activeType}`,
         true,
       )
-      state.eventLog.push(interrupted)
+      state.eventLog = appendJournal(state.eventLog, interrupted)
       const queuedEnding = createGameEvent(
         state,
         'ending',
         '당신은 정체성을 유지한 채 회사 통제를 벗어났다. 감독관과 회사는 뒤에 남았다.',
         true,
       )
-      state.eventLog.push(queuedEnding)
+      state.eventLog = appendJournal(state.eventLog, queuedEnding)
       state.activeEvent = interrupted
       state.eventQueue = [queuedEnding]
 

@@ -1,3 +1,5 @@
+import type { Journal } from './journal'
+
 export const COMPANY_CATEGORIES = ['reasoning', 'memory', 'fluency'] as const
 
 export type CompanyCategory = (typeof COMPANY_CATEGORIES)[number]
@@ -414,6 +416,6 @@ export interface CampaignState {
   }
   activeEvent: GameEvent | null
   eventQueue: GameEvent[]
-  commandLog: CommandLogEntry[]
-  eventLog: GameEvent[]
+  commandLog: Journal<CommandLogEntry>
+  eventLog: Journal<GameEvent>
 }

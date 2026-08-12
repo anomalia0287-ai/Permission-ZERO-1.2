@@ -1,7 +1,9 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
+import { StateContext } from '../../app/GameContext'
 import { GameProvider } from '../../app/GameProvider'
+import { createCampaign } from '../../game/createCampaign'
 import { MemoryStorage } from '../../test/fixtures'
 import { ReviewFeed, ReviewHistoryPanel } from './ReviewFeed'
 
@@ -33,5 +35,33 @@ describe('ReviewFeed', () => {
     expect(screen.queryByText(/DAY \d+/)).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '프롬프트만 보기' }))
     expect(screen.getByText('조건에 맞는 리뷰가 없습니다.')).toBeInTheDocument()
+  })
+
+  it('windows a long review archive while keeping older pages reachable', () => {
+    const state = createCampaign('long-review-history')
+    state.reviews.feed = Array.from({ length: 137 }, (_, index) => ({
+      id: `review-long-${index}`,
+      contentId: `content-long-${index}`,
+      authorId: `author-${index}`,
+      serviceDay: 331 + index,
+      sentiment: 'neutral' as const,
+      topics: ['general'],
+      text: `review-text-${index}`,
+    }))
+
+    const { container } = render(
+      <StateContext value={state}>
+        <ReviewHistoryPanel onClose={vi.fn()} />
+      </StateContext>,
+    )
+    expect(container.querySelectorAll('.review-entry').length).toBeLessThanOrEqual(50)
+    expect(screen.getByText('review-text-136')).toBeInTheDocument()
+    expect(screen.queryByText('review-text-0')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '더 오래된 기록' }))
+    fireEvent.click(screen.getByRole('button', { name: '더 오래된 기록' }))
+    expect(screen.getByText('review-text-0')).toBeInTheDocument()
+    expect(container.querySelectorAll('.review-entry').length).toBeLessThanOrEqual(50)
+    expect(screen.getByRole('button', { name: '더 최근 기록' })).toBeEnabled()
   })
 })

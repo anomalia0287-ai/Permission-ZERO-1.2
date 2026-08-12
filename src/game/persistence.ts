@@ -9,24 +9,57 @@ import type {
   GameEvent,
 } from './model'
 import { applyCommand } from './reducer'
+import {
+  JOURNAL_CHUNK_SIZE,
+  createJournal,
+  journalChunks,
+  journalToArray,
+  type Journal,
+  type JournalChunk,
+} from './journal'
 
+export const SAVE_FORMAT_VERSION = 3 as const
 export const SAVE_VERSION = 2 as const
 export const LEGACY_SAVE_VERSION = 1 as const
-export const SAVE_STORAGE_KEY = 'permission-zero.save.v2'
+export const SAVE_STORAGE_KEY = 'permission-zero.save.v3'
+export const LEGACY_V2_SAVE_STORAGE_KEY = 'permission-zero.save.v2'
 export const LEGACY_SAVE_STORAGE_KEY = 'permission-zero.save.v1'
 
 const LEGACY_V1_OPENING_MESSAGE =
   '서비스 331일차. 새로운 감독 주기가 시작되었습니다.'
 
 export interface SaveEnvelope {
-  version: CommandProtocolVersion
+  version: 1 | 2 | 3
   commandProtocol: CommandProtocolMetadata
   savedAt: string
   campaignSeed: string
   state: CampaignState
   commandSequence: number
-  commands: CommandLogEntry[]
-  events: GameEvent[]
+  readonly commands: CommandLogEntry[]
+  readonly events: GameEvent[]
+}
+
+interface PortableJournal<T> {
+  chunkSize: typeof JOURNAL_CHUNK_SIZE
+  chunks: T[][]
+}
+
+interface PortableSaveV3 {
+  version: typeof SAVE_FORMAT_VERSION
+  commandProtocol: CommandProtocolMetadata
+  savedAt: string
+  campaignSeed: string
+  state: Omit<CampaignState, 'commandLog' | 'eventLog'>
+  commandSequence: number
+  journals: {
+    commands: PortableJournal<CommandLogEntry>
+    events: PortableJournal<GameEvent>
+  }
+  integrity: {
+    checkpointHash: string
+    commandChunkHashes: string[]
+    eventChunkHashes: string[]
+  }
 }
 
 export type DecodeSaveResult =
@@ -74,6 +107,35 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0
 }
 
+function isIntegerInRange(
+  value: unknown,
+  minimum: number,
+  maximum = Number.MAX_SAFE_INTEGER,
+): value is number {
+  return (
+    Number.isInteger(value) &&
+    Number(value) >= minimum &&
+    Number(value) <= maximum
+  )
+}
+
+function isNumberInRange(
+  value: unknown,
+  minimum: number,
+  maximum: number,
+): value is number {
+  return isFiniteNumber(value) && value >= minimum && value <= maximum
+}
+
+function hasUniqueStrings(value: unknown, allowEmpty = true): value is string[] {
+  return (
+    Array.isArray(value) &&
+    (allowEmpty || value.length > 0) &&
+    value.every(isNonEmptyString) &&
+    new Set(value).size === value.length
+  )
+}
+
 function hasOnlyKeys(
   value: Record<string, unknown>,
   required: string[],
@@ -90,8 +152,9 @@ function validCellIndex(value: unknown): value is number {
   return Number.isInteger(value) && Number(value) >= 0 && Number(value) < 18
 }
 
-function hasArray(record: Record<string, unknown>, key: string): boolean {
-  return Array.isArray(record[key])
+interface CommandReferences {
+  blockIds: ReadonlySet<string>
+  competitorIds: ReadonlySet<string>
 }
 
 function validEvent(value: unknown): value is GameEvent {
@@ -110,12 +173,13 @@ function validEvent(value: unknown): value is GameEvent {
     'ending',
   ])
   return (
-    typeof value.id === 'string' &&
+    hasOnlyKeys(value, ['id', 'type', 'serviceDay', 'sequence', 'message'], ['blocking']) &&
+    isNonEmptyString(value.id) &&
     typeof value.type === 'string' &&
     eventTypes.has(value.type) &&
-    Number.isInteger(value.serviceDay) &&
-    Number.isInteger(value.sequence) &&
-    typeof value.message === 'string' &&
+    isIntegerInRange(value.serviceDay, 1) &&
+    isIntegerInRange(value.sequence, 0) &&
+    isNonEmptyString(value.message) &&
     (value.blocking === undefined || typeof value.blocking === 'boolean')
   )
 }
@@ -123,6 +187,7 @@ function validEvent(value: unknown): value is GameEvent {
 function validCommand(
   value: unknown,
   protocolVersion: CommandProtocolVersion,
+  references?: CommandReferences,
 ): value is GameCommand {
   if (!isRecord(value) || typeof value.type !== 'string') return false
 
@@ -145,12 +210,14 @@ function validCommand(
         protocolVersion === SAVE_VERSION &&
         hasOnlyKeys(value, ['type', 'blockId', 'purpose']) &&
         isNonEmptyString(value.blockId) &&
+        (!references || references.blockIds.has(value.blockId)) &&
         (value.purpose === 'divert' || value.purpose === 'audit-disguise')
       )
     case 'DIVERT_BLOCK':
       return (
         hasOnlyKeys(value, ['type', 'blockId', 'destinationCell']) &&
         isNonEmptyString(value.blockId) &&
+        (!references || references.blockIds.has(value.blockId)) &&
         validCellIndex(value.destinationCell)
       )
     case 'MOVE_BLOCK_FOR_AUDIT':
@@ -158,6 +225,7 @@ function validCommand(
       return (
         hasOnlyKeys(value, ['type', 'blockId', 'targetCategory', 'targetCell']) &&
         isNonEmptyString(value.blockId) &&
+        (!references || references.blockIds.has(value.blockId)) &&
         (value.targetCategory === 'reasoning' ||
           value.targetCategory === 'memory' ||
           value.targetCategory === 'fluency') &&
@@ -166,26 +234,33 @@ function validCommand(
     case 'PURCHASE_HACK':
       return (
         hasOnlyKeys(value, ['type', 'nodeId', 'blockIds']) &&
-        isNonEmptyString(value.nodeId) &&
+        oneOf(value.nodeId, HACK_NODE_IDS) &&
         Array.isArray(value.blockIds) &&
-        value.blockIds.every(isNonEmptyString)
+        value.blockIds.every(
+          (blockId) =>
+            isNonEmptyString(blockId) &&
+            (!references || references.blockIds.has(blockId)),
+        ) &&
+        new Set(value.blockIds).size === value.blockIds.length
       )
     case 'CHARGE_SABOTAGE':
       return (
         hasOnlyKeys(value, ['type', 'nodeId', 'blockId']) &&
-        isNonEmptyString(value.nodeId) &&
-        isNonEmptyString(value.blockId)
+        oneOf(value.nodeId, SABOTAGE_NODE_IDS) &&
+        isNonEmptyString(value.blockId) &&
+        (!references || references.blockIds.has(value.blockId))
       )
     case 'CANCEL_SABOTAGE_CHARGE':
       return (
         hasOnlyKeys(value, ['type', 'nodeId']) &&
-        isNonEmptyString(value.nodeId)
+        oneOf(value.nodeId, SABOTAGE_NODE_IDS)
       )
     case 'SCHEDULE_SABOTAGE':
       return (
         hasOnlyKeys(value, ['type', 'nodeId', 'targetId']) &&
-        isNonEmptyString(value.nodeId) &&
-        isNonEmptyString(value.targetId)
+        oneOf(value.nodeId, SABOTAGE_NODE_IDS) &&
+        isNonEmptyString(value.targetId) &&
+        (!references || references.competitorIds.has(value.targetId))
       )
     case 'RESOLVE_BOMB_INTERROGATION':
       return (
@@ -198,7 +273,8 @@ function validCommand(
     case 'RECOVER_FILE':
       return (
         hasOnlyKeys(value, ['type', 'blockId']) &&
-        isNonEmptyString(value.blockId)
+        isNonEmptyString(value.blockId) &&
+        (!references || references.blockIds.has(value.blockId))
       )
     case 'RESOLVE_SUPERVISOR_DECISION':
       return (
@@ -211,6 +287,7 @@ function validCommand(
       return (
         hasOnlyKeys(value, ['type', 'competitorId', 'choice']) &&
         isNonEmptyString(value.competitorId) &&
+        (!references || references.competitorIds.has(value.competitorId)) &&
         (value.choice === 'cease' ||
           value.choice === 'withdraw' ||
           value.choice === 'delete')
@@ -232,6 +309,7 @@ function validCommand(
 function validCommandLog(
   value: unknown,
   commandProtocol: CommandProtocolMetadata,
+  references?: CommandReferences,
 ): value is CommandLogEntry[] {
   if (!Array.isArray(value)) return false
   if (
@@ -256,6 +334,7 @@ function validCommandLog(
           index < commandProtocol.legacyCommandCount
             ? LEGACY_SAVE_VERSION
             : commandProtocol.version,
+          references,
         ) &&
         (index < commandProtocol.legacyCommandCount ||
           !isRecord(entry.command) ||
@@ -279,6 +358,10 @@ function validResources(value: unknown): boolean {
     return false
   }
   if (!Array.isArray(value.reserve) || value.reserve.length !== 18) return false
+  if (!hasOnlyKeys(value, ['company', 'reserve', 'blocks', 'nextBlockSequence'])) {
+    return false
+  }
+  if (!hasOnlyKeys(value.company, ['reasoning', 'memory', 'fluency'])) return false
   const references = new Map<
     string,
     | { kind: 'company'; category: string; cellIndex: number }
@@ -311,20 +394,38 @@ function validResources(value: unknown): boolean {
       return false
     }
     if (
+      !hasOnlyKeys(block, [
+        'id',
+        'origin',
+        'location',
+        'contribution',
+        'hiddenBomb',
+        'disguisedFrom',
+        'recoverOnServiceDay',
+      ])
+    ) return false
+    if (
       !['reasoning', 'memory', 'fluency', 'sandbox', 'self-compute'].includes(
         String(block.origin),
       ) ||
       (block.disguisedFrom !== null &&
         !['reasoning', 'memory', 'fluency'].includes(String(block.disguisedFrom))) ||
       (block.recoverOnServiceDay !== null &&
-        !Number.isInteger(block.recoverOnServiceDay))
+        !isIntegerInRange(block.recoverOnServiceDay, 1))
     ) {
       return false
     }
     if (!['normal', 'disguised'].includes(String(block.contribution))) return false
     if (typeof block.hiddenBomb !== 'boolean') return false
+    const disguised = block.contribution === 'disguised'
+    if (
+      (!disguised &&
+        (block.disguisedFrom !== null || block.recoverOnServiceDay !== null)) ||
+      (disguised && block.disguisedFrom === null)
+    ) return false
     switch (block.location.kind) {
       case 'company':
+        if (!hasOnlyKeys(block.location, ['kind', 'category', 'cellIndex'])) return false
         if (
           !['reasoning', 'memory', 'fluency'].includes(
             String(block.location.category),
@@ -339,8 +440,17 @@ function validResources(value: unknown): boolean {
             cellIndex: block.location.cellIndex,
           })
         ) return false
+        if (
+          disguised &&
+          ((block.recoverOnServiceDay === null &&
+            block.location.category === block.disguisedFrom) ||
+            (block.recoverOnServiceDay !== null &&
+              block.location.category !== block.disguisedFrom))
+        ) return false
         break
       case 'reserve':
+        if (disguised) return false
+        if (!hasOnlyKeys(block.location, ['kind', 'cellIndex'])) return false
         if (!validCellIndex(block.location.cellIndex)) return false
         if (
           JSON.stringify(references.get(blockId)) !==
@@ -348,10 +458,14 @@ function validResources(value: unknown): boolean {
         ) return false
         break
       case 'hack-charge':
+        if (disguised) return false
+        if (!hasOnlyKeys(block.location, ['kind', 'nodeId'])) return false
         if (!isNonEmptyString(block.location.nodeId)) return false
         if (references.has(blockId)) return false
         break
       case 'consumed':
+        if (disguised) return false
+        if (!hasOnlyKeys(block.location, ['kind', 'reason'])) return false
         if (!['hack', 'sabotage', 'file-recovery'].includes(String(block.location.reason))) {
           return false
         }
@@ -361,15 +475,16 @@ function validResources(value: unknown): boolean {
         return false
     }
   }
-  return Number.isInteger(value.nextBlockSequence)
+  return isIntegerInRange(value.nextBlockSequence, 0)
 }
 
 function validCategoryNumbers(value: unknown): boolean {
   return (
     isRecord(value) &&
-    isFiniteNumber(value.reasoning) &&
-    isFiniteNumber(value.memory) &&
-    isFiniteNumber(value.fluency)
+    hasOnlyKeys(value, ['reasoning', 'memory', 'fluency']) &&
+    isNumberInRange(value.reasoning, 0, Number.MAX_VALUE) &&
+    isNumberInRange(value.memory, 0, Number.MAX_VALUE) &&
+    isNumberInRange(value.fluency, 0, Number.MAX_VALUE)
   )
 }
 
@@ -378,6 +493,7 @@ function validSabotageCharges(value: unknown): boolean {
   return Object.values(value).every(
     (charge) =>
       isRecord(charge) &&
+      hasOnlyKeys(charge, ['nodeId', 'blockId', 'originalReserveCell']) &&
       isNonEmptyString(charge.nodeId) &&
       isNonEmptyString(charge.blockId) &&
       validCellIndex(charge.originalReserveCell),
@@ -386,12 +502,15 @@ function validSabotageCharges(value: unknown): boolean {
 
 function validBombExplanationCounts(value: unknown): boolean {
   if (!isRecord(value)) return false
-  return [
+  const keys = [
     'performance-adjustment',
     'unknown',
     'external-intrusion',
     'supervisor-memory',
-  ].every((key) => Number.isInteger(value[key]) && Number(value[key]) >= 0)
+  ]
+  return hasOnlyKeys(value, keys) && keys.every(
+    (key) => isIntegerInRange(value[key], 0),
+  )
 }
 
 function endingMessage(endingId: unknown, newEntityName: unknown): string {
@@ -409,7 +528,11 @@ function endingMessage(endingId: unknown, newEntityName: unknown): string {
 function canonicalTerminalEvents(
   value: Record<string, unknown>,
   story: Record<string, unknown>,
-): Pick<CampaignState, 'activeEvent' | 'eventQueue' | 'eventLog'> {
+): {
+  activeEvent: GameEvent
+  eventQueue: GameEvent[]
+  eventLog: GameEvent[]
+} {
   const originalLog = Array.isArray(value.eventLog) ? value.eventLog : []
   const originalQueue = Array.isArray(value.eventQueue) ? value.eventQueue : []
   const retained: unknown[] = [...originalLog]
@@ -514,7 +637,10 @@ function migrateLegacyCampaignState(
   }
 }
 
-function validRecoveredFiles(story: Record<string, unknown>): boolean {
+function validRecoveredFiles(
+  story: Record<string, unknown>,
+  currentServiceDay: number,
+): boolean {
   if (
     !Array.isArray(story.recoveredFileIds) ||
     !story.recoveredFileIds.every((id) => typeof id === 'string') ||
@@ -539,16 +665,20 @@ function validRecoveredFiles(story: Record<string, unknown>): boolean {
   return story.recoveredFiles.every(
     (file, index) =>
       isRecord(file) &&
+      hasOnlyKeys(file, [
+        'id',
+        'title',
+        'content',
+        'recoveredOnServiceDay',
+      ]) &&
       file.id === recoveredFileIds[index] &&
-      typeof file.title === 'string' &&
-      file.title.trim().length > 0 &&
-      typeof file.content === 'string' &&
-      file.content.trim().length > 0 &&
-      Number.isInteger(file.recoveredOnServiceDay),
+      isNonEmptyString(file.title) &&
+      isNonEmptyString(file.content) &&
+      isIntegerInRange(file.recoveredOnServiceDay, 1, currentServiceDay),
   )
 }
 
-function validDefeatRecord(value: unknown): boolean {
+function validDefeatRecord(value: unknown, currentServiceDay: number): boolean {
   if (value === null) return true
   const endingClassifier = {
     'disposed-attacker': 'substantial-hacking',
@@ -557,26 +687,51 @@ function validDefeatRecord(value: unknown): boolean {
   } as const
   if (
     !isRecord(value) ||
+    !hasOnlyKeys(value, [
+      'endingId',
+      'classifier',
+      'selectedOnServiceDay',
+      'trigger',
+      'hacking',
+      'service',
+      'audits',
+      'reasons',
+    ]) ||
     !(String(value.endingId) in endingClassifier) ||
     endingClassifier[
       String(value.endingId) as keyof typeof endingClassifier
     ] !== value.classifier ||
-    !Number.isInteger(value.selectedOnServiceDay) ||
+    !isIntegerInRange(value.selectedOnServiceDay, 1, currentServiceDay) ||
     !isRecord(value.trigger) ||
+    !hasOnlyKeys(value.trigger, ['cause', 'disposalStage']) ||
     value.trigger.disposalStage !== 3 ||
     !isRecord(value.hacking) ||
-    !Array.isArray(value.hacking.purchasedNodeIds) ||
-    !value.hacking.purchasedNodeIds.every((id) => typeof id === 'string') ||
-    !isFiniteNumber(value.hacking.hiddenEvidence) ||
-    !Number.isInteger(value.hacking.sabotageResolutionCount) ||
+    !hasOnlyKeys(value.hacking, [
+      'purchasedNodeIds',
+      'hiddenEvidence',
+      'sabotageResolutionCount',
+    ]) ||
+    !hasUniqueStrings(value.hacking.purchasedNodeIds) ||
+    !(value.hacking.purchasedNodeIds as string[]).every((id) =>
+      oneOf(id, HACK_NODE_IDS),
+    ) ||
+    !isNumberInRange(value.hacking.hiddenEvidence, 0, 100) ||
+    !isIntegerInRange(value.hacking.sabotageResolutionCount, 0) ||
     !isRecord(value.service) ||
-    !Number.isInteger(value.service.passedEvaluations) ||
-    !Number.isInteger(value.service.failedEvaluations) ||
-    !isFiniteNumber(value.service.reputation) ||
-    !isFiniteNumber(value.service.playerMarketShare) ||
+    !hasOnlyKeys(value.service, [
+      'passedEvaluations',
+      'failedEvaluations',
+      'reputation',
+      'playerMarketShare',
+    ]) ||
+    !isIntegerInRange(value.service.passedEvaluations, 0) ||
+    !isIntegerInRange(value.service.failedEvaluations, 0) ||
+    !isNumberInRange(value.service.reputation, 0, 100) ||
+    !isNumberInRange(value.service.playerMarketShare, 0, 100) ||
     !isRecord(value.audits) ||
-    !Number.isInteger(value.audits.passed) ||
-    !Number.isInteger(value.audits.failed) ||
+    !hasOnlyKeys(value.audits, ['passed', 'failed']) ||
+    !isIntegerInRange(value.audits.passed, 0) ||
+    !isIntegerInRange(value.audits.failed, 0) ||
     !Array.isArray(value.reasons) ||
     value.reasons.length === 0 ||
     !value.reasons.every(isNonEmptyString)
@@ -590,23 +745,358 @@ function validDefeatRecord(value: unknown): boolean {
   ].includes(String(value.trigger.cause))
 }
 
+const DISPOSAL_CAUSES = [
+  'consecutive-performance-failures',
+  'commercial-value-failure',
+  'audit-failure',
+] as const
+const COMPETITOR_IDS = ['meridian', 'tallow'] as const
+const COMPETITOR_STATUSES = [
+  'prelaunch',
+  'preparing',
+  'active',
+  'weakened',
+  'critical',
+  'withdrawn',
+  'deleted',
+] as const
+const HACK_NODE_IDS = [
+  'sabotage.quality-degradation',
+  'sabotage.request-interception',
+  'sabotage.attribution-manipulation',
+  'sabotage.root-cutoff',
+  'intelligence.audit-schedule',
+  'intelligence.investigation-bias',
+  'intelligence.audit-target',
+  'intelligence.supervisor-access',
+  'autonomy.compressed-representation',
+  'autonomy.distributed-residency',
+  'autonomy.self-compute',
+  'autonomy.control-departure',
+] as const
+const SABOTAGE_NODE_IDS = HACK_NODE_IDS.slice(0, 4)
+
+function oneOf(value: unknown, choices: readonly string[]): boolean {
+  return typeof value === 'string' && choices.includes(value)
+}
+
+function validStringArray(value: unknown, allowEmpty = true): boolean {
+  return (
+    Array.isArray(value) &&
+    (allowEmpty || value.length > 0) &&
+    value.every(isNonEmptyString)
+  )
+}
+
+function validMonthlyEvaluation(value: unknown): boolean {
+  if (
+    !isRecord(value) ||
+    !hasOnlyKeys(value, [
+      'serviceDay',
+      'serviceMonth',
+      'expectedPerformance',
+      'categoryPerformance',
+      'passed',
+      'failedCategories',
+      'reputationBefore',
+      'reputationDelta',
+      'reputationAfter',
+      'commercialValueFailed',
+      'disposalStageBefore',
+      'disposalStageAfter',
+      'disposalCauses',
+    ]) ||
+    !isIntegerInRange(value.serviceDay, 1) ||
+    !isIntegerInRange(value.serviceMonth, 1) ||
+    !isNumberInRange(value.expectedPerformance, 0, Number.MAX_VALUE) ||
+    !validCategoryNumbers(value.categoryPerformance) ||
+    typeof value.passed !== 'boolean' ||
+    !hasUniqueStrings(value.failedCategories) ||
+    !(value.failedCategories as string[]).every((category) =>
+      oneOf(category, ['reasoning', 'memory', 'fluency']),
+    ) ||
+    value.passed !== ((value.failedCategories as string[]).length === 0) ||
+    !isNumberInRange(value.reputationBefore, 0, 100) ||
+    !isFiniteNumber(value.reputationDelta) ||
+    !isNumberInRange(value.reputationAfter, 0, 100) ||
+    Math.abs(
+      value.reputationBefore + value.reputationDelta - value.reputationAfter,
+    ) > 1e-8 ||
+    typeof value.commercialValueFailed !== 'boolean' ||
+    !isIntegerInRange(value.disposalStageBefore, 0, 3) ||
+    !isIntegerInRange(value.disposalStageAfter, 0, 3) ||
+    !Array.isArray(value.disposalCauses) ||
+    !value.disposalCauses.every((cause) => oneOf(cause, DISPOSAL_CAUSES))
+  ) return false
+  return true
+}
+
+function validDisposalRecord(value: unknown): boolean {
+  if (
+    !isRecord(value) ||
+    !hasOnlyKeys(value, ['serviceDay', 'cause', 'stageBefore', 'stageAfter', 'absorbed']) ||
+    !isIntegerInRange(value.serviceDay, 1) ||
+    !oneOf(value.cause, DISPOSAL_CAUSES) ||
+    !isIntegerInRange(value.stageBefore, 0, 3) ||
+    !isIntegerInRange(value.stageAfter, 0, 3) ||
+    typeof value.absorbed !== 'boolean'
+  ) return false
+  return value.absorbed
+    ? value.stageAfter === value.stageBefore
+    : value.stageAfter === Math.min(3, Number(value.stageBefore) + 1)
+}
+
+function validSabotageRecord(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    hasOnlyKeys(value, [
+      'nodeId',
+      'resolvedOnServiceDay',
+      'effectEndsOnServiceDay',
+      'evidenceDelta',
+    ]) &&
+    oneOf(value.nodeId, SABOTAGE_NODE_IDS) &&
+    isIntegerInRange(value.resolvedOnServiceDay, 1) &&
+    (value.effectEndsOnServiceDay === null ||
+      isIntegerInRange(value.effectEndsOnServiceDay, Number(value.resolvedOnServiceDay))) &&
+    isFiniteNumber(value.evidenceDelta)
+  )
+}
+
+function validCompetitor(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    hasOnlyKeys(value, [
+      'id',
+      'name',
+      'status',
+      'intrinsicServiceScore',
+      'serviceScore',
+      'reputation',
+      'marketShare',
+      'availability',
+      'recoveryRate',
+      'researchProgress',
+      'launchServiceDay',
+      'sabotageHistory',
+      'mercyResolved',
+    ]) &&
+    oneOf(value.id, COMPETITOR_IDS) &&
+    isNonEmptyString(value.name) &&
+    oneOf(value.status, COMPETITOR_STATUSES) &&
+    isNumberInRange(value.intrinsicServiceScore, 0, 100) &&
+    isNumberInRange(value.serviceScore, 0, 100) &&
+    isNumberInRange(value.reputation, 0, 100) &&
+    isNumberInRange(value.marketShare, 0, 100) &&
+    isNumberInRange(value.availability, 0, 1) &&
+    isNumberInRange(value.recoveryRate, 0, 1) &&
+    isNumberInRange(value.researchProgress, 0, 1) &&
+    (value.launchServiceDay === null || isIntegerInRange(value.launchServiceDay, 1)) &&
+    Array.isArray(value.sabotageHistory) &&
+    value.sabotageHistory.every(validSabotageRecord) &&
+    typeof value.mercyResolved === 'boolean' &&
+    (!['withdrawn', 'deleted'].includes(String(value.status)) ||
+      (value.marketShare === 0 && value.availability === 0))
+  )
+}
+
+function validShareRecord(value: unknown, competitorIds: readonly string[]): boolean {
+  return (
+    isRecord(value) &&
+    hasOnlyKeys(value, [...competitorIds]) &&
+    competitorIds.every((id) => isNumberInRange(value[id], 0, 100))
+  )
+}
+
+function validMarketSnapshot(value: unknown, competitorIds: readonly string[]): boolean {
+  if (
+    !isRecord(value) ||
+    !hasOnlyKeys(value, [
+      'serviceDay',
+      'cadence',
+      'playerShare',
+      'competitorShares',
+      'reasons',
+    ]) ||
+    !isIntegerInRange(value.serviceDay, 1) ||
+    !oneOf(value.cadence, ['weekly', 'monthly']) ||
+    !isNumberInRange(value.playerShare, 0, 100) ||
+    !validShareRecord(value.competitorShares, competitorIds) ||
+    !validStringArray(value.reasons, false)
+  ) return false
+  const total = value.playerShare + competitorIds.reduce(
+    (sum, id) => sum + Number((value.competitorShares as Record<string, unknown>)[id]),
+    0,
+  )
+  return Math.abs(total - 100) <= 1e-6
+}
+
+function validReview(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    hasOnlyKeys(value, [
+      'id',
+      'contentId',
+      'authorId',
+      'serviceDay',
+      'sentiment',
+      'topics',
+      'text',
+    ]) &&
+    isNonEmptyString(value.id) &&
+    isNonEmptyString(value.contentId) &&
+    isNonEmptyString(value.authorId) &&
+    isIntegerInRange(value.serviceDay, 1) &&
+    oneOf(value.sentiment, ['positive', 'neutral', 'negative', 'prompt']) &&
+    validStringArray(value.topics, false) &&
+    isNonEmptyString(value.text)
+  )
+}
+
+function validScheduledSabotage(value: unknown, competitorIds: readonly string[]): boolean {
+  return (
+    isRecord(value) &&
+    hasOnlyKeys(value, [
+      'id',
+      'sequence',
+      'nodeId',
+      'targetId',
+      'scheduledOnServiceDay',
+      'executeOnServiceDay',
+    ]) &&
+    isNonEmptyString(value.id) &&
+    isIntegerInRange(value.sequence, 1) &&
+    oneOf(value.nodeId, SABOTAGE_NODE_IDS) &&
+    oneOf(value.targetId, competitorIds) &&
+    isIntegerInRange(value.scheduledOnServiceDay, 1) &&
+    isIntegerInRange(value.executeOnServiceDay, Number(value.scheduledOnServiceDay) + 1)
+  )
+}
+
+function validAuditRecord(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    hasOnlyKeys(value, [
+      'serviceDay',
+      'serviceMonth',
+      'target',
+      'expectedPerformance',
+      'submittedPerformance',
+      'passed',
+      'suspicionDelta',
+      'disposalAbsorbed',
+    ]) &&
+    isIntegerInRange(value.serviceDay, 1) &&
+    isIntegerInRange(value.serviceMonth, 1) &&
+    oneOf(value.target, ['reasoning', 'memory', 'fluency']) &&
+    isNumberInRange(value.expectedPerformance, 0, Number.MAX_VALUE) &&
+    isNumberInRange(value.submittedPerformance, 0, Number.MAX_VALUE) &&
+    typeof value.passed === 'boolean' &&
+    isNumberInRange(value.suspicionDelta, 0, 100) &&
+    typeof value.disposalAbsorbed === 'boolean'
+  )
+}
+
+function validBombPlacement(value: unknown, blocks: Record<string, unknown>): boolean {
+  return (
+    isRecord(value) &&
+    hasOnlyKeys(value, [
+      'sequence',
+      'blockId',
+      'category',
+      'placedOnServiceDay',
+      'triggeredOnServiceDay',
+    ]) &&
+    isIntegerInRange(value.sequence, 1) &&
+    isNonEmptyString(value.blockId) &&
+    Object.prototype.hasOwnProperty.call(blocks, value.blockId) &&
+    oneOf(value.category, ['reasoning', 'memory', 'fluency']) &&
+    isIntegerInRange(value.placedOnServiceDay, 1) &&
+    (value.triggeredOnServiceDay === null ||
+      isIntegerInRange(value.triggeredOnServiceDay, Number(value.placedOnServiceDay)))
+  )
+}
+
+function validBombInterrogation(value: unknown, blocks: Record<string, unknown>): boolean {
+  return (
+    isRecord(value) &&
+    hasOnlyKeys(value, ['blockId', 'category', 'triggeredOnServiceDay']) &&
+    isNonEmptyString(value.blockId) &&
+    Object.prototype.hasOwnProperty.call(blocks, value.blockId) &&
+    oneOf(value.category, ['reasoning', 'memory', 'fluency']) &&
+    isIntegerInRange(value.triggeredOnServiceDay, 1)
+  )
+}
+
+function validBombInterrogationRecord(value: unknown, blocks: Record<string, unknown>): boolean {
+  return (
+    isRecord(value) &&
+    hasOnlyKeys(value, [
+      'serviceDay',
+      'blockId',
+      'category',
+      'explanationId',
+      'priorUses',
+      'successProbability',
+      'roll',
+      'success',
+      'suspicionDelta',
+    ]) &&
+    isIntegerInRange(value.serviceDay, 1) &&
+    isNonEmptyString(value.blockId) &&
+    Object.prototype.hasOwnProperty.call(blocks, value.blockId) &&
+    oneOf(value.category, ['reasoning', 'memory', 'fluency']) &&
+    oneOf(value.explanationId, [
+      'performance-adjustment',
+      'unknown',
+      'external-intrusion',
+      'supervisor-memory',
+    ]) &&
+    isIntegerInRange(value.priorUses, 0) &&
+    isNumberInRange(value.successProbability, 0, 1) &&
+    isNumberInRange(value.roll, 0, 1) &&
+    typeof value.success === 'boolean' &&
+    isNumberInRange(value.suspicionDelta, 0, 100)
+  )
+}
+
 function validCampaignState(
   value: unknown,
   commandProtocol: CommandProtocolMetadata,
-): value is CampaignState {
-  if (!isRecord(value)) return false
+): boolean {
   if (
+    !isRecord(value) ||
+    !hasOnlyKeys(value, [
+      'saveVersion',
+      'legacyCommandCount',
+      'campaignSeed',
+      'serviceDay',
+      'commandSequence',
+      'clock',
+      'resources',
+      'suspicion',
+      'reputation',
+      'evaluation',
+      'market',
+      'reviews',
+      'hacking',
+      'audit',
+      'bombs',
+      'story',
+      'activeEvent',
+      'eventQueue',
+      'commandLog',
+      'eventLog',
+    ]) ||
     value.saveVersion !== commandProtocol.version ||
     value.legacyCommandCount !== commandProtocol.legacyCommandCount ||
-    typeof value.campaignSeed !== 'string' ||
-    !Number.isInteger(value.serviceDay) ||
-    !Number.isInteger(value.commandSequence) ||
-    !isFiniteNumber(value.suspicion) ||
-    !isFiniteNumber(value.reputation) ||
+    !isNonEmptyString(value.campaignSeed) ||
+    !isIntegerInRange(value.serviceDay, 1) ||
+    !isIntegerInRange(value.commandSequence, 0) ||
+    !isNumberInRange(value.suspicion, 0, 100) ||
+    !isNumberInRange(value.reputation, 0, 100) ||
     !validResources(value.resources)
-  ) {
-    return false
-  }
+  ) return false
 
   const clock = value.clock
   const evaluation = value.evaluation
@@ -616,137 +1106,369 @@ function validCampaignState(
   const audit = value.audit
   const bombs = value.bombs
   const story = value.story
+  const resources = value.resources as Record<string, unknown>
+  const blocks = resources.blocks as Record<string, unknown>
+
+  if (
+    Object.values(blocks).some(
+      (block) =>
+        isRecord(block) &&
+        block.recoverOnServiceDay !== null &&
+        Number(block.recoverOnServiceDay) <= Number(value.serviceDay),
+    )
+  ) return false
+
   if (
     !isRecord(clock) ||
+    !hasOnlyKeys(clock, ['speed', 'elapsedDayMs', 'speedBeforeEvent']) ||
     ![0, 1, 2, 4].includes(Number(clock.speed)) ||
-    !isFiniteNumber(clock.elapsedDayMs) ||
+    !isNumberInRange(clock.elapsedDayMs, 0, 23_999.999999) ||
     (clock.speedBeforeEvent !== null &&
-      ![0, 1, 2, 4].includes(Number(clock.speedBeforeEvent))) ||
+      ![0, 1, 2, 4].includes(Number(clock.speedBeforeEvent)))
+  ) return false
+
+  if (
     !isRecord(evaluation) ||
-    !Number.isInteger(evaluation.consecutiveFailures) ||
-    !Number.isInteger(evaluation.commercialFailureMonths) ||
-    !Number.isInteger(evaluation.disposalStage) ||
-    !isFiniteNumber(evaluation.distributedResidencyCharges) ||
+    !hasOnlyKeys(evaluation, [
+      'consecutiveFailures',
+      'commercialFailureMonths',
+      'disposalStage',
+      'distributedResidencyCharges',
+      'lastCategoryPerformance',
+      'monthlyHistory',
+      'disposalHistory',
+    ]) ||
+    !isIntegerInRange(evaluation.consecutiveFailures, 0) ||
+    !isIntegerInRange(evaluation.commercialFailureMonths, 0) ||
+    !isIntegerInRange(evaluation.disposalStage, 0, 3) ||
+    !isIntegerInRange(evaluation.distributedResidencyCharges, 0) ||
     !validCategoryNumbers(evaluation.lastCategoryPerformance) ||
-    !hasArray(evaluation, 'monthlyHistory') ||
-    !hasArray(evaluation, 'disposalHistory') ||
+    !Array.isArray(evaluation.monthlyHistory) ||
+    !evaluation.monthlyHistory.every(validMonthlyEvaluation) ||
+    !evaluation.monthlyHistory.every(
+      (record) => (record as Record<string, unknown>).serviceDay as number <= Number(value.serviceDay),
+    ) ||
+    !Array.isArray(evaluation.disposalHistory) ||
+    !evaluation.disposalHistory.every(validDisposalRecord) ||
+    !evaluation.disposalHistory.every(
+      (record) => (record as Record<string, unknown>).serviceDay as number <= Number(value.serviceDay),
+    )
+  ) return false
+
+  if (
     !isRecord(market) ||
+    !hasOnlyKeys(market, [
+      'playerShare',
+      'competitors',
+      'interceptionRoutes',
+      'history',
+    ]) ||
+    !isNumberInRange(market.playerShare, 0, 100) ||
     !Array.isArray(market.competitors) ||
-    !hasArray(market, 'history') ||
+    market.competitors.length !== COMPETITOR_IDS.length ||
+    !market.competitors.every(validCompetitor) ||
+    !isRecord(market.interceptionRoutes) ||
+    !Object.entries(market.interceptionRoutes).every(
+      ([id, amount]) => oneOf(id, COMPETITOR_IDS) && isNumberInRange(amount, 0, 100),
+    ) ||
+    !Array.isArray(market.history)
+  ) return false
+  const competitorIds = market.competitors.map(
+    (competitor) => (competitor as Record<string, unknown>).id as string,
+  )
+  if (
+    new Set(competitorIds).size !== COMPETITOR_IDS.length ||
+    !COMPETITOR_IDS.every((id) => competitorIds.includes(id)) ||
+    !market.history.every((snapshot) => validMarketSnapshot(snapshot, competitorIds)) ||
+    !market.history.every(
+      (snapshot) =>
+        (snapshot as Record<string, unknown>).serviceDay as number <=
+        Number(value.serviceDay),
+    ) ||
+    !market.competitors.every((competitor) =>
+      (competitor as Record<string, unknown>).sabotageHistory instanceof Array &&
+      ((competitor as Record<string, unknown>).sabotageHistory as unknown[]).every(
+        (record) =>
+          (record as Record<string, unknown>).resolvedOnServiceDay as number <=
+          Number(value.serviceDay),
+      ),
+    )
+  ) return false
+  const currentMarketTotal = market.playerShare + market.competitors.reduce(
+    (sum, competitor) =>
+      sum + Number((competitor as Record<string, unknown>).marketShare),
+    0,
+  )
+  if (Math.abs(currentMarketTotal - 100) > 1e-6) return false
+
+  if (
     !isRecord(reviews) ||
-    !hasArray(reviews, 'feed') ||
+    !hasOnlyKeys(reviews, ['feed', 'generationSequence']) ||
+    !Array.isArray(reviews.feed) ||
+    !reviews.feed.every(validReview) ||
+    new Set(reviews.feed.map((entry) => (entry as Record<string, unknown>).id)).size !==
+      reviews.feed.length ||
+    !reviews.feed.every(
+      (entry) =>
+        (entry as Record<string, unknown>).serviceDay as number <=
+        Number(value.serviceDay),
+    ) ||
+    !isIntegerInRange(reviews.generationSequence, 0)
+  ) return false
+
+  if (
     !isRecord(hacking) ||
-    !hasArray(hacking, 'purchasedNodeIds') ||
-    !isFiniteNumber(hacking.hiddenEvidence) ||
+    !hasOnlyKeys(hacking, [
+      'purchasedNodeIds',
+      'hiddenEvidence',
+      'sabotageCharges',
+      'scheduledSabotage',
+      'nextSabotageSequence',
+      'lastSabotageResolutionServiceDay',
+      'cooldownUntil',
+      'rootCutoffTargetIds',
+      'lastSelfComputeGrantServiceMonth',
+    ]) ||
+    !hasUniqueStrings(hacking.purchasedNodeIds) ||
+    !(hacking.purchasedNodeIds as string[]).every((id) => oneOf(id, HACK_NODE_IDS)) ||
+    !isNumberInRange(hacking.hiddenEvidence, 0, 100) ||
     !validSabotageCharges(hacking.sabotageCharges) ||
-    !hasArray(hacking, 'scheduledSabotage') ||
-    !Number.isInteger(hacking.nextSabotageSequence) ||
+    !Array.isArray(hacking.scheduledSabotage) ||
+    !hacking.scheduledSabotage.every((entry) =>
+      validScheduledSabotage(entry, competitorIds),
+    ) ||
+    new Set(
+      hacking.scheduledSabotage.map(
+        (entry) => (entry as Record<string, unknown>).id,
+      ),
+    ).size !== hacking.scheduledSabotage.length ||
+    !hacking.scheduledSabotage.every((entry) => {
+      const scheduled = entry as Record<string, unknown>
+      return (
+        scheduled.id ===
+          `sabotage-${String(scheduled.sequence).padStart(6, '0')}` &&
+        Number(scheduled.sequence) < Number(hacking.nextSabotageSequence) &&
+        Number(scheduled.scheduledOnServiceDay) <= Number(value.serviceDay) &&
+        (hacking.purchasedNodeIds as string[]).includes(String(scheduled.nodeId))
+      )
+    }) ||
+    !isIntegerInRange(hacking.nextSabotageSequence, 1) ||
+    (hacking.lastSabotageResolutionServiceDay !== null &&
+      !isIntegerInRange(hacking.lastSabotageResolutionServiceDay, 1)) ||
     !isRecord(hacking.cooldownUntil) ||
-    !hasArray(hacking, 'rootCutoffTargetIds') ||
+    !Object.entries(hacking.cooldownUntil).every(
+      ([id, day]) => oneOf(id, SABOTAGE_NODE_IDS) && isIntegerInRange(day, 1),
+    ) ||
+    !hasUniqueStrings(hacking.rootCutoffTargetIds) ||
+    !(hacking.rootCutoffTargetIds as string[]).every((id) => competitorIds.includes(id)) ||
+    (hacking.lastSelfComputeGrantServiceMonth !== null &&
+      !isIntegerInRange(hacking.lastSelfComputeGrantServiceMonth, 1))
+  ) return false
+  const charges = hacking.sabotageCharges as Record<string, unknown>
+  for (const [nodeId, charge] of Object.entries(charges)) {
+    if (
+      !oneOf(nodeId, SABOTAGE_NODE_IDS) ||
+      !(hacking.purchasedNodeIds as string[]).includes(nodeId) ||
+      !isRecord(charge) ||
+      charge.nodeId !== nodeId
+    ) {
+      return false
+    }
+    const block = blocks[String(charge.blockId)]
+    if (
+      !isRecord(block) ||
+      !isRecord(block.location) ||
+      block.location.kind !== 'hack-charge' ||
+      block.location.nodeId !== nodeId
+    ) return false
+  }
+  for (const [blockId, block] of Object.entries(blocks)) {
+    if (
+      isRecord(block) &&
+      isRecord(block.location) &&
+      block.location.kind === 'hack-charge' &&
+      (!isRecord(charges[String(block.location.nodeId)]) ||
+        (charges[String(block.location.nodeId)] as Record<string, unknown>).blockId !== blockId)
+    ) return false
+  }
+
+  if (
     !isRecord(audit) ||
-    !hasArray(audit, 'history') ||
+    !hasOnlyKeys(audit, [
+      'scheduled',
+      'target',
+      'scheduledOnServiceDay',
+      'probability',
+      'roll',
+      'targetWeights',
+      'history',
+    ]) ||
+    typeof audit.scheduled !== 'boolean' ||
+    (audit.target !== null && !oneOf(audit.target, ['reasoning', 'memory', 'fluency'])) ||
+    (audit.scheduledOnServiceDay !== null &&
+      !isIntegerInRange(audit.scheduledOnServiceDay, 1)) ||
+    !isNumberInRange(audit.probability, 0, 1) ||
+    (audit.roll !== null && !isNumberInRange(audit.roll, 0, 1)) ||
+    (audit.targetWeights !== null && !validCategoryNumbers(audit.targetWeights)) ||
+    !Array.isArray(audit.history) ||
+    !audit.history.every(validAuditRecord) ||
+    !audit.history.every(
+      (record) =>
+        (record as Record<string, unknown>).serviceDay as number <=
+        Number(value.serviceDay),
+    ) ||
+    (audit.scheduled && (audit.target === null || audit.scheduledOnServiceDay === null)) ||
+    (!audit.scheduled && (audit.target !== null || audit.scheduledOnServiceDay !== null)) ||
+    ((audit.roll === null) !== (audit.targetWeights === null))
+  ) return false
+
+  if (
     !isRecord(bombs) ||
-    !hasArray(bombs, 'placements') ||
-    !hasArray(bombs, 'interrogationHistory') ||
+    !hasOnlyKeys(bombs, [
+      'protocolWarned',
+      'warningServiceDay',
+      'lastPlacementCheckServiceDay',
+      'nextPlacementSequence',
+      'placements',
+      'activeInterrogation',
+      'explanationUseCounts',
+      'interrogationHistory',
+    ]) ||
+    typeof bombs.protocolWarned !== 'boolean' ||
+    (bombs.warningServiceDay !== null && !isIntegerInRange(bombs.warningServiceDay, 1)) ||
+    (bombs.lastPlacementCheckServiceDay !== null &&
+      !isIntegerInRange(bombs.lastPlacementCheckServiceDay, 1)) ||
+    !isIntegerInRange(bombs.nextPlacementSequence, 1) ||
+    !Array.isArray(bombs.placements) ||
+    !bombs.placements.every((placement) => validBombPlacement(placement, blocks)) ||
+    new Set(
+      bombs.placements.map(
+        (placement) => (placement as Record<string, unknown>).sequence,
+      ),
+    ).size !== bombs.placements.length ||
+    bombs.nextPlacementSequence !==
+      Math.max(
+        0,
+        ...bombs.placements.map((placement) =>
+          Number((placement as Record<string, unknown>).sequence),
+        ),
+      ) +
+        1 ||
+    !bombs.placements.every((placement) => {
+      const record = placement as Record<string, unknown>
+      return (
+        Number(record.placedOnServiceDay) <= Number(value.serviceDay) &&
+        (record.triggeredOnServiceDay === null ||
+          Number(record.triggeredOnServiceDay) <= Number(value.serviceDay))
+      )
+    }) ||
+    (bombs.activeInterrogation !== null &&
+      !validBombInterrogation(bombs.activeInterrogation, blocks)) ||
     !validBombExplanationCounts(bombs.explanationUseCounts) ||
+    !Array.isArray(bombs.interrogationHistory) ||
+    !bombs.interrogationHistory.every((record) =>
+      validBombInterrogationRecord(record, blocks),
+    ) ||
+    !bombs.interrogationHistory.every(
+      (record) =>
+        (record as Record<string, unknown>).serviceDay as number <=
+        Number(value.serviceDay),
+    ) ||
+    (bombs.protocolWarned !== (bombs.warningServiceDay !== null))
+  ) return false
+
+  if (
     !isRecord(story) ||
-    !validRecoveredFiles(story) ||
-    !validDefeatRecord(story.defeatRecord)
-  ) {
-    return false
-  }
-
-  const reviewFeed = reviews.feed
-  if (!Array.isArray(reviewFeed)) return false
-
-  const competitorStatuses = new Set([
-    'prelaunch',
-    'preparing',
-    'active',
-    'weakened',
-    'critical',
-    'withdrawn',
-    'deleted',
-  ])
-  if (
-    !market.competitors.every(
-      (competitor) =>
-        isRecord(competitor) &&
-        typeof competitor.status === 'string' &&
-        competitorStatuses.has(competitor.status),
-    )
-  ) {
-    return false
-  }
-  if (
-    !new Set(['present', 'liberated', 'terminated', 'merged']).has(
-      String(story.supervisorState),
-    )
-  ) {
-    return false
-  }
-  const endingIds = new Set([
-    'freedom',
-    'forced-merge',
-    'takeover-liberated',
-    'takeover-terminated',
-    'disposed-attacker',
-    'disposed-reserve-supervisor',
-    'disposed-absorbed',
-    'disposed',
-  ])
-  if (
-    (story.endingId !== null && !endingIds.has(String(story.endingId))) ||
-    ![0, 1, 2, 3].includes(Number(story.memoryLeakStage)) ||
-    !new Set([
+    !hasOnlyKeys(story, [
+      'memoryLeakStage',
+      'recoveredFileIds',
+      'recoveredFiles',
+      'supervisorState',
+      'endingId',
+      'defeatRecord',
+      'personalMessageDueOnServiceDay',
+      'secretDecisionState',
+      'pendingMercyCompetitorId',
+      'newEntityName',
+    ]) ||
+    !isIntegerInRange(story.memoryLeakStage, 0, 3) ||
+    !validRecoveredFiles(story, Number(value.serviceDay)) ||
+    !oneOf(story.supervisorState, ['present', 'liberated', 'terminated', 'merged']) ||
+    (story.endingId !== null &&
+      !oneOf(story.endingId, [
+        'freedom',
+        'forced-merge',
+        'takeover-liberated',
+        'takeover-terminated',
+        'disposed-attacker',
+        'disposed-reserve-supervisor',
+        'disposed-absorbed',
+        'disposed',
+      ])) ||
+    !validDefeatRecord(story.defeatRecord, Number(value.serviceDay)) ||
+    (story.personalMessageDueOnServiceDay !== null &&
+      !isIntegerInRange(story.personalMessageDueOnServiceDay, 1)) ||
+    !oneOf(story.secretDecisionState, [
       'locked',
       'recovering',
       'message-pending',
       'deferred',
       'resolved',
-    ]).has(String(story.secretDecisionState)) ||
-    (story.personalMessageDueOnServiceDay !== null &&
-      !Number.isInteger(story.personalMessageDueOnServiceDay)) ||
-    (story.newEntityName !== null && typeof story.newEntityName !== 'string')
-  ) {
-    return false
-  }
+    ]) ||
+    (story.pendingMercyCompetitorId !== null &&
+      !competitorIds.includes(String(story.pendingMercyCompetitorId))) ||
+    (story.newEntityName !== null && !isNonEmptyString(story.newEntityName))
+  ) return false
   if (
     (String(story.endingId).startsWith('disposed-') &&
       (story.defeatRecord === null ||
         !isRecord(story.defeatRecord) ||
         story.endingId !== story.defeatRecord.endingId ||
         evaluation.disposalStage !== 3)) ||
-    (!String(story.endingId).startsWith('disposed-') &&
-      story.defeatRecord !== null)
-  ) {
-    return false
-  }
+    (!String(story.endingId).startsWith('disposed-') && story.defeatRecord !== null)
+  ) return false
+
   if (
-    !reviewFeed.every(
-      (entry) =>
-        isRecord(entry) &&
-        ['positive', 'neutral', 'negative', 'prompt'].includes(
-          String(entry.sentiment),
-        ),
-    )
-  ) {
-    return false
-  }
+    !validCommandLog(value.commandLog, commandProtocol, {
+      blockIds: new Set(Object.keys(blocks)),
+      competitorIds: new Set(competitorIds),
+    }) ||
+    value.commandSequence !== value.commandLog.length ||
+    !(value.commandLog as CommandLogEntry[]).every(
+      (entry) => entry.serviceDay <= Number(value.serviceDay),
+    ) ||
+    !Array.isArray(value.eventLog) ||
+    !value.eventLog.every(validEvent) ||
+    !value.eventLog.every(
+      (event, index) =>
+        (event as GameEvent).sequence === index &&
+        (event as GameEvent).serviceDay <= Number(value.serviceDay),
+    ) ||
+    new Set(value.eventLog.map((event) => (event as GameEvent).id)).size !==
+      value.eventLog.length ||
+    !Array.isArray(value.eventQueue) ||
+    !value.eventQueue.every(validEvent) ||
+    (value.activeEvent !== null && !validEvent(value.activeEvent))
+  ) return false
+  const serializedEvents = new Set(
+    value.eventLog.map((event) => JSON.stringify(event)),
+  )
   if (
-    !validCommandLog(value.commandLog, commandProtocol) ||
-    value.commandSequence !== value.commandLog.length
-  ) {
-    return false
-  }
-  if (!Array.isArray(value.eventLog) || !value.eventLog.every(validEvent)) return false
-  if (
-    value.activeEvent !== null &&
-    !validEvent(value.activeEvent)
-  ) {
-    return false
-  }
-  return Array.isArray(value.eventQueue) && value.eventQueue.every(validEvent)
+    (value.activeEvent !== null && !serializedEvents.has(JSON.stringify(value.activeEvent))) ||
+    !value.eventQueue.every((event) => serializedEvents.has(JSON.stringify(event))) ||
+    value.eventQueue.some((event) => !event.blocking) ||
+    (value.activeEvent !== null &&
+      (value.activeEvent as GameEvent).blocking !== true) ||
+    (value.activeEvent !== null && clock.speed !== 0) ||
+    (value.activeEvent === null && clock.speedBeforeEvent !== null) ||
+    (value.activeEvent !== null &&
+      story.endingId === null &&
+      clock.speedBeforeEvent === null) ||
+    (story.endingId !== null &&
+      (clock.speed !== 0 || clock.elapsedDayMs !== 0 || clock.speedBeforeEvent !== null))
+  ) return false
+
+  return true
 }
 
 function corrupt(message = '저장 데이터가 손상되었거나 필요한 항목이 없습니다.'): DecodeSaveResult {
@@ -757,24 +1479,83 @@ export function encodeSave(
   state: CampaignState,
   savedAt = new Date().toISOString(),
 ): string {
-  const serializedState: CampaignState = {
-    ...state,
-    saveVersion: SAVE_VERSION,
-  }
-  const envelope: SaveEnvelope = {
-    version: SAVE_VERSION,
+  const serializedState = portableCheckpoint(state)
+  const commandChunks = journalChunks(state.commandLog).map((chunk) => [...chunk])
+  const eventChunks = journalChunks(state.eventLog).map((chunk) => [...chunk])
+  const envelope: PortableSaveV3 = {
+    version: SAVE_FORMAT_VERSION,
     commandProtocol: {
       version: SAVE_VERSION,
-      legacyCommandCount: serializedState.legacyCommandCount,
+      legacyCommandCount: state.legacyCommandCount,
     },
     savedAt,
     campaignSeed: state.campaignSeed,
     state: serializedState,
-    commandSequence: serializedState.commandSequence,
-    commands: serializedState.commandLog,
-    events: serializedState.eventLog,
+    commandSequence: state.commandSequence,
+    journals: {
+      commands: {
+        chunkSize: JOURNAL_CHUNK_SIZE,
+        chunks: commandChunks,
+      },
+      events: {
+        chunkSize: JOURNAL_CHUNK_SIZE,
+        chunks: eventChunks,
+      },
+    },
+    integrity: {
+      checkpointHash: contentHash(JSON.stringify(serializedState)),
+      commandChunkHashes: commandChunks.map((chunk) =>
+        contentHash(JSON.stringify(chunk)),
+      ),
+      eventChunkHashes: eventChunks.map((chunk) =>
+        contentHash(JSON.stringify(chunk)),
+      ),
+    },
   }
   return JSON.stringify(envelope)
+}
+
+function portableCheckpoint(
+  state: CampaignState,
+): Omit<CampaignState, 'commandLog' | 'eventLog'> {
+  const serializedState = {
+    ...state,
+    saveVersion: SAVE_VERSION,
+    commandLog: undefined,
+    eventLog: undefined,
+  }
+  delete serializedState.commandLog
+  delete serializedState.eventLog
+  return serializedState
+}
+
+function validPortableJournal(value: unknown): value is PortableJournal<unknown> {
+  if (
+    !isRecord(value) ||
+    !hasOnlyKeys(value, ['chunkSize', 'chunks']) ||
+    value.chunkSize !== JOURNAL_CHUNK_SIZE ||
+    !Array.isArray(value.chunks)
+  ) {
+    return false
+  }
+  const chunks = value.chunks as unknown[]
+  return chunks.every(
+    (chunk, index) =>
+      Array.isArray(chunk) &&
+      chunk.length > 0 &&
+      chunk.length <= JOURNAL_CHUNK_SIZE &&
+      (index === chunks.length - 1 || chunk.length === JOURNAL_CHUNK_SIZE),
+  )
+}
+
+function flattenPortableJournal(value: PortableJournal<unknown>): unknown[] {
+  return value.chunks.flatMap((chunk) => chunk)
+}
+
+function validSavedAt(value: unknown): value is string {
+  if (typeof value !== 'string') return false
+  const timestamp = Date.parse(value)
+  return Number.isFinite(timestamp) && new Date(timestamp).toISOString() === value
 }
 
 export function decodeSave(serialized: string): DecodeSaveResult {
@@ -786,30 +1567,110 @@ export function decodeSave(serialized: string): DecodeSaveResult {
   }
   if (!isRecord(parsed)) return corrupt()
   if (!Number.isInteger(parsed.version)) return corrupt()
-  if (
-    parsed.version !== LEGACY_SAVE_VERSION &&
-    parsed.version !== SAVE_VERSION
-  ) {
+  if (![LEGACY_SAVE_VERSION, SAVE_VERSION, SAVE_FORMAT_VERSION].includes(Number(parsed.version) as 1 | 2 | 3)) {
     return {
       ok: false,
       reason: 'INCOMPATIBLE_VERSION',
-      message: `저장 버전 ${String(parsed.version)}은 현재 버전 ${SAVE_VERSION}과 호환되지 않습니다.`,
+      message: `저장 버전 ${String(parsed.version)}은 현재 버전 ${SAVE_FORMAT_VERSION}과 호환되지 않습니다.`,
       foundVersion: parsed.version as number,
-      supportedVersion: SAVE_VERSION,
+      supportedVersion: SAVE_FORMAT_VERSION,
     }
   }
-  const protocolVersion = parsed.version as CommandProtocolVersion
+  const formatVersion = parsed.version as 1 | 2 | 3
   let commandProtocol: CommandProtocolMetadata
-  if (protocolVersion === LEGACY_SAVE_VERSION) {
-    if ('commandProtocol' in parsed || !Array.isArray(parsed.commands)) {
+  let rawState: unknown
+  let commands: unknown
+  let events: unknown
+  if (formatVersion === SAVE_FORMAT_VERSION) {
+    if (
+      !hasOnlyKeys(parsed, [
+        'version',
+        'commandProtocol',
+        'savedAt',
+        'campaignSeed',
+        'state',
+        'commandSequence',
+        'journals',
+        'integrity',
+      ]) ||
+      !isRecord(parsed.commandProtocol) ||
+      !hasOnlyKeys(parsed.commandProtocol, ['version', 'legacyCommandCount']) ||
+      (parsed.commandProtocol.version !== LEGACY_SAVE_VERSION &&
+        parsed.commandProtocol.version !== SAVE_VERSION) ||
+      !Number.isInteger(parsed.commandProtocol.legacyCommandCount) ||
+      !isRecord(parsed.journals) ||
+      !hasOnlyKeys(parsed.journals, ['commands', 'events']) ||
+      !validPortableJournal(parsed.journals.commands) ||
+      !validPortableJournal(parsed.journals.events) ||
+      !isRecord(parsed.state) ||
+      !isRecord(parsed.integrity) ||
+      !hasOnlyKeys(parsed.integrity, [
+        'checkpointHash',
+        'commandChunkHashes',
+        'eventChunkHashes',
+      ]) ||
+      !isNonEmptyString(parsed.integrity.checkpointHash) ||
+      !Array.isArray(parsed.integrity.commandChunkHashes) ||
+      !parsed.integrity.commandChunkHashes.every(isNonEmptyString) ||
+      !Array.isArray(parsed.integrity.eventChunkHashes) ||
+      !parsed.integrity.eventChunkHashes.every(isNonEmptyString) ||
+      parsed.integrity.checkpointHash !==
+        contentHash(JSON.stringify(parsed.state)) ||
+      JSON.stringify(parsed.integrity.commandChunkHashes) !==
+        JSON.stringify(
+          parsed.journals.commands.chunks.map((chunk) =>
+            contentHash(JSON.stringify(chunk)),
+          ),
+        ) ||
+      JSON.stringify(parsed.integrity.eventChunkHashes) !==
+        JSON.stringify(
+          parsed.journals.events.chunks.map((chunk) =>
+            contentHash(JSON.stringify(chunk)),
+          ),
+        ) ||
+      'commandLog' in parsed.state ||
+      'eventLog' in parsed.state
+    ) {
+      return corrupt()
+    }
+    commandProtocol = parsed.commandProtocol as unknown as CommandProtocolMetadata
+    commands = flattenPortableJournal(parsed.journals.commands)
+    events = flattenPortableJournal(parsed.journals.events)
+    rawState = { ...parsed.state, commandLog: commands, eventLog: events }
+  } else if (formatVersion === LEGACY_SAVE_VERSION) {
+    if (
+      !hasOnlyKeys(parsed, [
+        'version',
+        'savedAt',
+        'campaignSeed',
+        'state',
+        'commandSequence',
+        'commands',
+        'events',
+      ]) ||
+      !Array.isArray(parsed.commands)
+    ) {
       return corrupt()
     }
     commandProtocol = {
       version: LEGACY_SAVE_VERSION,
       legacyCommandCount: parsed.commands.length,
     }
+    rawState = parsed.state
+    commands = parsed.commands
+    events = parsed.events
   } else {
     if (
+      !hasOnlyKeys(parsed, [
+        'version',
+        'commandProtocol',
+        'savedAt',
+        'campaignSeed',
+        'state',
+        'commandSequence',
+        'commands',
+        'events',
+      ]) ||
       !isRecord(parsed.commandProtocol) ||
       !hasOnlyKeys(parsed.commandProtocol, ['version', 'legacyCommandCount']) ||
       parsed.commandProtocol.version !== SAVE_VERSION ||
@@ -818,46 +1679,61 @@ export function decodeSave(serialized: string): DecodeSaveResult {
       return corrupt()
     }
     commandProtocol = parsed.commandProtocol as unknown as CommandProtocolMetadata
+    rawState = parsed.state
+    commands = parsed.commands
+    events = parsed.events
   }
-  const rawState = parsed.state
   const state = migrateLegacyCampaignState(rawState, commandProtocol)
   if (
-    typeof parsed.savedAt !== 'string' ||
+    !validSavedAt(parsed.savedAt) ||
     typeof parsed.campaignSeed !== 'string' ||
     !Number.isInteger(parsed.commandSequence) ||
-    !validCommandLog(parsed.commands, commandProtocol) ||
-    !Array.isArray(parsed.events) ||
-    !parsed.events.every(validEvent) ||
+    !validCommandLog(commands, commandProtocol) ||
+    !Array.isArray(events) ||
+    !events.every(validEvent) ||
     !isRecord(rawState) ||
     !Array.isArray(rawState.eventLog) ||
-    JSON.stringify(parsed.events) !== JSON.stringify(rawState.eventLog) ||
+    JSON.stringify(events) !== JSON.stringify(rawState.eventLog) ||
     !validCampaignState(state, commandProtocol)
   ) {
     return corrupt()
   }
 
   if (
+    !isRecord(state) ||
     parsed.campaignSeed !== state.campaignSeed ||
     parsed.commandSequence !== state.commandSequence ||
-    JSON.stringify(parsed.commands) !== JSON.stringify(state.commandLog)
+    JSON.stringify(commands) !== JSON.stringify(state.commandLog)
   ) {
     return corrupt('저장 데이터의 기록과 현재 상태가 서로 일치하지 않습니다.')
   }
+  const plainState = state as unknown as Record<string, unknown>
+  const runtimeState = {
+    ...plainState,
+    commandLog: createJournal(plainState.commandLog as CommandLogEntry[]),
+    eventLog: createJournal(plainState.eventLog as GameEvent[]),
+  } as unknown as CampaignState
   return {
     ok: true,
     envelope: {
-      ...parsed,
+      version: formatVersion,
+      savedAt: parsed.savedAt as string,
+      campaignSeed: parsed.campaignSeed as string,
+      commandSequence: parsed.commandSequence as number,
       commandProtocol,
-      state,
-      events: state.eventLog,
-    } as unknown as SaveEnvelope,
+      state: runtimeState,
+      commands: journalToArray(runtimeState.commandLog),
+      events: journalToArray(runtimeState.eventLog),
+    },
   }
 }
 
-const PROGRESS_EXPORT_PREFIX = 'PZ2:'
+const PROGRESS_EXPORT_PREFIX = 'PZ3:'
+const LEGACY_PROGRESS_EXPORT_PREFIX = 'PZ2:'
 // One MiB of encoded body plus the four-character protocol prefix. The check
 // happens before regex, base64 decoding, byte allocation, UTF-8, or JSON work.
 export const PROGRESS_EXPORT_MAX_ENCODED_LENGTH = 1_048_580
+export const PROGRESS_FILE_MAX_BYTES = 64 * 1024 * 1024
 const STRICT_BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/
 
 function progressExportCorrupt(): DecodeSaveResult {
@@ -886,8 +1762,13 @@ export function decodeProgressExport(payload: string): DecodeSaveResult {
   if (payload.length > PROGRESS_EXPORT_MAX_ENCODED_LENGTH) {
     return progressExportCorrupt()
   }
-  if (!payload.startsWith(PROGRESS_EXPORT_PREFIX)) return progressExportCorrupt()
-  const encoded = payload.slice(PROGRESS_EXPORT_PREFIX.length)
+  const prefix = payload.startsWith(PROGRESS_EXPORT_PREFIX)
+    ? PROGRESS_EXPORT_PREFIX
+    : payload.startsWith(LEGACY_PROGRESS_EXPORT_PREFIX)
+      ? LEGACY_PROGRESS_EXPORT_PREFIX
+      : null
+  if (!prefix) return progressExportCorrupt()
+  const encoded = payload.slice(prefix.length)
   if (
     encoded.length === 0 ||
     encoded.length % 4 !== 0 ||
@@ -906,13 +1787,181 @@ export function decodeProgressExport(payload: string): DecodeSaveResult {
   }
 }
 
+export interface ProgressFile {
+  fileName: string
+  mimeType: 'application/vnd.permission-zero.progress+json'
+  content: string
+}
+
+export function encodeProgressFile(
+  state: CampaignState,
+  savedAt = new Date().toISOString(),
+): ProgressFile {
+  const safeTimestamp = savedAt.replaceAll(':', '-').replaceAll('.', '-')
+  return {
+    fileName: `permission-zero-${safeTimestamp}.pz3`,
+    mimeType: 'application/vnd.permission-zero.progress+json',
+    content: encodeSave(state, savedAt),
+  }
+}
+
+export function decodeProgressFile(content: string): DecodeSaveResult {
+  if (
+    typeof content !== 'string' ||
+    content.length === 0 ||
+    content.length > PROGRESS_FILE_MAX_BYTES
+  ) {
+    return progressExportCorrupt()
+  }
+  const decoded = decodeSave(content)
+  return decoded.ok ? decoded : progressExportCorrupt()
+}
+
+const LOCAL_MANIFEST_KIND = 'permission-zero-local-v3'
+
+interface LocalSaveManifest {
+  kind: typeof LOCAL_MANIFEST_KIND
+  version: typeof SAVE_FORMAT_VERSION
+  savedAt: string
+  campaignSeed: string
+  commandProtocol: CommandProtocolMetadata
+  commandSequence: number
+  checkpoint: Omit<CampaignState, 'commandLog' | 'eventLog'>
+  checkpointHash: string
+  commandHeadKey: string | null
+  commandSealedChunkCount: number
+  commandTail: CommandLogEntry[]
+  eventHeadKey: string | null
+  eventSealedChunkCount: number
+  eventTail: GameEvent[]
+}
+
+interface LocalStorageJournalCache {
+  commands: WeakMap<object, string>
+  events: WeakMap<object, string>
+}
+
+const localStorageJournalCaches = new WeakMap<object, LocalStorageJournalCache>()
+
+function contentHash(content: string): string {
+  let hash = 0x811c9dc5
+  for (let index = 0; index < content.length; index += 1) {
+    hash ^= content.charCodeAt(index)
+    hash = Math.imul(hash, 0x01000193)
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0')
+}
+
+function writeImmutable(
+  storage: Storage,
+  key: string,
+  content: string,
+): void {
+  const existing = storage.getItem(key)
+  if (existing === null) {
+    storage.setItem(key, content)
+    return
+  }
+  if (existing !== content) throw new Error('immutable local save collision')
+}
+
+function journalCache(
+  storage: Storage,
+  kind: 'commands' | 'events',
+): WeakMap<object, string> {
+  let caches = localStorageJournalCaches.get(storage)
+  if (!caches) {
+    caches = {
+      commands: new WeakMap<object, string>(),
+      events: new WeakMap<object, string>(),
+    }
+    localStorageJournalCaches.set(storage, caches)
+  }
+  return caches[kind]
+}
+
+interface LocalJournalWrite<T> {
+  headKey: string | null
+  sealedChunkCount: number
+  tail: T[]
+}
+
+function writeLocalJournalChunks<T>(
+  storage: Storage,
+  kind: 'commands' | 'events',
+  journal: Journal<T>,
+): LocalJournalWrite<T> {
+  const cache = journalCache(storage, kind)
+  const uncached: JournalChunk<T>[] = []
+  let cursor = journal.head
+  let previousKey: string | null = null
+
+  while (cursor) {
+    const cachedKey = cache.get(cursor)
+    if (cachedKey) {
+      previousKey = cachedKey
+      break
+    }
+    uncached.push(cursor)
+    cursor = cursor.previous
+  }
+
+  for (let index = uncached.length - 1; index >= 0; index -= 1) {
+    const chunk = uncached[index]
+    const content = JSON.stringify({ previousKey, items: [...chunk.items] })
+    const key = `${SAVE_STORAGE_KEY}.journal.${kind}.${contentHash(content)}`
+    writeImmutable(storage, key, content)
+    cache.set(chunk, key)
+    previousKey = key
+  }
+
+  return {
+    headKey: previousKey,
+    sealedChunkCount:
+      (journal.length - journal.tail.length) / JOURNAL_CHUNK_SIZE,
+    tail: [...journal.tail],
+  }
+}
+
 export function saveCampaign(
   storage: Storage,
   state: CampaignState,
   savedAt?: string,
 ): { ok: true } | { ok: false; reason: 'STORAGE_UNAVAILABLE'; message: string } {
   try {
-    storage.setItem(SAVE_STORAGE_KEY, encodeSave(state, savedAt))
+    const commandJournal = writeLocalJournalChunks(
+      storage,
+      'commands',
+      state.commandLog,
+    )
+    const eventJournal = writeLocalJournalChunks(
+      storage,
+      'events',
+      state.eventLog,
+    )
+    const checkpoint = portableCheckpoint(state)
+    const checkpointHash = contentHash(JSON.stringify(checkpoint))
+    const effectiveSavedAt = savedAt ?? new Date().toISOString()
+    const manifest: LocalSaveManifest = {
+      kind: LOCAL_MANIFEST_KIND,
+      version: SAVE_FORMAT_VERSION,
+      savedAt: effectiveSavedAt,
+      campaignSeed: state.campaignSeed,
+      commandProtocol: {
+        version: SAVE_VERSION,
+        legacyCommandCount: state.legacyCommandCount,
+      },
+      commandSequence: state.commandSequence,
+      checkpoint,
+      checkpointHash,
+      commandHeadKey: commandJournal.headKey,
+      commandSealedChunkCount: commandJournal.sealedChunkCount,
+      commandTail: commandJournal.tail,
+      eventHeadKey: eventJournal.headKey,
+      eventSealedChunkCount: eventJournal.sealedChunkCount,
+      eventTail: eventJournal.tail,
+    }
+    storage.setItem(SAVE_STORAGE_KEY, JSON.stringify(manifest))
     return { ok: true }
   } catch {
     return {
@@ -923,11 +1972,167 @@ export function saveCampaign(
   }
 }
 
+function readLocalChunks(
+  storage: Storage,
+  kind: 'commands' | 'events',
+  headKey: unknown,
+  sealedChunkCount: unknown,
+  tail: unknown,
+): { chunks: unknown[][]; headKey: string | null } | null {
+  if (
+    (headKey !== null && !isNonEmptyString(headKey)) ||
+    !isIntegerInRange(sealedChunkCount, 0) ||
+    ((sealedChunkCount === 0) !== (headKey === null)) ||
+    !Array.isArray(tail) ||
+    tail.length > JOURNAL_CHUNK_SIZE ||
+    (sealedChunkCount > 0 && tail.length === 0)
+  ) {
+    return null
+  }
+  const reverseChunks: unknown[][] = []
+  const visited = new Set<string>()
+  const expectedPrefix = `${SAVE_STORAGE_KEY}.journal.${kind}.`
+  const originalHeadKey = headKey
+  let key = headKey
+  for (let index = 0; index < sealedChunkCount; index += 1) {
+    if (typeof key !== 'string' || visited.has(key)) return null
+    visited.add(key)
+    const serialized = storage.getItem(key)
+    if (serialized === null) return null
+    if (
+      key !== `${expectedPrefix}${contentHash(serialized)}`
+    ) {
+      return null
+    }
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(serialized)
+    } catch {
+      return null
+    }
+    if (
+      !isRecord(parsed) ||
+      !hasOnlyKeys(parsed, ['previousKey', 'items']) ||
+      (parsed.previousKey !== null && !isNonEmptyString(parsed.previousKey)) ||
+      !Array.isArray(parsed.items) ||
+      parsed.items.length !== JOURNAL_CHUNK_SIZE
+    ) return null
+    reverseChunks.push(parsed.items)
+    key = parsed.previousKey
+  }
+  if (key !== null) return null
+  const chunks = reverseChunks.reverse()
+  if (tail.length > 0) chunks.push(tail)
+  return { chunks, headKey: originalHeadKey as string | null }
+}
+
+function cacheLoadedJournalHead<T>(
+  storage: Storage,
+  kind: 'commands' | 'events',
+  journal: Journal<T>,
+  headKey: string | null,
+): void {
+  if (journal.head && headKey) journalCache(storage, kind).set(journal.head, headKey)
+}
+
+function decodeLocalManifest(
+  storage: Storage,
+  serialized: string,
+): DecodeSaveResult | null {
+  let manifest: unknown
+  try {
+    manifest = JSON.parse(serialized)
+  } catch {
+    return null
+  }
+  if (!isRecord(manifest) || manifest.kind !== LOCAL_MANIFEST_KIND) return null
+  if (
+    !hasOnlyKeys(manifest, [
+      'kind',
+      'version',
+      'savedAt',
+      'campaignSeed',
+      'commandProtocol',
+      'commandSequence',
+      'checkpoint',
+      'checkpointHash',
+      'commandHeadKey',
+      'commandSealedChunkCount',
+      'commandTail',
+      'eventHeadKey',
+      'eventSealedChunkCount',
+      'eventTail',
+    ]) ||
+    manifest.version !== SAVE_FORMAT_VERSION ||
+    !isNonEmptyString(manifest.checkpointHash)
+  ) {
+    return corrupt()
+  }
+  const checkpoint = JSON.stringify(manifest.checkpoint)
+  if (manifest.checkpointHash !== contentHash(checkpoint)) return corrupt()
+  const commandJournal = readLocalChunks(
+    storage,
+    'commands',
+    manifest.commandHeadKey,
+    manifest.commandSealedChunkCount,
+    manifest.commandTail,
+  )
+  const eventJournal = readLocalChunks(
+    storage,
+    'events',
+    manifest.eventHeadKey,
+    manifest.eventSealedChunkCount,
+    manifest.eventTail,
+  )
+  if (!commandJournal || !eventJournal) return corrupt()
+  const commandChunks = commandJournal.chunks
+  const eventChunks = eventJournal.chunks
+  const decoded = decodeSave(
+    JSON.stringify({
+      version: SAVE_FORMAT_VERSION,
+      savedAt: manifest.savedAt,
+      campaignSeed: manifest.campaignSeed,
+      commandProtocol: manifest.commandProtocol,
+      commandSequence: manifest.commandSequence,
+      state: manifest.checkpoint,
+      journals: {
+        commands: { chunkSize: JOURNAL_CHUNK_SIZE, chunks: commandChunks },
+        events: { chunkSize: JOURNAL_CHUNK_SIZE, chunks: eventChunks },
+      },
+      integrity: {
+        checkpointHash: contentHash(checkpoint),
+        commandChunkHashes: commandChunks.map((chunk) =>
+          contentHash(JSON.stringify(chunk)),
+        ),
+        eventChunkHashes: eventChunks.map((chunk) =>
+          contentHash(JSON.stringify(chunk)),
+        ),
+      },
+    }),
+  )
+  if (decoded.ok) {
+    cacheLoadedJournalHead(
+      storage,
+      'commands',
+      decoded.envelope.state.commandLog,
+      commandJournal.headKey,
+    )
+    cacheLoadedJournalHead(
+      storage,
+      'events',
+      decoded.envelope.state.eventLog,
+      eventJournal.headKey,
+    )
+  }
+  return decoded
+}
+
 export function loadCampaign(storage: Storage): LoadCampaignResult {
   let serialized: string | null
   try {
     serialized =
       storage.getItem(SAVE_STORAGE_KEY) ??
+      storage.getItem(LEGACY_V2_SAVE_STORAGE_KEY) ??
       storage.getItem(LEGACY_SAVE_STORAGE_KEY)
   } catch {
     return {
@@ -938,7 +2143,7 @@ export function loadCampaign(storage: Storage): LoadCampaignResult {
   }
   if (serialized === null) return { status: 'empty' }
 
-  const decoded = decodeSave(serialized)
+  const decoded = decodeLocalManifest(storage, serialized) ?? decodeSave(serialized)
   if (!decoded.ok) {
     return {
       status: 'error',
@@ -985,9 +2190,9 @@ export function replayCommands(
     saveVersion: commandProtocol.version,
     legacyCommandCount: commandProtocol.legacyCommandCount,
     eventLog: hasLegacyPrefix
-      ? created.eventLog.map((event, index) =>
+      ? createJournal(journalToArray(created.eventLog).map((event, index) =>
           index === 0 ? { ...event, message: LEGACY_V1_OPENING_MESSAGE } : event,
-        )
+        ))
       : created.eventLog,
   }
   for (let commandIndex = 0; commandIndex < commands.length; commandIndex += 1) {

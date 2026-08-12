@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { buildTwoYearCommandFixture } from '../test/fixtures'
 import legacyV1TransferEnvelope from '../test/legacy-v1-transfer-save.json'
 import type { GameCommand } from './model'
+import { journalToArray } from './journal'
 import { decodeSave, replayCommands } from './persistence'
 
 const legacyV1TransferSave = JSON.stringify(legacyV1TransferEnvelope)
@@ -53,7 +54,7 @@ describe('deterministic command replay', () => {
     expect(first).toEqual(second)
     expect(first).toMatchObject({ ok: true })
     if (!first.ok) return
-    expect(first.state.commandLog.map(({ command }) => command.type)).toEqual([
+    expect(journalToArray(first.state.commandLog).map(({ command }) => command.type)).toEqual([
       'BEGIN_BLOCK_SEPARATION',
       'DIVERT_BLOCK',
     ])
@@ -65,7 +66,8 @@ describe('deterministic command replay', () => {
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
 
-    const commands = decoded.envelope.commands.map(({ command }) => command)
+    const entries = journalToArray(decoded.envelope.state.commandLog)
+    const commands = entries.map(({ command }) => command)
     const replay = replayCommands(
       decoded.envelope.campaignSeed,
       commands,
@@ -78,7 +80,7 @@ describe('deterministic command replay', () => {
     if (!replay.ok) return
     expect(replay.state).toEqual(decoded.envelope.state)
     expect(replay.state.commandSequence).toBe(31)
-    expect(replay.state.commandLog).toEqual(decoded.envelope.commands)
+    expect(replay.state.commandLog).toEqual(decoded.envelope.state.commandLog)
   })
 
   it('keeps v2 strict when a transfer omits its separation command', () => {

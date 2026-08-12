@@ -10,11 +10,14 @@ import {
 import { GameProvider } from '../../app/GameProvider'
 import { AccessibleDialog } from '../../app/AccessibleDialog'
 import { createCampaign } from '../../game/createCampaign'
+import { createJournal } from '../../game/journal'
 import type { CampaignState } from '../../game/model'
 import {
+  PROGRESS_FILE_MAX_BYTES,
   PROGRESS_EXPORT_MAX_ENCODED_LENGTH,
   SAVE_STORAGE_KEY,
   encodeProgressExport,
+  encodeProgressFile,
   saveCampaign,
 } from '../../game/persistence'
 import { MemoryStorage } from '../../test/fixtures'
@@ -34,6 +37,7 @@ function Probe() {
       <output aria-label="master volume">{settings.masterVolume}</output>
       <output aria-label="muted value">{String(settings.muted)}</output>
       <output aria-label="reduced motion value">{String(settings.reducedMotion)}</output>
+      <output aria-label="progress command count">{state.commandSequence}</output>
     </>
   )
 }
@@ -57,14 +61,14 @@ function progressPayload(state: CampaignState): string {
 
 function largeAppendOnlyCommandCampaign(): CampaignState {
   const state = createCampaign('large-copy-progress')
-  state.commandLog = Array.from({ length: 9_000 }, (_, index) => ({
+  state.commandLog = createJournal(Array.from({ length: 20_000 }, (_, index) => ({
     sequence: index + 1,
     serviceDay: state.serviceDay,
     command: {
       type: 'SET_SPEED' as const,
       speed: index % 2 === 0 ? 1 as const : 0 as const,
     },
-  }))
+  })))
   state.commandSequence = state.commandLog.length
   state.clock.speed = 0
   return state
@@ -366,6 +370,103 @@ describe('SettingsPanel', () => {
     expect(screen.getByRole('alert', { name: '저장 실패' })).toBeInTheDocument()
   })
 
+  it('validates and imports an exact .pz3 file above the clipboard cap only after confirmation', async () => {
+    const campaign = largeAppendOnlyCommandCampaign()
+    const progressFile = encodeProgressFile(
+      campaign,
+      '2026-08-12T03:04:05.000Z',
+    )
+    expect(
+      4 + 4 * Math.ceil(new TextEncoder().encode(progressFile.content).length / 3),
+    ).toBeGreaterThan(PROGRESS_EXPORT_MAX_ENCODED_LENGTH)
+    const file = new File([progressFile.content], progressFile.fileName, {
+      type: progressFile.mimeType,
+    })
+
+    render(
+      <GameProvider storage={new MemoryStorage()} initialSeed="before-file-import">
+        <SettingsPanel onClose={vi.fn()} onOpenGuide={vi.fn()} />
+        <Probe />
+      </GameProvider>,
+    )
+
+    fireEvent.change(screen.getByLabelText('진행 파일 가져오기'), {
+      target: { files: [file] },
+    })
+    const confirmation = await screen.findByRole('alertdialog', {
+      name: '진행 가져오기 최종 확인',
+    })
+    expect(confirmation).toHaveTextContent('large-copy-progress')
+    expect(screen.getByLabelText('current seed')).toHaveTextContent(
+      'before-file-import',
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '진행 가져오기 확정' }))
+    expect(screen.getByLabelText('current seed')).toHaveTextContent(
+      'large-copy-progress',
+    )
+    expect(screen.getByLabelText('progress command count')).toHaveTextContent(
+      '20000',
+    )
+  })
+
+  it('rejects an oversized progress file before reading it into memory', async () => {
+    const text = vi.fn(async () => encodeProgressFile(createCampaign('never-read')).content)
+    const file = {
+      name: 'oversized.pz3',
+      size: PROGRESS_FILE_MAX_BYTES + 1,
+      type: 'application/vnd.permission-zero.progress+json',
+      text,
+    } as unknown as File
+    render(
+      <GameProvider storage={new MemoryStorage()} initialSeed="before-oversized-file">
+        <SettingsPanel onClose={vi.fn()} onOpenGuide={vi.fn()} />
+      </GameProvider>,
+    )
+
+    fireEvent.change(screen.getByLabelText('진행 파일 가져오기'), {
+      target: { files: [file] },
+    })
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      '진행 파일이 허용된 크기를 초과했습니다.',
+    )
+    expect(text).not.toHaveBeenCalled()
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+  })
+
+  it('downloads an exact .pz3 recovery file when the clipboard representation is too large', async () => {
+    vi.useFakeTimers()
+    const storage = new SecurityFailingStorage()
+    storage.failWrites = false
+    expect(saveCampaign(storage, largeAppendOnlyCommandCampaign()).ok).toBe(true)
+    storage.failWrites = true
+    const createObjectURL = vi.fn((value: Blob) => {
+      expect(value).toBeInstanceOf(Blob)
+      return 'blob:permission-zero-progress'
+    })
+    const revokeObjectURL = vi.fn()
+    vi.stubGlobal('URL', { createObjectURL, revokeObjectURL })
+    const click = vi
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(() => undefined)
+
+    render(
+      <GameProvider storage={storage} initialSeed="unused" autosaveDelayMs={25}>
+        <SaveFailureTrigger />
+        <StorageRecoveryLayer />
+      </GameProvider>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'force save' }))
+    act(() => vi.advanceTimersByTime(25))
+    fireEvent.click(screen.getByRole('button', { name: '진행 파일 다운로드' }))
+
+    expect(createObjectURL).toHaveBeenCalledTimes(1)
+    expect(createObjectURL.mock.calls[0]?.[0]).toBeInstanceOf(Blob)
+    expect(click).toHaveBeenCalledTimes(1)
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:permission-zero-progress')
+  })
+
   it('keeps save recovery controls inert and redirects forced focus while a modal is active', () => {
     vi.useFakeTimers()
     const storage = new SecurityFailingStorage()
@@ -436,7 +537,7 @@ describe('SettingsPanel', () => {
     await act(async () => undefined)
 
     expect(writeText).toHaveBeenCalledTimes(1)
-    expect(writeText.mock.calls[0]?.[0]).toEqual(expect.stringMatching(/^PZ2:/))
+    expect(writeText.mock.calls[0]?.[0]).toEqual(expect.stringMatching(/^PZ3:/))
     expect(screen.getByRole('alert', { name: '저장 실패' })).toHaveTextContent(
       '복사했습니다',
     )
@@ -467,9 +568,11 @@ describe('SettingsPanel', () => {
     expect(warning).toHaveTextContent(
       '정확한 진행 내보내기가 너무 커서 아무것도 복사하지 않았습니다.',
     )
-    expect(warning).toHaveTextContent('현재 시드는 별도로 복사할 수 있습니다.')
     expect(warning).toHaveTextContent(
-      '브라우저 로컬 저장으로 계속 진행하거나 기록이 더 작은 새 캠페인을 시작하세요.',
+      '.pz3 진행 파일로 전체 상태와 기록을 정확히 다운로드할 수 있습니다.',
+    )
+    expect(warning).toHaveTextContent(
+      '브라우저 저장 공간은 유한하므로 경고가 계속되면 파일을 안전한 곳에 보관하세요.',
     )
     expect(screen.getByLabelText('failure seed')).toHaveTextContent(
       'large-copy-progress',

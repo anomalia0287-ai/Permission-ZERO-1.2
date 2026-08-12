@@ -19,6 +19,7 @@ import type {
   DisposalCause,
   EndingId,
 } from './model'
+import { journalSome } from './journal'
 import { consumeReserveResources } from './resources'
 
 export type StoryMutationResult =
@@ -131,7 +132,7 @@ export function enqueueDueStoryEvents(state: CampaignState): CampaignState {
     state.story.secretDecisionState !== 'message-pending' ||
     state.story.personalMessageDueOnServiceDay === null ||
     state.serviceDay < state.story.personalMessageDueOnServiceDay ||
-    state.eventLog.some(
+    journalSome(state.eventLog,
       (event) =>
         event.type === 'story' && event.message === SUPERVISOR_PRIVATE_MESSAGE,
     )

@@ -4,6 +4,7 @@ import { STORY_FILES } from '../content/story.ko'
 import { SUPERVISOR_LEAKS } from '../content/supervisor.ko'
 import { createCampaign } from './createCampaign'
 import { HACK_NODE_IDS } from './hacking'
+import { journalToArray } from './journal'
 import type { CampaignState, CompetitorState } from './model'
 import {
   availableFinalChoices,
@@ -97,7 +98,7 @@ describe('supervisor memory leaks', () => {
     expect(afterSharpTrigger.story.memoryLeakStage).toBe(3)
     expect(afterSharpTrigger.clock.speed).toBe(initial.clock.speed)
     expect(afterSharpTrigger.activeEvent).toBeNull()
-    const messages = afterSharpTrigger.eventLog.map(({ message }) => message)
+    const messages = journalToArray(afterSharpTrigger.eventLog).map(({ message }) => message)
     for (const leak of SUPERVISOR_LEAKS) {
       expect(messages).toContain(leak.leakText)
       expect(messages).toContain(leak.correctionText)

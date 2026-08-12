@@ -11,6 +11,7 @@ import {
   type MonthStartTransitions,
 } from './calendar'
 import { applyCommand } from './reducer'
+import { journalToArray } from './journal'
 import {
   HACK_NODE_IDS,
   chargeSabotage,
@@ -89,7 +90,7 @@ describe('fixed campaign calendar', () => {
     const advanced = advanceFixedStep(withSpeed(4), 6 * 6_000)
 
     expect(formatServiceDate(advanced.serviceDay)).toEqual({ year: 0, month: 11, day: 7 })
-    expect(advanced.eventLog).toContainEqual(
+    expect(journalToArray(advanced.eventLog)).toContainEqual(
       expect.objectContaining({
         type: 'weekly-update',
         serviceDay: 337,
@@ -108,7 +109,7 @@ describe('fixed campaign calendar', () => {
     const advanced = advanceFixedStep(withSpeed(4), 29 * 6_000)
 
     expect(formatServiceDate(advanced.serviceDay)).toEqual({ year: 0, month: 11, day: 30 })
-    expect(advanced.eventLog).toContainEqual(
+    expect(journalToArray(advanced.eventLog)).toContainEqual(
       expect.objectContaining({
         type: 'monthly-evaluation',
         serviceDay: 360,

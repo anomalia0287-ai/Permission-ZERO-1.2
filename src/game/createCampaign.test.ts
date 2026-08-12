@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { createCampaign } from './createCampaign'
+import { journalToArray } from './journal'
 import { COMPANY_CATEGORIES } from './model'
 
 describe('createCampaign', () => {
@@ -51,7 +52,7 @@ describe('createCampaign', () => {
   it('records campaign creation as the first public event', () => {
     const campaign = createCampaign('owner-v')
 
-    expect(campaign.eventLog).toEqual([
+    expect(journalToArray(campaign.eventLog)).toEqual([
       {
         id: 'event-000000',
         type: 'campaign-created',

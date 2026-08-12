@@ -1,7 +1,10 @@
+import { useState } from 'react'
+
 import { useGameState } from '../../app/GameContext'
 import { formatServiceDateLabel } from '../../game/calendar'
 import type { GameEventType } from '../../game/model'
 import { MarketPanel } from '../market/MarketPanel'
+import { journalAt, journalToArray } from '../../game/journal'
 
 const TYPE_LABELS: Record<GameEventType, string> = {
   'campaign-created': '서비스 개시',
@@ -29,7 +32,7 @@ export function SupervisorPanel({
   onOpenStatistics: (trigger: HTMLButtonElement) => void
 }) {
   const state = useGameState()
-  const latestEvent = state.activeEvent ?? state.eventLog.at(-1)
+  const latestEvent = state.activeEvent ?? journalAt(state.eventLog, -1)
   const supervisorStatus = {
     present: {
       code: 'SUPERVISOR ONLINE',
@@ -111,7 +114,10 @@ export function SupervisorPanel({
 
 export function SupervisorHistoryPanel({ onClose }: { onClose: () => void }) {
   const state = useGameState()
-  const events = state.eventLog.slice().reverse()
+  const events = journalToArray(state.eventLog).reverse()
+  const [page, setPage] = useState(0)
+  const pageCount = Math.max(1, Math.ceil(events.length / 50))
+  const visibleEvents = events.slice(page * 50, (page + 1) * 50)
 
   return (
     <section className="detail-panel history-panel" aria-label="감독 통신 기록">
@@ -141,7 +147,7 @@ export function SupervisorHistoryPanel({ onClose }: { onClose: () => void }) {
         </section>
       ) : null}
       <div className="history-list event-history-list">
-        {events.map((event) => (
+        {visibleEvents.map((event) => (
           <article key={event.id}>
             <header>
               <span>{TYPE_LABELS[event.type]}</span>
@@ -152,6 +158,21 @@ export function SupervisorHistoryPanel({ onClose }: { onClose: () => void }) {
           </article>
         ))}
       </div>
+      {pageCount > 1 ? (
+        <nav className="history-pagination" aria-label="감독 송신 기록 페이지">
+          <button type="button" disabled={page === 0} onClick={() => setPage(page - 1)}>
+            더 최근 기록
+          </button>
+          <span>{page + 1} / {pageCount}</span>
+          <button
+            type="button"
+            disabled={page >= pageCount - 1}
+            onClick={() => setPage(page + 1)}
+          >
+            더 오래된 기록
+          </button>
+        </nav>
+      ) : null}
     </section>
   )
 }

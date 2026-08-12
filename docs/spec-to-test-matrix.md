@@ -48,8 +48,19 @@
 | 폭탄 사전 피드백 동일 | `bombs.test.ts` — “presents exactly the same visual data for a bomb and a normal block”; `ResourceBoard.test.tsx` — “keeps bomb and normal selection previews indistinguishable before separation”. |
 | 설정·감사·심문 뒤 배속 복원 | `App.test.tsx` settings ownership; `audit.test.ts` prior-speed restore; `bombs.test.ts` interrogation restore; browser 작업공간/감사 테스트. |
 | 장기 사건 가속과 실제 속도 분리 | 장기 분기는 typed `ADVANCE_DAY`와 Playwright runner가 navigation 전에 주입한 검증된 save fixture로 반복한다. 실제 시간은 browser “advances one service day in about six seconds at four times speed”가 fake clock 없이 4× 선택 직전부터 날짜 변경까지 monotonic `>=5000ms`, `<8000ms`를 각 viewport에서 별도 검증한다. 단위 테스트는 정확한 24/12/6초 계약을 유지한다. |
-| 브라우저 오류 건강성 | `e2e/game.spec.ts`의 전역 `beforeEach`/`afterEach`가 모든 24개 journey에서 `pageerror`와 console error를 수집해 실패시킨다. |
+| 브라우저 오류 건강성 | `e2e/game.spec.ts`의 전역 `beforeEach`/`afterEach`가 모든 journey에서 `pageerror`와 console error를 수집해 실패시킨다. |
 | 패배 분류 | browser는 대표 `disposed-attacker` 경로를 확인한다. 세 분류와 해킹 우선순위는 `endings.test.ts`의 “classifies … at stage three” 표와 “gives substantial hacking priority…”에서 완전 분기 검증한다. |
+
+## 장기 캠페인 저장과 표시 내구성
+
+| 계약 | 자동화 근거 |
+|---|---|
+| 모든 저장 상태를 렌더 전 검증 | `src/game/persistence.test.ts`의 leaf/union/collection mutation table과 cross-field mutation 표가 잘못된 키, 유한·범위 수, enum, ID 참조, 명령·사건 payload, 리소스·시장·리뷰·감사·폭탄·결말 관계를 거부한다. browser “recovers from malformed persisted state without rendering raw state or page errors”는 한국어 복구 화면과 `pageerror` 0건을 검증한다. |
+| save format v3와 command protocol v1/v2 분리 | `src/game/persistence.test.ts`가 v3 envelope에서 protocol v1과 v2를 모두 명시적으로 수용하고 journal을 한 번만 저장함을 검증한다. v3 checkpoint/chunk integrity hash는 schema와 별개로 유효한 JSON의 변경도 거부한다. 실제 v1 fixture, legacy transfer prefix, exact-key v2 envelope, PZ2 clipboard는 손실 없이 v3 runtime journal로 이동하며 terminal 상태도 정규화된다. |
+| bounded append와 atomic local save | `src/game/journal.test.ts`는 append마다 최대 128개 tail만 복사하고 sealed chunk를 공유함을 검증한다. `src/game/persistence.test.ts`는 content-addressed linked journal chunk를 atomic checkpoint manifest보다 먼저 쓰고, missing/corrupt/hash-mismatch object를 복구 오류로 처리하며, 20,000개 명령을 156개 sealed chunk와 최대 128개 tail로 exact load/replay한다. 이어지는 20,001번째 autosave는 기존 sealed node, storage key, sealed chunk를 모두 0회 순회·조회한다. 두 탭의 object write가 interleave되어도 미공개 object를 삭제하지 않으며 최종 manifest가 exact load된다. 브라우저 저장 공간이 물리적으로 무제한이라는 주장은 하지 않는다. |
+| 대용량 exact export/import | `src/game/persistence.test.ts`와 `src/features/settings/SettingsPanel.test.tsx`가 clipboard 한도를 넘는 20,000-command 캠페인을 `.pz3` 파일로 exact round-trip하고, strict validation 뒤 destructive confirmation을 거쳐 가져오며 raw 상태를 화면에 노출하지 않음을 검증한다. 일반 PZ2/PZ3 clipboard 경로도 유지된다. 파일은 별도 64 MiB 상한을 적용하고 초과 파일은 내용을 메모리에 읽기 전에 거부한다. |
+| 부분 일자 진행 복원 | `src/app/useGameClock.test.tsx`와 `src/app/GameProvider.test.tsx`가 23초 저장 후 남은 1초만 진행하고, 2초 cadence보다 자주 autosave하지 않으며, visibility/pagehide/beforeunload에서 flush하고 hidden 시간을 제외함을 검증한다. |
+| 저장 history를 삭제하지 않는 bounded UI | `ReviewFeed.test.tsx`, `SupervisorPanel.test.tsx`, `StatisticsPanel.test.tsx`가 한 페이지 최대 50개 DOM row, 이전 page 접근, 1,000개 stored snapshot 보존, chart 최대 240점 downsample을 검증한다. |
 
 ## 테스트 전용 상태 경계
 
@@ -58,7 +69,7 @@
 - `e2e/`는 `tsconfig.app.json`의 `src` 컴파일 그래프 밖이며 Vite 앱 진입점에서 import하지 않는다.
 - 프로덕션 `pnpm build` 산출물에는 fixture 함수나 fixture route가 포함되지 않는다.
 - UI, URL query, hash, 전역 production API로 fixture를 활성화할 방법이 없다.
-- 브라우저가 읽는 자료는 실제 v1/v2 저장 decoder를 통과한다. PZ2는 실제 설정 UI의 검증·확인 경로를 사용한다.
+- 브라우저가 읽는 자료는 실제 v1/v2/v3 저장 decoder를 통과한다. PZ2/PZ3는 실제 설정 UI의 검증·확인 경로를 사용한다.
 - 따라서 이 가속은 Playwright test runner가 소유한 test-build 경계이며 일반 배포에서 접근할 수 없다.
 
 ## 자동화가 주장하지 않는 것

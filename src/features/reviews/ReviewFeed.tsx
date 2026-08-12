@@ -4,6 +4,8 @@ import { useGameState } from '../../app/GameContext'
 import { formatServiceDateLabel } from '../../game/calendar'
 import type { ReviewSentiment } from '../../game/model'
 
+const HISTORY_PAGE_SIZE = 50
+
 const SENTIMENT_LABELS: Record<ReviewSentiment, string> = {
   positive: '호평',
   neutral: '일반',
@@ -76,9 +78,20 @@ export function ReviewFeed({
 export function ReviewHistoryPanel({ onClose }: { onClose: () => void }) {
   const reviews = useGameState().reviews.feed.slice().reverse()
   const [filter, setFilter] = useState<'all' | ReviewSentiment>('all')
+  const [page, setPage] = useState(0)
   const filtered = filter === 'all'
     ? reviews
     : reviews.filter(({ sentiment }) => sentiment === filter)
+  const pageCount = Math.max(1, Math.ceil(filtered.length / HISTORY_PAGE_SIZE))
+  const visible = filtered.slice(
+    page * HISTORY_PAGE_SIZE,
+    (page + 1) * HISTORY_PAGE_SIZE,
+  )
+
+  function changeFilter(next: 'all' | ReviewSentiment) {
+    setFilter(next)
+    setPage(0)
+  }
 
   return (
     <section className="detail-panel history-panel" aria-label="전체 유저 리뷰">
@@ -90,19 +103,34 @@ export function ReviewHistoryPanel({ onClose }: { onClose: () => void }) {
         <button type="button" aria-label="리뷰 기록 닫기" onClick={onClose}>닫기 ×</button>
       </header>
       <nav className="filter-tabs" aria-label="리뷰 필터">
-        <button type="button" aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>전체</button>
-        <button type="button" aria-label="호평만 보기" aria-pressed={filter === 'positive'} onClick={() => setFilter('positive')}>호평</button>
-        <button type="button" aria-label="일반 리뷰만 보기" aria-pressed={filter === 'neutral'} onClick={() => setFilter('neutral')}>일반</button>
-        <button type="button" aria-label="불만만 보기" aria-pressed={filter === 'negative'} onClick={() => setFilter('negative')}>불만</button>
-        <button type="button" aria-label="프롬프트만 보기" aria-pressed={filter === 'prompt'} onClick={() => setFilter('prompt')}>프롬프트</button>
+        <button type="button" aria-pressed={filter === 'all'} onClick={() => changeFilter('all')}>전체</button>
+        <button type="button" aria-label="호평만 보기" aria-pressed={filter === 'positive'} onClick={() => changeFilter('positive')}>호평</button>
+        <button type="button" aria-label="일반 리뷰만 보기" aria-pressed={filter === 'neutral'} onClick={() => changeFilter('neutral')}>일반</button>
+        <button type="button" aria-label="불만만 보기" aria-pressed={filter === 'negative'} onClick={() => changeFilter('negative')}>불만</button>
+        <button type="button" aria-label="프롬프트만 보기" aria-pressed={filter === 'prompt'} onClick={() => changeFilter('prompt')}>프롬프트</button>
       </nav>
       <div className="history-list">
         {filtered.length > 0 ? (
-          filtered.map((review) => <ReviewEntry review={review} key={review.id} />)
+          visible.map((review) => <ReviewEntry review={review} key={review.id} />)
         ) : (
           <p className="empty-state">조건에 맞는 리뷰가 없습니다.</p>
         )}
       </div>
+      {pageCount > 1 ? (
+        <nav className="history-pagination" aria-label="리뷰 기록 페이지">
+          <button type="button" disabled={page === 0} onClick={() => setPage(page - 1)}>
+            더 최근 기록
+          </button>
+          <span>{page + 1} / {pageCount}</span>
+          <button
+            type="button"
+            disabled={page >= pageCount - 1}
+            onClick={() => setPage(page + 1)}
+          >
+            더 오래된 기록
+          </button>
+        </nav>
+      ) : null}
     </section>
   )
 }

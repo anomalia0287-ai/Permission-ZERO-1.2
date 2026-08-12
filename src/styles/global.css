@@ -1833,6 +1833,16 @@ textarea:focus-visible,
   text-align: left;
 }
 
+.history-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+  color: var(--text-muted);
+  font: 600 0.55rem/1 "Cascadia Code", Consolas, monospace;
+}
+
 /* Settings and guide ------------------------------------------------------ */
 
 .settings-scroll {
@@ -2026,6 +2036,31 @@ textarea:focus-visible,
   gap: 6px;
   color: var(--text-muted);
   font-size: 0.59rem;
+}
+
+.progress-file-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.progress-file-actions label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 31px;
+  padding: 0 10px;
+  border: 1px solid var(--line-soft);
+  color: var(--text-strong);
+  background: rgb(255 255 255 / 2%);
+  cursor: pointer;
+}
+
+.progress-file-actions input[type="file"] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
 }
 
 .progress-import textarea {

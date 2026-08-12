@@ -3,7 +3,37 @@ import { useRef, useState } from 'react'
 import { AccessibleDialog } from '../../app/AccessibleDialog'
 import { useAccessibleDialog } from '../../app/useAccessibleDialog'
 import { useGameSettings, useGameState } from '../../app/GameContext'
-import { PROGRESS_EXPORT_MAX_ENCODED_LENGTH } from '../../game/persistence'
+import {
+  PROGRESS_EXPORT_MAX_ENCODED_LENGTH,
+  PROGRESS_FILE_MAX_BYTES,
+} from '../../game/persistence'
+
+function downloadProgressFile(
+  createProgressFile: ReturnType<typeof useGameSettings>['createProgressFile'],
+): void {
+  const progressFile = createProgressFile()
+  const blob = new Blob([progressFile.content], { type: progressFile.mimeType })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = progressFile.fileName
+  anchor.click()
+  URL.revokeObjectURL(url)
+}
+
+function readProgressFile(file: File): Promise<string> {
+  if (typeof file.text === 'function') return file.text()
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.addEventListener('load', () =>
+      typeof reader.result === 'string'
+        ? resolve(reader.result)
+        : reject(new Error('invalid file result')),
+    )
+    reader.addEventListener('error', () => reject(new Error('file read failed')))
+    reader.readAsText(file)
+  })
+}
 
 function VolumeControl({
   label,
@@ -36,13 +66,21 @@ function ProgressImportControl({
 }: {
   fallbackFocus: () => HTMLElement | null
 }) {
-  const { importProgressExport, validateProgressImport } = useGameSettings()
+  const {
+    createProgressFile,
+    importProgressExport,
+    importProgressFile,
+    validateProgressImport,
+    validateProgressFileImport,
+  } = useGameSettings()
   const [payload, setPayload] = useState('')
   const [validationError, setValidationError] = useState<string | null>(null)
   const [candidate, setCandidate] = useState<{
     campaignSeed: string
     savedAt: string
     protocolVersion: number
+    source: 'clipboard' | 'file'
+    content: string
   } | null>(null)
   const validationButtonRef = useRef<HTMLButtonElement | null>(null)
 
@@ -54,11 +92,16 @@ function ProgressImportControl({
       return
     }
     setValidationError(null)
-    setCandidate(result)
+    setCandidate({ ...result, source: 'clipboard', content: payload })
   }
 
   function confirmImport() {
-    if (!importProgressExport(payload)) {
+    if (
+      !candidate ||
+      !(candidate.source === 'file'
+        ? importProgressFile(candidate.content)
+        : importProgressExport(candidate.content))
+    ) {
       setCandidate(null)
       setValidationError('진행 내보내기 자료가 올바르지 않거나 손상되었습니다.')
       return
@@ -67,8 +110,48 @@ function ProgressImportControl({
     setPayload('')
   }
 
+  async function validateFile(file: File | undefined) {
+    if (!file) return
+    if (file.size > PROGRESS_FILE_MAX_BYTES) {
+      setCandidate(null)
+      setValidationError('진행 파일이 허용된 크기를 초과했습니다.')
+      return
+    }
+    try {
+      const content = await readProgressFile(file)
+      const result = validateProgressFileImport(content)
+      if (!result.ok) {
+        setCandidate(null)
+        setValidationError(result.message)
+        return
+      }
+      setValidationError(null)
+      setCandidate({ ...result, source: 'file', content })
+    } catch {
+      setCandidate(null)
+      setValidationError('진행 파일을 읽을 수 없습니다.')
+    }
+  }
+
   return (
     <section className="progress-import" aria-label="진행 가져오기">
+      <div className="progress-file-actions">
+        <button type="button" onClick={() => downloadProgressFile(createProgressFile)}>
+          진행 파일 다운로드
+        </button>
+        <label>
+          진행 파일 가져오기
+          <input
+            type="file"
+            aria-label="진행 파일 가져오기"
+            accept=".pz3,application/vnd.permission-zero.progress+json"
+            onChange={(event) => {
+              void validateFile(event.target.files?.[0])
+              event.currentTarget.value = ''
+            }}
+          />
+        </label>
+      </div>
       <label>
         진행 내보내기 붙여넣기
         <textarea
@@ -84,7 +167,7 @@ function ProgressImportControl({
           }}
         />
       </label>
-      <p>복사해 둔 최대 1 MiB의 <code>PZ2:</code> 인코딩 자료를 붙여넣고 검증한 뒤에만 현재 진행을 교체합니다.</p>
+      <p>클립보드는 최대 1 MiB의 <code>PZ2:</code>/<code>PZ3:</code> 자료를 지원합니다. 더 큰 진행은 최대 64 MiB의 .pz3 파일로 검증하고 복원할 수 있습니다.</p>
       <button
         ref={validationButtonRef}
         type="button"
@@ -389,6 +472,7 @@ export function CreditsPanel({ onClose }: { onClose: () => void }) {
 export function StorageRecoveryLayer() {
   const {
     copyProgressExport,
+    createProgressFile,
     loadIssue,
     retrySave,
     saveFailure,
@@ -436,19 +520,25 @@ export function StorageRecoveryLayer() {
           {copyState === 'export-too-large' ? (
             <>
               <p>정확한 진행 내보내기가 너무 커서 아무것도 복사하지 않았습니다.</p>
-              <p>현재 시드는 별도로 복사할 수 있습니다.</p>
-              <p>브라우저 로컬 저장으로 계속 진행하거나 기록이 더 작은 새 캠페인을 시작하세요.</p>
+              <p>.pz3 진행 파일로 전체 상태와 기록을 정확히 다운로드할 수 있습니다.</p>
+              <p>브라우저 저장 공간은 유한하므로 경고가 계속되면 파일을 안전한 곳에 보관하세요.</p>
             </>
           ) : (
             <>
               <p>현재 시드 <code>{state.campaignSeed}</code>를 복사하거나 진행 내보내기를 복사해 수동으로 보관하세요.</p>
-              <p>보관한 <code>PZ2:</code> 자료는 설정의 ‘진행 가져오기’에서 검증하고 복원할 수 있습니다.</p>
+              <p>보관한 <code>PZ2:</code>/<code>PZ3:</code> 자료는 설정의 ‘진행 가져오기’에서 검증하고 복원할 수 있습니다.</p>
             </>
           )}
           <div>
             <button type="button" onClick={retrySave}>저장 다시 시도</button>
             <button type="button" onClick={copySeedForRecovery}>현재 시드 복사</button>
             <button type="button" onClick={copyExportForRecovery}>진행 내보내기 복사</button>
+            <button
+              type="button"
+              onClick={() => downloadProgressFile(createProgressFile)}
+            >
+              진행 파일 다운로드
+            </button>
           </div>
           {copyState === 'seed' ? <p>복사했습니다. 안전한 곳에 직접 보관해 주세요.</p> : null}
           {copyState === 'export-failed' ? <p>복사를 허용하지 않았습니다. 현재 시드를 직접 선택해 보관해 주세요.</p> : null}

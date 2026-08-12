@@ -11,6 +11,7 @@ import {
   type ResourceBlock,
 } from './model'
 import { random01 } from './rng'
+import { createJournal } from './journal'
 
 interface CategoryResources {
   cells: Array<BlockId | null>
@@ -225,8 +226,8 @@ export function createCampaign(seed: string): CampaignState {
     },
     activeEvent: null,
     eventQueue: [],
-    commandLog: [],
-    eventLog: [
+    commandLog: createJournal(),
+    eventLog: createJournal([
       {
         id: 'event-000000',
         type: 'campaign-created',
@@ -234,7 +235,7 @@ export function createCampaign(seed: string): CampaignState {
         sequence: 0,
         message: SUPERVISOR_OPENING_WARNING.text,
       },
-    ],
+    ]),
   }
 
   return scheduleMonthlyAudit(campaign)

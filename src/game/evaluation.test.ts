@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { createCampaign } from './createCampaign'
 import { evaluateMonth, expectedPerformance } from './evaluation'
+import { journalAt } from './journal'
 import type { CampaignState, CompanyCategory } from './model'
 import { divertBlock } from './resources'
 
@@ -169,6 +170,6 @@ describe('monthly company evaluation', () => {
       trigger: { cause: 'consecutive-performance-failures', disposalStage: 3 },
       service: { passedEvaluations: 0, failedEvaluations: 1 },
     })
-    expect(evaluated.eventLog.at(-1)).toMatchObject({ type: 'ending' })
+    expect(journalAt(evaluated.eventLog, -1)).toMatchObject({ type: 'ending' })
   })
 })

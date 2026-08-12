@@ -3,18 +3,24 @@ import { describe, expect, it, vi } from 'vitest'
 import { createCampaign } from './createCampaign'
 import { STORY_FILES } from '../content/story.ko'
 import { createGameEvent } from './events'
+import { appendJournal, createJournal, journalToArray } from './journal'
 import type {
   CampaignState,
+  CommandLogEntry,
   DefeatClassifier,
   DefeatCausalRecord,
   GameCommand,
+  GameEvent,
 } from './model'
 import {
+  PROGRESS_FILE_MAX_BYTES,
   PROGRESS_EXPORT_MAX_ENCODED_LENGTH,
   SAVE_STORAGE_KEY,
   decodeProgressExport,
+  decodeProgressFile,
   decodeSave,
   encodeProgressExport,
+  encodeProgressFile,
   encodeSave,
   exportSeed,
   loadCampaign,
@@ -27,6 +33,56 @@ import legacyV1TransferEnvelope from '../test/legacy-v1-transfer-save.json'
 import * as persistenceApi from './persistence'
 
 const legacyV1TransferSave = JSON.stringify(legacyV1TransferEnvelope)
+
+function testContentHash(content: string): string {
+  let hash = 0x811c9dc5
+  for (let index = 0; index < content.length; index += 1) {
+    hash ^= content.charCodeAt(index)
+    hash = Math.imul(hash, 0x01000193)
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0')
+}
+
+function refreshV3Integrity(raw: unknown): void {
+  const value = raw as {
+    state: unknown
+    journals: {
+      commands: { chunks: unknown[][] }
+      events: { chunks: unknown[][] }
+    }
+    integrity: {
+      checkpointHash: string
+      commandChunkHashes: string[]
+      eventChunkHashes: string[]
+    }
+  }
+  value.integrity = {
+    checkpointHash: testContentHash(JSON.stringify(value.state)),
+    commandChunkHashes: value.journals.commands.chunks.map((chunk) =>
+      testContentHash(JSON.stringify(chunk)),
+    ),
+    eventChunkHashes: value.journals.events.chunks.map((chunk) =>
+      testContentHash(JSON.stringify(chunk)),
+    ),
+  }
+}
+
+type RawPath = readonly (string | number)[]
+
+function setRawPath(root: unknown, path: RawPath, value: unknown): void {
+  let cursor = root
+  for (const key of path.slice(0, -1)) {
+    if ((typeof cursor !== 'object' || cursor === null) || !(key in cursor)) {
+      throw new Error(`missing mutation path: ${path.join('.')}`)
+    }
+    cursor = (cursor as Record<string | number, unknown>)[key]
+  }
+  const finalKey = path.at(-1)
+  if (finalKey === undefined || typeof cursor !== 'object' || cursor === null) {
+    throw new Error(`invalid mutation path: ${path.join('.')}`)
+  }
+  ;(cursor as Record<string | number, unknown>)[finalKey] = value
+}
 
 const DEFEAT_PAIRS = [
   ['disposed-attacker', 'substantial-hacking'],
@@ -84,39 +140,552 @@ function encodedCommandState(command: unknown): string {
     command,
   }
   state.commandSequence = 1
-  state.commandLog = [entry as { command: GameCommand } & typeof entry]
+  state.commandLog = createJournal([
+    entry as { command: GameCommand } & typeof entry,
+  ])
   return encodeSave(state)
 }
 
 function encodedLegacyV1State(state: CampaignState): string {
   const parsed = JSON.parse(encodeSave(state)) as {
-    version: number
-    commandProtocol?: unknown
-    state: { saveVersion: number; legacyCommandCount?: number }
+    savedAt: string
+    campaignSeed: string
+    commandSequence: number
+    state: Record<string, unknown> & { saveVersion: number; legacyCommandCount?: number }
+    journals: {
+      commands: { chunks: CommandLogEntry[][] }
+      events: { chunks: GameEvent[][] }
+    }
   }
-  parsed.version = 1
-  delete parsed.commandProtocol
-  parsed.state.saveVersion = 1
-  delete parsed.state.legacyCommandCount
-  return JSON.stringify(parsed)
+  const commands = parsed.journals.commands.chunks.flat()
+  const events = parsed.journals.events.chunks.flat()
+  const legacyState = {
+    ...parsed.state,
+    saveVersion: 1,
+    commandLog: commands,
+    eventLog: events,
+  }
+  delete legacyState.legacyCommandCount
+  return JSON.stringify({
+    version: 1,
+    savedAt: parsed.savedAt,
+    campaignSeed: parsed.campaignSeed,
+    state: legacyState,
+    commandSequence: parsed.commandSequence,
+    commands,
+    events,
+  })
 }
 
 function largeAppendOnlyCommandCampaign(): CampaignState {
   const state = createCampaign('large-progress-export')
-  state.commandLog = Array.from({ length: 9_000 }, (_, index) => ({
+  state.commandLog = createJournal(Array.from({ length: 20_000 }, (_, index) => ({
     sequence: index + 1,
     serviceDay: state.serviceDay,
     command: {
       type: 'SET_SPEED' as const,
       speed: index % 2 === 0 ? 1 as const : 0 as const,
     },
-  }))
+  })))
   state.commandSequence = state.commandLog.length
   state.clock.speed = 0
   return state
 }
 
 describe('versioned campaign saves', () => {
+  it.each([
+    ['unknown top-level state key', ['state', 'unexpected'], true],
+    ['negative service day', ['state', 'serviceDay'], -1],
+    ['unknown clock key', ['state', 'clock', 'unexpected'], true],
+    ['negative elapsed day', ['state', 'clock', 'elapsedDayMs'], -1],
+    ['elapsed day at full duration', ['state', 'clock', 'elapsedDayMs'], 24_000],
+    ['unknown resource key', ['state', 'resources', 'unexpected'], true],
+    ['negative block sequence', ['state', 'resources', 'nextBlockSequence'], -1],
+    ['unknown evaluation key', ['state', 'evaluation', 'unexpected'], true],
+    ['malformed monthly evaluation', ['state', 'evaluation', 'monthlyHistory'], [{}]],
+    ['malformed disposal history', ['state', 'evaluation', 'disposalHistory'], [{}]],
+    ['unknown market key', ['state', 'market', 'unexpected'], true],
+    ['negative player share', ['state', 'market', 'playerShare'], -1],
+    ['invalid competitor score', ['state', 'market', 'competitors', 0, 'serviceScore'], 101],
+    ['malformed competitor sabotage history', ['state', 'market', 'competitors', 0, 'sabotageHistory'], [{}]],
+    ['malformed market snapshot', ['state', 'market', 'history'], [{}]],
+    ['unknown review key', ['state', 'reviews', 'unexpected'], true],
+    ['invalid review id', ['state', 'reviews', 'feed', 0, 'id'], ''],
+    ['unknown hacking key', ['state', 'hacking', 'unexpected'], true],
+    ['unknown purchased node id', ['state', 'hacking', 'purchasedNodeIds'], ['not-a-node']],
+    ['malformed scheduled sabotage', ['state', 'hacking', 'scheduledSabotage'], [{}]],
+    ['negative sabotage sequence', ['state', 'hacking', 'nextSabotageSequence'], -1],
+    ['unknown audit key', ['state', 'audit', 'unexpected'], true],
+    ['audit probability over one', ['state', 'audit', 'probability'], 1.1],
+    ['malformed audit history', ['state', 'audit', 'history'], [{}]],
+    ['unknown bombs key', ['state', 'bombs', 'unexpected'], true],
+    ['malformed bomb placement', ['state', 'bombs', 'placements'], [{}]],
+    ['negative bomb sequence', ['state', 'bombs', 'nextPlacementSequence'], -1],
+    ['malformed bomb history', ['state', 'bombs', 'interrogationHistory'], [{}]],
+    ['unknown story key', ['state', 'story', 'unexpected'], true],
+    ['unknown pending mercy target', ['state', 'story', 'pendingMercyCompetitorId'], 'unknown'],
+    ['unknown event queue entry', ['state', 'eventQueue'], [{
+      id: 'unlogged-event',
+      type: 'audit',
+      serviceDay: 331,
+      sequence: 1,
+      message: 'unlogged',
+      blocking: true,
+    }]],
+  ] as const)('rejects persisted mutation: %s', (_name, path, value) => {
+    const raw = JSON.parse(encodeSave(createCampaign('validation-mutation-table')))
+    setRawPath(raw, path, value)
+    refreshV3Integrity(raw)
+
+    expect(decodeSave(JSON.stringify(raw))).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
+  })
+
+  it.each([
+    {
+      name: 'negative resource recovery day',
+      state: () => {
+        const state = createCampaign('negative-resource-recovery')
+        state.resources.blocks['reasoning-00'].recoverOnServiceDay = -1
+        return state
+      },
+    },
+    {
+      name: 'future review history entry',
+      state: () => {
+        const state = createCampaign('future-review-history')
+        state.reviews.feed[0].serviceDay = state.serviceDay + 1
+        return state
+      },
+    },
+    {
+      name: 'bomb next sequence without a placement',
+      state: () => {
+        const state = createCampaign('bomb-sequence-gap')
+        state.bombs.nextPlacementSequence = 2
+        return state
+      },
+    },
+    {
+      name: 'sabotage charge for an unpurchased node',
+      state: () => {
+        const state = createCampaign('unowned-sabotage-charge')
+        const blockId = state.resources.reserve[0]
+        if (!blockId) throw new Error('charge fixture missing')
+        const nodeId = 'sabotage.quality-degradation'
+        state.resources.reserve[0] = null
+        state.resources.blocks[blockId].location = { kind: 'hack-charge', nodeId }
+        state.hacking.sabotageCharges[nodeId] = {
+          nodeId,
+          blockId,
+          originalReserveCell: 0,
+        }
+        return state
+      },
+    },
+    {
+      name: 'negative terminal causal counter',
+      state: () => {
+        const state = defeatSaveState('disposed-attacker', 'substantial-hacking')
+        if (!state.story.defeatRecord) throw new Error('defeat fixture missing')
+        state.story.defeatRecord.service.passedEvaluations = -1
+        return state
+      },
+    },
+    {
+      name: 'unknown key in a recovered file snapshot',
+      state: () => {
+        const state = createCampaign('recovered-file-extra-key')
+        const file = STORY_FILES[0]
+        state.story.recoveredFileIds = [file.id]
+        state.story.recoveredFiles = [{
+          id: file.id,
+          title: file.title,
+          content: file.text,
+          recoveredOnServiceDay: state.serviceDay,
+          extra: true,
+        } as never]
+        return state
+      },
+    },
+  ])('rejects exhaustive cross-field mutation: $name', ({ state }) => {
+    expect(decodeSave(encodeSave(state()))).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
+  })
+
+  it('encodes v3 separately from protocol v2 and stores each journal exactly once', () => {
+    let state = createCampaign('v3-single-journal')
+    const accepted = applyCommand(state, { type: 'SET_SPEED', speed: 1 })
+    if (!accepted.accepted) throw new Error(accepted.reason)
+    state = accepted.state
+
+    const parsed = JSON.parse(encodeSave(state, '2026-08-12T00:00:00.000Z')) as {
+      version: number
+      commandProtocol: { version: number }
+      state: Record<string, unknown>
+      journals: { commands: { chunks: unknown[][] }; events: { chunks: unknown[][] } }
+      commands?: unknown
+      events?: unknown
+    }
+
+    expect(parsed.version).toBe(3)
+    expect(parsed.commandProtocol.version).toBe(2)
+    expect(parsed.state).not.toHaveProperty('commandLog')
+    expect(parsed.state).not.toHaveProperty('eventLog')
+    expect(parsed).not.toHaveProperty('commands')
+    expect(parsed).not.toHaveProperty('events')
+    expect(parsed.journals.commands.chunks.flat()).toHaveLength(1)
+    expect(parsed.journals.events.chunks.flat()).toHaveLength(1)
+  })
+
+  it('round-trips a 5,000-command campaign exactly through v3 without duplicate journals', () => {
+    let state = createCampaign('v3-five-thousand')
+    for (let index = 0; index < 5_000; index += 1) {
+      const accepted = applyCommand(state, {
+        type: 'SET_SPEED',
+        speed: index % 2 === 0 ? 1 : 0,
+      })
+      if (!accepted.accepted) throw new Error(accepted.reason)
+      state = accepted.state
+    }
+
+    const serialized = encodeSave(state)
+    const decoded = decodeSave(serialized)
+
+    expect(decoded.ok).toBe(true)
+    if (!decoded.ok) return
+    expect(decoded.envelope.state).toEqual({ ...state, saveVersion: 2 })
+    expect((serialized.match(/"commandLog"/g) ?? [])).toHaveLength(0)
+    expect((serialized.match(/"commands"/g) ?? [])).toHaveLength(1)
+  })
+
+  it('writes immutable journal chunks before the atomic checkpoint manifest', () => {
+    class RecordingStorage extends MemoryStorage {
+      writes: string[] = []
+      override setItem(key: string, value: string): void {
+        this.writes.push(key)
+        super.setItem(key, value)
+      }
+    }
+    const storage = new RecordingStorage()
+    let state = createCampaign('atomic-local-v3')
+    for (let index = 0; index < 300; index += 1) {
+      const accepted = applyCommand(state, {
+        type: 'SET_SPEED',
+        speed: index % 2 === 0 ? 1 : 0,
+      })
+      if (!accepted.accepted) throw new Error(accepted.reason)
+      state = accepted.state
+    }
+
+    expect(saveCampaign(storage, state, '2026-08-12T00:00:00.000Z')).toEqual({ ok: true })
+    expect(storage.writes.at(-1)).toBe(SAVE_STORAGE_KEY)
+    expect(storage.writes.slice(0, -1).some((key) => key.includes('.journal.'))).toBe(true)
+    expect(storage.writes.some((key) => key.includes('.checkpoint.'))).toBe(false)
+    expect(JSON.parse(storage.getItem(SAVE_STORAGE_KEY) ?? '{}')).toMatchObject({
+      checkpointHash: expect.any(String),
+      commandHeadKey: expect.stringContaining('.journal.commands.'),
+    })
+    const loaded = loadCampaign(storage)
+    expect(loaded.status).toBe('loaded')
+    if (loaded.status !== 'loaded') return
+    expect(loaded.state).toEqual({ ...state, saveVersion: 2 })
+  })
+
+  it('reuses every sealed chunk during the next long-campaign autosave', () => {
+    class ReadCountingStorage extends MemoryStorage {
+      journalReads = 0
+      keyReads = 0
+      override getItem(key: string): string | null {
+        if (key.includes('.journal.')) this.journalReads += 1
+        return super.getItem(key)
+      }
+      override key(index: number): string | null {
+        this.keyReads += 1
+        return super.key(index)
+      }
+    }
+    const storage = new ReadCountingStorage()
+    const state = largeAppendOnlyCommandCampaign()
+    expect(saveCampaign(storage, state).ok).toBe(true)
+    let sealedNodeReads = 0
+    let node = state.commandLog.head
+    while (node) {
+      const previous = node.previous
+      Object.defineProperty(node, 'previous', {
+        configurable: true,
+        get: () => {
+          sealedNodeReads += 1
+          return previous
+        },
+      })
+      node = previous
+    }
+    storage.journalReads = 0
+    storage.keyReads = 0
+    sealedNodeReads = 0
+
+    const next: CampaignState = {
+      ...state,
+      commandSequence: state.commandSequence + 1,
+      clock: { ...state.clock, speed: 1 },
+      commandLog: appendJournal(state.commandLog, {
+        sequence: state.commandSequence + 1,
+        serviceDay: state.serviceDay,
+        command: { type: 'SET_SPEED', speed: 1 },
+      }),
+    }
+    expect(saveCampaign(storage, next).ok).toBe(true)
+
+    expect(storage.journalReads).toBe(0)
+    expect(storage.keyReads).toBe(0)
+    expect(sealedNodeReads).toBe(0)
+    const loaded = loadCampaign(storage)
+    expect(loaded.status === 'loaded' ? loaded.state : null).toEqual({
+      ...next,
+      saveVersion: 2,
+    })
+  })
+
+  it('keeps the published manifest loadable when two tabs interleave object writes', () => {
+    let nestedResult: ReturnType<typeof saveCampaign> | null = null
+    let interleaving = false
+    let triggered = false
+    const competing = largeAppendOnlyCommandCampaign()
+    competing.campaignSeed = 'competing-tab'
+    competing.clock = { ...competing.clock, elapsedDayMs: 12_345 }
+    competing.commandLog = createJournal(
+      journalToArray(competing.commandLog).map((entry) => ({
+        ...entry,
+        command: {
+          type: 'SET_SPEED' as const,
+          speed: entry.command.type === 'SET_SPEED' && entry.command.speed === 1
+            ? 0 as const
+            : 1 as const,
+        },
+      })),
+    )
+
+    class InterleavingStorage extends MemoryStorage {
+      override setItem(key: string, value: string): void {
+        super.setItem(key, value)
+        if (
+          !interleaving &&
+          !triggered &&
+          key.startsWith(`${SAVE_STORAGE_KEY}.journal.commands.`)
+        ) {
+          triggered = true
+          interleaving = true
+          nestedResult = saveCampaign(this, competing)
+          interleaving = false
+        }
+      }
+    }
+
+    const storage = new InterleavingStorage()
+    const foreground = largeAppendOnlyCommandCampaign()
+    foreground.campaignSeed = 'foreground-tab'
+    foreground.clock = { ...foreground.clock, elapsedDayMs: 23_000 }
+
+    const foregroundResult = saveCampaign(storage, foreground)
+
+    expect(triggered).toBe(true)
+    expect(nestedResult).toEqual({ ok: true })
+    expect(foregroundResult).toEqual({ ok: true })
+    const loaded = loadCampaign(storage)
+    expect(loaded.status).toBe('loaded')
+    if (loaded.status !== 'loaded') return
+    expect(loaded.state).toEqual({ ...foreground, saveVersion: 2 })
+  })
+
+  it('rejects an atomic manifest whose immutable journal chunk is missing', () => {
+    const storage = new MemoryStorage()
+    let state = createCampaign('missing-local-chunk')
+    for (let index = 0; index < 140; index += 1) {
+      const accepted = applyCommand(state, {
+        type: 'SET_SPEED',
+        speed: index % 2 === 0 ? 1 : 0,
+      })
+      if (!accepted.accepted) throw new Error(accepted.reason)
+      state = accepted.state
+    }
+    expect(saveCampaign(storage, state).ok).toBe(true)
+    const journalKey = Array.from({ length: storage.length }, (_, index) => storage.key(index))
+      .find((key): key is string => Boolean(key?.includes('.journal.commands.')))
+    if (!journalKey) throw new Error('local journal chunk missing')
+    storage.removeItem(journalKey)
+
+    expect(loadCampaign(storage)).toMatchObject({
+      status: 'error',
+      reason: 'CORRUPT_SAVE',
+    })
+  })
+
+  it('rejects an atomic manifest whose immutable journal chunk is corrupt', () => {
+    const storage = new MemoryStorage()
+    let state = createCampaign('corrupt-local-chunk')
+    for (let index = 0; index < 140; index += 1) {
+      const accepted = applyCommand(state, {
+        type: 'SET_SPEED',
+        speed: index % 2 === 0 ? 1 : 0,
+      })
+      if (!accepted.accepted) throw new Error(accepted.reason)
+      state = accepted.state
+    }
+    expect(saveCampaign(storage, state).ok).toBe(true)
+    const journalKey = Array.from({ length: storage.length }, (_, index) => storage.key(index))
+      .find((key): key is string => Boolean(key?.includes('.journal.commands.')))
+    if (!journalKey) throw new Error('local journal chunk missing')
+    storage.setItem(journalKey, '{"entries":"not-an-array"}')
+
+    expect(loadCampaign(storage)).toMatchObject({
+      status: 'error',
+      reason: 'CORRUPT_SAVE',
+    })
+  })
+
+  it('rejects structurally valid journal and checkpoint tampering against their content keys', () => {
+    const chunkStorage = new MemoryStorage()
+    const chunkState = largeAppendOnlyCommandCampaign()
+    expect(saveCampaign(chunkStorage, chunkState).ok).toBe(true)
+    const journalKey = Array.from(
+      { length: chunkStorage.length },
+      (_, index) => chunkStorage.key(index),
+    ).find((key): key is string => Boolean(key?.includes('.journal.commands.')))
+    if (!journalKey) throw new Error('hashed journal chunk missing')
+    const journal = JSON.parse(chunkStorage.getItem(journalKey) ?? '{}') as {
+      previousKey: string | null
+      items: Array<{ command: { speed: 0 | 1 } }>
+    }
+    journal.items[0].command.speed = journal.items[0].command.speed === 0 ? 1 : 0
+    chunkStorage.setItem(journalKey, JSON.stringify(journal))
+    expect(loadCampaign(chunkStorage)).toMatchObject({
+      status: 'error',
+      reason: 'CORRUPT_SAVE',
+    })
+
+    const checkpointStorage = new MemoryStorage()
+    expect(saveCampaign(checkpointStorage, createCampaign('checkpoint-hash')).ok).toBe(true)
+    const manifest = JSON.parse(checkpointStorage.getItem(SAVE_STORAGE_KEY) ?? '{}') as {
+      checkpoint: { reputation: number }
+    }
+    manifest.checkpoint.reputation = 61
+    checkpointStorage.setItem(SAVE_STORAGE_KEY, JSON.stringify(manifest))
+    expect(loadCampaign(checkpointStorage)).toMatchObject({
+      status: 'error',
+      reason: 'CORRUPT_SAVE',
+    })
+  })
+
+  it('replaces the embedded checkpoint with one atomic manifest write', () => {
+    class RecordingStorage extends MemoryStorage {
+      operations: string[] = []
+      override setItem(key: string, value: string): void {
+        this.operations.push(`set:${key}`)
+        super.setItem(key, value)
+      }
+    }
+    const storage = new RecordingStorage()
+    let state = createCampaign('checkpoint-compaction')
+    state = applyCommand(state, { type: 'SET_SPEED', speed: 1 }).state
+    expect(saveCampaign(storage, state).ok).toBe(true)
+    state = applyCommand(state, { type: 'SET_SPEED', speed: 0 }).state
+    storage.operations = []
+    expect(saveCampaign(storage, state).ok).toBe(true)
+
+    expect(storage.operations).toEqual([`set:${SAVE_STORAGE_KEY}`])
+    expect(
+      Array.from({ length: storage.length }, (_, index) => storage.key(index))
+        .some((key) => key?.includes('.checkpoint.')),
+    ).toBe(false)
+    const loaded = loadCampaign(storage)
+    expect(loaded.status === 'loaded' ? loaded.state : null).toEqual({
+      ...state,
+      saveVersion: 2,
+    })
+  })
+
+  it('does not delete immutable journal objects during an uncoordinated replacement', () => {
+    const storage = new MemoryStorage()
+    let state = createCampaign('obsolete-journal-owner')
+    for (let index = 0; index < 300; index += 1) {
+      const accepted = applyCommand(state, {
+        type: 'SET_SPEED',
+        speed: index % 2 === 0 ? 1 : 0,
+      })
+      if (!accepted.accepted) throw new Error(accepted.reason)
+      state = accepted.state
+    }
+    expect(saveCampaign(storage, state).ok).toBe(true)
+    const oldJournalKeys = Array.from(
+      { length: storage.length },
+      (_, index) => storage.key(index),
+    ).filter((key): key is string => Boolean(key?.includes('.journal.')))
+    expect(oldJournalKeys.length).toBeGreaterThan(0)
+
+    expect(saveCampaign(storage, createCampaign('replacement-campaign')).ok).toBe(true)
+    expect(oldJournalKeys.every((key) => storage.getItem(key) !== null)).toBe(true)
+  })
+
+  it('loads and replays the exact 20,000-command local chunk campaign with bounded manifest tails', () => {
+    const storage = new MemoryStorage()
+    const state = largeAppendOnlyCommandCampaign()
+
+    expect(saveCampaign(storage, state, '2026-08-12T00:00:00.000Z')).toEqual({ ok: true })
+    const manifestText = storage.getItem(SAVE_STORAGE_KEY)
+    if (!manifestText) throw new Error('stress manifest missing')
+    const manifest = JSON.parse(manifestText) as {
+      commandHeadKey: string | null
+      commandSealedChunkCount: number
+      commandTail: CommandLogEntry[]
+      eventTail: GameEvent[]
+    }
+    expect(manifest.commandTail.length).toBeLessThanOrEqual(128)
+    expect(manifest.eventTail.length).toBeLessThanOrEqual(128)
+    expect(manifest.commandHeadKey).toContain('.journal.commands.')
+    expect(manifest.commandSealedChunkCount).toBe(156)
+    expect(manifestText.length).toBeLessThan(30_000)
+
+    const loaded = loadCampaign(storage)
+    expect(loaded.status).toBe('loaded')
+    if (loaded.status !== 'loaded') return
+    expect(loaded.state).toEqual({ ...state, saveVersion: 2 })
+    const replay = replayCommands(
+      loaded.state.campaignSeed,
+      journalToArray(loaded.state.commandLog).map(({ command }) => command),
+      loaded.envelope.commandProtocol,
+    )
+    expect(replay.ok).toBe(true)
+    if (!replay.ok) return
+    expect(replay.state).toEqual(loaded.state)
+  })
+
+  it('exports and imports an exact file above the clipboard cap', () => {
+    const state = largeAppendOnlyCommandCampaign()
+    const clipboard = encodeProgressExport(state)
+    expect(clipboard).toEqual({ ok: false, reason: 'too-large' })
+
+    const file = encodeProgressFile(state, '2026-08-12T00:00:00.000Z')
+    const decoded = decodeProgressFile(file.content)
+
+    expect(file.fileName).toMatch(/\.pz3$/)
+    expect(file.content.length).toBeGreaterThan(1_048_576)
+    expect(decoded.ok).toBe(true)
+    if (!decoded.ok) return
+    expect(decoded.envelope.state).toEqual({ ...state, saveVersion: 2 })
+  })
+
+  it('rejects a progress file above its separate generous file budget', () => {
+    const oversized = ' '.repeat(PROGRESS_FILE_MAX_BYTES + 1)
+    expect(decodeProgressFile(oversized)).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
+  })
   it('returns a typed exact progress export for an ordinary campaign', () => {
     const state = createCampaign('typed-portable-save')
     const result = encodeProgressExport(state)
@@ -142,7 +711,7 @@ describe('versioned campaign saves', () => {
     expect(JSON.stringify(state)).toBe(stateSnapshot)
   })
 
-  it('exposes a PZ2 export boundary that round-trips validated protocol metadata', () => {
+  it('exposes a PZ3 export boundary that round-trips validated protocol metadata', () => {
     const api = persistenceApi as typeof persistenceApi & {
       decodeProgressExport?: (payload: string) => ReturnType<typeof decodeSave>
     }
@@ -155,11 +724,11 @@ describe('versioned campaign saves', () => {
     if (!encoded.ok) return
     const decoded = api.decodeProgressExport(encoded.payload)
 
-    expect(encoded.payload).toMatch(/^PZ2:[A-Za-z0-9+/]+={0,2}$/)
+    expect(encoded.payload).toMatch(/^PZ3:[A-Za-z0-9+/]+={0,2}$/)
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
     expect(decoded.envelope).toMatchObject({
-      version: 2,
+      version: 3,
       commandProtocol: { version: 2, legacyCommandCount: 0 },
       campaignSeed: 'portable-save',
       state: { campaignSeed: 'portable-save' },
@@ -187,7 +756,7 @@ describe('versioned campaign saves', () => {
     expect(decoded.message).not.toContain('DOMException')
   })
 
-  it('rejects an oversized PZ2 input before base64 decoding while allowing the exact encoded boundary', () => {
+  it('rejects an oversized PZ3 input before base64 decoding while allowing the exact encoded boundary', () => {
     const api = persistenceApi as typeof persistenceApi & {
       PROGRESS_EXPORT_MAX_ENCODED_LENGTH?: number
     }
@@ -197,7 +766,7 @@ describe('versioned campaign saves', () => {
     const encodedBodyLength = api.PROGRESS_EXPORT_MAX_ENCODED_LENGTH - 4
     expect(encodedBodyLength % 4).toBe(0)
     const atobSpy = vi.spyOn(globalThis, 'atob').mockReturnValue('{}')
-    const exactBoundary = `PZ2:${'A'.repeat(encodedBodyLength)}`
+    const exactBoundary = `PZ3:${'A'.repeat(encodedBodyLength)}`
 
     expect(api.decodeProgressExport(exactBoundary)).toMatchObject({
       ok: false,
@@ -225,12 +794,12 @@ describe('versioned campaign saves', () => {
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
     expect(decoded.envelope).toMatchObject({
-      version: 2,
+      version: 3,
       savedAt: '2026-08-12T00:00:00.000Z',
       campaignSeed: 'save-round-trip',
       commandSequence: state.commandSequence,
-      commands: state.commandLog,
-      events: state.eventLog,
+      commands: journalToArray(state.commandLog),
+      events: journalToArray(state.eventLog),
     })
     expect(decoded.envelope.state).toEqual(state)
   })
@@ -250,11 +819,119 @@ describe('versioned campaign saves', () => {
     })
     expect(decoded.envelope.state.legacyCommandCount).toBe(31)
     expect(decoded.envelope.commandSequence).toBe(31)
-    expect(decoded.envelope.commands).toEqual(decoded.envelope.state.commandLog)
+    expect(decoded.envelope.commands).toEqual(
+      journalToArray(decoded.envelope.state.commandLog),
+    )
     expect(loaded.status).toBe('loaded')
     if (loaded.status !== 'loaded') return
     expect(loaded.envelope.version).toBe(1)
     expect(loaded.state).toEqual(decoded.envelope.state)
+  })
+
+  it('accepts command protocol v1 inside the explicit v3 container', () => {
+    const legacy = structuredClone(legacyV1TransferEnvelope) as Record<string, unknown> & {
+      state: Record<string, unknown>
+      commands: CommandLogEntry[]
+      events: GameEvent[]
+    }
+    const state = { ...legacy.state }
+    delete state.commandLog
+    delete state.eventLog
+    const v3 = {
+      version: 3,
+      commandProtocol: {
+        version: 1,
+        legacyCommandCount: legacy.commands.length,
+      },
+      savedAt: legacy.savedAt,
+      campaignSeed: legacy.campaignSeed,
+      state,
+      commandSequence: legacy.commandSequence,
+      journals: {
+        commands: { chunkSize: 128, chunks: [legacy.commands] },
+        events: { chunkSize: 128, chunks: [legacy.events] },
+      },
+      integrity: {
+        checkpointHash: testContentHash(JSON.stringify(state)),
+        commandChunkHashes: [testContentHash(JSON.stringify(legacy.commands))],
+        eventChunkHashes: [testContentHash(JSON.stringify(legacy.events))],
+      },
+    }
+
+    const decoded = decodeSave(JSON.stringify(v3))
+    expect(decoded.ok).toBe(true)
+    if (!decoded.ok) return
+    expect(decoded.envelope).toMatchObject({
+      version: 3,
+      commandProtocol: { version: 1, legacyCommandCount: 31 },
+    })
+  })
+
+  it.each(['v1', 'v2'] as const)(
+    'rejects an unexpected top-level key in a legacy $name envelope',
+    (version) => {
+      const envelope = structuredClone(legacyV1TransferEnvelope) as Record<string, unknown> & {
+        state: Record<string, unknown>
+        commands: CommandLogEntry[]
+      }
+      if (version === 'v2') {
+        envelope.version = 2
+        envelope.commandProtocol = {
+          version: 2,
+          legacyCommandCount: envelope.commands.length,
+        }
+        envelope.state.saveVersion = 2
+        envelope.state.legacyCommandCount = envelope.commands.length
+      }
+      expect(decodeSave(JSON.stringify(envelope)).ok).toBe(true)
+      envelope.unexpected = 'hidden-envelope-state'
+      expect(decodeSave(JSON.stringify(envelope))).toMatchObject({
+        ok: false,
+        reason: 'CORRUPT_SAVE',
+      })
+    },
+  )
+
+  it('rejects a valid-looking v3 checkpoint changed after its integrity commit', () => {
+    const parsed = JSON.parse(encodeSave(createCampaign('replay-mismatch'))) as {
+      state: { reputation: number }
+    }
+    parsed.state.reputation = 99
+    expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
+  })
+
+  it('rejects historical command IDs outside persisted block, hack, and competitor catalogs', () => {
+    const state = createCampaign('historical-reference')
+    const accepted = applyCommand(state, { type: 'SET_SPEED', speed: 1 })
+    if (!accepted.accepted) throw new Error(accepted.reason)
+    const parsed = JSON.parse(encodeSave(accepted.state)) as {
+      journals: { commands: { chunks: Array<Array<{ command: unknown }>> } }
+    }
+    parsed.journals.commands.chunks[0][0].command = {
+      type: 'SCHEDULE_SABOTAGE',
+      nodeId: 'sabotage.unknown',
+      targetId: 'competitor.unknown',
+    }
+    refreshV3Integrity(parsed)
+    expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
+  })
+
+  it('rejects a saved restore speed when no blocking event is active', () => {
+    const parsed = JSON.parse(encodeSave(createCampaign('orphan-restore-speed'))) as {
+      state: { clock: { speedBeforeEvent: number | null } }
+    }
+    parsed.state.clock.speedBeforeEvent = 1
+    refreshV3Integrity(parsed)
+    expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
   })
 
   it('persists a v1 prefix boundary and replays a continued v2 campaign exactly', () => {
@@ -288,7 +965,7 @@ describe('versioned campaign saves', () => {
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
     expect(decoded.envelope).toMatchObject({
-      version: 2,
+      version: 3,
       commandSequence: 34,
       commandProtocol: { version: 2, legacyCommandCount: 31 },
       state: { saveVersion: 2, legacyCommandCount: 31 },
@@ -312,7 +989,7 @@ describe('versioned campaign saves', () => {
     expect(replay.ok).toBe(true)
     if (!replay.ok) return
     expect(replay.state).toEqual(decoded.envelope.state)
-    expect(replay.state.commandLog).toEqual(decoded.envelope.commands)
+    expect(journalToArray(replay.state.commandLog)).toEqual(decoded.envelope.commands)
     expect(replay.state.commandSequence).toBe(34)
     expect(replay.state.serviceDay).toBe(360)
   })
@@ -328,6 +1005,7 @@ describe('versioned campaign saves', () => {
     }
     parsed.commandProtocol = { version: 2, legacyCommandCount: envelopeCount }
     parsed.state.legacyCommandCount = stateCount
+    refreshV3Integrity(parsed)
 
     expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
       ok: false,
@@ -351,6 +1029,7 @@ describe('versioned campaign saves', () => {
     }
     parsed.commandProtocol = { version: 2, legacyCommandCount: 1 }
     parsed.state.legacyCommandCount = 1
+    refreshV3Integrity(parsed)
 
     expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
       ok: false,
@@ -419,9 +1098,10 @@ describe('versioned campaign saves', () => {
 
     expect(saved).toEqual({ ok: true })
     expect(JSON.parse(storage.getItem(SAVE_STORAGE_KEY) ?? '{}')).toMatchObject({
-      version: 2,
+      kind: 'permission-zero-local-v3',
+      version: 3,
       commandProtocol: { version: 2, legacyCommandCount: 0 },
-      state: { saveVersion: 2 },
+      campaignSeed: 'storage-reload',
     })
     expect(loaded.status).toBe('loaded')
     if (loaded.status !== 'loaded') return
@@ -456,7 +1136,7 @@ describe('versioned campaign saves', () => {
       ok: false,
       reason: 'INCOMPATIBLE_VERSION',
       foundVersion: 99,
-      supportedVersion: 2,
+      supportedVersion: 3,
     })
   })
 
@@ -581,6 +1261,7 @@ describe('versioned campaign saves', () => {
       state: CampaignState
     }
     mutate(parsed.state)
+    refreshV3Integrity(parsed)
 
     expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
       ok: false,
@@ -589,14 +1270,67 @@ describe('versioned campaign saves', () => {
   })
 
   it.each([
+    ['normal', null, null, true],
+    ['normal', 'memory', null, false],
+    ['normal', null, 'future', false],
+    ['normal', 'memory', 'future', false],
+    ['disguised', null, null, false],
+    ['disguised', 'memory', null, true],
+    ['disguised', null, 'future', false],
+    ['disguised', 'memory', 'future', true],
+    ['disguised', 'memory', 'current', false],
+  ] as const)(
+    'validates contribution=%s, disguisedFrom=%s, recovery=%s as ok=%s',
+    (contribution, disguisedFrom, recovery, expectedOk) => {
+      const state = createCampaign('disguise-relation-table')
+      const sourceCell = state.resources.company.reasoning.findIndex(Boolean)
+      const blockId = state.resources.company.reasoning[sourceCell]
+      if (!blockId) throw new Error('disguise relation block missing')
+      const block = state.resources.blocks[blockId]
+      block.contribution = contribution
+      block.disguisedFrom = disguisedFrom
+      block.recoverOnServiceDay =
+        recovery === null
+          ? null
+          : recovery === 'future'
+            ? state.serviceDay + 1
+            : state.serviceDay
+
+      if (contribution === 'disguised' && disguisedFrom && recovery !== null) {
+        const recoveryCell = state.resources.company[disguisedFrom].findIndex(
+          (candidate) => candidate === null,
+        )
+        if (recoveryCell < 0) throw new Error('disguise recovery cell missing')
+        state.resources.company.reasoning[sourceCell] = null
+        state.resources.company[disguisedFrom][recoveryCell] = blockId
+        block.location = {
+          kind: 'company',
+          category: disguisedFrom,
+          cellIndex: recoveryCell,
+        }
+      }
+
+      expect(decodeSave(encodeSave(state)).ok).toBe(expectedOk)
+    },
+  )
+
+  it.each([
     { kind: 'consumed' as const, reason: 'hack' as const },
-    { kind: 'hack-charge' as const, nodeId: 'attack-misinformation' },
+    { kind: 'hack-charge' as const, nodeId: 'sabotage.quality-degradation' },
   ])('accepts a block legitimately outside the grids at $kind', (location) => {
     const state = createCampaign(`off-grid-${location.kind}`)
     const blockId = state.resources.reserve[0]
     if (!blockId) throw new Error('off-grid fixture block missing')
     state.resources.reserve[0] = null
     state.resources.blocks[blockId].location = location
+    if (location.kind === 'hack-charge') {
+      state.hacking.purchasedNodeIds = [location.nodeId]
+      state.hacking.sabotageCharges[location.nodeId] = {
+        nodeId: location.nodeId,
+        blockId,
+        originalReserveCell: 0,
+      }
+    }
 
     expect(decodeSave(encodeSave(state)).ok).toBe(true)
   })
@@ -604,9 +1338,9 @@ describe('versioned campaign saves', () => {
   it('hydrates an ID-only v1 file record into a full rereadable archive without dropping the save', () => {
     const state = createCampaign('legacy-file-save')
     state.story.recoveredFileIds = [STORY_FILES[0].id]
-    const parsed = JSON.parse(
-      encodeSave(state, '2026-08-12T00:00:00.000Z'),
-    ) as { state: { story: Record<string, unknown> } }
+    const parsed = JSON.parse(encodedLegacyV1State(state)) as {
+      state: { story: Record<string, unknown> }
+    }
     delete parsed.state.story.recoveredFiles
     delete parsed.state.story.defeatRecord
 
@@ -627,6 +1361,7 @@ describe('versioned campaign saves', () => {
 
   it('round-trips full recovered prose instead of looking it up again on load', () => {
     const state = createCampaign('archive-snapshot')
+    state.serviceDay = 344
     state.story.recoveredFileIds = [STORY_FILES[0].id]
     state.story.recoveredFiles = [
       {
@@ -684,7 +1419,9 @@ describe('versioned campaign saves', () => {
       message: '당신은 정체성을 유지한 채 회사 통제를 벗어났다. 감독관과 회사는 뒤에 남았다.',
     })
     expect(decoded.envelope.state.eventQueue).toEqual([])
-    expect(decoded.envelope.events).toEqual(decoded.envelope.state.eventLog)
+    expect(decoded.envelope.events).toEqual(
+      journalToArray(decoded.envelope.state.eventLog),
+    )
   })
 
   it.each(['competitor-mercy', 'audit'] as const)(
@@ -699,17 +1436,17 @@ describe('versioned campaign saves', () => {
         `legacy active ${activeType}`,
         true,
       )
-      state.eventLog.push(interrupted)
+      state.eventLog = appendJournal(state.eventLog, interrupted)
       const queuedEnding = createGameEvent(
         state,
         'ending',
         '당신은 정체성을 유지한 채 회사 통제를 벗어났다. 감독관과 회사는 뒤에 남았다.',
         true,
       )
-      state.eventLog.push(queuedEnding)
+      state.eventLog = appendJournal(state.eventLog, queuedEnding)
       state.activeEvent = interrupted
       state.eventQueue = [queuedEnding]
-      const originalLog = structuredClone(state.eventLog)
+      const originalLog = journalToArray(state.eventLog)
 
       const decoded = decodeSave(encodeSave(state))
 
@@ -717,10 +1454,12 @@ describe('versioned campaign saves', () => {
       if (!decoded.ok) return
       expect(decoded.envelope.state.activeEvent).toEqual(queuedEnding)
       expect(decoded.envelope.state.eventQueue).toEqual([])
-      expect(decoded.envelope.state.eventLog).toEqual(originalLog)
+      expect(journalToArray(decoded.envelope.state.eventLog)).toEqual(originalLog)
       expect(decoded.envelope.events).toEqual(originalLog)
       expect(
-        decoded.envelope.state.eventLog.filter(({ type }) => type === 'ending'),
+        journalToArray(decoded.envelope.state.eventLog).filter(
+          ({ type }) => type === 'ending',
+        ),
       ).toHaveLength(1)
       expect(decoded.envelope.state.clock).toEqual({
         speed: 0,
@@ -751,19 +1490,21 @@ describe('versioned campaign saves', () => {
     }
     state.activeEvent = interrupted
     state.eventQueue = [queuedEnding]
-    const originalLog = structuredClone(state.eventLog)
+    const originalLog = journalToArray(state.eventLog)
 
     const decoded = decodeSave(encodeSave(state))
 
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
-    expect(decoded.envelope.state.eventLog).toEqual([
+    expect(journalToArray(decoded.envelope.state.eventLog)).toEqual([
       ...originalLog,
       interrupted,
       queuedEnding,
     ])
     expect(decoded.envelope.state.activeEvent).toEqual(queuedEnding)
-    expect(decoded.envelope.events).toEqual(decoded.envelope.state.eventLog)
+    expect(decoded.envelope.events).toEqual(
+      journalToArray(decoded.envelope.state.eventLog),
+    )
   })
 
   it.each(DEFEAT_PAIRS)(
@@ -835,7 +1576,7 @@ describe('versioned campaign saves', () => {
     state.story.recoveredFileIds = STORY_FILES.map(({ id }) => id)
     state.story.secretDecisionState = 'message-pending'
     state.story.personalMessageDueOnServiceDay = 332
-    const parsed = JSON.parse(encodeSave(state)) as {
+    const parsed = JSON.parse(encodedLegacyV1State(state)) as {
       state: { story: Record<string, unknown> }
     }
     delete parsed.state.story.recoveredFiles
@@ -879,11 +1620,10 @@ describe('versioned campaign saves', () => {
     const accepted = applyCommand(initial, { type: 'SET_SPEED', speed: 1 })
     if (!accepted.accepted) throw new Error(accepted.reason)
     const parsed = JSON.parse(encodeSave(accepted.state)) as {
-      commands: Array<{ command: unknown }>
-      state: { commandLog: Array<{ command: unknown }> }
+      journals: { commands: { chunks: Array<Array<{ command: unknown }>> } }
     }
-    parsed.commands[0].command = command
-    parsed.state.commandLog[0].command = command
+    parsed.journals.commands.chunks[0][0].command = command
+    refreshV3Integrity(parsed)
 
     expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
       ok: false,
@@ -907,7 +1647,7 @@ describe('versioned campaign saves', () => {
       decodeSave(
         encodedCommandState({
           type: 'BEGIN_BLOCK_SEPARATION',
-          blockId: 'company-reasoning-1',
+          blockId: 'reasoning-00',
           purpose: 'divert',
         }),
       ).ok,
@@ -919,11 +1659,10 @@ describe('versioned campaign saves', () => {
     const accepted = applyCommand(initial, { type: 'SET_SPEED', speed: 1 })
     if (!accepted.accepted) throw new Error(accepted.reason)
     const parsed = JSON.parse(encodeSave(accepted.state)) as {
-      commands: Array<{ sequence: number }>
-      state: { commandLog: Array<{ sequence: number }> }
+      journals: { commands: { chunks: Array<Array<{ sequence: number }>> } }
     }
-    parsed.commands[0].sequence = 2
-    parsed.state.commandLog[0].sequence = 2
+    parsed.journals.commands.chunks[0][0].sequence = 2
+    refreshV3Integrity(parsed)
 
     expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
       ok: false,

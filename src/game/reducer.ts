@@ -29,6 +29,7 @@ import {
   resolveMercy,
   resolveSupervisorDecision,
 } from './story'
+import { appendJournal, journalAt } from './journal'
 
 export type CommandResult =
   | { accepted: true; state: CampaignState }
@@ -43,7 +44,7 @@ function hasSeparationAuthorization(
   blockId: string,
   purpose: 'divert' | 'audit-disguise',
 ): boolean {
-  const previous = state.commandLog.at(-1)?.command
+  const previous = journalAt(state.commandLog, -1)?.command
   return (
     previous?.type === 'BEGIN_BLOCK_SEPARATION' &&
     previous.blockId === blockId &&
@@ -63,14 +64,11 @@ function acceptCommand(
     state: {
       ...changedState,
       commandSequence: sequence,
-      commandLog: [
-        ...state.commandLog,
-        {
-          sequence,
-          serviceDay: state.serviceDay,
-          command,
-        },
-      ],
+      commandLog: appendJournal(state.commandLog, {
+        sequence,
+        serviceDay: state.serviceDay,
+        command,
+      }),
     },
   }
 }

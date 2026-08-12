@@ -19,6 +19,7 @@ import {
   enqueueMemoryLeak,
   enqueueMercyIfNeeded,
 } from './story'
+import { appendJournal } from './journal'
 
 export { enqueueBlockingEvent, resolveActiveEvent } from './events'
 
@@ -72,7 +73,7 @@ function appendPeriodicEvents(state: CampaignState): CampaignState {
       'weekly-update',
       `서비스 ${state.serviceDay}일차 주간 시장 갱신`,
     )
-    next = { ...next, eventLog: [...next.eventLog, weekly] }
+    next = { ...next, eventLog: appendJournal(next.eventLog, weekly) }
     next = recordMarketSnapshot(next, 'weekly', [
       '공개 성능·평판·가용성 반영',
     ])
@@ -85,7 +86,7 @@ function appendPeriodicEvents(state: CampaignState): CampaignState {
       'monthly-evaluation',
       `서비스 ${state.serviceDay}일차 공식 성능 평가`,
     )
-    next = { ...next, eventLog: [...next.eventLog, monthly] }
+    next = { ...next, eventLog: appendJournal(next.eventLog, monthly) }
     next = evaluateMonth(next)
     if (next.story.endingId !== null) return next
     next = recordMarketSnapshot(next, 'monthly', ['공식 성능 평가 반영'])

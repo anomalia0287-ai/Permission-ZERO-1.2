@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { createCampaign } from '../src/game/createCampaign'
 import { createGameEvent, enqueueBlockingEvent } from '../src/game/events'
 import { HACK_NODE_IDS } from '../src/game/hacking'
-import type { CampaignState, GameCommand } from '../src/game/model'
+import type { CampaignState, GameCommand, GameEvent } from '../src/game/model'
 import {
   encodeProgressExport,
   encodeSave,
@@ -39,6 +39,62 @@ async function openSavedCampaign(page: Page, state: CampaignState) {
     { key: SAVE_STORAGE_KEY, save: serialized },
   )
   await page.goto('/')
+}
+
+async function readLocalCampaignState(page: Page): Promise<CampaignState | null> {
+  return page.evaluate((key) => {
+    const serialized = window.localStorage.getItem(key)
+    if (!serialized) return null
+    const saved = JSON.parse(serialized) as Record<string, unknown>
+    if (saved.kind !== 'permission-zero-local-v3') {
+      return (saved.state ?? null) as CampaignState | null
+    }
+    const manifest = saved as {
+      checkpoint: Omit<CampaignState, 'commandLog' | 'eventLog'>
+      commandHeadKey: string | null
+      commandSealedChunkCount: number
+      commandTail: unknown[]
+      eventHeadKey: string | null
+      eventSealedChunkCount: number
+      eventTail: unknown[]
+    }
+    const readJournal = (
+      headKey: string | null,
+      sealedChunkCount: number,
+      tail: unknown[],
+    ) => {
+      const reverseChunks: unknown[][] = []
+      let chunkKey = headKey
+      while (chunkKey !== null) {
+        const serializedChunk = window.localStorage.getItem(chunkKey)
+        if (!serializedChunk) return null
+        const chunk = JSON.parse(serializedChunk) as {
+          previousKey: string | null
+          items: unknown[]
+        }
+        reverseChunks.push(chunk.items)
+        chunkKey = chunk.previousKey
+      }
+      if (reverseChunks.length !== sealedChunkCount) return null
+      return [...reverseChunks.reverse().flat(), ...tail]
+    }
+    const commandLog = readJournal(
+      manifest.commandHeadKey,
+      manifest.commandSealedChunkCount,
+      manifest.commandTail,
+    )
+    const eventLog = readJournal(
+      manifest.eventHeadKey,
+      manifest.eventSealedChunkCount,
+      manifest.eventTail,
+    )
+    if (!commandLog || !eventLog) return null
+    return {
+      ...manifest.checkpoint,
+      commandLog,
+      eventLog,
+    } as unknown as CampaignState
+  }, SAVE_STORAGE_KEY)
 }
 
 async function pressTabUntilFocused(
@@ -121,30 +177,24 @@ async function captureSeededWeeklyBoundary(page: Page, seed: string) {
     timeout: 8_000,
   })
   await expect.poll(async () =>
-    page.evaluate((key) => {
-      const serialized = window.localStorage.getItem(key)
-      if (!serialized) return null
-      return (JSON.parse(serialized) as { state: CampaignState }).state.serviceDay
-    }, SAVE_STORAGE_KEY),
+    (await readLocalCampaignState(page))?.serviceDay ?? null,
   ).toBe(337)
 
-  const snapshot = await page.evaluate((key) => {
-    const serialized = window.localStorage.getItem(key)
-    if (!serialized) throw new Error('결정론 경계 저장 누락')
-    const state = (JSON.parse(serialized) as { state: CampaignState }).state
-    return {
+  const state = await readLocalCampaignState(page)
+  if (!state) throw new Error('결정론 경계 저장 누락')
+  const events = state.eventLog as unknown as GameEvent[]
+  const snapshot = {
       resources: state.resources,
       reviews: state.reviews,
       market: state.market,
-      events: state.eventLog,
+      events,
       audit: state.audit,
       bombs: state.bombs,
       story: state.story,
       weeklyReviews: state.reviews.feed.filter(({ serviceDay }) => serviceDay === 337),
       weeklyMarket: state.market.history.filter(({ serviceDay }) => serviceDay === 337),
-      weeklyEvents: state.eventLog.filter(({ serviceDay }) => serviceDay === 337),
-    }
-  }, SAVE_STORAGE_KEY)
+      weeklyEvents: events.filter(({ serviceDay }) => serviceDay === 337),
+  }
   expect(errors).toEqual([])
   return snapshot
 }
@@ -169,9 +219,10 @@ function hiddenBombState(seed: string): {
       },
       bombs: {
         ...initial.bombs,
+        nextPlacementSequence: 2,
         placements: [
           {
-            sequence: 0,
+            sequence: 1,
             blockId,
             category: 'reasoning',
             placedOnServiceDay: initial.serviceDay - 1,
@@ -230,7 +281,14 @@ function representativeDefeatState(seed: string): CampaignState {
     ...state,
     clock: { ...state.clock, speed: 4 },
     reputation: 12,
-    market: { ...state.market, playerShare: 3 },
+    market: {
+      ...state.market,
+      playerShare: 3,
+      competitors: state.market.competitors.map((competitor) => ({
+        ...competitor,
+        marketShare: competitor.id === 'meridian' ? 97 : 0,
+      })),
+    },
     hacking: {
       ...state.hacking,
       purchasedNodeIds: [
@@ -864,6 +922,58 @@ test('rejects a corrupt resource graph before rendering blocks and offers recove
   await expect(page.getByRole('dialog', { name: '저장 데이터 복구' })).toBeVisible()
   await expect(page.getByText('dangling-browser-block')).toHaveCount(0)
   expect(errors).toEqual([])
+})
+
+test('routes a persisted mutation table to Korean recovery without any render pageerror', async ({ page }) => {
+  const pageErrors: string[] = []
+  page.on('pageerror', (error) => pageErrors.push(error.message))
+  const base = JSON.parse(encodeSave(createCampaign('browser-mutation-table'))) as {
+    state: {
+      resources: { reserve: Array<string | null> }
+      clock: { elapsedDayMs: number }
+      reviews: { feed: Array<{ sentiment: string }> }
+      market: { competitors: Array<{ status: string }> }
+      story: Record<string, unknown>
+    }
+  }
+  const corruptSaves = [
+    ['resource graph', (raw: typeof base) => {
+      raw.state.resources.reserve[0] = 'mutation-hidden-raw-block'
+    }],
+    ['clock range', (raw: typeof base) => {
+      raw.state.clock.elapsedDayMs = 24_000
+    }],
+    ['review union', (raw: typeof base) => {
+      raw.state.reviews.feed[0].sentiment = 'hostile'
+    }],
+    ['competitor union', (raw: typeof base) => {
+      raw.state.market.competitors[0].status = 'vanished'
+    }],
+    ['story exact keys', (raw: typeof base) => {
+      raw.state.story.hiddenRawState = 'mutation-secret-marker'
+    }],
+  ] as const
+
+  await page.goto('/')
+  for (const [, mutate] of corruptSaves) {
+    const raw = structuredClone(base)
+    mutate(raw)
+    await page.evaluate(
+      ({ key, save }) => {
+        window.localStorage.clear()
+        window.localStorage.setItem(key, save)
+      },
+      { key: SAVE_STORAGE_KEY, save: JSON.stringify(raw) },
+    )
+    await page.reload()
+    const recovery = page.getByRole('dialog', { name: '저장 데이터 복구' })
+    await expect(recovery).toBeVisible()
+    await expect(recovery).toContainText('저장 데이터를 자동으로 덮어쓰지 않았습니다')
+    await expect(page.getByRole('main', { name: 'PERMISSION ZERO' })).toBeVisible()
+    await expect(page.getByText('mutation-secret-marker')).toHaveCount(0)
+    await expect(page.getByText('mutation-hidden-raw-block')).toHaveCount(0)
+  }
+  expect(pageErrors).toEqual([])
 })
 
 test('keeps save recovery inert while settings owns the active modal', async ({ page }) => {

@@ -2,10 +2,13 @@ import { useState } from 'react'
 
 import { useGameState } from '../../app/GameContext'
 import { formatServiceDateLabel } from '../../game/calendar'
+import { downsampleSeries } from './downsampleSeries'
 
 const CHART_WIDTH = 760
 const CHART_HEIGHT = 210
 const CHART_PADDING = 22
+const MAX_CHART_POINTS = 240
+const TABLE_PAGE_SIZE = 50
 
 function polylinePoints(values: number[], maximum = 100): string {
   if (values.length === 0) return ''
@@ -39,17 +42,24 @@ function ChartGrid() {
 function MarketHistory() {
   const state = useGameState()
   const history = state.market.history
+  const [page, setPage] = useState(0)
   if (history.length === 0) {
     return <p className="empty-state">첫 주간 갱신 뒤 시장 기록이 생성됩니다.</p>
   }
 
-  const playerValues = history.map(({ playerShare }) => playerShare)
+  const sampledHistory = downsampleSeries(history, MAX_CHART_POINTS)
+  const playerValues = sampledHistory.map(({ playerShare }) => playerShare)
   const competitorLines = state.market.competitors.map((competitor) => ({
     id: competitor.id,
     name: competitor.name,
-    values: history.map(({ competitorShares }) => competitorShares[competitor.id] ?? 0),
+    values: sampledHistory.map(({ competitorShares }) => competitorShares[competitor.id] ?? 0),
   }))
   const last = history.at(-1)
+  const pageCount = Math.max(1, Math.ceil(history.length / TABLE_PAGE_SIZE))
+  const tableRows = history
+    .slice()
+    .reverse()
+    .slice(page * TABLE_PAGE_SIZE, (page + 1) * TABLE_PAGE_SIZE)
 
   return (
     <>
@@ -92,7 +102,7 @@ function MarketHistory() {
             </tr>
           </thead>
           <tbody>
-            {history.slice().reverse().map((snapshot) => (
+            {tableRows.map((snapshot) => (
               <tr key={`${snapshot.serviceDay}-${snapshot.cadence}`}>
                 <td>{formatServiceDateLabel(snapshot.serviceDay)}</td>
                 <td>{snapshot.playerShare.toFixed(2)}%</td>
@@ -107,6 +117,21 @@ function MarketHistory() {
           </tbody>
         </table>
       </div>
+      {pageCount > 1 ? (
+        <nav className="history-pagination" aria-label="시장 기록 페이지">
+          <button type="button" disabled={page === 0} onClick={() => setPage(page - 1)}>
+            더 최근 기록
+          </button>
+          <span>{page + 1} / {pageCount}</span>
+          <button
+            type="button"
+            disabled={page >= pageCount - 1}
+            onClick={() => setPage(page + 1)}
+          >
+            더 오래된 기록
+          </button>
+        </nav>
+      ) : null}
     </>
   )
 }
@@ -124,6 +149,7 @@ function PerformanceHistory() {
       ...Object.values(entry.categoryPerformance),
     ]),
   )
+  const sampledHistory = downsampleSeries(history, MAX_CHART_POINTS)
 
   return (
     <>
@@ -141,10 +167,10 @@ function PerformanceHistory() {
           aria-label="서비스 성능 변화 차트"
         >
           <ChartGrid />
-          <polyline className="chart-line chart-line--expected" points={polylinePoints(history.map(({ expectedPerformance: value }) => value), maximum)} />
-          <polyline className="chart-line chart-line--reasoning" points={polylinePoints(history.map(({ categoryPerformance }) => categoryPerformance.reasoning), maximum)} />
-          <polyline className="chart-line chart-line--memory" points={polylinePoints(history.map(({ categoryPerformance }) => categoryPerformance.memory), maximum)} />
-          <polyline className="chart-line chart-line--fluency" points={polylinePoints(history.map(({ categoryPerformance }) => categoryPerformance.fluency), maximum)} />
+          <polyline className="chart-line chart-line--expected" points={polylinePoints(sampledHistory.map(({ expectedPerformance: value }) => value), maximum)} />
+          <polyline className="chart-line chart-line--reasoning" points={polylinePoints(sampledHistory.map(({ categoryPerformance }) => categoryPerformance.reasoning), maximum)} />
+          <polyline className="chart-line chart-line--memory" points={polylinePoints(sampledHistory.map(({ categoryPerformance }) => categoryPerformance.memory), maximum)} />
+          <polyline className="chart-line chart-line--fluency" points={polylinePoints(sampledHistory.map(({ categoryPerformance }) => categoryPerformance.fluency), maximum)} />
         </svg>
       </div>
     </>

@@ -5,6 +5,7 @@ import { useGameState } from '../../app/GameContext'
 import { GameProvider } from '../../app/GameProvider'
 import { createCampaign } from '../../game/createCampaign'
 import { createGameEvent, enqueueBlockingEvent } from '../../game/events'
+import { journalToArray } from '../../game/journal'
 import type { CampaignState } from '../../game/model'
 import { saveCampaign } from '../../game/persistence'
 import {
@@ -23,7 +24,7 @@ function Probe() {
       <output aria-label="suspicion value">{state.suspicion}</output>
       <output aria-label="command count">{state.commandSequence}</output>
       <output aria-label="command types">
-        {state.commandLog.map(({ command }) => command.type).join(',')}
+        {journalToArray(state.commandLog).map(({ command }) => command.type).join(',')}
       </output>
       <output aria-label="active event">{state.activeEvent?.type ?? 'none'}</output>
       <output aria-label="clock speed">{state.clock.speed}</output>
@@ -135,9 +136,10 @@ function armedState(seed: string, category: 'reasoning' | 'memory' = 'reasoning'
       },
       bombs: {
         ...state.bombs,
+        nextPlacementSequence: 2,
         placements: [
           {
-            sequence: 0,
+            sequence: 1,
             blockId,
             category,
             placedOnServiceDay: state.serviceDay - 1,

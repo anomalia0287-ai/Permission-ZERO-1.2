@@ -27,6 +27,7 @@ import {
   useGameDispatch,
   useGameSettings,
   useGameState,
+  useClockCheckpoint,
   usePauseOwnership,
 } from './GameContext'
 import { GameProvider } from './GameProvider'
@@ -116,6 +117,7 @@ function DetailLayer({
 function GameWorkspace() {
   const state = useGameState()
   const dispatch = useGameDispatch()
+  const checkpointClock = useClockCheckpoint()
   const { settings, updateSettings } = useGameSettings()
   const [activePanel, setActivePanel] = useState<DetailPanelId>(null)
   const [nestedPanel, setNestedPanel] = useState<'guide' | 'credits' | null>(null)
@@ -138,7 +140,13 @@ function GameWorkspace() {
   const openGuide = useCallback((trigger: HTMLButtonElement) => {
     openDetail('guide', trigger)
   }, [openDetail])
-  const dayProgress = useGameClock({ speed: state.clock.speed, onDay: advanceDay })
+  const dayProgress = useGameClock({
+    speed: state.clock.speed,
+    onDay: advanceDay,
+    initialElapsedDayMs: state.clock.elapsedDayMs,
+    dayKey: `${state.campaignSeed}:${state.serviceDay}`,
+    onElapsedCheckpoint: checkpointClock,
+  })
 
   useEffect(() => {
     configureGameAudio({

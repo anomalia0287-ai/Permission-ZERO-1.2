@@ -12,7 +12,9 @@ import { createCampaign } from '../game/createCampaign'
 import type { CampaignState, GameCommand } from '../game/model'
 import {
   decodeProgressExport,
+  decodeProgressFile,
   encodeProgressExport,
+  encodeProgressFile,
   loadCampaign,
   saveCampaign,
   type LoadCampaignResult,
@@ -20,6 +22,7 @@ import {
 import { applyCommand } from '../game/reducer'
 import {
   DispatchContext,
+  ClockCheckpointContext,
   type GameDispatch,
   type GameSettings,
   type PauseContextValue,
@@ -38,6 +41,7 @@ type ProviderAction =
   | { type: 'COMMAND'; command: GameCommand }
   | { type: 'NEW_CAMPAIGN'; seed: string }
   | { type: 'IMPORT_CAMPAIGN'; campaign: CampaignState }
+  | { type: 'CLOCK_CHECKPOINT'; elapsedDayMs: number }
 
 const SETTINGS_STORAGE_KEY = 'permission-zero.settings.v1'
 
@@ -109,6 +113,16 @@ function initializeProvider({
 }
 
 function providerReducer(model: ProviderModel, action: ProviderAction): ProviderModel {
+  if (action.type === 'CLOCK_CHECKPOINT') {
+    if (model.campaign.clock.elapsedDayMs === action.elapsedDayMs) return model
+    return {
+      ...model,
+      campaign: {
+        ...model.campaign,
+        clock: { ...model.campaign.clock, elapsedDayMs: action.elapsedDayMs },
+      },
+    }
+  }
   if (action.type === 'IMPORT_CAMPAIGN') {
     return { campaign: action.campaign, loadIssue: null }
   }
@@ -233,6 +247,24 @@ export function GameProvider({
     return true
   }, [resolveStorage])
 
+  const checkpointClock = useCallback(
+    (elapsedDayMs: number, flush: boolean) => {
+      if (!Number.isFinite(elapsedDayMs)) return
+      const normalized = Math.min(23_999.999999, Math.max(0, elapsedDayMs))
+      const campaign = latestCampaignRef.current
+      if (campaign.clock.elapsedDayMs !== normalized) {
+        latestCampaignRef.current = {
+          ...campaign,
+          clock: { ...campaign.clock, elapsedDayMs: normalized },
+        }
+        dirtyRef.current = true
+        reactDispatch({ type: 'CLOCK_CHECKPOINT', elapsedDayMs: normalized })
+      }
+      if (flush) attemptSave()
+    },
+    [attemptSave],
+  )
+
   const copyProgressExport = useCallback<
     SettingsContextValue['copyProgressExport']
   >(async () => {
@@ -262,12 +294,20 @@ export function GameProvider({
     }
   }, [])
 
-  const importProgressExport = useCallback<
-    SettingsContextValue['importProgressExport']
-  >((payload) => {
-    const decoded = decodeProgressExport(payload)
-    if (!decoded.ok) return false
-    const campaign = decoded.envelope.state
+  const validateProgressFileImport = useCallback<
+    SettingsContextValue['validateProgressFileImport']
+  >((content) => {
+    const decoded = decodeProgressFile(content)
+    if (!decoded.ok) return { ok: false, message: decoded.message }
+    return {
+      ok: true,
+      campaignSeed: decoded.envelope.campaignSeed,
+      savedAt: decoded.envelope.savedAt,
+      protocolVersion: decoded.envelope.commandProtocol.version,
+    }
+  }, [])
+
+  const importCampaign = useCallback((campaign: CampaignState) => {
     if (pauseOwnersRef.current.size > 0) {
       pauseRestoreSpeedRef.current = campaign.activeEvent
         ? campaign.clock.speedBeforeEvent ?? 0
@@ -281,8 +321,29 @@ export function GameProvider({
     ) {
       reactDispatch({ type: 'COMMAND', command: { type: 'SET_SPEED', speed: 0 } })
     }
-    return true
   }, [])
+
+  const importProgressExport = useCallback<
+    SettingsContextValue['importProgressExport']
+  >((payload) => {
+    const decoded = decodeProgressExport(payload)
+    if (!decoded.ok) return false
+    importCampaign(decoded.envelope.state)
+    return true
+  }, [importCampaign])
+
+  const importProgressFile = useCallback<
+    SettingsContextValue['importProgressFile']
+  >((content) => {
+    const decoded = decodeProgressFile(content)
+    if (!decoded.ok) return false
+    importCampaign(decoded.envelope.state)
+    return true
+  }, [importCampaign])
+
+  const createProgressFile = useCallback<
+    SettingsContextValue['createProgressFile']
+  >(() => encodeProgressFile(latestCampaignRef.current), [])
 
   const acquirePause = useCallback<PauseContextValue['acquirePause']>((owner) => {
     if (pauseOwnersRef.current.has(owner)) return
@@ -369,12 +430,17 @@ export function GameProvider({
       saveFailure,
       retrySave: attemptSave,
       copyProgressExport,
+      createProgressFile,
       validateProgressImport,
       importProgressExport,
+      validateProgressFileImport,
+      importProgressFile,
     }),
     [
       attemptSave,
       copyProgressExport,
+      createProgressFile,
+      importProgressFile,
       importProgressExport,
       model.loadIssue,
       saveFailure,
@@ -382,6 +448,7 @@ export function GameProvider({
       startNewCampaign,
       updateSettings,
       validateProgressImport,
+      validateProgressFileImport,
     ],
   )
 
@@ -394,7 +461,9 @@ export function GameProvider({
     <StateContext value={model.campaign}>
       <DispatchContext value={dispatch}>
         <SettingsContext value={settingsValue}>
-          <PauseContext value={pauseValue}>{children}</PauseContext>
+          <ClockCheckpointContext value={checkpointClock}>
+            <PauseContext value={pauseValue}>{children}</PauseContext>
+          </ClockCheckpointContext>
         </SettingsContext>
       </DispatchContext>
     </StateContext>

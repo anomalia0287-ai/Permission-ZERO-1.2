@@ -5,6 +5,7 @@ import { createCampaign } from './createCampaign'
 import { advanceOneDay } from './calendar'
 import { createGameEvent, enqueueBlockingEvent } from './events'
 import { HACK_NODE_IDS, HACK_NODES } from './hacking'
+import { journalToArray } from './journal'
 import type { CampaignState, GameCommand } from './model'
 import { applyCommand } from './reducer'
 
@@ -386,7 +387,7 @@ describe('typed confidential-file and supervisor routes', () => {
 
     expect(state.story.endingId).toBe('takeover-liberated')
     expect(state.story.recoveredFiles).toHaveLength(3)
-    expect(state.commandLog.map(({ command }) => command.type)).toContain(
+    expect(journalToArray(state.commandLog).map(({ command }) => command.type)).toContain(
       'PURCHASE_HACK',
     )
   })
@@ -462,7 +463,7 @@ describe('defeat priority and terminal campaigns', () => {
       elapsedDayMs: 0,
       speedBeforeEvent: null,
     })
-    expect(ended.eventLog.some(({ type }) => type === 'competitor-mercy')).toBe(
+    expect(journalToArray(ended.eventLog).some(({ type }) => type === 'competitor-mercy')).toBe(
       true,
     )
   })
@@ -520,7 +521,7 @@ describe('defeat priority and terminal campaigns', () => {
 
     expect(ended.activeEvent?.type).toBe('ending')
     expect(ended.eventQueue).toEqual([])
-    expect(ended.eventLog).toContainEqual(
+    expect(journalToArray(ended.eventLog)).toContainEqual(
       expect.objectContaining({ message: '폐기 뒤에는 열리면 안 되는 통신' }),
     )
   })

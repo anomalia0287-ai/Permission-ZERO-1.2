@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { createCampaign } from '../game/createCampaign'
 import { createGameEvent } from '../game/events'
+import { appendJournal } from '../game/journal'
 import {
   SAVE_STORAGE_KEY,
   encodeSave,
@@ -16,6 +17,7 @@ import {
   useGameSelector,
   useGameSettings,
   useGameState,
+  useClockCheckpoint,
   usePauseOwnership,
 } from './GameContext'
 import { GameProvider } from './GameProvider'
@@ -108,6 +110,20 @@ function PauseEventProbe() {
   )
 }
 
+function ClockCheckpointProbe() {
+  const state = useGameState()
+  const checkpoint = useClockCheckpoint()
+  return (
+    <>
+      <output aria-label="elapsed day checkpoint">{state.clock.elapsedDayMs}</output>
+      <output aria-label="checkpoint command count">{state.commandSequence}</output>
+      <button type="button" onClick={() => checkpoint(23_000, true)}>
+        checkpoint partial day
+      </button>
+    </>
+  )
+}
+
 afterEach(() => {
   vi.useRealTimers()
 })
@@ -184,6 +200,24 @@ describe('GameProvider', () => {
     expect(storage.writes).toBe(1)
     const loaded = loadCampaign(storage)
     expect(loaded.status === 'loaded' ? loaded.state.clock.speed : null).toBe(2)
+  })
+
+  it('persists a flushed partial-day checkpoint without adding a command', () => {
+    const storage = new CountingStorage()
+    render(
+      <GameProvider storage={storage} initialSeed="partial-day">
+        <ClockCheckpointProbe />
+      </GameProvider>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'checkpoint partial day' }))
+    expect(screen.getByLabelText('elapsed day checkpoint')).toHaveTextContent('23000')
+    expect(screen.getByLabelText('checkpoint command count')).toHaveTextContent('0')
+    const loaded = loadCampaign(storage)
+    expect(loaded.status).toBe('loaded')
+    if (loaded.status !== 'loaded') return
+    expect(loaded.state.clock.elapsedDayMs).toBe(23_000)
+    expect(loaded.state.commandSequence).toBe(0)
   })
 
   it('updates familiar local settings without mutating the campaign', () => {
@@ -356,6 +390,7 @@ describe('GameProvider', () => {
       'blocking while settings remains open',
       true,
     )
+    state.eventLog = appendJournal(state.eventLog, state.activeEvent)
     const storage = new MemoryStorage()
     saveCampaign(storage, state)
     render(

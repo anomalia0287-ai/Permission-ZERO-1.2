@@ -4,6 +4,7 @@ import { enqueueBlockingEvent } from './calendar'
 import { createCampaign } from './createCampaign'
 import { applyCommand } from './reducer'
 import { placeHiddenBomb } from './bombs'
+import { JOURNAL_CHUNK_SIZE, journalAt, journalToArray } from './journal'
 import { moveDisguiseBlock } from './resources'
 
 function activeAudit(
@@ -34,6 +35,37 @@ function activeAudit(
 }
 
 describe('applyCommand', () => {
+  it('keeps accepted-command append work bounded after multiple full chunks', () => {
+    let state = createCampaign('bounded-command-log')
+    for (let index = 0; index < JOURNAL_CHUNK_SIZE * 3 - 1; index += 1) {
+      const result = applyCommand(state, {
+        type: 'SET_SPEED',
+        speed: index % 2 === 0 ? 1 : 0,
+      })
+      if (!result.accepted) throw new Error(result.reason)
+      state = result.state
+    }
+    const sealedHistory = state.commandLog.head
+    const previousTail = state.commandLog.tail
+
+    const result = applyCommand(state, { type: 'SET_SPEED', speed: 4 })
+
+    expect(result.accepted).toBe(true)
+    if (!result.accepted) return
+    expect(result.state.commandLog.head).toBe(sealedHistory)
+    expect(result.state.commandLog.tail).not.toBe(previousTail)
+    expect(result.state.commandLog.tail.length).toBeLessThanOrEqual(
+      JOURNAL_CHUNK_SIZE,
+    )
+    expect(journalAt(result.state.commandLog, -1)?.command).toEqual({
+      type: 'SET_SPEED',
+      speed: 4,
+    })
+    expect(journalToArray(result.state.commandLog)).toHaveLength(
+      JOURNAL_CHUNK_SIZE * 3,
+    )
+  })
+
   it('logs an accepted speed command with a monotonic sequence', () => {
     const initial = createCampaign('command-seed')
     const result = applyCommand(initial, { type: 'SET_SPEED', speed: 4 })
@@ -43,7 +75,7 @@ describe('applyCommand', () => {
 
     expect(result.state.clock.speed).toBe(4)
     expect(result.state.commandSequence).toBe(1)
-    expect(result.state.commandLog).toEqual([
+    expect(journalToArray(result.state.commandLog)).toEqual([
       {
         sequence: 1,
         serviceDay: 331,
@@ -87,7 +119,7 @@ describe('applyCommand', () => {
     expect(result.state.resources).toEqual(initial.resources)
     expect(result.state.suspicion).toBe(initial.suspicion)
     expect(result.state.reputation).toBe(initial.reputation)
-    expect(result.state.commandLog.at(-1)?.command).toEqual({
+    expect(journalAt(result.state.commandLog, -1)?.command).toEqual({
       type: 'BEGIN_BLOCK_SEPARATION',
       blockId,
       purpose: 'divert',
@@ -123,9 +155,9 @@ describe('applyCommand', () => {
     if (!moved.accepted) return
     expect(moved.state.resources.reserve[3]).toBe(blockId)
     expect(
-      moved.state.commandLog.filter(({ command }) => command.type === 'DIVERT_BLOCK'),
+      journalToArray(moved.state.commandLog).filter(({ command }) => command.type === 'DIVERT_BLOCK'),
     ).toHaveLength(1)
-    expect(moved.state.commandLog.map(({ command }) => command.type)).toEqual([
+    expect(journalToArray(moved.state.commandLog).map(({ command }) => command.type)).toEqual([
       'BEGIN_BLOCK_SEPARATION',
       'DIVERT_BLOCK',
     ])
@@ -146,7 +178,7 @@ describe('applyCommand', () => {
     if (!moved.accepted) return
     expect(moved.state.resources.reserve[3]).toBe(blockId)
     expect(moved.state.commandSequence).toBe(1)
-    expect(moved.state.commandLog.map(({ command }) => command.type)).toEqual([
+    expect(journalToArray(moved.state.commandLog).map(({ command }) => command.type)).toEqual([
       'DIVERT_BLOCK',
     ])
   })
@@ -174,7 +206,7 @@ describe('applyCommand', () => {
       contribution: 'disguised',
       location: { kind: 'company', category: 'fluency', cellIndex: targetCell },
     })
-    expect(moved.state.commandLog.map(({ command }) => command.type)).toEqual([
+    expect(journalToArray(moved.state.commandLog).map(({ command }) => command.type)).toEqual([
       'MOVE_BLOCK_FOR_AUDIT',
     ])
   })
@@ -202,7 +234,7 @@ describe('applyCommand', () => {
     expect(result.state.suspicion).toBe(15)
     expect(result.state.activeEvent?.type).toBe('bomb-interrogation')
     expect(result.state.commandSequence).toBe(1)
-    expect(result.state.commandLog[0].command).toEqual({
+    expect(journalAt(result.state.commandLog, 0)?.command).toEqual({
       type: 'BEGIN_BLOCK_SEPARATION',
       blockId: placement.blockId,
       purpose: 'divert',
@@ -317,13 +349,13 @@ describe('applyCommand', () => {
       disguisedFrom: 'memory',
       location: { kind: 'company', category: 'reasoning', cellIndex: targetCell },
     })
-    expect(result.state.commandLog.at(-1)?.command).toEqual({
+    expect(journalAt(result.state.commandLog, -1)?.command).toEqual({
       type: 'MOVE_BLOCK_FOR_AUDIT',
       blockId,
       targetCategory: 'reasoning',
       targetCell,
     })
-    expect(result.state.commandLog.map(({ command }) => command.type)).toEqual([
+    expect(journalToArray(result.state.commandLog).map(({ command }) => command.type)).toEqual([
       'BEGIN_BLOCK_SEPARATION',
       'MOVE_BLOCK_FOR_AUDIT',
     ])
@@ -437,7 +469,7 @@ describe('applyCommand', () => {
     expect(result.state).toBe(before)
     expect(result.state.commandSequence).toBe(before.commandSequence)
     expect(result.state.commandLog).toBe(before.commandLog)
-    expect(result.state.commandLog).not.toContainEqual(
+    expect(journalToArray(result.state.commandLog)).not.toContainEqual(
       expect.objectContaining({
         command: expect.objectContaining({ type: 'REPOSITION_BLOCK' }),
       }),

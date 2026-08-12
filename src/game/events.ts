@@ -1,4 +1,5 @@
 import type { CampaignState, GameEvent, GameEventType } from './model'
+import { appendJournal, journalSome } from './journal'
 
 export function createGameEvent(
   state: CampaignState,
@@ -19,8 +20,8 @@ export function createGameEvent(
 }
 
 export function appendEvent(state: CampaignState, event: GameEvent): CampaignState {
-  if (state.eventLog.some(({ id }) => id === event.id)) return state
-  return { ...state, eventLog: [...state.eventLog, event] }
+  if (journalSome(state.eventLog, ({ id }) => id === event.id)) return state
+  return { ...state, eventLog: appendJournal(state.eventLog, event) }
 }
 
 export function enqueueBlockingEvent(

@@ -10,6 +10,7 @@ import {
 } from './bombs'
 import { createCampaign } from './createCampaign'
 import { HACK_NODE_IDS } from './hacking'
+import { journalAt } from './journal'
 import { COMPANY_CATEGORIES, type CampaignState } from './model'
 import { divertBlock } from './resources'
 
@@ -70,7 +71,7 @@ describe('hidden bomb protocol timing', () => {
       lastPlacementCheckServiceDay: 361,
     })
     expect(hiddenBombIds(checked)).toEqual([])
-    expect(checked.eventLog.at(-1)).toMatchObject({
+    expect(journalAt(checked.eventLog, -1)).toMatchObject({
       type: 'supervisor-message',
       serviceDay: 361,
     })
