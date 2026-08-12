@@ -76,3 +76,48 @@ export function journalSome<T>(
   }
   return false
 }
+
+export function journalPageFromNewest<T>(
+  journal: Journal<T>,
+  page: number,
+  pageSize: number,
+  predicate?: (value: T) => boolean,
+): { items: T[]; total: number; pageCount: number } {
+  const normalizedPage = Math.max(0, Math.trunc(page))
+  const normalizedPageSize = Math.max(1, Math.trunc(pageSize))
+  const start = normalizedPage * normalizedPageSize
+  const items: T[] = []
+  let total = 0
+
+  const visit = (value: T): boolean => {
+    if (predicate && !predicate(value)) return true
+    if (total >= start && items.length < normalizedPageSize) items.push(value)
+    total += 1
+    return Boolean(predicate) || items.length < normalizedPageSize
+  }
+
+  for (let index = journal.tail.length - 1; index >= 0; index -= 1) {
+    if (!visit(journal.tail[index])) break
+  }
+  if (predicate || items.length < normalizedPageSize) {
+    let chunk = journal.head
+    while (chunk) {
+      let keepGoing = true
+      for (let index = chunk.items.length - 1; index >= 0; index -= 1) {
+        if (!visit(chunk.items[index])) {
+          keepGoing = false
+          break
+        }
+      }
+      if (!keepGoing) break
+      chunk = chunk.previous
+    }
+  }
+
+  const effectiveTotal = predicate ? total : journal.length
+  return {
+    items,
+    total: effectiveTotal,
+    pageCount: Math.max(1, Math.ceil(effectiveTotal / normalizedPageSize)),
+  }
+}

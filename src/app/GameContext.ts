@@ -37,7 +37,7 @@ export interface SettingsContextValue {
   startNewCampaign: (seed: string) => void
   loadIssue: Extract<LoadCampaignResult, { status: 'error' }> | null
   saveFailure: { message: string } | null
-  retrySave: () => boolean
+  retrySave: () => Promise<boolean>
   copyProgressExport: () => Promise<CopyProgressExportResult>
   createProgressFile: () => ProgressFile
   validateProgressImport: (payload: string) => ProgressImportValidationResult

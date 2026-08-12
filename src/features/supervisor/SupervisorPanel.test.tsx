@@ -6,7 +6,7 @@ import { StateContext } from '../../app/GameContext'
 import { STORY_FILES } from '../../content/story.ko'
 import { createCampaign } from '../../game/createCampaign'
 import { createJournal } from '../../game/journal'
-import { saveCampaign } from '../../game/persistence'
+import { encodeSave, SAVE_STORAGE_KEY } from '../../game/persistence'
 import { MemoryStorage } from '../../test/fixtures'
 import { SupervisorHistoryPanel, SupervisorPanel } from './SupervisorPanel'
 
@@ -52,7 +52,7 @@ describe('SupervisorPanel', () => {
       recoveredOnServiceDay: 340 + index,
     }))
     const storage = new MemoryStorage()
-    saveCampaign(storage, state)
+    storage.setItem(SAVE_STORAGE_KEY, encodeSave(state))
 
     render(
       <GameProvider storage={storage}>

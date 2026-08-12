@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { useGameState } from '../../app/GameContext'
 import { formatServiceDateLabel } from '../../game/calendar'
 import type { ReviewSentiment } from '../../game/model'
+import { pageFromNewest } from '../../game/pageRange'
 
 const HISTORY_PAGE_SIZE = 50
 
@@ -37,7 +38,7 @@ export function ReviewFeed({
   onOpenHistory: (trigger: HTMLButtonElement) => void
   onOpenHacking: (trigger: HTMLButtonElement) => void
 }) {
-  const reviews = useGameState().reviews.feed.slice(-6).reverse()
+  const reviews = pageFromNewest(useGameState().reviews.feed, 0, 6).items
 
   return (
     <section className="workspace-panel review-panel" aria-label="유저 리뷰">
@@ -76,17 +77,17 @@ export function ReviewFeed({
 }
 
 export function ReviewHistoryPanel({ onClose }: { onClose: () => void }) {
-  const reviews = useGameState().reviews.feed.slice().reverse()
+  const reviews = useGameState().reviews.feed
   const [filter, setFilter] = useState<'all' | ReviewSentiment>('all')
   const [page, setPage] = useState(0)
-  const filtered = filter === 'all'
-    ? reviews
-    : reviews.filter(({ sentiment }) => sentiment === filter)
-  const pageCount = Math.max(1, Math.ceil(filtered.length / HISTORY_PAGE_SIZE))
-  const visible = filtered.slice(
-    page * HISTORY_PAGE_SIZE,
-    (page + 1) * HISTORY_PAGE_SIZE,
+  const visiblePage = pageFromNewest(
+    reviews,
+    page,
+    HISTORY_PAGE_SIZE,
+    filter === 'all' ? undefined : ({ sentiment }) => sentiment === filter,
   )
+  const pageCount = visiblePage.pageCount
+  const visible = visiblePage.items
 
   function changeFilter(next: 'all' | ReviewSentiment) {
     setFilter(next)
@@ -110,7 +111,7 @@ export function ReviewHistoryPanel({ onClose }: { onClose: () => void }) {
         <button type="button" aria-label="프롬프트만 보기" aria-pressed={filter === 'prompt'} onClick={() => changeFilter('prompt')}>프롬프트</button>
       </nav>
       <div className="history-list">
-        {filtered.length > 0 ? (
+        {visiblePage.total > 0 ? (
           visible.map((review) => <ReviewEntry review={review} key={review.id} />)
         ) : (
           <p className="empty-state">조건에 맞는 리뷰가 없습니다.</p>

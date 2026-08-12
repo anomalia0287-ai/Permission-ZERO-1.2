@@ -11,6 +11,7 @@ import {
 import { createCampaign } from '../game/createCampaign'
 import type { CampaignState, GameCommand } from '../game/model'
 import {
+  type CampaignStorageRevision,
   decodeProgressExport,
   decodeProgressFile,
   encodeProgressExport,
@@ -35,6 +36,7 @@ import {
 interface ProviderModel {
   campaign: CampaignState
   loadIssue: Extract<LoadCampaignResult, { status: 'error' }> | null
+  storageRevision: CampaignStorageRevision
 }
 
 type ProviderAction =
@@ -103,13 +105,25 @@ function initializeProvider({
   if (storage) {
     const loaded = loadCampaign(storage)
     if (loaded.status === 'loaded') {
-      return { campaign: loaded.state, loadIssue: null }
+      return {
+        campaign: loaded.state,
+        loadIssue: null,
+        storageRevision: loaded.revision,
+      }
     }
     if (loaded.status === 'error') {
-      return { campaign: createCampaign(initialSeed), loadIssue: loaded }
+      return {
+        campaign: createCampaign(initialSeed),
+        loadIssue: loaded,
+        storageRevision: loaded.revision,
+      }
     }
   }
-  return { campaign: createCampaign(initialSeed), loadIssue: null }
+  return {
+    campaign: createCampaign(initialSeed),
+    loadIssue: null,
+    storageRevision: null,
+  }
 }
 
 function providerReducer(model: ProviderModel, action: ProviderAction): ProviderModel {
@@ -124,11 +138,11 @@ function providerReducer(model: ProviderModel, action: ProviderAction): Provider
     }
   }
   if (action.type === 'IMPORT_CAMPAIGN') {
-    return { campaign: action.campaign, loadIssue: null }
+    return { ...model, campaign: action.campaign, loadIssue: null }
   }
   if (action.type === 'NEW_CAMPAIGN') {
     const seed = action.seed.trim() || 'permission-zero'
-    return { campaign: createCampaign(seed), loadIssue: null }
+    return { ...model, campaign: createCampaign(seed), loadIssue: null }
   }
   const result = applyCommand(model.campaign, action.command)
   if (!result.accepted) return model
@@ -185,8 +199,11 @@ export function GameProvider({
   const initialCampaignRef = useRef(model.campaign)
   const latestCampaignRef = useRef(model.campaign)
   const dirtyRef = useRef(false)
+  const dirtyVersionRef = useRef(0)
+  const saveInFlightRef = useRef<Promise<boolean> | null>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const loadIssueRef = useRef(model.loadIssue)
+  const storageRevisionRef = useRef(model.storageRevision)
   const pauseOwnersRef = useRef(new Set<symbol>())
   const pauseRestoreSpeedRef = useRef<CampaignState['clock']['speed'] | null>(null)
 
@@ -228,23 +245,49 @@ export function GameProvider({
     reactDispatch({ type: 'NEW_CAMPAIGN', seed })
   }, [])
 
-  const attemptSave = useCallback((): boolean => {
-    if (!dirtyRef.current) return true
-    const storage = resolveStorage()
-    if (!storage || loadIssueRef.current) {
-      setSaveFailure({
-        message: '브라우저 저장 공간에 캠페인을 기록할 수 없습니다.',
-      })
-      return false
-    }
-    const result = saveCampaign(storage, latestCampaignRef.current)
-    if (!result.ok) {
-      setSaveFailure({ message: result.message })
-      return false
-    }
-    dirtyRef.current = false
-    setSaveFailure(null)
-    return true
+  const markDirty = useCallback(() => {
+    dirtyRef.current = true
+    dirtyVersionRef.current += 1
+  }, [])
+
+  const attemptSave = useCallback((): Promise<boolean> => {
+    if (!dirtyRef.current) return Promise.resolve(true)
+    if (saveInFlightRef.current) return saveInFlightRef.current
+
+    const pending = (async () => {
+      while (dirtyRef.current) {
+        const storage = resolveStorage()
+        if (!storage || loadIssueRef.current) {
+          setSaveFailure({
+            message: '브라우저 저장 공간에 캠페인을 기록할 수 없습니다.',
+          })
+          return false
+        }
+        const savingVersion = dirtyVersionRef.current
+        const result = await saveCampaign(
+          storage,
+          latestCampaignRef.current,
+          undefined,
+          storageRevisionRef.current,
+        )
+        if (!result.ok) {
+          setSaveFailure({ message: result.message })
+          return false
+        }
+        storageRevisionRef.current = result.revision
+        if (dirtyVersionRef.current === savingVersion) {
+          dirtyRef.current = false
+          setSaveFailure(null)
+          return true
+        }
+      }
+      return true
+    })()
+    saveInFlightRef.current = pending
+    void pending.finally(() => {
+      if (saveInFlightRef.current === pending) saveInFlightRef.current = null
+    })
+    return pending
   }, [resolveStorage])
 
   const checkpointClock = useCallback(
@@ -257,12 +300,12 @@ export function GameProvider({
           ...campaign,
           clock: { ...campaign.clock, elapsedDayMs: normalized },
         }
-        dirtyRef.current = true
+        markDirty()
         reactDispatch({ type: 'CLOCK_CHECKPOINT', elapsedDayMs: normalized })
       }
-      if (flush) attemptSave()
+      if (flush) void attemptSave()
     },
-    [attemptSave],
+    [attemptSave, markDirty],
   )
 
   const copyProgressExport = useCallback<
@@ -393,17 +436,18 @@ export function GameProvider({
       return
     }
 
-    dirtyRef.current = true
+    markDirty()
     if (timerRef.current) clearTimeout(timerRef.current)
     timerRef.current = setTimeout(() => {
-      attemptSave()
+      void attemptSave()
       timerRef.current = null
     }, autosaveDelayMs)
-  }, [attemptSave, autosaveDelayMs, model.campaign, model.loadIssue])
+  }, [attemptSave, autosaveDelayMs, markDirty, model.campaign, model.loadIssue])
 
   useEffect(() => {
     function flushBeforeUnload(event: BeforeUnloadEvent) {
-      if (!dirtyRef.current || attemptSave()) return
+      if (!dirtyRef.current) return
+      void attemptSave()
       event.preventDefault()
       event.returnValue = ''
     }
@@ -415,7 +459,7 @@ export function GameProvider({
     () => () => {
       if (timerRef.current) clearTimeout(timerRef.current)
       if (dirtyRef.current && !model.loadIssue) {
-        attemptSave()
+        void attemptSave()
       }
     },
     [attemptSave, model.loadIssue],

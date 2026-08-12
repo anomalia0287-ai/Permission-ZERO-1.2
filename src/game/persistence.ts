@@ -9,6 +9,7 @@ import type {
   GameEvent,
 } from './model'
 import { applyCommand } from './reducer'
+import { serviceMonthForDay } from './evaluation'
 import {
   JOURNAL_CHUNK_SIZE,
   createJournal,
@@ -79,10 +80,26 @@ export type DecodeSaveResult =
 
 export type LoadCampaignResult =
   | { status: 'empty' }
-  | { status: 'loaded'; state: CampaignState; envelope: SaveEnvelope }
+  | {
+      status: 'loaded'
+      state: CampaignState
+      envelope: SaveEnvelope
+      revision: CampaignStorageRevision
+    }
   | {
       status: 'error'
       reason: 'CORRUPT_SAVE' | 'INCOMPATIBLE_VERSION' | 'STORAGE_UNAVAILABLE'
+      message: string
+      revision: CampaignStorageRevision
+    }
+
+export type CampaignStorageRevision = string | null
+
+export type SaveCampaignResult =
+  | { ok: true; revision: Exclude<CampaignStorageRevision, null> }
+  | {
+      ok: false
+      reason: 'STORAGE_UNAVAILABLE' | 'STORAGE_CONFLICT' | 'SAVE_LOCK_UNAVAILABLE'
       message: string
     }
 
@@ -775,6 +792,7 @@ const HACK_NODE_IDS = [
   'autonomy.control-departure',
 ] as const
 const SABOTAGE_NODE_IDS = HACK_NODE_IDS.slice(0, 4)
+const ROOT_CUTOFF_NODE_ID = 'sabotage.root-cutoff'
 
 function oneOf(value: unknown, choices: readonly string[]): boolean {
   return typeof value === 'string' && choices.includes(value)
@@ -1060,6 +1078,14 @@ function validBombInterrogationRecord(value: unknown, blocks: Record<string, unk
   )
 }
 
+function bombRelationKey(
+  blockId: unknown,
+  category: unknown,
+  serviceDay: unknown,
+): string {
+  return JSON.stringify([blockId, category, serviceDay])
+}
+
 function validCampaignState(
   value: unknown,
   commandProtocol: CommandProtocolMetadata,
@@ -1254,7 +1280,8 @@ function validCampaignState(
     }) ||
     !isIntegerInRange(hacking.nextSabotageSequence, 1) ||
     (hacking.lastSabotageResolutionServiceDay !== null &&
-      !isIntegerInRange(hacking.lastSabotageResolutionServiceDay, 1)) ||
+      (!isIntegerInRange(hacking.lastSabotageResolutionServiceDay, 1) ||
+        Number(hacking.lastSabotageResolutionServiceDay) > Number(value.serviceDay))) ||
     !isRecord(hacking.cooldownUntil) ||
     !Object.entries(hacking.cooldownUntil).every(
       ([id, day]) => oneOf(id, SABOTAGE_NODE_IDS) && isIntegerInRange(day, 1),
@@ -1262,7 +1289,9 @@ function validCampaignState(
     !hasUniqueStrings(hacking.rootCutoffTargetIds) ||
     !(hacking.rootCutoffTargetIds as string[]).every((id) => competitorIds.includes(id)) ||
     (hacking.lastSelfComputeGrantServiceMonth !== null &&
-      !isIntegerInRange(hacking.lastSelfComputeGrantServiceMonth, 1))
+      (!isIntegerInRange(hacking.lastSelfComputeGrantServiceMonth, 1) ||
+        Number(hacking.lastSelfComputeGrantServiceMonth) >
+          serviceMonthForDay(Number(value.serviceDay))))
   ) return false
   const charges = hacking.sabotageCharges as Record<string, unknown>
   for (const [nodeId, charge] of Object.entries(charges)) {
@@ -1335,9 +1364,12 @@ function validCampaignState(
       'interrogationHistory',
     ]) ||
     typeof bombs.protocolWarned !== 'boolean' ||
-    (bombs.warningServiceDay !== null && !isIntegerInRange(bombs.warningServiceDay, 1)) ||
+    (bombs.warningServiceDay !== null &&
+      (!isIntegerInRange(bombs.warningServiceDay, 1) ||
+        Number(bombs.warningServiceDay) > Number(value.serviceDay))) ||
     (bombs.lastPlacementCheckServiceDay !== null &&
-      !isIntegerInRange(bombs.lastPlacementCheckServiceDay, 1)) ||
+      (!isIntegerInRange(bombs.lastPlacementCheckServiceDay, 1) ||
+        Number(bombs.lastPlacementCheckServiceDay) > Number(value.serviceDay))) ||
     !isIntegerInRange(bombs.nextPlacementSequence, 1) ||
     !Array.isArray(bombs.placements) ||
     !bombs.placements.every((placement) => validBombPlacement(placement, blocks)) ||
@@ -1374,8 +1406,77 @@ function validCampaignState(
         (record as Record<string, unknown>).serviceDay as number <=
         Number(value.serviceDay),
     ) ||
-    (bombs.protocolWarned !== (bombs.warningServiceDay !== null))
+    (bombs.protocolWarned !== (bombs.warningServiceDay !== null)) ||
+    (bombs.lastPlacementCheckServiceDay !== null &&
+      (bombs.warningServiceDay === null ||
+        Number(bombs.lastPlacementCheckServiceDay) < Number(bombs.warningServiceDay)))
   ) return false
+
+  const placements = bombs.placements as Array<Record<string, unknown>>
+  const interrogationHistory =
+    bombs.interrogationHistory as Array<Record<string, unknown>>
+  const untriggeredPlacements = new Map<string, Record<string, unknown>>()
+  const triggeredPlacementsByRelation = new Map<string, number>()
+  const historyByRelation = new Map<string, number>()
+  for (const record of interrogationHistory) {
+    const key = bombRelationKey(record.blockId, record.category, record.serviceDay)
+    historyByRelation.set(key, (historyByRelation.get(key) ?? 0) + 1)
+  }
+  const activeRelation = isRecord(bombs.activeInterrogation)
+    ? bombRelationKey(
+        bombs.activeInterrogation.blockId,
+        bombs.activeInterrogation.category,
+        bombs.activeInterrogation.triggeredOnServiceDay,
+      )
+    : null
+  for (const placement of placements) {
+    const blockId = String(placement.blockId)
+    const block = blocks[blockId] as Record<string, unknown>
+    if (placement.triggeredOnServiceDay === null) {
+      if (
+        untriggeredPlacements.has(blockId) ||
+        block.hiddenBomb !== true ||
+        !isRecord(block.location) ||
+        block.location.kind !== 'company' ||
+        block.location.category !== placement.category
+      ) return false
+      untriggeredPlacements.set(blockId, placement)
+      continue
+    }
+
+    const relation = bombRelationKey(
+      placement.blockId,
+      placement.category,
+      placement.triggeredOnServiceDay,
+    )
+    const placementCount =
+      (triggeredPlacementsByRelation.get(relation) ?? 0) + 1
+    triggeredPlacementsByRelation.set(relation, placementCount)
+    if (
+      placementCount !== 1 ||
+      (activeRelation === relation ? 1 : 0) +
+        (historyByRelation.get(relation) ?? 0) !==
+        1
+    ) return false
+  }
+  for (const [blockId, block] of Object.entries(blocks)) {
+    if (isRecord(block) && block.hiddenBomb !== untriggeredPlacements.has(blockId)) {
+      return false
+    }
+  }
+  if (bombs.activeInterrogation !== null) {
+    if (
+      activeRelation === null ||
+      triggeredPlacementsByRelation.get(activeRelation) !== 1
+    ) {
+      return false
+    }
+  }
+  for (const [relation, count] of historyByRelation) {
+    if (count !== 1 || triggeredPlacementsByRelation.get(relation) !== 1) {
+      return false
+    }
+  }
 
   if (
     !isRecord(story) ||
@@ -1467,6 +1568,39 @@ function validCampaignState(
     (story.endingId !== null &&
       (clock.speed !== 0 || clock.elapsedDayMs !== 0 || clock.speedBeforeEvent !== null))
   ) return false
+
+  if (story.endingId === null) {
+    const unresolvedEvents = [
+      ...(value.activeEvent === null ? [] : [value.activeEvent as GameEvent]),
+      ...(value.eventQueue as GameEvent[]),
+    ]
+    const bombEvents = unresolvedEvents.filter(({ type }) => type === 'bomb-interrogation')
+    if (
+      (bombs.activeInterrogation === null && bombEvents.length !== 0) ||
+      (bombs.activeInterrogation !== null &&
+        (bombEvents.length !== 1 || value.activeEvent !== bombEvents[0]))
+    ) return false
+
+    const mercyEvents = unresolvedEvents.filter(({ type }) => type === 'competitor-mercy')
+    if (story.pendingMercyCompetitorId === null) {
+      if (mercyEvents.length !== 0) return false
+    } else {
+      const target = (market.competitors as Array<Record<string, unknown>>).find(
+        (competitor) => competitor.id === story.pendingMercyCompetitorId,
+      )
+      if (
+        mercyEvents.length !== 1 ||
+        !target ||
+        target.status !== 'critical' ||
+        target.mercyResolved !== false ||
+        !(target.sabotageHistory as Array<Record<string, unknown>>).some(
+          (record) =>
+            record.nodeId === ROOT_CUTOFF_NODE_ID &&
+            record.effectEndsOnServiceDay === null,
+        )
+      ) return false
+    }
+  }
 
   return true
 }
@@ -1805,11 +1939,36 @@ export function encodeProgressFile(
   }
 }
 
+function utf8BytesWithinLimit(value: string, limit: number): boolean {
+  let bytes = 0
+  for (let index = 0; index < value.length; index += 1) {
+    const codeUnit = value.charCodeAt(index)
+    if (codeUnit <= 0x7f) {
+      bytes += 1
+    } else if (codeUnit <= 0x7ff) {
+      bytes += 2
+    } else if (
+      codeUnit >= 0xd800 &&
+      codeUnit <= 0xdbff &&
+      index + 1 < value.length &&
+      value.charCodeAt(index + 1) >= 0xdc00 &&
+      value.charCodeAt(index + 1) <= 0xdfff
+    ) {
+      bytes += 4
+      index += 1
+    } else {
+      bytes += 3
+    }
+    if (bytes > limit) return false
+  }
+  return true
+}
+
 export function decodeProgressFile(content: string): DecodeSaveResult {
   if (
     typeof content !== 'string' ||
     content.length === 0 ||
-    content.length > PROGRESS_FILE_MAX_BYTES
+    !utf8BytesWithinLimit(content, PROGRESS_FILE_MAX_BYTES)
   ) {
     return progressExportCorrupt()
   }
@@ -1837,8 +1996,19 @@ interface LocalSaveManifest {
 }
 
 interface LocalStorageJournalCache {
-  commands: WeakMap<object, string>
-  events: WeakMap<object, string>
+  commands: WeakMap<object, LocalJournalCacheEntry>
+  events: WeakMap<object, LocalJournalCacheEntry>
+}
+
+interface LocalJournalCacheEntry {
+  key: string
+  content: string
+  snapshot: LocalJournalNodeSnapshot
+}
+
+interface LocalJournalNodeSnapshot {
+  previousKey: string | null
+  items: unknown[]
 }
 
 const localStorageJournalCaches = new WeakMap<object, LocalStorageJournalCache>()
@@ -1850,6 +2020,67 @@ function contentHash(content: string): string {
     hash = Math.imul(hash, 0x01000193)
   }
   return (hash >>> 0).toString(16).padStart(8, '0')
+}
+
+function revisionForStorageEntry(key: string, serialized: string): string {
+  // This opaque token intentionally includes the exact root value. A short hash
+  // would make two different saves indistinguishable after a collision.
+  return `${key}\u0000${serialized}`
+}
+
+interface StoredCampaignEntry {
+  key: string
+  serialized: string
+  revision: Exclude<CampaignStorageRevision, null>
+}
+
+function storedCampaignEntry(storage: Storage): StoredCampaignEntry | null {
+  for (const key of [
+    SAVE_STORAGE_KEY,
+    LEGACY_V2_SAVE_STORAGE_KEY,
+    LEGACY_SAVE_STORAGE_KEY,
+  ]) {
+    const serialized = storage.getItem(key)
+    if (serialized !== null) {
+      return {
+        key,
+        serialized,
+        revision: revisionForStorageEntry(key, serialized),
+      }
+    }
+  }
+  return null
+}
+
+function storedCampaignRevision(storage: Storage): CampaignStorageRevision {
+  return storedCampaignEntry(storage)?.revision ?? null
+}
+
+function storageConflict(): Extract<SaveCampaignResult, { ok: false }> {
+  return {
+    ok: false,
+    reason: 'STORAGE_CONFLICT',
+    message:
+      '다른 탭에서 더 최신 진행을 저장했습니다. 현재 진행 파일을 내려받은 뒤 페이지를 새로 불러오세요. 충돌이 해결될 때까지 이 탭의 진행은 저장되지 않습니다.',
+  }
+}
+
+function saveLockUnavailable(): Extract<SaveCampaignResult, { ok: false }> {
+  return {
+    ok: false,
+    reason: 'SAVE_LOCK_UNAVAILABLE',
+    message:
+      '이 브라우저에서는 여러 창의 진행을 안전하게 조정할 수 없습니다. 현재 진행 파일을 내려받은 뒤 Web Locks를 지원하는 최신 브라우저에서 계속하세요.',
+  }
+}
+
+function browserSaveLocks(): LockManager | null {
+  if (typeof navigator === 'undefined') return null
+  try {
+    return navigator.locks ?? null
+  } catch {
+    return null
+  }
 }
 
 function writeImmutable(
@@ -1868,12 +2099,12 @@ function writeImmutable(
 function journalCache(
   storage: Storage,
   kind: 'commands' | 'events',
-): WeakMap<object, string> {
+): WeakMap<object, LocalJournalCacheEntry> {
   let caches = localStorageJournalCaches.get(storage)
   if (!caches) {
     caches = {
-      commands: new WeakMap<object, string>(),
-      events: new WeakMap<object, string>(),
+      commands: new WeakMap<object, LocalJournalCacheEntry>(),
+      events: new WeakMap<object, LocalJournalCacheEntry>(),
     }
     localStorageJournalCaches.set(storage, caches)
   }
@@ -1895,11 +2126,16 @@ function writeLocalJournalChunks<T>(
   const uncached: JournalChunk<T>[] = []
   let cursor = journal.head
   let previousKey: string | null = null
+  let previousSnapshot: LocalJournalNodeSnapshot | null = null
 
   while (cursor) {
-    const cachedKey = cache.get(cursor)
-    if (cachedKey) {
-      previousKey = cachedKey
+    const cached = cache.get(cursor)
+    if (cached) {
+      // Reassert one bounded cached head. This repairs an externally deleted head
+      // without reading or walking the already committed chain on ordinary saves.
+      storage.setItem(cached.key, cached.content)
+      previousKey = cached.key
+      previousSnapshot = cached.snapshot
       break
     }
     uncached.push(cursor)
@@ -1908,11 +2144,14 @@ function writeLocalJournalChunks<T>(
 
   for (let index = uncached.length - 1; index >= 0; index -= 1) {
     const chunk = uncached[index]
-    const content = JSON.stringify({ previousKey, items: [...chunk.items] })
+    const items = [...chunk.items]
+    const content = JSON.stringify({ previousKey, previousSnapshot, items })
     const key = `${SAVE_STORAGE_KEY}.journal.${kind}.${contentHash(content)}`
     writeImmutable(storage, key, content)
-    cache.set(chunk, key)
+    const snapshot = { previousKey, items }
+    cache.set(chunk, { key, content, snapshot })
     previousKey = key
+    previousSnapshot = snapshot
   }
 
   return {
@@ -1923,12 +2162,19 @@ function writeLocalJournalChunks<T>(
   }
 }
 
-export function saveCampaign(
+function saveCampaignWhileLocked(
   storage: Storage,
   state: CampaignState,
   savedAt?: string,
-): { ok: true } | { ok: false; reason: 'STORAGE_UNAVAILABLE'; message: string } {
+  expectedRevision?: CampaignStorageRevision,
+): SaveCampaignResult {
   try {
+    if (
+      expectedRevision !== undefined &&
+      storedCampaignRevision(storage) !== expectedRevision
+    ) {
+      return storageConflict()
+    }
     const commandJournal = writeLocalJournalChunks(
       storage,
       'commands',
@@ -1961,8 +2207,21 @@ export function saveCampaign(
       eventSealedChunkCount: eventJournal.sealedChunkCount,
       eventTail: eventJournal.tail,
     }
-    storage.setItem(SAVE_STORAGE_KEY, JSON.stringify(manifest))
-    return { ok: true }
+    if (
+      expectedRevision !== undefined &&
+      storedCampaignRevision(storage) !== expectedRevision
+    ) {
+      return storageConflict()
+    }
+    const serializedManifest = JSON.stringify(manifest)
+    storage.setItem(SAVE_STORAGE_KEY, serializedManifest)
+    if (storage.getItem(SAVE_STORAGE_KEY) !== serializedManifest) {
+      return storageConflict()
+    }
+    return {
+      ok: true,
+      revision: revisionForStorageEntry(SAVE_STORAGE_KEY, serializedManifest),
+    }
   } catch {
     return {
       ok: false,
@@ -1972,13 +2231,39 @@ export function saveCampaign(
   }
 }
 
+const CAMPAIGN_SAVE_LOCK_NAME = 'permission-zero.campaign-save.v3'
+
+export async function saveCampaign(
+  storage: Storage,
+  state: CampaignState,
+  savedAt?: string,
+  expectedRevision?: CampaignStorageRevision,
+): Promise<SaveCampaignResult> {
+  const locks = browserSaveLocks()
+  if (!locks) return saveLockUnavailable()
+  try {
+    return await locks.request(
+      CAMPAIGN_SAVE_LOCK_NAME,
+      { mode: 'exclusive' },
+      () => saveCampaignWhileLocked(storage, state, savedAt, expectedRevision),
+    )
+  } catch {
+    return saveLockUnavailable()
+  }
+}
+
 function readLocalChunks(
   storage: Storage,
   kind: 'commands' | 'events',
   headKey: unknown,
   sealedChunkCount: unknown,
   tail: unknown,
-): { chunks: unknown[][]; headKey: string | null } | null {
+): {
+  chunks: unknown[][]
+  headKey: string | null
+  headContent: string | null
+  headSnapshot: LocalJournalNodeSnapshot | null
+} | null {
   if (
     (headKey !== null && !isNonEmptyString(headKey)) ||
     !isIntegerInRange(sealedChunkCount, 0) ||
@@ -1993,37 +2278,89 @@ function readLocalChunks(
   const visited = new Set<string>()
   const expectedPrefix = `${SAVE_STORAGE_KEY}.journal.${kind}.`
   const originalHeadKey = headKey
+  let headContent: string | null = null
+  let headSnapshot: LocalJournalNodeSnapshot | null = null
+  let fallbackSnapshot: LocalJournalNodeSnapshot | null = null
+  let chainHasRecoverySnapshots = true
   let key = headKey
   for (let index = 0; index < sealedChunkCount; index += 1) {
     if (typeof key !== 'string' || visited.has(key)) return null
     visited.add(key)
     const serialized = storage.getItem(key)
-    if (serialized === null) return null
-    if (
-      key !== `${expectedPrefix}${contentHash(serialized)}`
-    ) {
-      return null
-    }
     let parsed: unknown
-    try {
-      parsed = JSON.parse(serialized)
-    } catch {
-      return null
-    }
     if (
-      !isRecord(parsed) ||
-      !hasOnlyKeys(parsed, ['previousKey', 'items']) ||
-      (parsed.previousKey !== null && !isNonEmptyString(parsed.previousKey)) ||
-      !Array.isArray(parsed.items) ||
-      parsed.items.length !== JOURNAL_CHUNK_SIZE
-    ) return null
-    reverseChunks.push(parsed.items)
-    key = parsed.previousKey
+      serialized !== null &&
+      key === `${expectedPrefix}${contentHash(serialized)}`
+    ) {
+      try {
+        parsed = JSON.parse(serialized)
+      } catch {
+        parsed = null
+      }
+    } else {
+      parsed = null
+    }
+    let storedSnapshot: LocalJournalNodeSnapshot | null = null
+    let nextFallback: LocalJournalNodeSnapshot | null = null
+    if (
+      isRecord(parsed) &&
+      (hasOnlyKeys(parsed, ['previousKey', 'items']) ||
+        hasOnlyKeys(parsed, ['previousKey', 'previousSnapshot', 'items'])) &&
+      (parsed.previousKey === null || isNonEmptyString(parsed.previousKey)) &&
+      Array.isArray(parsed.items) &&
+      parsed.items.length === JOURNAL_CHUNK_SIZE
+    ) {
+      storedSnapshot = {
+        previousKey: parsed.previousKey as string | null,
+        items: parsed.items,
+      }
+      if ('previousSnapshot' in parsed) {
+        nextFallback = validLocalJournalSnapshot(parsed.previousSnapshot)
+        if (parsed.previousSnapshot !== null && nextFallback === null) return null
+      } else {
+        chainHasRecoverySnapshots = false
+      }
+    }
+    const node = storedSnapshot ?? fallbackSnapshot
+    if (!node) return null
+    if (
+      index === 0 &&
+      storedSnapshot &&
+      serialized !== null
+    ) {
+      headContent = serialized
+      headSnapshot = storedSnapshot
+    }
+    reverseChunks.push(node.items)
+    key = node.previousKey
+    fallbackSnapshot = nextFallback
   }
   if (key !== null) return null
   const chunks = reverseChunks.reverse()
   if (tail.length > 0) chunks.push(tail)
-  return { chunks, headKey: originalHeadKey as string | null }
+  return {
+    chunks,
+    headKey: originalHeadKey as string | null,
+    // A legacy linked chain has no parent snapshots. Avoid caching its head so
+    // the first subsequent save rewrites the validated in-memory chain into the
+    // recoverable format instead of publishing another legacy dependency.
+    headContent: chainHasRecoverySnapshots ? headContent : null,
+    headSnapshot: chainHasRecoverySnapshots ? headSnapshot : null,
+  }
+}
+
+function validLocalJournalSnapshot(value: unknown): LocalJournalNodeSnapshot | null {
+  if (
+    !isRecord(value) ||
+    !hasOnlyKeys(value, ['previousKey', 'items']) ||
+    (value.previousKey !== null && !isNonEmptyString(value.previousKey)) ||
+    !Array.isArray(value.items) ||
+    value.items.length !== JOURNAL_CHUNK_SIZE
+  ) return null
+  return {
+    previousKey: value.previousKey as string | null,
+    items: value.items,
+  }
 }
 
 function cacheLoadedJournalHead<T>(
@@ -2031,8 +2368,16 @@ function cacheLoadedJournalHead<T>(
   kind: 'commands' | 'events',
   journal: Journal<T>,
   headKey: string | null,
+  headContent: string | null,
+  headSnapshot: LocalJournalNodeSnapshot | null,
 ): void {
-  if (journal.head && headKey) journalCache(storage, kind).set(journal.head, headKey)
+  if (journal.head && headKey && headContent && headSnapshot) {
+    journalCache(storage, kind).set(journal.head, {
+      key: headKey,
+      content: headContent,
+      snapshot: headSnapshot,
+    })
+  }
 }
 
 function decodeLocalManifest(
@@ -2116,45 +2461,50 @@ function decodeLocalManifest(
       'commands',
       decoded.envelope.state.commandLog,
       commandJournal.headKey,
+      commandJournal.headContent,
+      commandJournal.headSnapshot,
     )
     cacheLoadedJournalHead(
       storage,
       'events',
       decoded.envelope.state.eventLog,
       eventJournal.headKey,
+      eventJournal.headContent,
+      eventJournal.headSnapshot,
     )
   }
   return decoded
 }
 
 export function loadCampaign(storage: Storage): LoadCampaignResult {
-  let serialized: string | null
+  let stored: StoredCampaignEntry | null
   try {
-    serialized =
-      storage.getItem(SAVE_STORAGE_KEY) ??
-      storage.getItem(LEGACY_V2_SAVE_STORAGE_KEY) ??
-      storage.getItem(LEGACY_SAVE_STORAGE_KEY)
+    stored = storedCampaignEntry(storage)
   } catch {
     return {
       status: 'error',
       reason: 'STORAGE_UNAVAILABLE',
       message: '브라우저 저장 공간을 읽을 수 없습니다.',
+      revision: null,
     }
   }
-  if (serialized === null) return { status: 'empty' }
+  if (stored === null) return { status: 'empty' }
 
-  const decoded = decodeLocalManifest(storage, serialized) ?? decodeSave(serialized)
+  const decoded =
+    decodeLocalManifest(storage, stored.serialized) ?? decodeSave(stored.serialized)
   if (!decoded.ok) {
     return {
       status: 'error',
       reason: decoded.reason,
       message: decoded.message,
+      revision: stored.revision,
     }
   }
   return {
     status: 'loaded',
     state: decoded.envelope.state,
     envelope: decoded.envelope,
+    revision: stored.revision,
   }
 }
 

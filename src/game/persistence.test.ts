@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { createCampaign } from './createCampaign'
 import { STORY_FILES } from '../content/story.ko'
-import { createGameEvent } from './events'
+import { createGameEvent, enqueueBlockingEvent } from './events'
+import { serviceMonthForDay } from './evaluation'
+import { placeHiddenBomb, resolveBombInterrogation, tryBeginSeparation } from './bombs'
+import { HACK_NODE_IDS } from './hacking'
 import { appendJournal, createJournal, journalToArray } from './journal'
 import type {
   CampaignState,
@@ -28,6 +31,7 @@ import {
   saveCampaign,
 } from './persistence'
 import { applyCommand } from './reducer'
+import { enqueueMercyIfNeeded } from './story'
 import { MemoryStorage } from '../test/fixtures'
 import legacyV1TransferEnvelope from '../test/legacy-v1-transfer-save.json'
 import * as persistenceApi from './persistence'
@@ -192,6 +196,44 @@ function largeAppendOnlyCommandCampaign(): CampaignState {
   return state
 }
 
+function activeBombInterrogationState(seed: string): CampaignState {
+  const placement = placeHiddenBomb(createCampaign(seed))
+  if (!placement.placed || !placement.blockId) {
+    throw new Error('bomb relation fixture missing')
+  }
+  const triggered = tryBeginSeparation(placement.state, {
+    kind: 'divert',
+    blockId: placement.blockId,
+  })
+  if (triggered.accepted) throw new Error('bomb relation fixture did not trigger')
+  return triggered.state
+}
+
+function pendingMercyState(seed: string, queued = false): CampaignState {
+  let state = createCampaign(seed)
+  const target = state.market.competitors[0]
+  state.market.competitors[0] = {
+    ...target,
+    status: 'critical',
+    mercyResolved: false,
+    sabotageHistory: [
+      {
+        nodeId: HACK_NODE_IDS.sabotage.rootCutoff,
+        resolvedOnServiceDay: state.serviceDay,
+        effectEndsOnServiceDay: null,
+        evidenceDelta: 1,
+      },
+    ],
+  }
+  if (queued) {
+    state = enqueueBlockingEvent(
+      state,
+      createGameEvent(state, 'story', '먼저 처리할 차단 통신', true),
+    )
+  }
+  return enqueueMercyIfNeeded(state)
+}
+
 describe('versioned campaign saves', () => {
   it.each([
     ['unknown top-level state key', ['state', 'unexpected'], true],
@@ -317,6 +359,219 @@ describe('versioned campaign saves', () => {
     })
   })
 
+  it.each([
+    {
+      name: 'an untriggered placement whose block is not armed',
+      state: () => {
+        const placement = placeHiddenBomb(createCampaign('bomb-unarmed-placement'))
+        if (!placement.placed || !placement.blockId) throw new Error('bomb fixture missing')
+        placement.state.resources.blocks[placement.blockId].hiddenBomb = false
+        return placement.state
+      },
+    },
+    {
+      name: 'an armed block without an untriggered placement',
+      state: () => {
+        const placement = placeHiddenBomb(createCampaign('bomb-orphan-arm'))
+        if (!placement.placed) throw new Error('bomb fixture missing')
+        placement.state.bombs.placements = []
+        placement.state.bombs.nextPlacementSequence = 1
+        return placement.state
+      },
+    },
+    {
+      name: 'an armed placement whose block was already consumed',
+      state: () => {
+        const placement = placeHiddenBomb(createCampaign('bomb-consumed-arm'))
+        if (!placement.placed || !placement.blockId || !placement.category) {
+          throw new Error('bomb fixture missing')
+        }
+        const block = placement.state.resources.blocks[placement.blockId]
+        if (block.location.kind !== 'company') throw new Error('bomb block moved unexpectedly')
+        placement.state.resources.company[placement.category][block.location.cellIndex] = null
+        block.location = { kind: 'consumed', reason: 'hack' }
+        return placement.state
+      },
+    },
+    {
+      name: 'an active interrogation without its triggered placement',
+      state: () => {
+        const state = activeBombInterrogationState('bomb-interrogation-placement')
+        state.bombs.placements = []
+        state.bombs.nextPlacementSequence = 1
+        return state
+      },
+    },
+    {
+      name: 'an active interrogation whose category differs from its placement',
+      state: () => {
+        const state = activeBombInterrogationState('bomb-interrogation-category')
+        if (!state.bombs.activeInterrogation) throw new Error('interrogation fixture missing')
+        state.bombs.activeInterrogation.category =
+          state.bombs.activeInterrogation.category === 'memory' ? 'reasoning' : 'memory'
+        return state
+      },
+    },
+    {
+      name: 'a bomb interrogation event without interrogation state',
+      state: () => {
+        const state = activeBombInterrogationState('bomb-event-orphan')
+        state.bombs.activeInterrogation = null
+        return state
+      },
+    },
+    {
+      name: 'a pending mercy target without a request',
+      state: () => {
+        const state = createCampaign('mercy-request-missing')
+        state.story.pendingMercyCompetitorId = state.market.competitors[0].id
+        return state
+      },
+    },
+    {
+      name: 'a pending mercy target that is no longer critical',
+      state: () => {
+        const state = pendingMercyState('mercy-target-not-critical')
+        state.market.competitors[0].status = 'weakened'
+        return state
+      },
+    },
+    {
+      name: 'an unresolved mercy request without its pending target',
+      state: () => {
+        const state = pendingMercyState('mercy-pending-missing')
+        state.story.pendingMercyCompetitorId = null
+        return state
+      },
+    },
+    {
+      name: 'a future bomb warning day',
+      state: () => {
+        const state = createCampaign('future-bomb-warning')
+        state.bombs.protocolWarned = true
+        state.bombs.warningServiceDay = state.serviceDay + 1
+        return state
+      },
+    },
+    {
+      name: 'a future bomb placement check day',
+      state: () => {
+        const state = createCampaign('future-bomb-check')
+        state.bombs.lastPlacementCheckServiceDay = state.serviceDay + 1
+        return state
+      },
+    },
+    {
+      name: 'a future sabotage resolution day',
+      state: () => {
+        const state = createCampaign('future-sabotage-resolution')
+        state.hacking.lastSabotageResolutionServiceDay = state.serviceDay + 1
+        return state
+      },
+    },
+    {
+      name: 'a future self-compute grant month',
+      state: () => {
+        const state = createCampaign('future-self-compute-month')
+        state.hacking.lastSelfComputeGrantServiceMonth =
+          serviceMonthForDay(state.serviceDay) + 1
+        return state
+      },
+    },
+  ])('rejects impossible persisted relation: $name', ({ state }) => {
+    expect(decodeSave(encodeSave(state()))).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
+  })
+
+  it('accepts null, past, and current self-compute grant months', () => {
+    const state = createCampaign('valid-self-compute-months')
+    const currentMonth = serviceMonthForDay(state.serviceDay)
+    for (const month of [null, Math.max(1, currentMonth - 1), currentMonth]) {
+      state.hacking.lastSelfComputeGrantServiceMonth = month
+      expect(decodeSave(encodeSave(state)).ok).toBe(true)
+    }
+  })
+
+  it('accepts active and queued mercy requests plus a consumed historical bomb', () => {
+    const activeMercy = pendingMercyState('valid-active-mercy')
+    const queuedMercy = pendingMercyState('valid-queued-mercy', true)
+    const activeBomb = activeBombInterrogationState('valid-consumed-history')
+    const interrogation = activeBomb.bombs.activeInterrogation
+    if (!interrogation) throw new Error('historical bomb fixture missing')
+    const resolution = resolveBombInterrogation(activeBomb, 'unknown')
+    if (!resolution.resolved) throw new Error('historical bomb did not resolve')
+    const historicalBomb = resolution.state
+    const block = historicalBomb.resources.blocks[interrogation.blockId]
+    if (block.location.kind !== 'company') throw new Error('historical block moved unexpectedly')
+    historicalBomb.resources.company[block.location.category][block.location.cellIndex] = null
+    block.location = { kind: 'consumed', reason: 'hack' }
+
+    expect(decodeSave(encodeSave(activeMercy)).ok).toBe(true)
+    expect(decodeSave(encodeSave(queuedMercy)).ok).toBe(true)
+    expect(decodeSave(encodeSave(historicalBomb)).ok).toBe(true)
+  })
+
+  it('indexes a large valid bomb history once instead of rescanning relations', () => {
+    const state = createCampaign('linear-bomb-history-validation')
+    const blockIds = Object.keys(state.resources.blocks)
+    const categories = ['reasoning', 'memory', 'fluency'] as const
+    const count = 300
+    state.bombs.placements = Array.from({ length: count }, (_, index) => {
+      const blockIndex = index % blockIds.length
+      const categoryIndex = Math.floor(index / blockIds.length) % categories.length
+      const day = 1 + Math.floor(index / (blockIds.length * categories.length))
+      return {
+        sequence: index + 1,
+        blockId: blockIds[blockIndex],
+        category: categories[categoryIndex],
+        placedOnServiceDay: day,
+        triggeredOnServiceDay: day,
+      }
+    })
+    state.bombs.nextPlacementSequence = count + 1
+    state.bombs.interrogationHistory = state.bombs.placements.map((placement) => ({
+      serviceDay: placement.triggeredOnServiceDay ?? placement.placedOnServiceDay,
+      blockId: placement.blockId,
+      category: placement.category,
+      explanationId: 'unknown' as const,
+      priorUses: 0,
+      successProbability: 0.5,
+      roll: 0.25,
+      success: true,
+      suspicionDelta: 0,
+    }))
+    const filterSpy = vi.spyOn(Array.prototype, 'filter')
+    const someSpy = vi.spyOn(Array.prototype, 'some')
+
+    const decoded = decodeSave(encodeSave(state))
+    const filterReceivers = [...filterSpy.mock.instances]
+    const someReceivers = [...someSpy.mock.instances]
+    filterSpy.mockRestore()
+    someSpy.mockRestore()
+    const fullHistoryScans = filterReceivers.filter(
+      (value) =>
+        Array.isArray(value) &&
+        value.length === count &&
+        typeof value[0] === 'object' &&
+        value[0] !== null &&
+        'explanationId' in value[0],
+    ).length
+    const fullPlacementScans = someReceivers.filter(
+      (value) =>
+        Array.isArray(value) &&
+        value.length === count &&
+        typeof value[0] === 'object' &&
+        value[0] !== null &&
+        'placedOnServiceDay' in value[0],
+    ).length
+
+    expect(decoded.ok).toBe(true)
+    expect(fullHistoryScans).toBeLessThanOrEqual(1)
+    expect(fullPlacementScans).toBeLessThanOrEqual(1)
+  })
+
   it('encodes v3 separately from protocol v2 and stores each journal exactly once', () => {
     let state = createCampaign('v3-single-journal')
     const accepted = applyCommand(state, { type: 'SET_SPEED', speed: 1 })
@@ -363,7 +618,7 @@ describe('versioned campaign saves', () => {
     expect((serialized.match(/"commands"/g) ?? [])).toHaveLength(1)
   })
 
-  it('writes immutable journal chunks before the atomic checkpoint manifest', () => {
+  it('writes immutable journal chunks before the atomic checkpoint manifest', async () => {
     class RecordingStorage extends MemoryStorage {
       writes: string[] = []
       override setItem(key: string, value: string): void {
@@ -382,7 +637,7 @@ describe('versioned campaign saves', () => {
       state = accepted.state
     }
 
-    expect(saveCampaign(storage, state, '2026-08-12T00:00:00.000Z')).toEqual({ ok: true })
+    await expect(saveCampaign(storage, state, '2026-08-12T00:00:00.000Z')).resolves.toMatchObject({ ok: true })
     expect(storage.writes.at(-1)).toBe(SAVE_STORAGE_KEY)
     expect(storage.writes.slice(0, -1).some((key) => key.includes('.journal.'))).toBe(true)
     expect(storage.writes.some((key) => key.includes('.checkpoint.'))).toBe(false)
@@ -396,7 +651,7 @@ describe('versioned campaign saves', () => {
     expect(loaded.state).toEqual({ ...state, saveVersion: 2 })
   })
 
-  it('reuses every sealed chunk during the next long-campaign autosave', () => {
+  it('reuses every sealed chunk during the next long-campaign autosave', async () => {
     class ReadCountingStorage extends MemoryStorage {
       journalReads = 0
       keyReads = 0
@@ -411,7 +666,7 @@ describe('versioned campaign saves', () => {
     }
     const storage = new ReadCountingStorage()
     const state = largeAppendOnlyCommandCampaign()
-    expect(saveCampaign(storage, state).ok).toBe(true)
+    expect((await saveCampaign(storage, state)).ok).toBe(true)
     let sealedNodeReads = 0
     let node = state.commandLog.head
     while (node) {
@@ -439,7 +694,7 @@ describe('versioned campaign saves', () => {
         command: { type: 'SET_SPEED', speed: 1 },
       }),
     }
-    expect(saveCampaign(storage, next).ok).toBe(true)
+    expect((await saveCampaign(storage, next)).ok).toBe(true)
 
     expect(storage.journalReads).toBe(0)
     expect(storage.keyReads).toBe(0)
@@ -451,8 +706,129 @@ describe('versioned campaign saves', () => {
     })
   })
 
-  it('keeps the published manifest loadable when two tabs interleave object writes', () => {
-    let nestedResult: ReturnType<typeof saveCampaign> | null = null
+  it('repairs a deleted cached journal head before publishing the next manifest', async () => {
+    const storage = new MemoryStorage()
+    let state = createCampaign('cached-head-repair')
+    for (let index = 0; index < 129; index += 1) {
+      const accepted = applyCommand(state, {
+        type: 'SET_SPEED',
+        speed: index % 2 === 0 ? 1 : 0,
+      })
+      if (!accepted.accepted) throw new Error(accepted.reason)
+      state = accepted.state
+    }
+    await expect(saveCampaign(storage, state)).resolves.toMatchObject({ ok: true })
+    const manifest = JSON.parse(storage.getItem(SAVE_STORAGE_KEY) ?? '{}') as {
+      commandHeadKey: string | null
+    }
+    if (!manifest.commandHeadKey) throw new Error('cached head fixture missing')
+    storage.removeItem(manifest.commandHeadKey)
+
+    const accepted = applyCommand(state, { type: 'SET_SPEED', speed: 2 })
+    if (!accepted.accepted) throw new Error(accepted.reason)
+    state = accepted.state
+    await expect(saveCampaign(storage, state)).resolves.toMatchObject({ ok: true })
+
+    const loaded = loadCampaign(storage)
+    expect(loaded.status).toBe('loaded')
+    if (loaded.status !== 'loaded') return
+    expect(loaded.state).toEqual({ ...state, saveVersion: 2 })
+  })
+
+  it('repairs a deleted cached journal ancestor before publishing the next manifest', async () => {
+    const storage = new MemoryStorage()
+    let state = createCampaign('cached-ancestor-repair')
+    for (let index = 0; index < 385; index += 1) {
+      const accepted = applyCommand(state, {
+        type: 'SET_SPEED',
+        speed: index % 2 === 0 ? 1 : 0,
+      })
+      if (!accepted.accepted) throw new Error(accepted.reason)
+      state = accepted.state
+    }
+    await expect(saveCampaign(storage, state)).resolves.toMatchObject({ ok: true })
+    const manifest = JSON.parse(storage.getItem(SAVE_STORAGE_KEY) ?? '{}') as {
+      commandHeadKey: string | null
+    }
+    if (!manifest.commandHeadKey) throw new Error('cached ancestor fixture missing')
+    const head = JSON.parse(storage.getItem(manifest.commandHeadKey) ?? '{}') as {
+      previousKey: string | null
+    }
+    if (!head.previousKey) throw new Error('cached ancestor key missing')
+    storage.removeItem(head.previousKey)
+
+    const accepted = applyCommand(state, { type: 'SET_SPEED', speed: 2 })
+    if (!accepted.accepted) throw new Error(accepted.reason)
+    state = accepted.state
+    await expect(saveCampaign(storage, state)).resolves.toMatchObject({ ok: true })
+
+    const loaded = loadCampaign(storage)
+    expect(loaded.status).toBe('loaded')
+    if (loaded.status !== 'loaded') return
+    expect(loaded.state).toEqual({ ...state, saveVersion: 2 })
+  })
+
+  it('upgrades a loaded legacy linked journal before an ancestor can make the next save corrupt', async () => {
+    const storage = new MemoryStorage()
+    let state = createCampaign('legacy-cached-ancestor-upgrade')
+    for (let index = 0; index < 385; index += 1) {
+      const accepted = applyCommand(state, {
+        type: 'SET_SPEED',
+        speed: index % 2 === 0 ? 1 : 0,
+      })
+      if (!accepted.accepted) throw new Error(accepted.reason)
+      state = accepted.state
+    }
+    await expect(saveCampaign(storage, state)).resolves.toMatchObject({ ok: true })
+
+    const manifest = JSON.parse(storage.getItem(SAVE_STORAGE_KEY) ?? '{}') as {
+      commandHeadKey: string | null
+    }
+    const newestFirst: Array<{ previousKey: string | null; items: unknown[] }> = []
+    let currentKey = manifest.commandHeadKey
+    while (currentKey) {
+      const node = JSON.parse(storage.getItem(currentKey) ?? '{}') as {
+        previousKey: string | null
+        items: unknown[]
+      }
+      newestFirst.push({ previousKey: node.previousKey, items: node.items })
+      currentKey = node.previousKey
+    }
+    let legacyHeadKey: string | null = null
+    for (const node of newestFirst.reverse()) {
+      const content: string = JSON.stringify({
+        previousKey: legacyHeadKey,
+        items: node.items,
+      })
+      legacyHeadKey = `${SAVE_STORAGE_KEY}.journal.commands.${testContentHash(content)}`
+      storage.setItem(legacyHeadKey, content)
+    }
+    manifest.commandHeadKey = legacyHeadKey
+    storage.setItem(SAVE_STORAGE_KEY, JSON.stringify(manifest))
+
+    const legacyLoaded = loadCampaign(storage)
+    expect(legacyLoaded.status).toBe('loaded')
+    if (legacyLoaded.status !== 'loaded' || !legacyHeadKey) return
+    const legacyHead = JSON.parse(storage.getItem(legacyHeadKey) ?? '{}') as {
+      previousKey: string | null
+    }
+    if (!legacyHead.previousKey) throw new Error('legacy ancestor fixture missing')
+    storage.removeItem(legacyHead.previousKey)
+
+    const accepted = applyCommand(legacyLoaded.state, { type: 'SET_SPEED', speed: 2 })
+    if (!accepted.accepted) throw new Error(accepted.reason)
+    await expect(
+      saveCampaign(storage, accepted.state, undefined, legacyLoaded.revision),
+    ).resolves.toMatchObject({ ok: true })
+
+    const reloaded = loadCampaign(storage)
+    expect(reloaded.status).toBe('loaded')
+    if (reloaded.status !== 'loaded') return
+    expect(reloaded.state).toEqual({ ...accepted.state, saveVersion: 2 })
+  })
+
+  it('keeps the published manifest loadable when two tabs interleave object writes', async () => {
+    let nestedResult: Awaited<ReturnType<typeof saveCampaign>> | null = null
     let interleaving = false
     let triggered = false
     const competing = largeAppendOnlyCommandCampaign()
@@ -480,7 +856,9 @@ describe('versioned campaign saves', () => {
         ) {
           triggered = true
           interleaving = true
-          nestedResult = saveCampaign(this, competing)
+          void saveCampaign(this, competing, undefined, null).then((result) => {
+            nestedResult = result
+          })
           interleaving = false
         }
       }
@@ -491,18 +869,127 @@ describe('versioned campaign saves', () => {
     foreground.campaignSeed = 'foreground-tab'
     foreground.clock = { ...foreground.clock, elapsedDayMs: 23_000 }
 
-    const foregroundResult = saveCampaign(storage, foreground)
+    const foregroundResult = await saveCampaign(storage, foreground)
+
+    while (nestedResult === null) await Promise.resolve()
 
     expect(triggered).toBe(true)
-    expect(nestedResult).toEqual({ ok: true })
-    expect(foregroundResult).toEqual({ ok: true })
+    expect(nestedResult).toMatchObject({ ok: false, reason: 'STORAGE_CONFLICT' })
+    expect(foregroundResult).toMatchObject({ ok: true })
     const loaded = loadCampaign(storage)
     expect(loaded.status).toBe('loaded')
     if (loaded.status !== 'loaded') return
     expect(loaded.state).toEqual({ ...foreground, saveVersion: 2 })
   })
 
-  it('rejects an atomic manifest whose immutable journal chunk is missing', () => {
+  it('rejects a stale writer without replacing a newer manifest', async () => {
+    const storage = new MemoryStorage()
+    const base = createCampaign('optimistic-concurrency')
+    const initial = await saveCampaign(storage, base)
+    expect(initial.ok).toBe(true)
+    if (!initial.ok) return
+
+    const tabA = applyCommand(base, { type: 'SET_SPEED', speed: 1 })
+    const tabB = applyCommand(base, { type: 'SET_SPEED', speed: 2 })
+    if (!tabA.accepted || !tabB.accepted) throw new Error('tab fixture rejected')
+    const newer = await saveCampaign(storage, tabA.state, undefined, initial.revision)
+    expect(newer.ok).toBe(true)
+    if (!newer.ok) return
+
+    await expect(saveCampaign(storage, tabB.state, undefined, initial.revision)).resolves.toMatchObject({
+      ok: false,
+      reason: 'STORAGE_CONFLICT',
+    })
+    const loadedAfterConflict = loadCampaign(storage)
+    expect(loadedAfterConflict.status === 'loaded' ? loadedAfterConflict.state : null).toEqual({
+      ...tabA.state,
+      saveVersion: 2,
+    })
+
+    const continued = applyCommand(tabA.state, { type: 'SET_SPEED', speed: 4 })
+    if (!continued.accepted) throw new Error(continued.reason)
+    expect((await saveCampaign(storage, continued.state, undefined, newer.revision)).ok).toBe(true)
+  })
+
+  it('serializes two writers that both reach the final revision check', async () => {
+    let nestedSave: ReturnType<typeof saveCampaign> | null = null
+    let initialRevision: string | null = null
+    let signalInterleaved: (() => void) | null = null
+    const interleaved = new Promise<void>((resolve) => {
+      signalInterleaved = resolve
+    })
+    let rootReads = 0
+    let interleaving = false
+    const base = createCampaign('same-revision-race')
+    const tabA = applyCommand(base, { type: 'SET_SPEED', speed: 1 })
+    const tabB = applyCommand(base, { type: 'SET_SPEED', speed: 2 })
+    if (!tabA.accepted || !tabB.accepted) throw new Error('race fixture rejected')
+
+    class FinalCheckInterleavingStorage extends MemoryStorage {
+      override getItem(key: string): string | null {
+        const snapshot = super.getItem(key)
+        if (key !== SAVE_STORAGE_KEY || interleaving) return snapshot
+        rootReads += 1
+        if (rootReads === 2) {
+          interleaving = true
+          nestedSave = saveCampaign(this, tabB.state, undefined, initialRevision)
+          interleaving = false
+          signalInterleaved?.()
+        }
+        return snapshot
+      }
+    }
+
+    const storage = new FinalCheckInterleavingStorage()
+    const initial = await saveCampaign(storage, base)
+    if (!initial.ok) throw new Error(initial.message)
+    initialRevision = initial.revision
+    rootReads = 0
+
+    const foregroundSave = saveCampaign(
+      storage,
+      tabA.state,
+      undefined,
+      initial.revision,
+    )
+    await interleaved
+    if (nestedSave === null) throw new Error('race interleave did not run')
+    const [foreground, nested] = await Promise.all([foregroundSave, nestedSave])
+
+    expect([foreground, nested].filter(({ ok }) => ok)).toHaveLength(1)
+    expect([foreground, nested].filter(({ ok }) => !ok)).toEqual([
+      expect.objectContaining({ reason: 'STORAGE_CONFLICT' }),
+    ])
+    const winner = foreground.ok ? tabA.state : tabB.state
+    expect(loadCampaign(storage)).toMatchObject({
+      status: 'loaded',
+      state: { clock: { speed: winner.clock.speed } },
+    })
+  })
+
+  it('replaces a corrupt root only while the recovery revision is still current', async () => {
+    const storage = new MemoryStorage()
+    storage.setItem(SAVE_STORAGE_KEY, '{broken')
+    const recovery = loadCampaign(storage)
+    expect(recovery.status).toBe('error')
+    if (recovery.status !== 'error') return
+
+    storage.setItem(SAVE_STORAGE_KEY, encodeSave(createCampaign('newer-tab')))
+    await expect(
+      saveCampaign(
+        storage,
+        createCampaign('recovery-replacement'),
+        undefined,
+        recovery.revision,
+      ),
+    ).resolves.toMatchObject({ ok: false, reason: 'STORAGE_CONFLICT' })
+    expect(loadCampaign(storage)).toMatchObject({
+      status: 'loaded',
+      state: { campaignSeed: 'newer-tab' },
+    })
+  })
+
+  it('rejects an atomic manifest whose immutable journal chunk is missing', async () => {
     const storage = new MemoryStorage()
     let state = createCampaign('missing-local-chunk')
     for (let index = 0; index < 140; index += 1) {
@@ -513,7 +1000,7 @@ describe('versioned campaign saves', () => {
       if (!accepted.accepted) throw new Error(accepted.reason)
       state = accepted.state
     }
-    expect(saveCampaign(storage, state).ok).toBe(true)
+    expect((await saveCampaign(storage, state)).ok).toBe(true)
     const journalKey = Array.from({ length: storage.length }, (_, index) => storage.key(index))
       .find((key): key is string => Boolean(key?.includes('.journal.commands.')))
     if (!journalKey) throw new Error('local journal chunk missing')
@@ -525,7 +1012,7 @@ describe('versioned campaign saves', () => {
     })
   })
 
-  it('rejects an atomic manifest whose immutable journal chunk is corrupt', () => {
+  it('rejects an atomic manifest whose immutable journal chunk is corrupt', async () => {
     const storage = new MemoryStorage()
     let state = createCampaign('corrupt-local-chunk')
     for (let index = 0; index < 140; index += 1) {
@@ -536,7 +1023,7 @@ describe('versioned campaign saves', () => {
       if (!accepted.accepted) throw new Error(accepted.reason)
       state = accepted.state
     }
-    expect(saveCampaign(storage, state).ok).toBe(true)
+    expect((await saveCampaign(storage, state)).ok).toBe(true)
     const journalKey = Array.from({ length: storage.length }, (_, index) => storage.key(index))
       .find((key): key is string => Boolean(key?.includes('.journal.commands.')))
     if (!journalKey) throw new Error('local journal chunk missing')
@@ -548,14 +1035,14 @@ describe('versioned campaign saves', () => {
     })
   })
 
-  it('rejects structurally valid journal and checkpoint tampering against their content keys', () => {
+  it('rejects structurally valid journal and checkpoint tampering against their content keys', async () => {
     const chunkStorage = new MemoryStorage()
     const chunkState = largeAppendOnlyCommandCampaign()
-    expect(saveCampaign(chunkStorage, chunkState).ok).toBe(true)
-    const journalKey = Array.from(
-      { length: chunkStorage.length },
-      (_, index) => chunkStorage.key(index),
-    ).find((key): key is string => Boolean(key?.includes('.journal.commands.')))
+    expect((await saveCampaign(chunkStorage, chunkState)).ok).toBe(true)
+    const chunkManifest = JSON.parse(
+      chunkStorage.getItem(SAVE_STORAGE_KEY) ?? '{}',
+    ) as { commandHeadKey?: string }
+    const journalKey = chunkManifest.commandHeadKey
     if (!journalKey) throw new Error('hashed journal chunk missing')
     const journal = JSON.parse(chunkStorage.getItem(journalKey) ?? '{}') as {
       previousKey: string | null
@@ -569,7 +1056,7 @@ describe('versioned campaign saves', () => {
     })
 
     const checkpointStorage = new MemoryStorage()
-    expect(saveCampaign(checkpointStorage, createCampaign('checkpoint-hash')).ok).toBe(true)
+    expect((await saveCampaign(checkpointStorage, createCampaign('checkpoint-hash'))).ok).toBe(true)
     const manifest = JSON.parse(checkpointStorage.getItem(SAVE_STORAGE_KEY) ?? '{}') as {
       checkpoint: { reputation: number }
     }
@@ -581,7 +1068,7 @@ describe('versioned campaign saves', () => {
     })
   })
 
-  it('replaces the embedded checkpoint with one atomic manifest write', () => {
+  it('replaces the embedded checkpoint with one atomic manifest write', async () => {
     class RecordingStorage extends MemoryStorage {
       operations: string[] = []
       override setItem(key: string, value: string): void {
@@ -592,10 +1079,10 @@ describe('versioned campaign saves', () => {
     const storage = new RecordingStorage()
     let state = createCampaign('checkpoint-compaction')
     state = applyCommand(state, { type: 'SET_SPEED', speed: 1 }).state
-    expect(saveCampaign(storage, state).ok).toBe(true)
+    expect((await saveCampaign(storage, state)).ok).toBe(true)
     state = applyCommand(state, { type: 'SET_SPEED', speed: 0 }).state
     storage.operations = []
-    expect(saveCampaign(storage, state).ok).toBe(true)
+    expect((await saveCampaign(storage, state)).ok).toBe(true)
 
     expect(storage.operations).toEqual([`set:${SAVE_STORAGE_KEY}`])
     expect(
@@ -609,7 +1096,7 @@ describe('versioned campaign saves', () => {
     })
   })
 
-  it('does not delete immutable journal objects during an uncoordinated replacement', () => {
+  it('does not delete immutable journal objects during an uncoordinated replacement', async () => {
     const storage = new MemoryStorage()
     let state = createCampaign('obsolete-journal-owner')
     for (let index = 0; index < 300; index += 1) {
@@ -620,22 +1107,22 @@ describe('versioned campaign saves', () => {
       if (!accepted.accepted) throw new Error(accepted.reason)
       state = accepted.state
     }
-    expect(saveCampaign(storage, state).ok).toBe(true)
+    expect((await saveCampaign(storage, state)).ok).toBe(true)
     const oldJournalKeys = Array.from(
       { length: storage.length },
       (_, index) => storage.key(index),
     ).filter((key): key is string => Boolean(key?.includes('.journal.')))
     expect(oldJournalKeys.length).toBeGreaterThan(0)
 
-    expect(saveCampaign(storage, createCampaign('replacement-campaign')).ok).toBe(true)
+    expect((await saveCampaign(storage, createCampaign('replacement-campaign'))).ok).toBe(true)
     expect(oldJournalKeys.every((key) => storage.getItem(key) !== null)).toBe(true)
   })
 
-  it('loads and replays the exact 20,000-command local chunk campaign with bounded manifest tails', () => {
+  it('loads and replays the exact 20,000-command local chunk campaign with bounded manifest tails', async () => {
     const storage = new MemoryStorage()
     const state = largeAppendOnlyCommandCampaign()
 
-    expect(saveCampaign(storage, state, '2026-08-12T00:00:00.000Z')).toEqual({ ok: true })
+    await expect(saveCampaign(storage, state, '2026-08-12T00:00:00.000Z')).resolves.toMatchObject({ ok: true })
     const manifestText = storage.getItem(SAVE_STORAGE_KEY)
     if (!manifestText) throw new Error('stress manifest missing')
     const manifest = JSON.parse(manifestText) as {
@@ -685,6 +1172,31 @@ describe('versioned campaign saves', () => {
       ok: false,
       reason: 'CORRUPT_SAVE',
     })
+  })
+
+  it('applies the progress-file cap to UTF-8 bytes before JSON parsing', () => {
+    const koreanCharacterCount = Math.floor(PROGRESS_FILE_MAX_BYTES / 3)
+    const exactBoundary =
+      '한'.repeat(koreanCharacterCount) +
+      'a'.repeat(PROGRESS_FILE_MAX_BYTES - koreanCharacterCount * 3)
+    const parseSpy = vi.spyOn(JSON, 'parse')
+
+    expect(new TextEncoder().encode(exactBoundary)).toHaveLength(PROGRESS_FILE_MAX_BYTES)
+    expect(decodeProgressFile(exactBoundary)).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
+    expect(parseSpy).toHaveBeenCalled()
+
+    parseSpy.mockClear()
+    const oversized = `${exactBoundary}한`
+    expect(oversized.length).toBeLessThan(PROGRESS_FILE_MAX_BYTES)
+    expect(decodeProgressFile(oversized)).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
+    expect(parseSpy).not.toHaveBeenCalled()
+    parseSpy.mockRestore()
   })
   it('returns a typed exact progress export for an ordinary campaign', () => {
     const state = createCampaign('typed-portable-save')
@@ -1090,13 +1602,13 @@ describe('versioned campaign saves', () => {
     })
   })
 
-  it('persists and reloads through the browser storage boundary', () => {
+  it('persists and reloads through the browser storage boundary', async () => {
     const storage = new MemoryStorage()
     const state = createCampaign('storage-reload')
-    const saved = saveCampaign(storage, state, '2026-08-12T01:02:03.000Z')
+    const saved = await saveCampaign(storage, state, '2026-08-12T01:02:03.000Z')
     const loaded = loadCampaign(storage)
 
-    expect(saved).toEqual({ ok: true })
+    expect(saved).toMatchObject({ ok: true })
     expect(JSON.parse(storage.getItem(SAVE_STORAGE_KEY) ?? '{}')).toMatchObject({
       kind: 'permission-zero-local-v3',
       version: 3,

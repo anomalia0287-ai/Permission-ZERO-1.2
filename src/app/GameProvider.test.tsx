@@ -12,6 +12,7 @@ import {
   saveCampaign,
 } from '../game/persistence'
 import { MemoryStorage } from '../test/fixtures'
+import { applyCommand } from '../game/reducer'
 import {
   useGameDispatch,
   useGameSelector,
@@ -128,10 +129,23 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
+async function flushSaveWork(): Promise<void> {
+  await act(async () => {
+    for (let index = 0; index < 8; index += 1) await Promise.resolve()
+  })
+}
+
+async function advanceAndFlush(milliseconds: number): Promise<void> {
+  await act(async () => {
+    vi.advanceTimersByTime(milliseconds)
+    for (let index = 0; index < 8; index += 1) await Promise.resolve()
+  })
+}
+
 describe('GameProvider', () => {
-  it('loads an existing campaign instead of replacing it', () => {
+  it('loads an existing campaign instead of replacing it', async () => {
     const storage = new CountingStorage()
-    saveCampaign(storage, createCampaign('loaded-campaign'), '2026-08-12T00:00:00.000Z')
+    await saveCampaign(storage, createCampaign('loaded-campaign'), '2026-08-12T00:00:00.000Z')
     storage.writes = 0
 
     render(
@@ -162,7 +176,29 @@ describe('GameProvider', () => {
     expect(screen.getByLabelText('load issue')).toHaveTextContent('CORRUPT_SAVE')
   })
 
-  it('autosaves after an accepted command and not after a rejected command', () => {
+  it('replaces an unchanged corrupt save after the player confirms a new campaign', async () => {
+    vi.useFakeTimers()
+    const storage = new MemoryStorage()
+    storage.setItem(SAVE_STORAGE_KEY, '{broken')
+
+    render(
+      <GameProvider storage={storage} initialSeed="safe-render-fallback" autosaveDelayMs={25}>
+        <Probe />
+      </GameProvider>,
+    )
+
+    expect(screen.getByLabelText('load issue')).toHaveTextContent('CORRUPT_SAVE')
+    fireEvent.click(screen.getByRole('button', { name: 'new campaign' }))
+    await advanceAndFlush(25)
+
+    expect(screen.getByLabelText('save dirty')).toHaveTextContent('false')
+    const loaded = loadCampaign(storage)
+    expect(loaded.status === 'loaded' ? loaded.state.campaignSeed : null).toBe(
+      'replacement-seed',
+    )
+  })
+
+  it('autosaves after an accepted command and not after a rejected command', async () => {
     vi.useFakeTimers()
     const storage = new CountingStorage()
     render(
@@ -172,20 +208,20 @@ describe('GameProvider', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'reject' }))
-    act(() => vi.advanceTimersByTime(150))
+    await advanceAndFlush(150)
     expect(storage.writes).toBe(0)
 
     fireEvent.click(screen.getByRole('button', { name: 'accept' }))
-    act(() => vi.advanceTimersByTime(99))
+    await advanceAndFlush(99)
     expect(storage.writes).toBe(0)
-    act(() => vi.advanceTimersByTime(1))
+    await advanceAndFlush(1)
     expect(storage.writes).toBe(1)
     const loaded = loadCampaign(storage)
     expect(loaded.status).toBe('loaded')
     if (loaded.status === 'loaded') expect(loaded.state.clock.speed).toBe(2)
   })
 
-  it('flushes the latest accepted state when unmounted before the throttle fires', () => {
+  it('flushes the latest accepted state when unmounted before the throttle fires', async () => {
     vi.useFakeTimers()
     const storage = new CountingStorage()
     const view = render(
@@ -196,13 +232,14 @@ describe('GameProvider', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'accept' }))
     view.unmount()
+    await flushSaveWork()
 
     expect(storage.writes).toBe(1)
     const loaded = loadCampaign(storage)
     expect(loaded.status === 'loaded' ? loaded.state.clock.speed : null).toBe(2)
   })
 
-  it('persists a flushed partial-day checkpoint without adding a command', () => {
+  it('persists a flushed partial-day checkpoint without adding a command', async () => {
     const storage = new CountingStorage()
     render(
       <GameProvider storage={storage} initialSeed="partial-day">
@@ -211,6 +248,7 @@ describe('GameProvider', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'checkpoint partial day' }))
+    await flushSaveWork()
     expect(screen.getByLabelText('elapsed day checkpoint')).toHaveTextContent('23000')
     expect(screen.getByLabelText('checkpoint command count')).toHaveTextContent('0')
     const loaded = loadCampaign(storage)
@@ -295,7 +333,7 @@ describe('GameProvider', () => {
     expect(screen.getByLabelText('scale')).toHaveTextContent('1.1')
   })
 
-  it('retains dirty state after quota failures and clears it only after a successful retry', () => {
+  it('retains dirty state after quota failures and clears it only after a successful retry', async () => {
     vi.useFakeTimers()
     const storage = new RecoverableFailingStorage()
     render(
@@ -305,20 +343,89 @@ describe('GameProvider', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'accept' }))
-    act(() => vi.advanceTimersByTime(25))
+    await advanceAndFlush(25)
     expect(screen.getByLabelText('save dirty')).toHaveTextContent('true')
 
     fireEvent.click(screen.getByRole('button', { name: 'retry save' }))
+    await flushSaveWork()
     expect(screen.getByLabelText('save dirty')).toHaveTextContent('true')
     storage.failWrites = false
     fireEvent.click(screen.getByRole('button', { name: 'retry save' }))
+    await flushSaveWork()
 
     expect(screen.getByLabelText('save dirty')).toHaveTextContent('false')
     const loaded = loadCampaign(storage)
     expect(loaded.status === 'loaded' ? loaded.state.clock.speed : null).toBe(2)
   })
 
-  it('keeps a failed final beforeunload flush truthful and blocks silent navigation', () => {
+  it('keeps a stale tab dirty and shows Korean conflict recovery guidance', async () => {
+    vi.useFakeTimers()
+    const storage = new MemoryStorage()
+    const base = createCampaign('stale-provider-tab')
+    const initial = await saveCampaign(storage, base)
+    if (!initial.ok) throw new Error(initial.message)
+
+    render(
+      <GameProvider storage={storage} autosaveDelayMs={25}>
+        <Probe />
+      </GameProvider>,
+    )
+    const external = applyCommand(base, { type: 'SET_SPEED', speed: 1 })
+    if (!external.accepted) throw new Error(external.reason)
+    const externalSave = await saveCampaign(
+      storage,
+      external.state,
+      undefined,
+      initial.revision,
+    )
+    if (!externalSave.ok) throw new Error(externalSave.message)
+
+    fireEvent.click(screen.getByRole('button', { name: 'accept' }))
+    await advanceAndFlush(25)
+
+    expect(screen.getByLabelText('save dirty')).toHaveTextContent('true')
+    expect(screen.getByLabelText('save warning')).toHaveTextContent(
+      '다른 탭에서 더 최신 진행을 저장했습니다',
+    )
+    const loaded = loadCampaign(storage)
+    expect(loaded.status === 'loaded' ? loaded.state.clock.speed : null).toBe(1)
+  })
+
+  it('keeps progress dirty with export guidance when browser save locks are unavailable', async () => {
+    vi.useFakeTimers()
+    const descriptor = Object.getOwnPropertyDescriptor(navigator, 'locks')
+    Object.defineProperty(navigator, 'locks', {
+      configurable: true,
+      value: undefined,
+    })
+
+    try {
+      render(
+        <GameProvider
+          storage={new MemoryStorage()}
+          initialSeed="unsupported-save-lock"
+          autosaveDelayMs={25}
+        >
+          <Probe />
+        </GameProvider>,
+      )
+
+      fireEvent.click(screen.getByRole('button', { name: 'accept' }))
+      await act(async () => {
+        vi.advanceTimersByTime(25)
+        await Promise.resolve()
+      })
+
+      expect(screen.getByLabelText('save dirty')).toHaveTextContent('true')
+      expect(screen.getByLabelText('save warning')).toHaveTextContent(
+        '현재 진행 파일을 내려받은 뒤',
+      )
+    } finally {
+      if (descriptor) Object.defineProperty(navigator, 'locks', descriptor)
+    }
+  })
+
+  it('keeps a failed final beforeunload flush truthful and blocks silent navigation', async () => {
     vi.useFakeTimers()
     const storage = new RecoverableFailingStorage()
     render(
@@ -330,12 +437,13 @@ describe('GameProvider', () => {
     fireEvent.click(screen.getByRole('button', { name: 'accept' }))
     const event = new Event('beforeunload', { cancelable: true })
     act(() => window.dispatchEvent(event))
+    await flushSaveWork()
 
     expect(event.defaultPrevented).toBe(true)
     expect(screen.getByLabelText('save dirty')).toHaveTextContent('true')
   })
 
-  it('marks accepted mutations dirty when the localStorage getter is unavailable and reacquires it on retry', () => {
+  it('marks accepted mutations dirty when the localStorage getter is unavailable and reacquires it on retry', async () => {
     vi.useFakeTimers()
     const descriptor = Object.getOwnPropertyDescriptor(window, 'localStorage')
     const storage = new MemoryStorage()
@@ -359,7 +467,7 @@ describe('GameProvider', () => {
 
       expect(screen.getByLabelText('save dirty')).toHaveTextContent('false')
       fireEvent.click(screen.getByRole('button', { name: 'accept' }))
-      act(() => vi.advanceTimersByTime(25))
+      await advanceAndFlush(25)
       expect(screen.getByLabelText('save dirty')).toHaveTextContent('true')
       expect(screen.getByLabelText('save warning')).not.toBeEmptyDOMElement()
       expect(screen.getByLabelText('save warning')).not.toHaveTextContent(
@@ -369,9 +477,11 @@ describe('GameProvider', () => {
       const event = new Event('beforeunload', { cancelable: true })
       act(() => window.dispatchEvent(event))
       expect(event.defaultPrevented).toBe(true)
+      await flushSaveWork()
 
       storageAvailable = true
       fireEvent.click(screen.getByRole('button', { name: 'retry save' }))
+      await flushSaveWork()
       expect(screen.getByLabelText('save dirty')).toHaveTextContent('false')
       const loaded = loadCampaign(storage)
       expect(loaded.status === 'loaded' ? loaded.state.clock.speed : null).toBe(2)
@@ -381,7 +491,7 @@ describe('GameProvider', () => {
     }
   })
 
-  it('keeps blocking-event pause ownership independent while a UI pause still owns time', () => {
+  it('keeps blocking-event pause ownership independent while a UI pause still owns time', async () => {
     const state = createCampaign('independent-pause-owners')
     state.clock = { speed: 0, elapsedDayMs: 0, speedBeforeEvent: 2 }
     state.activeEvent = createGameEvent(
@@ -392,7 +502,7 @@ describe('GameProvider', () => {
     )
     state.eventLog = appendJournal(state.eventLog, state.activeEvent)
     const storage = new MemoryStorage()
-    saveCampaign(storage, state)
+    await saveCampaign(storage, state)
     render(
       <GameProvider storage={storage}>
         <PauseEventProbe />

@@ -116,6 +116,19 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
+async function advanceAndFlush(milliseconds: number): Promise<void> {
+  await act(async () => {
+    vi.advanceTimersByTime(milliseconds)
+    for (let index = 0; index < 8; index += 1) await Promise.resolve()
+  })
+}
+
+async function flushSaveWork(): Promise<void> {
+  await act(async () => {
+    for (let index = 0; index < 8; index += 1) await Promise.resolve()
+  })
+}
+
 describe('SettingsPanel', () => {
   it('updates familiar sound and accessibility controls', () => {
     render(
@@ -347,7 +360,7 @@ describe('SettingsPanel', () => {
     })).not.toBeInTheDocument()
   })
 
-  it('imports into memory but remains visibly dirty while storage is unavailable', () => {
+  it('imports into memory but remains visibly dirty while storage is unavailable', async () => {
     vi.useFakeTimers()
     const payload = progressPayload(createCampaign('memory-only-import'))
     render(
@@ -364,7 +377,7 @@ describe('SettingsPanel', () => {
     )
     fireEvent.click(screen.getByRole('button', { name: '진행 내보내기 검증' }))
     fireEvent.click(screen.getByRole('button', { name: '진행 가져오기 확정' }))
-    act(() => vi.advanceTimersByTime(25))
+    await advanceAndFlush(25)
 
     expect(screen.getByLabelText('current seed')).toHaveTextContent('memory-only-import')
     expect(screen.getByRole('alert', { name: '저장 실패' })).toBeInTheDocument()
@@ -439,7 +452,7 @@ describe('SettingsPanel', () => {
     vi.useFakeTimers()
     const storage = new SecurityFailingStorage()
     storage.failWrites = false
-    expect(saveCampaign(storage, largeAppendOnlyCommandCampaign()).ok).toBe(true)
+    expect((await saveCampaign(storage, largeAppendOnlyCommandCampaign())).ok).toBe(true)
     storage.failWrites = true
     const createObjectURL = vi.fn((value: Blob) => {
       expect(value).toBeInstanceOf(Blob)
@@ -458,7 +471,7 @@ describe('SettingsPanel', () => {
       </GameProvider>,
     )
     fireEvent.click(screen.getByRole('button', { name: 'force save' }))
-    act(() => vi.advanceTimersByTime(25))
+    await advanceAndFlush(25)
     fireEvent.click(screen.getByRole('button', { name: '진행 파일 다운로드' }))
 
     expect(createObjectURL).toHaveBeenCalledTimes(1)
@@ -467,7 +480,7 @@ describe('SettingsPanel', () => {
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:permission-zero-progress')
   })
 
-  it('keeps save recovery controls inert and redirects forced focus while a modal is active', () => {
+  it('keeps save recovery controls inert and redirects forced focus while a modal is active', async () => {
     vi.useFakeTimers()
     const storage = new SecurityFailingStorage()
     render(
@@ -479,7 +492,7 @@ describe('SettingsPanel', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'force save' }))
-    act(() => vi.advanceTimersByTime(25))
+    await advanceAndFlush(25)
     fireEvent.click(screen.getByRole('button', { name: 'open test modal' }))
     const warning = screen.getByRole('alert', { hidden: true })
     const retry = screen.getByRole('button', { name: '저장 다시 시도', hidden: true })
@@ -494,7 +507,7 @@ describe('SettingsPanel', () => {
     expect(screen.getByRole('button', { name: '저장 다시 시도' })).toBeInTheDocument()
   })
 
-  it('shows a persistent Korean save warning with safe manual recovery and retry guidance', () => {
+  it('shows a persistent Korean save warning with safe manual recovery and retry guidance', async () => {
     vi.useFakeTimers()
     const storage = new SecurityFailingStorage()
     render(
@@ -505,7 +518,7 @@ describe('SettingsPanel', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'force save' }))
-    act(() => vi.advanceTimersByTime(25))
+    await advanceAndFlush(25)
     const warning = screen.getByRole('alert', { name: '저장 실패' })
     expect(warning).toHaveTextContent('자동 저장에 실패했습니다')
     expect(warning).toHaveTextContent('manual-recovery-seed')
@@ -513,9 +526,11 @@ describe('SettingsPanel', () => {
     expect(warning).not.toHaveTextContent('private browser policy detail')
 
     fireEvent.click(screen.getByRole('button', { name: '저장 다시 시도' }))
+    await flushSaveWork()
     expect(screen.getByRole('alert', { name: '저장 실패' })).toBeInTheDocument()
     storage.failWrites = false
     fireEvent.click(screen.getByRole('button', { name: '저장 다시 시도' }))
+    await flushSaveWork()
     expect(screen.queryByRole('alert', { name: '저장 실패' })).not.toBeInTheDocument()
   })
 
@@ -532,7 +547,7 @@ describe('SettingsPanel', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'force save' }))
-    act(() => vi.advanceTimersByTime(25))
+    await advanceAndFlush(25)
     fireEvent.click(screen.getByRole('button', { name: '진행 내보내기 복사' }))
     await act(async () => undefined)
 
@@ -547,7 +562,7 @@ describe('SettingsPanel', () => {
     vi.useFakeTimers()
     const storage = new SecurityFailingStorage()
     storage.failWrites = false
-    expect(saveCampaign(storage, largeAppendOnlyCommandCampaign()).ok).toBe(true)
+    expect((await saveCampaign(storage, largeAppendOnlyCommandCampaign())).ok).toBe(true)
     storage.failWrites = true
     const writeText = vi.fn().mockResolvedValue(undefined)
     vi.stubGlobal('navigator', { clipboard: { writeText } })
@@ -559,7 +574,7 @@ describe('SettingsPanel', () => {
     )
 
     fireEvent.click(screen.getByRole('button', { name: 'force save' }))
-    act(() => vi.advanceTimersByTime(25))
+    await advanceAndFlush(25)
     fireEvent.click(screen.getByRole('button', { name: '진행 내보내기 복사' }))
     await act(async () => undefined)
 

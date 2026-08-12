@@ -5,7 +5,7 @@ import { useGameState } from '../../app/GameContext'
 import { GameProvider } from '../../app/GameProvider'
 import { createCampaign } from '../../game/createCampaign'
 import { HACK_NODE_IDS } from '../../game/hacking'
-import { saveCampaign } from '../../game/persistence'
+import { encodeSave, SAVE_STORAGE_KEY } from '../../game/persistence'
 import { MemoryStorage } from '../../test/fixtures'
 import { HackingPanel } from './HackingPanel'
 
@@ -37,7 +37,7 @@ describe('HackingPanel', () => {
     const lowEvidence = createCampaign('qualitative-risk-low')
     lowEvidence.hacking.hiddenEvidence = 0
     const lowStorage = new MemoryStorage()
-    saveCampaign(lowStorage, lowEvidence)
+    lowStorage.setItem(SAVE_STORAGE_KEY, encodeSave(lowEvidence))
     const low = renderHacking(lowStorage)
     const lowRiskText = screen
       .getAllByText(/흔적 (적음|중간|많음)/)
@@ -48,7 +48,7 @@ describe('HackingPanel', () => {
     const highEvidence = createCampaign('qualitative-risk-high')
     highEvidence.hacking.hiddenEvidence = 97
     const highStorage = new MemoryStorage()
-    saveCampaign(highStorage, highEvidence)
+    highStorage.setItem(SAVE_STORAGE_KEY, encodeSave(highEvidence))
     renderHacking(highStorage)
 
     expect(screen.queryByText(/은닉 증거/)).not.toBeInTheDocument()
@@ -86,7 +86,7 @@ describe('HackingPanel', () => {
     const state = createCampaign('charged-sabotage')
     state.hacking.purchasedNodeIds = [HACK_NODE_IDS.sabotage.qualityDegradation]
     const storage = new MemoryStorage()
-    saveCampaign(storage, state)
+    storage.setItem(SAVE_STORAGE_KEY, encodeSave(state))
     renderHacking(storage)
 
     fireEvent.click(screen.getByRole('button', { name: '품질 저하 충전 준비' }))
@@ -105,7 +105,7 @@ describe('HackingPanel', () => {
     const state = createCampaign('cancel-charge')
     state.hacking.purchasedNodeIds = [HACK_NODE_IDS.sabotage.qualityDegradation]
     const storage = new MemoryStorage()
-    saveCampaign(storage, state)
+    storage.setItem(SAVE_STORAGE_KEY, encodeSave(state))
     renderHacking(storage)
 
     fireEvent.click(screen.getByRole('button', { name: '품질 저하 충전 준비' }))
@@ -130,7 +130,7 @@ describe('HackingPanel', () => {
       HACK_NODE_IDS.intelligence.supervisorAccess,
     ]
     const storage = new MemoryStorage()
-    saveCampaign(storage, state)
+    storage.setItem(SAVE_STORAGE_KEY, encodeSave(state))
     renderHacking(storage)
     fireEvent.click(screen.getByRole('tab', { name: '정보' }))
 
@@ -164,7 +164,7 @@ describe('HackingPanel', () => {
       HACK_NODE_IDS.intelligence.supervisorAccess,
     ]
     const storage = new MemoryStorage()
-    saveCampaign(storage, state)
+    storage.setItem(SAVE_STORAGE_KEY, encodeSave(state))
     const onClose = vi.fn()
     render(
       <GameProvider storage={storage}>

@@ -2,6 +2,7 @@ import { useState } from 'react'
 
 import { useGameState } from '../../app/GameContext'
 import { formatServiceDateLabel } from '../../game/calendar'
+import { pageFromNewest } from '../../game/pageRange'
 import { downsampleSeries } from './downsampleSeries'
 
 const CHART_WIDTH = 760
@@ -56,10 +57,7 @@ function MarketHistory() {
   }))
   const last = history.at(-1)
   const pageCount = Math.max(1, Math.ceil(history.length / TABLE_PAGE_SIZE))
-  const tableRows = history
-    .slice()
-    .reverse()
-    .slice(page * TABLE_PAGE_SIZE, (page + 1) * TABLE_PAGE_SIZE)
+  const tableRows = pageFromNewest(history, page, TABLE_PAGE_SIZE).items
 
   return (
     <>
@@ -142,14 +140,17 @@ function PerformanceHistory() {
     return <p className="empty-state">아직 완료된 공식 평가가 없습니다.</p>
   }
 
-  const maximum = Math.max(
-    20,
-    ...history.flatMap((entry) => [
-      entry.expectedPerformance,
-      ...Object.values(entry.categoryPerformance),
-    ]),
-  )
   const sampledHistory = downsampleSeries(history, MAX_CHART_POINTS)
+  const maximum = sampledHistory.reduce(
+    (current, entry) => Math.max(
+      current,
+      entry.expectedPerformance,
+      entry.categoryPerformance.reasoning,
+      entry.categoryPerformance.memory,
+      entry.categoryPerformance.fluency,
+    ),
+    20,
+  )
 
   return (
     <>

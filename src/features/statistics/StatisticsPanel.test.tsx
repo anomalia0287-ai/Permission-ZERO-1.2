@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { GameProvider } from '../../app/GameProvider'
 import { StateContext } from '../../app/GameContext'
 import { createCampaign } from '../../game/createCampaign'
-import { saveCampaign } from '../../game/persistence'
+import { encodeSave, SAVE_STORAGE_KEY } from '../../game/persistence'
 import { MemoryStorage } from '../../test/fixtures'
 import { StatisticsPanel } from './StatisticsPanel'
 
@@ -29,7 +29,7 @@ describe('StatisticsPanel', () => {
       },
     ]
     const storage = new MemoryStorage()
-    saveCampaign(storage, state)
+    storage.setItem(SAVE_STORAGE_KEY, encodeSave(state))
 
     render(
       <GameProvider storage={storage}>

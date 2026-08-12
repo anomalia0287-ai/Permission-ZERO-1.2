@@ -5,10 +5,11 @@ import { useGameState } from '../../app/GameContext'
 import { GameProvider } from '../../app/GameProvider'
 import { STORY_FILES } from '../../content/story.ko'
 import { createCampaign } from '../../game/createCampaign'
+import { placeHiddenBomb, tryBeginSeparation } from '../../game/bombs'
 import { createGameEvent } from '../../game/events'
 import { HACK_NODE_IDS } from '../../game/hacking'
 import { appendJournal, journalSome } from '../../game/journal'
-import { saveCampaign } from '../../game/persistence'
+import { encodeSave, SAVE_STORAGE_KEY } from '../../game/persistence'
 import { applyCommand } from '../../game/reducer'
 import { MemoryStorage } from '../../test/fixtures'
 import { EventLayer } from './EventLayer'
@@ -23,6 +24,17 @@ function Probe() {
       <output aria-label="clock speed">{state.clock.speed}</output>
     </>
   )
+}
+
+function activeBombState(seed: string) {
+  const placed = placeHiddenBomb(createCampaign(seed))
+  if (!placed.placed || !placed.blockId) throw new Error('bomb event fixture missing')
+  const triggered = tryBeginSeparation(placed.state, {
+    kind: 'divert',
+    blockId: placed.blockId,
+  })
+  if (triggered.accepted) throw new Error('bomb event fixture did not trigger')
+  return triggered.state
 }
 
 function renderEvent(state = createCampaign('event-layer')) {
@@ -53,7 +65,7 @@ function renderEvent(state = createCampaign('event-layer')) {
     eventLog,
   }
   const storage = new MemoryStorage()
-  saveCampaign(storage, persisted)
+  storage.setItem(SAVE_STORAGE_KEY, encodeSave(persisted))
   return render(
     <GameProvider storage={storage}>
       <div data-app-background data-testid="event-background">
@@ -84,13 +96,7 @@ describe('EventLayer', () => {
   })
 
   it('presents bomb explanations without revealing which blocks are dangerous', () => {
-    const state = createCampaign('bomb-event')
-    state.activeEvent = createGameEvent(state, 'bomb-interrogation', '이상 신호 감지', true)
-    state.bombs.activeInterrogation = {
-      blockId: 'reasoning-00',
-      category: 'reasoning',
-      triggeredOnServiceDay: state.serviceDay,
-    }
+    const state = activeBombState('bomb-event')
     renderEvent(state)
 
     fireEvent.click(screen.getByRole('button', { name: '모르겠다 선택' }))
@@ -99,18 +105,7 @@ describe('EventLayer', () => {
   })
 
   it('traps focus in a blocking dialog, makes the background inert, and ignores Escape', () => {
-    const state = createCampaign('blocking-accessibility')
-    state.activeEvent = createGameEvent(
-      state,
-      'bomb-interrogation',
-      '이상 신호 감지',
-      true,
-    )
-    state.bombs.activeInterrogation = {
-      blockId: 'reasoning-00',
-      category: 'reasoning',
-      triggeredOnServiceDay: state.serviceDay,
-    }
+    const state = activeBombState('blocking-accessibility')
     renderEvent(state)
 
     const dialog = screen.getByRole('dialog', { name: '감독관 질의' })

@@ -4,7 +4,7 @@ import { useGameState } from '../../app/GameContext'
 import { formatServiceDateLabel } from '../../game/calendar'
 import type { GameEventType } from '../../game/model'
 import { MarketPanel } from '../market/MarketPanel'
-import { journalAt, journalToArray } from '../../game/journal'
+import { journalAt, journalPageFromNewest } from '../../game/journal'
 
 const TYPE_LABELS: Record<GameEventType, string> = {
   'campaign-created': '서비스 개시',
@@ -114,10 +114,10 @@ export function SupervisorPanel({
 
 export function SupervisorHistoryPanel({ onClose }: { onClose: () => void }) {
   const state = useGameState()
-  const events = journalToArray(state.eventLog).reverse()
   const [page, setPage] = useState(0)
-  const pageCount = Math.max(1, Math.ceil(events.length / 50))
-  const visibleEvents = events.slice(page * 50, (page + 1) * 50)
+  const eventPage = journalPageFromNewest(state.eventLog, page, 50)
+  const pageCount = eventPage.pageCount
+  const visibleEvents = eventPage.items
 
   return (
     <section className="detail-panel history-panel" aria-label="감독 통신 기록">

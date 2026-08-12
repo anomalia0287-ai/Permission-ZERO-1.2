@@ -6,10 +6,21 @@ import {
   createJournal,
   journalAt,
   journalChunks,
+  journalPageFromNewest,
   journalToArray,
 } from './journal'
 
 describe('bounded immutable journals', () => {
+  it('reads one newest-first page from a large journal without flattening it', () => {
+    const journal = createJournal(Array.from({ length: 10_000 }, (_, index) => index))
+
+    expect(journalPageFromNewest(journal, 2, 4)).toEqual({
+      items: [9_991, 9_990, 9_989, 9_988],
+      total: 10_000,
+      pageCount: 2_500,
+    })
+  })
+
   it('copies only the bounded tail while keeping sealed history shared', () => {
     let journal = createJournal<number>()
     for (let value = 0; value < JOURNAL_CHUNK_SIZE * 3 - 1; value += 1) {

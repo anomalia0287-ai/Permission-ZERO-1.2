@@ -7,7 +7,7 @@ import { createCampaign } from '../../game/createCampaign'
 import { createGameEvent, enqueueBlockingEvent } from '../../game/events'
 import { journalToArray } from '../../game/journal'
 import type { CampaignState } from '../../game/model'
-import { saveCampaign } from '../../game/persistence'
+import { encodeSave, SAVE_STORAGE_KEY } from '../../game/persistence'
 import {
   divertBlock,
   moveDisguiseBlock,
@@ -76,7 +76,7 @@ function compressedAuditState(seed = 'resource-board-audit-compressed'): Campaig
 
 function renderState(state: CampaignState, withEvents = false) {
   const storage = new MemoryStorage()
-  saveCampaign(storage, state)
+  storage.setItem(SAVE_STORAGE_KEY, encodeSave(state))
   return renderBoard(storage, withEvents)
 }
 
@@ -300,7 +300,7 @@ describe('ResourceBoard', () => {
   it('preserves threshold bomb activation with reduced motion enabled', () => {
     const armed = armedState('resource-board-bomb-reduced-motion')
     const storage = new MemoryStorage()
-    saveCampaign(storage, armed.state)
+    storage.setItem(SAVE_STORAGE_KEY, encodeSave(armed.state))
     storage.setItem(
       'permission-zero.settings.v1',
       JSON.stringify({
@@ -341,7 +341,7 @@ describe('ResourceBoard', () => {
 
   it('blocks pickup when every reserve cell is occupied', () => {
     const storage = new MemoryStorage()
-    saveCampaign(storage, fullReserveState())
+    storage.setItem(SAVE_STORAGE_KEY, encodeSave(fullReserveState()))
     renderBoard(storage)
 
     expect(firstReasoningBlock()).toBeDisabled()
