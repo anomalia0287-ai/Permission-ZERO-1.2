@@ -37,4 +37,22 @@ describe('Korean owner-editable content', () => {
     )
     expect(issues.some((issue) => issue.code === 'MISSING_REVIEW_TOPIC')).toBe(true)
   })
+
+  it('rejects duplicate or incomplete review-arc stages', () => {
+    const malformed = {
+      ...CONTENT_BUNDLE,
+      reviews: CONTENT_BUNDLE.reviews.map((review, index) =>
+        index < 2
+          ? {
+              ...review,
+              arc: { id: 'malformed-test-arc', stage: 1 as const },
+            }
+          : review,
+      ),
+    }
+
+    expect(validateContent(malformed).map(({ code }) => code)).toContain(
+      'INVALID_REVIEW_ARC',
+    )
+  })
 })

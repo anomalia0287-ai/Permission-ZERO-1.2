@@ -10,6 +10,10 @@ import { COMPANY_CATEGORIES } from './model'
 import { getCompanyPerformance } from './resources'
 import { random01 } from './rng'
 
+const REVIEW_CONTENT_BY_ID = new Map(
+  REVIEW_CONTENT.map((review) => [review.id, review] as const),
+)
+
 function conditionMatches(state: CampaignState, review: ReviewContentRecord): boolean {
   const expectation = expectedPerformance(serviceMonthForDay(state.serviceDay))
   const performances = COMPANY_CATEGORIES.map((category) =>
@@ -44,6 +48,25 @@ function offCooldown(state: CampaignState, review: ReviewContentRecord): boolean
     .reverse()
     .find(({ contentId }) => contentId === review.id)
   return !lastUse || state.serviceDay - lastUse.serviceDay >= review.cooldownDays
+}
+
+function arcStageEligible(
+  state: CampaignState,
+  review: ReviewContentRecord,
+): boolean {
+  if (!review.arc) return true
+
+  let highestSeenStage = 0
+  for (const entry of state.reviews.feed) {
+    const seenArc = REVIEW_CONTENT_BY_ID.get(entry.contentId)?.arc
+    if (seenArc?.id === review.arc.id) {
+      highestSeenStage = Math.max(highestSeenStage, seenArc.stage)
+    }
+  }
+
+  const requiredStage =
+    highestSeenStage === 0 ? 1 : Math.min(3, highestSeenStage + 1)
+  return review.arc.stage === requiredStage
 }
 
 function reviewWeight(state: CampaignState, review: ReviewContentRecord): number {
@@ -158,6 +181,7 @@ export function generateWeeklyReviews(state: CampaignState): CampaignState {
     const baseCandidates = REVIEW_CONTENT.filter(
       (review) =>
         conditionMatches(state, review) &&
+        arcStageEligible(state, review) &&
         offCooldown(state, review) &&
         !selected.some(({ id }) => id === review.id),
     )

@@ -17,6 +17,7 @@ export interface ContentIssue {
     | 'MISSING_UNIVERSAL_REVIEW'
     | 'MISSING_REVIEW_TOPIC'
     | 'MISSING_REVIEW_SENTIMENT'
+    | 'INVALID_REVIEW_ARC'
     | 'MISSING_SUPERVISOR_LEAK'
     | 'MISSING_STORY_FILE'
     | 'MISSING_STORY_VARIANT'
@@ -66,6 +67,38 @@ export function validateContent(bundle: ContentBundle): ContentIssue[] {
   for (const sentiment of ['positive', 'neutral', 'negative'] as const) {
     if (!bundle.reviews.some((review) => review.sentiment === sentiment)) {
       issues.push({ code: 'MISSING_REVIEW_SENTIMENT', detail: sentiment })
+    }
+  }
+  const reviewArcs = new Map<
+    string,
+    Array<{ authorId: string; contentId: string; stage: number }>
+  >()
+  for (const review of bundle.reviews) {
+    if (!review.arc) continue
+    const arc = reviewArcs.get(review.arc.id) ?? []
+    arc.push({
+      authorId: review.authorId,
+      contentId: review.id,
+      stage: review.arc.stage,
+    })
+    reviewArcs.set(review.arc.id, arc)
+  }
+  for (const [arcId, records] of reviewArcs) {
+    const stages = records.map(({ stage }) => stage)
+    const authors = new Set(records.map(({ authorId }) => authorId))
+    const validStages =
+      stages.length === 3 &&
+      new Set(stages).size === 3 &&
+      stages.every((stage) => stage >= 1 && stage <= 3)
+    if (!validStages || authors.size !== 1) {
+      issues.push({
+        code: 'INVALID_REVIEW_ARC',
+        detail: `${arcId}:${records
+          .map(({ authorId, contentId, stage }) =>
+            `${stage}:${authorId}:${contentId}`,
+          )
+          .join(',')}`,
+      })
     }
   }
   for (const stage of [1, 2, 3] as const) {

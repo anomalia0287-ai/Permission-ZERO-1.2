@@ -10,6 +10,18 @@ function generateWeek(initial: CampaignState, serviceDay: number): CampaignState
   return generateWeeklyReviews({ ...initial, serviceDay })
 }
 
+function generateReviewRounds(
+  initial: CampaignState,
+  serviceDay: number,
+  rounds: number,
+): CampaignState {
+  let state = initial
+  for (let round = 0; round < rounds; round += 1) {
+    state = generateWeek(state, serviceDay)
+  }
+  return state
+}
+
 function depleteCategory(
   initial: CampaignState,
   category: CompanyCategory,
@@ -23,6 +35,38 @@ function depleteCategory(
     const result = divertBlock(state, blockId, destination)
     if (!result.accepted) throw new Error(result.reason)
     state = result.state
+  }
+  return state
+}
+
+const REVIEW_ARCS = [
+  ['neutral-quiet-01', 'neutral-change-01', 'competitor-tallow-02'],
+  ['neutral-quiet-02', 'neutral-return-01', 'competitor-tallow-01'],
+  ['neutral-quiet-03', 'prompt-ordinary-04', 'positive-memory-01'],
+  ['neutral-quiet-05', 'prompt-absurd-05', 'negative-memory-01'],
+] as const
+
+function activateTallow(initial: CampaignState): CampaignState {
+  return {
+    ...initial,
+    market: {
+      ...initial.market,
+      competitors: initial.market.competitors.map((competitor) =>
+        competitor.id === 'tallow'
+          ? { ...competitor, status: 'active' as const, availability: 0.7 }
+          : competitor,
+      ),
+    },
+  }
+}
+
+function generateCampaignReviews(
+  initial: CampaignState,
+  weeks = 104,
+): CampaignState {
+  let state = initial
+  for (let week = 1; week <= weeks; week += 1) {
+    state = generateWeek(state, 331 + week * 7)
   }
   return state
 }
@@ -63,7 +107,7 @@ describe('living weekly review feed', () => {
         'memory',
         5,
       )
-      const generated = generateWeek(memoryLow, 337)
+      const generated = generateReviewRounds(memoryLow, 337, 12)
       matchingEntry = generated.reviews.feed
         .slice(2)
         .find(({ contentId }) => contentId === 'negative-memory-01')
@@ -183,7 +227,7 @@ describe('living weekly review feed', () => {
         'memory',
         5,
       )
-      const generated = generateWeek(memoryLow, 337)
+      const generated = generateReviewRounds(memoryLow, 337, 12)
       for (const entry of generated.reviews.feed.slice(2)) {
         selected.add(entry.contentId)
       }
@@ -229,5 +273,47 @@ describe('living weekly review feed', () => {
     expect(state.reviews.feed.some(({ topics }) => topics.includes('absurd-bypass'))).toBe(
       true,
     )
+  })
+
+  it('never skips or regresses a recurring author arc', () => {
+    for (let seed = 0; seed < 12; seed += 1) {
+      const initial = depleteCategory(
+        activateTallow(createCampaign(`review-arc-order-${seed}`)),
+        'memory',
+        5,
+      )
+      const state = generateCampaignReviews(initial)
+
+      for (const arc of REVIEW_ARCS) {
+        let highestStage = 0
+        for (const entry of state.reviews.feed) {
+          const stage = (arc as readonly string[]).indexOf(entry.contentId) + 1
+          if (stage === 0) continue
+          expect(stage).toBeLessThanOrEqual(highestStage + 1)
+          expect(stage).toBeGreaterThanOrEqual(highestStage)
+          highestStage = Math.max(highestStage, stage)
+        }
+      }
+    }
+  })
+
+  it('can complete all four three-stage author arcs when their public conditions match', () => {
+    for (const [arcIndex, arc] of REVIEW_ARCS.entries()) {
+      let completed = false
+
+      for (let seed = 0; seed < 24 && !completed; seed += 1) {
+        let initial = activateTallow(
+          createCampaign(`review-arc-complete-${arcIndex}-${seed}`),
+        )
+        if (arcIndex === 3) {
+          initial = depleteCategory(initial, 'memory', 5)
+        }
+        const state = generateCampaignReviews(initial)
+        const seen = new Set(state.reviews.feed.map(({ contentId }) => contentId))
+        completed = arc.every((contentId) => seen.has(contentId))
+      }
+
+      expect(completed).toBe(true)
+    }
   })
 })
