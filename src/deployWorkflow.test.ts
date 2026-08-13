@@ -99,9 +99,10 @@ function expectOnlyApprovedActions(source: string) {
 }
 
 function withExtraBuildStep(source: string, uses: string): string {
+  const newline = source.includes('\r\n') ? '\r\n' : '\n'
   return source.replace(
-    '    steps:\n',
-    `    steps:\n      - name: Injected regression fixture\n        uses: ${uses}\n`,
+    / {4}steps:\r?\n/,
+    `    steps:${newline}      - name: Injected regression fixture${newline}        uses: ${uses}${newline}`,
   )
 }
 
