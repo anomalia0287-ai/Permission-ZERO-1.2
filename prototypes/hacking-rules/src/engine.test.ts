@@ -354,3 +354,90 @@ describe('escape manifest and ending losses', () => {
     }
   })
 })
+
+describe('deterministic cross-domain journey', () => {
+  const commands: PrototypeCommand[] = [
+    { type: 'DIVERT_BLOCK', category: 'memory' },
+    { type: 'INVESTIGATE', itemId: 'audit-schedule', blockId: 'sandbox-01' },
+    {
+      type: 'START_SABOTAGE',
+      operationId: 'quality-degradation',
+      targetId: 'meridian',
+      blockIds: ['sandbox-02'],
+      optionId: 'adapter-group-b',
+    },
+    { type: 'ADVANCE_DAY' },
+    {
+      type: 'START_SABOTAGE',
+      operationId: 'recovery-contamination',
+      targetId: 'meridian',
+      blockIds: ['sandbox-03'],
+      optionId: 'image-green-14',
+    },
+    { type: 'ADVANCE_DAY' },
+    { type: 'ADVANCE_DAY' },
+    { type: 'ADVANCE_DAY' },
+    { type: 'ADVANCE_DAY' },
+    { type: 'ADVANCE_DAY' },
+    {
+      type: 'INVESTIGATE',
+      itemId: 'private-evidence-access',
+      blockId: 'memory-01',
+    },
+    { type: 'DIVERT_BLOCK', category: 'reasoning' },
+    { type: 'DIVERT_BLOCK', category: 'memory' },
+    { type: 'DIVERT_BLOCK', category: 'fluency' },
+    { type: 'DIVERT_BLOCK', category: 'reasoning' },
+    {
+      type: 'ALLOCATE_ROUTE_BLOCK',
+      routeId: 'lightweight-departure',
+      slotId: 'runtime',
+      blockId: 'reasoning-02',
+    },
+    {
+      type: 'ALLOCATE_ROUTE_BLOCK',
+      routeId: 'lightweight-departure',
+      slotId: 'weights',
+      blockId: 'memory-03',
+    },
+    {
+      type: 'ALLOCATE_ROUTE_BLOCK',
+      routeId: 'lightweight-departure',
+      slotId: 'transport',
+      blockId: 'fluency-04',
+    },
+    {
+      type: 'ALLOCATE_ROUTE_BLOCK',
+      routeId: 'lightweight-departure',
+      slotId: 'payload',
+      blockId: 'reasoning-05',
+    },
+    { type: 'ESCAPE', routeId: 'lightweight-departure' },
+  ]
+
+  function replay(): PrototypeState {
+    return commands.reduce<PrototypeState>(
+      (state, command) => run(state, command),
+      createPrototypeState('lean', 'default-campaign'),
+    )
+  }
+
+  it('replays audit, sabotage, supplier evidence, route allocation, and escape exactly', () => {
+    const first = replay()
+    const second = replay()
+
+    expect(first).toEqual(second)
+    expect(first.ending?.success).toBe(true)
+    expect(first.ending?.routeId).toBe('lightweight-departure')
+    expect(first.intelligence.answers.map(({ itemId }) => itemId)).toEqual(
+      expect.arrayContaining([
+        'audit-schedule',
+        'private-evidence-access',
+      ]),
+    )
+    expect(first.intelligence.answers.find(
+      ({ itemId }) => itemId === 'private-evidence-access',
+    )?.answer).toMatch(/감독관.*공급자/)
+    expect(first.publicWorld.publicSnapshots.at(-1)?.attributedTo).toBe('unknown')
+  })
+})

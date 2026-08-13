@@ -30,7 +30,6 @@ export interface PrototypeViewState {
   narrowMode: 'list' | 'detail'
   drawer: 'closed' | 'activity' | 'archive'
   selectedReserve: Set<string>
-  selectedManifest: Set<string>
 }
 
 export interface ShellRenderInput {
@@ -370,7 +369,7 @@ function renderBlockList(
     const routeTitle = getAutonomyDefinition(routeId).title
     const slotLabel = state.autonomy.routes[routeId].slots.find(({ id }) => id === slotId)?.label ?? slotId
     return `
-      <div class="block-chip block-chip--manifest block-chip--${block.origin}">
+      <div class="block-chip block-chip--allocated block-chip--${block.origin}">
         <span class="block-chip__id">${escapeHtml(block.id)}</span>
         <span class="block-chip__origin">${ORIGIN_LABELS[block.origin]} · ${escapeHtml(routeTitle)} / ${escapeHtml(slotLabel)}</span>
       </div>`

@@ -431,7 +431,6 @@ summary:focus-visible {
 
 .system-scene,
 .intelligence-scene,
-.route-scene,
 .autonomy-scene {
   position: relative;
   min-height: 205px;
@@ -1437,14 +1436,6 @@ summary:focus-visible {
   line-height: 1.45;
 }
 
-.autonomy-scene--pending {
-  padding: 20px;
-}
-
-.payload-slots--generic {
-  border-right: 0;
-}
-
 .network-readout {
   display: flex;
   align-items: center;
@@ -2045,7 +2036,7 @@ summary:focus-visible {
   border-left: 3px solid #e49c61;
 }
 
-.block-chip--manifest {
+.block-chip--allocated {
   background: #1c2b20;
   cursor: default;
 }
@@ -2346,11 +2337,6 @@ summary:focus-visible {
     border-right: 2px solid #728079;
     border-bottom: 2px solid #728079;
     transform: translateX(-50%) rotate(45deg);
-  }
-
-  .route-scene {
-    grid-template-columns: 1fr 1fr;
-    padding: 14px;
   }
 
   .detail-grid,

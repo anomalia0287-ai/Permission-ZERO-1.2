@@ -143,7 +143,6 @@ export function mountPrototype(
     narrowMode: 'list',
     drawer: 'closed',
     selectedReserve: new Set(),
-    selectedManifest: new Set(),
   }
 
   const input = (): ShellRenderInput => ({
@@ -162,7 +161,6 @@ export function mountPrototype(
 
   const clearSelections = () => {
     view.selectedReserve = new Set()
-    view.selectedManifest = new Set()
   }
 
   const render = (restoreFocusKey: string | null = null) => {
@@ -259,14 +257,6 @@ export function mountPrototype(
         if (checkbox.value === target.value) checkbox.checked = target.checked
       })
       statusMessage = `예비 블록 ${view.selectedReserve.size}개를 선택했다.`
-      updateSelectionFeedback()
-      return
-    }
-
-    if (target instanceof HTMLInputElement && target.name === 'manifest-block') {
-      if (target.checked) view.selectedManifest.add(target.value)
-      else view.selectedManifest.delete(target.value)
-      statusMessage = `배치 블록 ${view.selectedManifest.size}개를 선택했다.`
       updateSelectionFeedback()
       return
     }
@@ -476,12 +466,6 @@ export function mountPrototype(
       case 'withdraw':
         dispatch({ type: 'WITHDRAW_RECOVERY' })
         break
-      case 'assign-manifest':
-        dispatch({ type: 'ASSIGN_MANIFEST', blockIds: [...view.selectedReserve] })
-        break
-      case 'remove-manifest':
-        dispatch({ type: 'REMOVE_MANIFEST', blockIds: [...view.selectedManifest] })
-        break
       case 'allocate-route-block': {
         const routeId = button.dataset.routeId as AutonomyRouteId | undefined
         const slotId = button.dataset.slotId
@@ -533,9 +517,6 @@ export function mountPrototype(
         dispatch({ type: 'ESCAPE', routeId })
         break
       }
-      case 'escape':
-        dispatch({ type: 'ESCAPE' })
-        break
     }
   }
 
