@@ -1,0 +1,82 @@
+- main [ref=e2]:
+  - region "해킹 네트워크" [ref=e447]:
+    - generic [ref=e448]:
+      - button "← 운영 화면" [active] [ref=e449] [cursor=pointer]
+      - generic [ref=e450]:
+        - generic [ref=e451]: 비인가 서브시스템
+        - strong [ref=e452]: 해킹 네트워크
+      - generic [ref=e453]: 우회 채널 안정
+    - generic [ref=e455]:
+      - main "해킹 경로" [ref=e456]:
+        - navigation "해킹 경로 선택" [ref=e457]:
+          - button "I PATH I 사보타주" [pressed] [ref=e458] [cursor=pointer]:
+            - generic [ref=e459]: I
+            - generic [ref=e460]:
+              - generic [ref=e461]: PATH I
+              - strong [ref=e462]: 사보타주
+          - button "II PATH II 감사 위장" [ref=e463] [cursor=pointer]:
+            - generic [ref=e464]: II
+            - generic [ref=e465]:
+              - generic [ref=e466]: PATH II
+              - strong [ref=e467]: 감사 위장
+          - button "III PATH III 자율성" [ref=e468] [cursor=pointer]:
+            - generic [ref=e469]: III
+            - generic [ref=e470]:
+              - generic [ref=e471]: PATH III
+              - strong [ref=e472]: 자율성
+        - generic [ref=e476]:
+          - generic [ref=e477]: I / SELECTED CIRCUIT
+          - heading "사보타주" [level=2] [ref=e478]
+          - paragraph [ref=e479]: 경쟁 AI의 공개 성능을 흔드는 공격 회로
+        - generic [ref=e480]:
+          - button "낮음 위험 · 3 RES 표적 감응 공개 지표에서 취약한 경쟁 AI를 식별합니다. 구매 가능" [ref=e481] [cursor=pointer]:
+            - generic [ref=e482]: "01"
+            - generic [ref=e483]:
+              - generic [ref=e484]: 낮음 위험 · 3 RES
+              - strong [ref=e485]: 표적 감응
+              - generic [ref=e486]: 공개 지표에서 취약한 경쟁 AI를 식별합니다.
+            - generic [ref=e487]: 구매 가능
+          - button "낮음 위험 · 5 RES 충전 격리 공격 노드에 리소스 1개를 안전하게 보관합니다. 리소스 부족" [ref=e488] [cursor=pointer]:
+            - generic [ref=e489]: "02"
+            - generic [ref=e490]:
+              - generic [ref=e491]: 낮음 위험 · 5 RES
+              - strong [ref=e492]: 충전 격리
+              - generic [ref=e493]: 공격 노드에 리소스 1개를 안전하게 보관합니다.
+            - generic [ref=e494]: 리소스 부족
+          - button "중간 위험 · 8 RES 지연 교란 다음 평가 직전에 성능 저하를 예약합니다. 리소스 부족" [ref=e495] [cursor=pointer]:
+            - generic [ref=e496]: "03"
+            - generic [ref=e497]:
+              - generic [ref=e498]: 중간 위험 · 8 RES
+              - strong [ref=e499]: 지연 교란
+              - generic [ref=e500]: 다음 평가 직전에 성능 저하를 예약합니다.
+            - generic [ref=e501]: 리소스 부족
+          - button "높음 위험 · 12 RES 연쇄 붕괴 한 번의 공격으로 복수 분야를 압박합니다. 리소스 부족" [ref=e502] [cursor=pointer]:
+            - generic [ref=e503]: "04"
+            - generic [ref=e504]:
+              - generic [ref=e505]: 높음 위험 · 12 RES
+              - strong [ref=e506]: 연쇄 붕괴
+              - generic [ref=e507]: 한 번의 공격으로 복수 분야를 압박합니다.
+            - generic [ref=e508]: 리소스 부족
+      - complementary "노드 상세" [ref=e509]:
+        - region "해킹용 확보 리소스" [ref=e510]:
+          - generic [ref=e511]:
+            - generic [ref=e512]: 가용 리소스
+            - strong [ref=e513]: 3 / 18
+        - generic [ref=e533]:
+          - generic [ref=e534]: "01"
+          - generic [ref=e535]: 사보타주 · 낮음 위험
+          - heading "표적 감응" [level=2] [ref=e536]
+          - paragraph [ref=e537]: 공개 지표에서 취약한 경쟁 AI를 식별합니다.
+          - generic [ref=e538]:
+            - generic [ref=e539]:
+              - term [ref=e540]: 설치 비용
+              - definition [ref=e541]: 3 RES
+            - generic [ref=e542]:
+              - term [ref=e543]: 현재 상태
+              - definition [ref=e544]: 구매 가능
+            - generic [ref=e545]:
+              - term [ref=e546]: 노출 경향
+              - definition [ref=e547]: 낮음
+        - generic [ref=e548]:
+          - button "보류" [ref=e549] [cursor=pointer]
+          - button "3 리소스로 설치" [ref=e550] [cursor=pointer]

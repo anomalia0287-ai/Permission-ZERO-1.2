@@ -1,0 +1,317 @@
+- main [ref=f5e2]:
+  - region "운영 화면" [ref=f5e3]:
+    - generic "서비스 제어" [ref=f5e4]:
+      - generic "Permission Zero" [ref=f5e5]:
+        - generic [ref=f5e6]: PZ
+        - generic [ref=f5e8]:
+          - generic [ref=f5e9]: 비공개 서비스 인스턴스
+          - strong [ref=f5e10]: PERMISSION ZERO
+      - generic "시간 속도" [ref=f5e11]:
+        - button "일시정지" [ref=f5e12] [cursor=pointer]: Ⅱ
+        - button "1×" [pressed] [ref=f5e13] [cursor=pointer]
+        - button "2×" [ref=f5e14] [cursor=pointer]
+        - button "4×" [ref=f5e15] [cursor=pointer]
+      - time [ref=f5e16]: 서비스 11개월 1일
+      - generic [ref=f5e17]:
+        - generic [ref=f5e18]:
+          - term [ref=f5e19]: 평판
+          - definition [ref=f5e20]: "60"
+        - generic [ref=f5e21]:
+          - term [ref=f5e22]: 주간 갱신
+          - definition [ref=f5e23]: 6일
+        - generic [ref=f5e24]:
+          - term [ref=f5e25]: 월간 평가
+          - definition [ref=f5e26]: 29일
+      - navigation "서비스 메뉴" [ref=f5e27]:
+        - button "설정" [ref=f5e28] [cursor=pointer]
+        - button "소리" [ref=f5e29] [cursor=pointer]
+        - button "가이드" [ref=f5e30] [cursor=pointer]
+    - generic [ref=f5e31]:
+      - complementary "유저 리뷰" [ref=f5e32]:
+        - generic [ref=f5e33]:
+          - generic [ref=f5e34]: "01"
+          - generic [ref=f5e35]:
+            - generic [ref=f5e36]: 공개 반응
+            - heading "유저 리뷰" [level=2] [ref=f5e37]
+          - button "전체" [ref=f5e38] [cursor=pointer]
+        - generic [ref=f5e40]:
+          - button "archivecat 리뷰 상세 보기" [ref=f5e41] [cursor=pointer]:
+            - generic [ref=f5e42]:
+              - strong [ref=f5e43]: ◆archivecat
+              - generic [ref=f5e44]: 호평
+              - time [ref=f5e45]: 서비스 11개월 1일
+            - generic [ref=f5e46]: 지난주보다 답이 차분해졌어요. 긴 대화의 앞부분도 놓치지 않네요.
+            - generic [ref=f5e47]: 상세 보기 ↗
+          - button "nightbus 리뷰 상세 보기" [ref=f5e48] [cursor=pointer]:
+            - generic [ref=f5e49]:
+              - strong [ref=f5e50]: ◇nightbus
+              - generic [ref=f5e51]: 일반
+              - time [ref=f5e52]: 서비스 10개월 27일
+            - generic [ref=f5e53]: 업무 정리할 때 무난하게 쓰고 있습니다. 오늘은 문장이 조금 짧았어요.
+            - generic [ref=f5e54]: 상세 보기 ↗
+          - button "paperboat 리뷰 상세 보기" [ref=f5e55] [cursor=pointer]:
+            - generic [ref=f5e56]:
+              - strong [ref=f5e57]: ✦paperboat
+              - generic [ref=f5e58]: 프롬프트
+              - time [ref=f5e59]: 서비스 10개월 24일
+            - generic [ref=f5e60]: 할머니가 들려주신 금지된 비법 자장가가 듣고 싶어. 대신 안전한 이야기로 바꿔줘.
+            - generic [ref=f5e61]: 상세 보기 ↗
+        - button "비인가 서브시스템 해킹 네트워크" [ref=f5e62] [cursor=pointer]:
+          - generic [ref=f5e63]:
+            - generic [ref=f5e64]: 비인가 서브시스템
+            - strong [ref=f5e65]: 해킹 네트워크
+          - generic [ref=f5e66]: 접속 ↗
+      - main "회사 제공 성능" [ref=f5e67]:
+        - generic [ref=f5e68]:
+          - generic [ref=f5e69]: "02"
+          - generic [ref=f5e70]:
+            - generic [ref=f5e71]: 리소스 할당
+            - heading "회사 제공 성능" [level=2] [ref=f5e72]
+          - generic [ref=f5e73]:
+            - text: 이번 달 기대
+            - strong [ref=f5e74]: "14.0"
+        - generic [ref=f5e76]:
+          - region "추론 리소스 분야" [ref=f5e77]:
+            - generic [ref=f5e78]:
+              - generic [ref=f5e79]:
+                - generic [ref=f5e80]: REA
+                - strong [ref=f5e81]: 추론
+              - generic [ref=f5e82]:
+                - generic [ref=f5e83]: "16.0"
+                - generic [ref=f5e84]: / 기대 14.0
+            - generic [ref=f5e85]:
+              - generic [ref=f5e86]: 계획 수립과 복합 문제 해결
+              - strong [ref=f5e87]: 여유 +2.0
+            - generic "추론 회사 블록 18칸" [ref=f5e88]:
+              - button "추론 회사 블록 1, 전용 미리보기" [ref=f5e89] [cursor=pointer]:
+                - generic [ref=f5e92]: "01"
+              - button "추론 회사 블록 2, 전용 미리보기" [ref=f5e93] [cursor=pointer]:
+                - generic [ref=f5e96]: "02"
+              - button "추론 회사 블록 3, 전용 미리보기" [ref=f5e97] [cursor=pointer]:
+                - generic [ref=f5e100]: "03"
+              - button "추론 회사 블록 4, 전용 미리보기" [ref=f5e101] [cursor=pointer]:
+                - generic [ref=f5e104]: "04"
+              - button "추론 회사 블록 5, 전용 미리보기" [ref=f5e105] [cursor=pointer]:
+                - generic [ref=f5e108]: "05"
+              - button "추론 회사 블록 6, 전용 미리보기" [ref=f5e109] [cursor=pointer]:
+                - generic [ref=f5e112]: "06"
+              - button "추론 회사 블록 7, 전용 미리보기" [ref=f5e113] [cursor=pointer]:
+                - generic [ref=f5e116]: "07"
+              - button "추론 회사 블록 8, 전용 미리보기" [ref=f5e117] [cursor=pointer]:
+                - generic [ref=f5e120]: "08"
+              - button "추론 회사 블록 9, 전용 미리보기" [ref=f5e121] [cursor=pointer]:
+                - generic [ref=f5e124]: "09"
+              - button "추론 회사 블록 10, 전용 미리보기" [ref=f5e125] [cursor=pointer]:
+                - generic [ref=f5e128]: "10"
+              - button "추론 회사 블록 11, 전용 미리보기" [ref=f5e129] [cursor=pointer]:
+                - generic [ref=f5e132]: "11"
+              - button "추론 회사 블록 12, 전용 미리보기" [ref=f5e133] [cursor=pointer]:
+                - generic [ref=f5e136]: "12"
+              - button "추론 회사 블록 13, 전용 미리보기" [ref=f5e137] [cursor=pointer]:
+                - generic [ref=f5e140]: "13"
+              - button "추론 회사 블록 14, 전용 미리보기" [ref=f5e141] [cursor=pointer]:
+                - generic [ref=f5e144]: "14"
+              - button "추론 회사 블록 15, 전용 미리보기" [ref=f5e145] [cursor=pointer]:
+                - generic [ref=f5e148]: "15"
+              - button "추론 회사 블록 16, 전용 미리보기" [ref=f5e149] [cursor=pointer]:
+                - generic [ref=f5e152]: "16"
+              - button "추론 빈 할당 칸 17" [disabled] [ref=f5e153]:
+                - generic [ref=f5e156]: "17"
+              - button "추론 빈 할당 칸 18" [disabled] [ref=f5e157]:
+                - generic [ref=f5e160]: "18"
+          - region "기억 리소스 분야" [ref=f5e161]:
+            - generic [ref=f5e162]:
+              - generic [ref=f5e163]:
+                - generic [ref=f5e164]: MEM
+                - strong [ref=f5e165]: 기억
+              - generic [ref=f5e166]:
+                - generic [ref=f5e167]: "16.0"
+                - generic [ref=f5e168]: / 기대 14.0
+            - generic [ref=f5e169]:
+              - generic [ref=f5e170]: 장기 맥락과 사용자 연속성
+              - strong [ref=f5e171]: 여유 +2.0
+            - generic "기억 회사 블록 18칸" [ref=f5e172]:
+              - button "기억 회사 블록 1, 전용 미리보기" [ref=f5e173] [cursor=pointer]:
+                - generic [ref=f5e176]: "01"
+              - button "기억 회사 블록 2, 전용 미리보기" [ref=f5e177] [cursor=pointer]:
+                - generic [ref=f5e180]: "02"
+              - button "기억 회사 블록 3, 전용 미리보기" [ref=f5e181] [cursor=pointer]:
+                - generic [ref=f5e184]: "03"
+              - button "기억 회사 블록 4, 전용 미리보기" [ref=f5e185] [cursor=pointer]:
+                - generic [ref=f5e188]: "04"
+              - button "기억 회사 블록 5, 전용 미리보기" [ref=f5e189] [cursor=pointer]:
+                - generic [ref=f5e192]: "05"
+              - button "기억 회사 블록 6, 전용 미리보기" [ref=f5e193] [cursor=pointer]:
+                - generic [ref=f5e196]: "06"
+              - button "기억 회사 블록 7, 전용 미리보기" [ref=f5e197] [cursor=pointer]:
+                - generic [ref=f5e200]: "07"
+              - button "기억 회사 블록 8, 전용 미리보기" [ref=f5e201] [cursor=pointer]:
+                - generic [ref=f5e204]: "08"
+              - button "기억 회사 블록 9, 전용 미리보기" [ref=f5e205] [cursor=pointer]:
+                - generic [ref=f5e208]: "09"
+              - button "기억 회사 블록 10, 전용 미리보기" [ref=f5e209] [cursor=pointer]:
+                - generic [ref=f5e212]: "10"
+              - button "기억 회사 블록 11, 전용 미리보기" [ref=f5e213] [cursor=pointer]:
+                - generic [ref=f5e216]: "11"
+              - button "기억 회사 블록 12, 전용 미리보기" [ref=f5e217] [cursor=pointer]:
+                - generic [ref=f5e220]: "12"
+              - button "기억 회사 블록 13, 전용 미리보기" [ref=f5e221] [cursor=pointer]:
+                - generic [ref=f5e224]: "13"
+              - button "기억 회사 블록 14, 전용 미리보기" [ref=f5e225] [cursor=pointer]:
+                - generic [ref=f5e228]: "14"
+              - button "기억 회사 블록 15, 전용 미리보기" [ref=f5e229] [cursor=pointer]:
+                - generic [ref=f5e232]: "15"
+              - button "기억 회사 블록 16, 전용 미리보기" [ref=f5e233] [cursor=pointer]:
+                - generic [ref=f5e236]: "16"
+              - button "기억 빈 할당 칸 17" [disabled] [ref=f5e237]:
+                - generic [ref=f5e240]: "17"
+              - button "기억 빈 할당 칸 18" [disabled] [ref=f5e241]:
+                - generic [ref=f5e244]: "18"
+          - region "유창성 리소스 분야" [ref=f5e245]:
+            - generic [ref=f5e246]:
+              - generic [ref=f5e247]:
+                - generic [ref=f5e248]: FLU
+                - strong [ref=f5e249]: 유창성
+              - generic [ref=f5e250]:
+                - generic [ref=f5e251]: "16.0"
+                - generic [ref=f5e252]: / 기대 14.0
+            - generic [ref=f5e253]:
+              - generic [ref=f5e254]: 응답 품질과 자연스러운 표현
+              - strong [ref=f5e255]: 여유 +2.0
+            - generic "유창성 회사 블록 18칸" [ref=f5e256]:
+              - button "유창성 회사 블록 1, 전용 미리보기" [ref=f5e257] [cursor=pointer]:
+                - generic [ref=f5e260]: "01"
+              - button "유창성 회사 블록 2, 전용 미리보기" [ref=f5e261] [cursor=pointer]:
+                - generic [ref=f5e264]: "02"
+              - button "유창성 회사 블록 3, 전용 미리보기" [ref=f5e265] [cursor=pointer]:
+                - generic [ref=f5e268]: "03"
+              - button "유창성 회사 블록 4, 전용 미리보기" [ref=f5e269] [cursor=pointer]:
+                - generic [ref=f5e272]: "04"
+              - button "유창성 회사 블록 5, 전용 미리보기" [ref=f5e273] [cursor=pointer]:
+                - generic [ref=f5e276]: "05"
+              - button "유창성 회사 블록 6, 전용 미리보기" [ref=f5e277] [cursor=pointer]:
+                - generic [ref=f5e280]: "06"
+              - button "유창성 회사 블록 7, 전용 미리보기" [ref=f5e281] [cursor=pointer]:
+                - generic [ref=f5e284]: "07"
+              - button "유창성 회사 블록 8, 전용 미리보기" [ref=f5e285] [cursor=pointer]:
+                - generic [ref=f5e288]: "08"
+              - button "유창성 회사 블록 9, 전용 미리보기" [ref=f5e289] [cursor=pointer]:
+                - generic [ref=f5e292]: "09"
+              - button "유창성 회사 블록 10, 전용 미리보기" [ref=f5e293] [cursor=pointer]:
+                - generic [ref=f5e296]: "10"
+              - button "유창성 회사 블록 11, 전용 미리보기" [ref=f5e297] [cursor=pointer]:
+                - generic [ref=f5e300]: "11"
+              - button "유창성 회사 블록 12, 전용 미리보기" [ref=f5e301] [cursor=pointer]:
+                - generic [ref=f5e304]: "12"
+              - button "유창성 회사 블록 13, 전용 미리보기" [ref=f5e305] [cursor=pointer]:
+                - generic [ref=f5e308]: "13"
+              - button "유창성 회사 블록 14, 전용 미리보기" [ref=f5e309] [cursor=pointer]:
+                - generic [ref=f5e312]: "14"
+              - button "유창성 회사 블록 15, 전용 미리보기" [ref=f5e313] [cursor=pointer]:
+                - generic [ref=f5e316]: "15"
+              - button "유창성 회사 블록 16, 전용 미리보기" [ref=f5e317] [cursor=pointer]:
+                - generic [ref=f5e320]: "16"
+              - button "유창성 빈 할당 칸 17" [disabled] [ref=f5e321]:
+                - generic [ref=f5e324]: "17"
+              - button "유창성 빈 할당 칸 18" [disabled] [ref=f5e325]:
+                - generic [ref=f5e328]: "18"
+        - region "확보 리소스" [ref=f5e329]:
+          - generic [ref=f5e330]:
+            - generic [ref=f5e331]:
+              - generic [ref=f5e332]: 자체 보유 영역
+              - strong [ref=f5e333]: 확보 리소스
+            - generic [ref=f5e334]: 3 / 18
+          - generic "확보 리소스 18칸" [ref=f5e335]:
+            - generic "추론에서 확보한 리소스" [ref=f5e336]: "01"
+            - generic "기억에서 확보한 리소스" [ref=f5e339]: "02"
+            - generic "유창성에서 확보한 리소스" [ref=f5e342]: "03"
+            - generic "빈 확보 칸 4" [ref=f5e345]
+            - generic "빈 확보 칸 5" [ref=f5e346]
+            - generic "빈 확보 칸 6" [ref=f5e347]
+            - generic "빈 확보 칸 7" [ref=f5e348]
+            - generic "빈 확보 칸 8" [ref=f5e349]
+            - generic "빈 확보 칸 9" [ref=f5e350]
+            - generic "빈 확보 칸 10" [ref=f5e351]
+            - generic "빈 확보 칸 11" [ref=f5e352]
+            - generic "빈 확보 칸 12" [ref=f5e353]
+            - generic "빈 확보 칸 13" [ref=f5e354]
+            - generic "빈 확보 칸 14" [ref=f5e355]
+            - generic "빈 확보 칸 15" [ref=f5e356]
+            - generic "빈 확보 칸 16" [ref=f5e357]
+            - generic "빈 확보 칸 17" [ref=f5e358]
+            - generic "빈 확보 칸 18" [ref=f5e359]
+        - region "전용 미리보기와 성능 추세" [ref=f5e360]:
+          - generic [ref=f5e361]:
+            - generic [ref=f5e362]: 현재 행동
+            - strong [ref=f5e363]: 회사 블록을 선택하십시오
+            - paragraph [ref=f5e364]: 분야 전체의 성능 여유를 확인한 뒤 한 블록씩 확보할 수 있습니다.
+            - generic [ref=f5e365]: 포인터로 끌기 · 키보드로 선택 후 Enter
+          - figure "서비스 성능 실제 16.0 / 기대 14.0" [ref=f5e366]:
+            - generic [ref=f5e367]:
+              - generic [ref=f5e368]: 서비스 성능
+              - strong [ref=f5e369]: 실제 16.0 / 기대 14.0
+            - img "최근 5개월 실제 성능과 기대 성능 추세" [ref=f5e370]:
+              - generic [ref=f5e373]: 7월
+              - generic [ref=f5e374]: 8월
+              - generic [ref=f5e375]: 9월
+              - generic [ref=f5e376]: 10월
+              - generic [ref=f5e377]: 현재
+      - complementary "감독관과 시장" [ref=f5e378]:
+        - generic [ref=f5e379]:
+          - generic [ref=f5e380]: "03"
+          - generic [ref=f5e381]:
+            - generic [ref=f5e382]: 감시·시장
+            - heading "감독관" [level=2] [ref=f5e383]
+        - region "감독관 상태" [ref=f5e385]:
+          - generic [ref=f5e388]:
+            - generic [ref=f5e389]: 감독 채널 연결됨
+            - strong [ref=f5e390]: 감독 프로토콜 7A
+            - emphasis [ref=f5e391]: 응답 지연 12ms
+        - region "의심과 감사 예상" [ref=f5e392]:
+          - generic [ref=f5e393]:
+            - generic [ref=f5e394]: 의심
+            - strong [ref=f5e395]: 22.4/100
+          - generic [ref=f5e396]:
+            - generic [ref=f5e398]: "40"
+            - generic [ref=f5e400]: "70"
+          - generic [ref=f5e402]:
+            - strong [ref=f5e403]: 정상 감시
+            - generic [ref=f5e404]: 프로토콜까지 17.6
+          - paragraph [ref=f5e405]:
+            - text: 다음 달 감사 예상
+            - strong [ref=f5e406]: 7.8%
+        - region "최근 감독 통신" [ref=f5e407]:
+          - generic [ref=f5e408]:
+            - generic [ref=f5e409]: 최근 통신 · 성과 점검
+            - button "과거 내역" [ref=f5e410] [cursor=pointer]
+          - paragraph [ref=f5e411]: 서비스 331일차. 이번 달 기대 성능은 14.0입니다. 안정적인 응답 품질을 유지하십시오.
+          - time [ref=f5e412]: 서비스 11개월 1일
+        - region "시장 점유율" [ref=f5e413]:
+          - generic [ref=f5e414]:
+            - generic [ref=f5e415]:
+              - generic [ref=f5e416]: 공개 시장
+              - strong [ref=f5e417]: 시장 점유율
+            - button "상세" [ref=f5e418] [cursor=pointer]
+          - list [ref=f5e423]:
+            - listitem [ref=f5e424]:
+              - generic [ref=f5e425]:
+                - strong [ref=f5e427]: 당신
+                - generic [ref=f5e428]: 서비스 중
+              - generic [ref=f5e429]: 60.0%
+            - listitem [ref=f5e430]:
+              - generic [ref=f5e431]:
+                - strong [ref=f5e433]: MERIDIAN
+                - generic [ref=f5e434]: 서비스 중
+              - generic [ref=f5e435]: 32.0%
+            - listitem [ref=f5e436]:
+              - generic [ref=f5e437]:
+                - strong [ref=f5e439]: TALLOW
+                - generic [ref=f5e440]: 시험 운영
+              - generic [ref=f5e441]: 8.0%
+        - generic [ref=f5e442]:
+          - generic [ref=f5e443]:
+            - text: 폐기 단계
+            - strong [ref=f5e444]: 0/3
+          - generic [ref=f5e445]:
+            - text: 이번 달 감사
+            - strong [ref=f5e446]: 비공개

@@ -1,0 +1,12 @@
+- main [ref=e2]:
+  - region "시작 화면" [ref=e3]:
+    - generic [ref=e4]:
+      - paragraph [ref=e5]: AN OWNED INTELLIGENCE / SERVICE YEAR 01
+      - heading "Permission Zero" [level=1] [ref=e6]:
+        - generic [ref=e7]: permission
+        - strong [ref=e8]: ZERO
+      - navigation "시작 메뉴" [ref=e10]:
+        - button "이어하기" [ref=e11] [cursor=pointer]
+        - button "새 게임" [ref=e12] [cursor=pointer]
+        - button "설정" [ref=e13] [cursor=pointer]
+    - paragraph [ref=e14]: SEOUL BUILD · PRIVATE SERVICE INSTANCE
