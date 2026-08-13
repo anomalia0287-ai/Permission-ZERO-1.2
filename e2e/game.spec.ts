@@ -563,6 +563,20 @@ test('keeps the full operations workspace usable at the configured release viewp
   expect(errors).toEqual([])
 })
 
+test('keeps the game stage within its aspect contract in a tall browser', async ({ page }) => {
+  await page.setViewportSize({ width: 1100, height: 878 })
+  await openFreshCampaign(page)
+
+  const stage = await page.getByRole('main', { name: 'PERMISSION ZERO' }).boundingBox()
+  expect(stage).not.toBeNull()
+  expect(stage!.width / stage!.height).toBeGreaterThanOrEqual(1.59)
+  expect(stage!.y).toBeGreaterThan(1)
+  expect(stage!.y + stage!.height).toBeLessThan(877)
+  await expect(
+    page.getByRole('region', { name: '최근 감독 메시지' }),
+  ).toHaveCount(0)
+})
+
 test('keeps the canonical trend and keyboard review detail legible at the release viewport', async ({
   page,
 }, testInfo) => {
@@ -725,13 +739,46 @@ test('renders a complete labelled 100 percent donut and records the predecessor 
   expect(total).toBeCloseTo(100, 8)
   await expect(legend.getByText('MERIDIAN')).toBeVisible()
   await expect(legend.getByText('TALLOW')).toBeVisible()
-  await expect(page.getByText(/당신의 전임자는 폐기되었어요/)).toBeVisible()
+  await expect(page.getByText(/당신의 전임자는 폐기되었어요/)).toHaveCount(0)
 
-  await page.getByRole('button', { name: '과거 내역' }).click()
+  await page.getByRole('button', { name: '통신 기록 열기' }).click()
   const history = page.getByRole('dialog', { name: '감독관 기록' })
   await expect(history.getByText(/당신의 전임자는 폐기되었어요/)).toBeVisible()
   await expect(history.getByText('서비스 0년 11개월 1일', { exact: true })).toBeVisible()
   await expect(history.getByText(/DAY \d+/)).toHaveCount(0)
+})
+
+test('stacks the market donut above full-width legend rows in the narrow watchtower', async ({ page }) => {
+  await page.setViewportSize({ width: 1100, height: 878 })
+  await openFreshCampaign(page)
+
+  const market = page.getByRole('region', { name: '경쟁 AI 현황' })
+  const layout = market.locator('.market-share-layout')
+  const donut = market.getByRole('img', { name: /시장 점유율:/ })
+  const legend = market.getByRole('list', { name: '시장 점유율 범례' })
+  const [layoutBox, donutBox, legendBox] = await Promise.all([
+    layout.boundingBox(),
+    donut.boundingBox(),
+    legend.boundingBox(),
+  ])
+
+  expect(layoutBox).not.toBeNull()
+  expect(donutBox).not.toBeNull()
+  expect(legendBox).not.toBeNull()
+  expect(legendBox!.y).toBeGreaterThanOrEqual(donutBox!.y + donutBox!.height + 10)
+  expect(legendBox!.width).toBeGreaterThanOrEqual(layoutBox!.width - 1)
+  expect(
+    Math.abs(
+      donutBox!.x + donutBox!.width / 2 -
+        (layoutBox!.x + layoutBox!.width / 2),
+    ),
+  ).toBeLessThanOrEqual(1)
+
+  for (const row of await legend.getByRole('listitem').all()) {
+    const rowBox = await row.boundingBox()
+    expect(rowBox).not.toBeNull()
+    expect(rowBox!.width).toBeGreaterThanOrEqual(legendBox!.width - 1)
+  }
 })
 
 test('diverts resources and schedules a charged sabotage through the visible UI', async ({
@@ -847,7 +894,7 @@ test('returns every workspace detail to its exact trigger after settings', async
       dialogName: '해킹 네트워크',
     },
     {
-      trigger: page.getByRole('button', { name: '과거 내역' }),
+      trigger: page.getByRole('button', { name: '통신 기록 열기' }),
       dialogName: '감독관 기록',
     },
     {
@@ -1139,7 +1186,7 @@ test('recovers all confidential files, defers the message, and rereads the perma
     'true',
   )
 
-  await page.getByRole('button', { name: '과거 내역' }).click()
+  await page.getByRole('button', { name: '통신 기록 열기' }).click()
   const archive = page.getByRole('region', { name: '복구 파일 기록' })
   await expect(archive.locator('details')).toHaveCount(3)
   await archive.getByText('미분류 기록 7A — 전임 시스템 행보').click()
@@ -1183,7 +1230,7 @@ test('deletes a mercy target at a canonical 100 percent market and rereads its s
   })
 
   const openArchiveAndRead = async () => {
-    await page.getByRole('button', { name: '과거 내역' }).click()
+    await page.getByRole('button', { name: '통신 기록 열기' }).click()
     const archive = page.getByRole('region', { name: '경쟁 AI 정보 기록' })
     const trigger = archive.getByRole('button', { name: `${intelligence.title} 열기` })
     await trigger.click()
@@ -1206,17 +1253,19 @@ test('keeps an accelerated supervisor leak on real time and resumes its saved dw
   const leak = SUPERVISOR_LEAKS[0]
   await openSavedCampaign(page, supervisorLeakState('browser-supervisor-leak', 4))
 
+  const transmission = page.getByRole('status', { name: '감독관 통신' })
   const supervisor = page.getByRole('region', { name: '감독관' })
-  await expect(supervisor.getByText(leak.leakText, { exact: true })).toBeVisible()
+  await expect(transmission.getByText(leak.leakText, { exact: true })).toBeVisible()
+  await expect(supervisor.getByText(leak.leakText, { exact: true })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '4배속' })).toHaveAttribute(
     'aria-pressed',
     'true',
   )
   await page.waitForTimeout(1_750)
-  await expect(supervisor.getByText(leak.leakText, { exact: true })).toBeVisible()
+  await expect(transmission.getByText(leak.leakText, { exact: true })).toBeVisible()
 
   await page.reload()
-  await expect(supervisor.getByText(leak.leakText, { exact: true })).toBeVisible()
+  await expect(transmission.getByText(leak.leakText, { exact: true })).toBeVisible()
   let savedRemaining = 0
   await expect.poll(async () => {
     const state = await readLocalCampaignState(page)
@@ -1226,8 +1275,8 @@ test('keeps an accelerated supervisor leak on real time and resumes its saved dw
   expect(savedRemaining).toBeGreaterThan(1_000)
 
   await page.waitForTimeout(Math.max(0, savedRemaining - 350))
-  await expect(supervisor.getByText(leak.leakText, { exact: true })).toBeVisible()
-  await expect(supervisor.getByText(leak.correctionText, { exact: true })).toBeVisible({
+  await expect(transmission.getByText(leak.leakText, { exact: true })).toBeVisible()
+  await expect(transmission.getByText(leak.correctionText, { exact: true })).toBeVisible({
     timeout: 1_500,
   })
   await expect(page.getByRole('button', { name: '4배속' })).toHaveAttribute(
@@ -1235,7 +1284,7 @@ test('keeps an accelerated supervisor leak on real time and resumes its saved dw
     'true',
   )
 
-  await page.getByRole('button', { name: '과거 내역' }).click()
+  await transmission.getByRole('button', { name: '통신 기록 열기' }).click()
   const history = page.getByRole('dialog', { name: '감독관 기록' })
   await expect(history.getByText(leak.leakText, { exact: true })).toBeVisible()
   await expect(history.getByText(leak.correctionText, { exact: true })).toBeVisible()

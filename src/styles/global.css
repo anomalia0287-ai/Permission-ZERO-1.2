@@ -7,10 +7,16 @@ body,
 #root {
   width: 100%;
   height: 100%;
-  min-width: 1180px;
-  min-height: 650px;
+  min-width: 0;
+  min-height: 0;
   margin: 0;
   overflow: hidden;
+}
+
+body,
+#root {
+  display: grid;
+  place-items: center;
 }
 
 body {
@@ -47,8 +53,8 @@ textarea:focus-visible,
   display: grid;
   grid-template-rows: 54px 2px minmax(0, 1fr);
   gap: 0;
-  width: 100%;
-  height: 100dvh;
+  width: min(100vw, calc(100dvh * 16 / 9));
+  height: min(100dvh, 62.5vw);
   padding: 10px;
   background-image:
     linear-gradient(var(--line-soft) 1px, transparent 1px),
@@ -291,7 +297,7 @@ textarea:focus-visible,
 .game-shell[data-campaign-phase="discovery"] .resource-panel,
 .game-shell[data-campaign-phase="concealment"] .supervisor-status,
 .game-shell[data-campaign-phase="intervention"] .market-watch,
-.game-shell[data-campaign-phase="identity"] .supervisor-message {
+.game-shell[data-campaign-phase="identity"] .supervisor-status {
   box-shadow: inset 0 2px 0 rgb(214 151 69 / 52%);
 }
 
@@ -1092,7 +1098,7 @@ textarea:focus-visible,
 
 .supervisor-panel {
   display: grid;
-  grid-template-rows: 48px auto minmax(104px, 0.9fr) minmax(180px, 1.25fr) 41px;
+  grid-template-rows: 48px auto minmax(180px, 1fr) 41px;
 }
 
 .supervisor-status {
@@ -1263,14 +1269,12 @@ textarea:focus-visible,
   box-shadow: 0 0 9px rgb(223 91 85 / 30%);
 }
 
-.supervisor-message,
 .market-watch {
   min-height: 0;
   padding: 11px 12px;
   border-bottom: 1px solid var(--line-soft);
 }
 
-.supervisor-message > header,
 .market-watch > header {
   display: flex;
   align-items: center;
@@ -1278,36 +1282,6 @@ textarea:focus-visible,
   color: var(--text-muted);
   font: 500 0.52rem/1 "Cascadia Code", Consolas, monospace;
   letter-spacing: 0.06em;
-}
-
-.supervisor-message button {
-  padding: 4px 6px;
-  border: 1px solid var(--line-soft);
-  color: var(--text-muted);
-  background: transparent;
-  font-size: 0.52rem;
-  cursor: pointer;
-}
-
-.supervisor-message button:hover {
-  color: var(--text-strong);
-  border-color: var(--line-strong);
-}
-
-.supervisor-message p {
-  display: -webkit-box;
-  margin: 12px 0 7px;
-  overflow: hidden;
-  color: var(--text);
-  font-size: 0.68rem;
-  line-height: 1.55;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
-}
-
-.supervisor-message > small {
-  color: var(--text-muted);
-  font-size: 0.49rem;
 }
 
 .market-watch {
@@ -1334,10 +1308,18 @@ textarea:focus-visible,
 
 .market-share-layout {
   display: grid;
-  grid-template-columns: 76px minmax(0, 1fr);
-  align-items: center;
-  gap: 11px;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  align-content: center;
+  justify-items: stretch;
+  gap: 10px;
   min-height: 0;
+}
+
+.market-share-figure {
+  display: grid;
+  place-items: center;
+  width: 100%;
 }
 
 .market-share-donut {
@@ -1378,6 +1360,9 @@ textarea:focus-visible,
 }
 
 .market-share-layout ul {
+  display: grid;
+  gap: 2px;
+  width: 100%;
   min-height: 0;
   margin: 0;
   padding: 0;
@@ -1386,18 +1371,27 @@ textarea:focus-visible,
 
 .market-share-layout li {
   display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: center;
-  gap: 5px;
-  padding: 5px 0;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+  width: 100%;
+  padding: 5px 0 6px;
   border-bottom: 1px solid var(--line-soft);
   font: 500 0.58rem/1 "Cascadia Code", Consolas, monospace;
 }
 
-.market-share-layout li > span:first-child {
+.market-share-row__headline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.market-share-row__identity {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
 }
 
 .market-legend-marker {
@@ -1429,15 +1423,29 @@ textarea:focus-visible,
   font-size: 0.58rem;
 }
 
-.market-share-layout li > span:nth-child(2) {
+.market-share-row__value {
+  flex: 0 0 auto;
   color: var(--text-strong);
+  font-weight: 700;
 }
 
 .market-share-layout li small {
-  grid-column: 1 / -1;
-  padding-left: 11px;
+  padding-left: 17px;
   color: var(--text-muted);
   font-size: 0.48rem;
+}
+
+.market-share-row__bar {
+  display: block;
+  height: 3px;
+  margin-left: 17px;
+  overflow: hidden;
+  background: rgb(255 255 255 / 5%);
+}
+
+.market-share-row__bar i {
+  display: block;
+  height: 100%;
 }
 
 .market-calculation-inputs {
@@ -1492,7 +1500,7 @@ textarea:focus-visible,
   }
 }
 
-@media (max-height: 700px) {
+@media (max-width: 1199px), (max-height: 700px) {
   .game-shell {
     padding: 7px;
   }
@@ -1511,7 +1519,7 @@ textarea:focus-visible,
   }
 
   .supervisor-panel {
-    grid-template-rows: 48px auto minmax(90px, 0.8fr) minmax(154px, 1.15fr) 38px;
+    grid-template-rows: 48px auto minmax(154px, 1fr) 38px;
   }
 }
 

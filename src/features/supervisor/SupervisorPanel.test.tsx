@@ -12,7 +12,7 @@ import { MemoryStorage } from '../../test/fixtures'
 import { SupervisorHistoryPanel, SupervisorPanel } from './SupervisorPanel'
 
 describe('SupervisorPanel', () => {
-  it('shows the current oversight message and opens past communications', () => {
+  it('keeps the watchtower for persistent state and opens communication history', () => {
     const onOpenHistory = vi.fn()
     render(
       <GameProvider storage={new MemoryStorage()} initialSeed="supervisor-ui">
@@ -24,13 +24,15 @@ describe('SupervisorPanel', () => {
     )
 
     expect(screen.getByText('의심 0')).toBeInTheDocument()
-    expect(screen.getByText(/당신의 전임자는 폐기되었어요/)).toBeInTheDocument()
+    expect(
+      screen.queryByRole('region', { name: '최근 감독 메시지' }),
+    ).not.toBeInTheDocument()
     expect(
       screen.getByRole('region', { name: '무결성 보호 검사 일정' }),
     ).toHaveTextContent(
       '현재 미활성 · 최초 활성 가능 서비스 1년 0개월 1일',
     )
-    fireEvent.click(screen.getByRole('button', { name: '과거 내역' }))
+    fireEvent.click(screen.getByRole('button', { name: '통신 기록 열기' }))
     expect(onOpenHistory).toHaveBeenCalledTimes(1)
   })
 

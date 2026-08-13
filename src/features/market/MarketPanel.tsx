@@ -76,32 +76,44 @@ export function MarketPanel({
         </button>
       </header>
       <div className="market-share-layout">
-        <div
-          className="market-share-donut"
-          role="img"
-          aria-label={chartLabel}
-          style={{ background: marketGradient(entries.map(({ share }) => share)) }}
-        >
-          <div className="market-share-donut__center" aria-hidden="true">
-            <span>당신</span>
-            <strong>{state.market.playerShare.toFixed(1)}%</strong>
+        <div className="market-share-figure">
+          <div
+            className="market-share-donut"
+            role="img"
+            aria-label={chartLabel}
+            style={{ background: marketGradient(entries.map(({ share }) => share)) }}
+          >
+            <div className="market-share-donut__center" aria-hidden="true">
+              <span>당신</span>
+              <strong>{state.market.playerShare.toFixed(1)}%</strong>
+            </div>
           </div>
         </div>
         <ul aria-label="시장 점유율 범례">
           {entries.map((entry, index) => (
             <li key={entry.id} data-market-share={entry.share}>
-              <span>
-                <i
-                  aria-hidden="true"
-                  className={`market-legend-marker market-legend-marker--${MARKET_MARKERS[index]}`}
-                  data-testid="market-legend-marker"
-                >
-                  {MARKET_SYMBOLS[index]}
-                </i>
-                <strong>{entry.name}</strong>
-              </span>
-              <span>{entry.share.toFixed(1)}%</span>
+              <div className="market-share-row__headline">
+                <span className="market-share-row__identity">
+                  <i
+                    aria-hidden="true"
+                    className={`market-legend-marker market-legend-marker--${MARKET_MARKERS[index]}`}
+                    data-testid="market-legend-marker"
+                  >
+                    {MARKET_SYMBOLS[index]}
+                  </i>
+                  <strong>{entry.name}</strong>
+                </span>
+                <span className="market-share-row__value">{entry.share.toFixed(1)}%</span>
+              </div>
               <small>{entry.status}</small>
+              <span className="market-share-row__bar" aria-hidden="true">
+                <i
+                  style={{
+                    width: `${entry.share}%`,
+                    background: MARKET_COLORS[index % MARKET_COLORS.length],
+                  }}
+                />
+              </span>
             </li>
           ))}
         </ul>

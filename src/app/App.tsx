@@ -31,6 +31,7 @@ import {
   SupervisorHistoryPanel,
   SupervisorPanel,
 } from '../features/supervisor/SupervisorPanel'
+import { SupervisorTransmission } from '../features/supervisor/SupervisorTransmission'
 import {
   useGameDispatch,
   useGameSettings,
@@ -247,6 +248,9 @@ function GameWorkspace() {
             onOpenStatistics={(trigger) => openDetail('statistics', trigger)}
           />
         </div>
+        <SupervisorTransmission
+          onOpenHistory={(trigger) => openDetail('messages', trigger)}
+        />
       </div>
 
       {activePanel ? (

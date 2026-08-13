@@ -224,7 +224,7 @@ describe('App', () => {
         dialogName: '해킹 네트워크',
       },
       {
-        trigger: screen.getByRole('button', { name: '과거 내역' }),
+        trigger: screen.getByRole('button', { name: '통신 기록 열기' }),
         dialogName: '감독관 기록',
       },
       {

@@ -32,6 +32,14 @@
   --font-display: "Bahnschrift SemiCondensed", "Arial Narrow", sans-serif;
   --font-body: Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", system-ui, sans-serif;
   --font-code: "Cascadia Code", Consolas, monospace;
+  --type-micro: 0.625rem;
+  --type-meta: 0.6875rem;
+  --type-body: 0.8125rem;
+  --type-title: 1rem;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
   --shadow-deep: 0 28px 80px rgb(0 0 0 / 62%);
   --shadow-panel: 0 16px 36px rgb(0 0 0 / 34%);
 }
@@ -40,7 +48,7 @@ html,
 body,
 #root {
   min-width: 0;
-  min-height: 650px;
+  min-height: 0;
 }
 
 body {
@@ -58,6 +66,7 @@ button {
 
 .game-shell {
   isolation: isolate;
+  overflow: hidden;
   grid-template-rows: 64px 3px minmax(0, 1fr);
   padding: 10px 12px 12px;
   background-image:
@@ -65,6 +74,7 @@ button {
     linear-gradient(90deg, rgb(205 181 116 / 5%) 1px, transparent 1px),
     radial-gradient(ellipse at 50% 54%, rgb(21 80 118 / 18%), transparent 58%);
   background-size: 64px 64px, 64px 64px, auto;
+  box-shadow: var(--shadow-deep);
 }
 
 .game-shell::before {
@@ -319,8 +329,8 @@ button {
 /* Three-part stage ------------------------------------------------------ */
 
 .workspace-grid {
-  grid-template-columns: minmax(220px, 0.8fr) minmax(500px, 2fr) minmax(220px, 0.8fr);
-  gap: 11px;
+  grid-template-columns: minmax(220px, 0.72fr) minmax(560px, 2.2fr) minmax(220px, 0.72fr);
+  gap: 10px;
   padding-top: 9px;
 }
 
@@ -381,7 +391,7 @@ button {
 .panel-heading p {
   margin-top: 5px;
   color: #829ba8;
-  font-size: 0.67rem;
+  font-size: var(--type-micro);
   letter-spacing: 0.08em;
 }
 
@@ -447,7 +457,7 @@ button {
   border: 1px solid rgb(117 167 184 / 24%);
   color: #96b5bf;
   background: rgb(6 19 33 / 64%);
-  font: 650 0.61rem/1 var(--font-code);
+  font: 650 var(--type-micro)/1 var(--font-code);
   letter-spacing: 0.04em;
 }
 
@@ -461,7 +471,7 @@ button {
   grid-column: 1;
   grid-template-columns: minmax(0, 1fr);
   gap: 5px;
-  font-size: 0.67rem;
+  font-size: var(--type-meta);
 }
 
 .review-entry__header > span {
@@ -470,14 +480,14 @@ button {
 
 .review-entry__header time {
   color: #788f9b;
-  font-size: 0.6rem;
+  font-size: var(--type-micro);
 }
 
 .review-entry p {
   grid-column: 1 / -1;
   margin-top: 11px;
   color: #d8dcda;
-  font-size: 0.84rem;
+  font-size: var(--type-body);
   line-height: 1.62;
 }
 
@@ -486,8 +496,7 @@ button {
 }
 
 .panel-heading--action > button,
-.market-watch > header > button,
-.supervisor-message button {
+.market-watch > header > button {
   min-height: 30px;
   padding: 6px 9px;
   border-color: rgb(212 173 95 / 28%);
@@ -747,7 +756,7 @@ button {
 /* Oversight watchtower -------------------------------------------------- */
 
 .supervisor-panel {
-  grid-template-rows: 52px auto minmax(92px, 0.85fr) minmax(162px, 1.2fr) 42px;
+  grid-template-rows: 52px auto minmax(162px, 1fr) 42px;
 }
 
 .supervisor-status {
@@ -771,7 +780,7 @@ button {
 }
 
 .supervisor-status small {
-  font-size: 0.62rem;
+  font-size: var(--type-micro);
 }
 
 .supervisor-status strong {
@@ -779,7 +788,7 @@ button {
 }
 
 .supervisor-status header span {
-  font-size: 0.64rem;
+  font-size: var(--type-micro);
 }
 
 .suspicion-meter {
@@ -787,17 +796,17 @@ button {
 }
 
 .suspicion-meter > div {
-  font-size: 0.67rem;
+  font-size: var(--type-meta);
 }
 
 .suspicion-meter > .suspicion-band,
 .suspicion-meter > .audit-forecast,
 .bomb-protocol-schedule {
-  font-size: 0.61rem;
+  font-size: var(--type-micro);
 }
 
 .bomb-protocol-schedule strong {
-  font-size: 0.62rem;
+  font-size: var(--type-micro);
 }
 
 .bomb-protocol-schedule > div small {
@@ -810,44 +819,69 @@ button {
   background: rgb(2 8 16 / 74%);
 }
 
-.supervisor-message,
 .market-watch {
-  padding: 11px 12px;
+  padding: 12px;
   border-bottom-color: rgb(212 173 95 / 18%);
 }
 
-.supervisor-message > header,
 .market-watch > header {
-  font-size: 0.62rem;
-}
-
-.supervisor-message p {
-  margin-block: 11px 8px;
-  color: #d7dcda;
-  font-size: 0.76rem;
-  line-height: 1.55;
-}
-
-.supervisor-message > small {
-  font-size: 0.58rem;
+  font-size: var(--type-micro);
 }
 
 .market-watch > header strong {
-  font-size: 0.78rem;
+  font-size: 0.82rem;
 }
 
 .market-share-layout {
-  grid-template-columns: 78px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  gap: 10px;
+  align-content: center;
+}
+
+.market-share-donut {
+  width: 86px;
+  height: 86px;
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 8%),
+    0 0 24px rgb(117 167 184 / 10%);
+}
+
+.market-share-donut::after {
+  width: 54px;
+  height: 54px;
+}
+
+.market-share-donut__center span {
+  font-size: 0.58rem;
+}
+
+.market-share-donut__center strong {
+  font-size: 0.68rem;
+}
+
+.market-share-layout ul {
+  gap: 2px;
+}
+
+.market-share-layout li {
+  gap: 4px;
+  padding: 5px 0 6px;
 }
 
 .market-share-layout li,
 .market-share-layout li strong {
-  font-size: 0.66rem;
+  font-size: var(--type-meta);
 }
 
 .market-share-layout li small,
 .market-calculation-inputs {
-  font-size: 0.59rem;
+  font-size: var(--type-micro);
+}
+
+.market-share-row__bar {
+  height: 4px;
+  background: rgb(117 167 184 / 9%);
 }
 
 .supervision-footer {
@@ -855,6 +889,107 @@ button {
   color: #8ea1aa;
   background: rgb(2 10 18 / 84%);
   font-size: 0.59rem;
+}
+
+/* Transient communication --------------------------------------------- */
+
+.supervisor-transmission {
+  position: absolute;
+  z-index: 24;
+  top: 82px;
+  right: 24px;
+  display: grid;
+  width: min(410px, 42vw);
+  min-width: 320px;
+  padding: 15px 17px 13px 19px;
+  border: 1px solid rgb(212 173 95 / 58%);
+  color: var(--text);
+  background:
+    linear-gradient(135deg, rgb(19 65 95 / 96%), rgb(5 18 31 / 98%) 58%),
+    var(--ink-1);
+  box-shadow:
+    inset 4px 0 0 var(--reserve),
+    inset 0 0 0 4px rgb(3 12 22 / 55%),
+    0 22px 52px rgb(0 0 0 / 58%);
+  clip-path: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
+  animation: supervisor-transmission-in 220ms ease-out both;
+}
+
+.supervisor-transmission--correction {
+  border-color: rgb(215 101 90 / 62%);
+  background:
+    linear-gradient(135deg, rgb(89 31 38 / 94%), rgb(5 18 31 / 98%) 62%),
+    var(--ink-1);
+  box-shadow:
+    inset 4px 0 0 var(--alarm),
+    inset 0 0 0 4px rgb(3 12 22 / 55%),
+    0 22px 52px rgb(0 0 0 / 58%);
+}
+
+.supervisor-transmission > header,
+.supervisor-transmission > footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.supervisor-transmission > header > div {
+  display: grid;
+  gap: 4px;
+}
+
+.supervisor-transmission > header small,
+.supervisor-transmission > header time,
+.supervisor-transmission > footer span {
+  color: #98b5c1;
+  font: 600 0.58rem/1 var(--font-code);
+  letter-spacing: 0.08em;
+}
+
+.supervisor-transmission > header strong {
+  color: var(--deco-ivory);
+  font: 720 0.9rem/1 var(--font-display);
+  letter-spacing: 0.08em;
+}
+
+.supervisor-transmission p {
+  margin: 14px 0 13px;
+  color: #f0eadb;
+  font-size: 0.84rem;
+  line-height: 1.62;
+}
+
+.supervisor-transmission button {
+  min-height: 30px;
+  padding: 6px 9px;
+  border: 1px solid rgb(212 173 95 / 32%);
+  color: var(--reserve-bright);
+  background: rgb(3 12 22 / 62%);
+  font-size: 0.65rem;
+}
+
+.supervisor-transmission__dwell {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--reserve), var(--reserve-bright));
+  transform-origin: left center;
+  transition: transform 500ms linear;
+}
+
+@keyframes supervisor-transmission-in {
+  from {
+    opacity: 0;
+    transform: translateX(22px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
 }
 
 .supervision-footer strong {
@@ -1315,7 +1450,7 @@ button {
   }
 
   .workspace-grid {
-    grid-template-columns: minmax(310px, 0.92fr) minmax(660px, 2fr) minmax(270px, 0.8fr);
+    grid-template-columns: minmax(280px, 0.72fr) minmax(680px, 2.35fr) minmax(280px, 0.72fr);
     gap: 13px;
     padding-top: 11px;
   }
@@ -1329,13 +1464,14 @@ button {
   }
 }
 
-@media (max-height: 700px) {
+@media (max-width: 1199px), (max-height: 700px) {
   .game-shell {
     grid-template-rows: 60px 3px minmax(0, 1fr);
     padding: 7px 9px 9px;
   }
 
   .workspace-grid {
+    grid-template-columns: minmax(220px, 0.68fr) minmax(560px, 2.18fr) minmax(220px, 0.68fr);
     gap: 8px;
     padding-top: 7px;
   }
@@ -1358,15 +1494,22 @@ button {
 
   .review-entry p {
     margin-top: 8px;
-    font-size: 0.79rem;
+    font-size: var(--type-body);
   }
 
   .supervisor-panel {
-    grid-template-rows: 48px auto minmax(82px, 0.8fr) minmax(145px, 1.05fr) 38px;
+    grid-template-rows: 48px auto minmax(145px, 1fr) 38px;
   }
 
   .supervisor-status {
     padding-block: 8px;
+  }
+
+  .supervisor-transmission {
+    top: 70px;
+    right: 16px;
+    width: min(380px, 44vw);
+    min-width: 300px;
   }
 
   .hacking-panel,

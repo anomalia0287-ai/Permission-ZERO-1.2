@@ -1,11 +1,7 @@
 import { useRef, useState } from 'react'
 
 import { AccessibleDialog } from '../../app/AccessibleDialog'
-import {
-  useGameState,
-  useSupervisorPresentationCheckpoint,
-} from '../../app/GameContext'
-import { useSupervisorMessagePresentation } from '../../app/useSupervisorMessagePresentation'
+import { useGameState } from '../../app/GameContext'
 import {
   getBombProtocolPublicSchedule,
   type BombProtocolPublicSchedule,
@@ -17,7 +13,7 @@ import {
   getSuspicionBand,
 } from '../../game/evaluation'
 import { MarketPanel } from '../market/MarketPanel'
-import { journalAt, journalPageFromNewest } from '../../game/journal'
+import { journalPageFromNewest } from '../../game/journal'
 import {
   publicEventMessage,
   publicEventTypeLabel,
@@ -57,13 +53,6 @@ export function SupervisorPanel({
   onOpenStatistics: (trigger: HTMLButtonElement) => void
 }) {
   const state = useGameState()
-  const supervisorPresentationCheckpoint = useSupervisorPresentationCheckpoint()
-  const presentedSupervisorMessage = useSupervisorMessagePresentation({
-    state,
-    checkpoint: supervisorPresentationCheckpoint,
-  })
-  const latestEvent =
-    state.activeEvent ?? presentedSupervisorMessage ?? journalAt(state.eventLog, -1)
   const suspicionBand = getSuspicionBand(state.suspicion)
   const auditIntel = getAuditIntel(state)
   const nextAuditProbability = auditProbability(state.suspicion)
@@ -93,12 +82,19 @@ export function SupervisorPanel({
 
   return (
     <section className="workspace-panel supervisor-panel" aria-label="감독관">
-      <header className="panel-heading">
+      <header className="panel-heading panel-heading--action">
         <span className="panel-index">03</span>
         <div>
           <h2>감독관</h2>
-          <p>OVERSIGHT / MARKET WATCH</p>
+          <p>OVERSIGHT / MARKET</p>
         </div>
+        <button
+          type="button"
+          aria-label="통신 기록 열기"
+          onClick={(event) => onOpenHistory(event.currentTarget)}
+        >
+          통신 기록
+        </button>
       </header>
 
       <section className="supervisor-status" aria-label="감독 상태">
@@ -158,24 +154,6 @@ export function SupervisorPanel({
             </strong>
           </section>
         </div>
-      </section>
-
-      <section className="supervisor-message" aria-label="최근 감독 메시지">
-        <header>
-          <span>최근 통신</span>
-          <button
-            type="button"
-            onClick={(event) => onOpenHistory(event.currentTarget)}
-          >
-            과거 내역
-          </button>
-        </header>
-        <p>
-          {latestEvent
-            ? publicEventMessage(latestEvent.message)
-            : '감독 메시지가 없습니다.'}
-        </p>
-        <small>{latestEvent ? `${publicEventTypeLabel(latestEvent.type)} · ${formatServiceDateLabel(latestEvent.serviceDay)}` : '감독 채널 대기'}</small>
       </section>
 
       <MarketPanel onOpenStatistics={onOpenStatistics} />
