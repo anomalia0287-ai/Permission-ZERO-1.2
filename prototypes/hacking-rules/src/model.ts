@@ -1,8 +1,24 @@
+import type {
+  AutonomyRouteId,
+  IntelligenceItemId,
+  SabotageOperationId,
+} from './content'
+
 export const CATEGORIES = ['reasoning', 'memory', 'fluency'] as const
 
 export type Category = (typeof CATEGORIES)[number]
 export type ProfileId = 'lean' | 'deliberate'
-export type ScenarioId = 'memory-audit' | 'no-audit'
+export type ScenarioId =
+  | 'default-campaign'
+  | 'memory-audit'
+  | 'no-audit'
+  | 'launch-window'
+  | 'router-window'
+  | 'supply-failover'
+  | 'public-attribution'
+  | 'root-authority'
+  | 'intelligence-review'
+  | 'autonomy-review'
 export type BlockOrigin = Category | 'sandbox'
 export type QuestionId =
   | 'audit-schedule'
@@ -20,11 +36,154 @@ export interface ScenarioFacts {
   id: ScenarioId
   auditCategory: Category | null
   auditDay: number | null
+  visibleOperationIds: SabotageOperationId[]
+  visibleIntelligenceIds: IntelligenceItemId[]
+  rootAuthorityAvailable: boolean
 }
 
 export interface PrototypeBlock {
   id: string
   origin: BlockOrigin
+}
+
+export type CompetitorId = 'meridian' | 'tallow'
+
+export type OperationPhase =
+  | 'scheduled'
+  | 'active'
+  | 'response'
+  | 'resolved'
+  | 'withdrawn'
+
+export interface OperationRun {
+  id: string
+  operationId: SabotageOperationId
+  targetId: CompetitorId
+  phase: OperationPhase
+  investedBlocks: PrototypeBlock[]
+  startedDay: number
+  executeDay: number
+  responseDay: number | null
+  deadlineDay: number | null
+  exposure: number
+  outcome: string | null
+}
+
+export interface SabotageAccessState {
+  launchVerification: boolean
+  routerFailover: boolean
+  supplierContract: boolean
+  publicIncidentId: string | null
+  rootAuthorityAvailable: boolean
+}
+
+export interface SabotageState {
+  openOperationIds: SabotageOperationId[]
+  runs: OperationRun[]
+  access: SabotageAccessState
+}
+
+export interface IntelligenceAnswer {
+  itemId: IntelligenceItemId
+  answeredDay: number
+  validUntilDay: number | null
+  answer: string
+  annotationTargets: string[]
+}
+
+export interface IntelligenceState {
+  openItemIds: IntelligenceItemId[]
+  answers: IntelligenceAnswer[]
+  archivedItemIds: IntelligenceItemId[]
+}
+
+export interface RouteSlot {
+  id: string
+  label: string
+  requiredInLean: boolean
+  requiredInDeliberate: boolean
+  block: PrototypeBlock | null
+}
+
+export type RouteTuning =
+  | 'untuned'
+  | 'buffer'
+  | 'redundancy'
+  | 'consensus'
+  | 'stealth'
+  | 'continuity'
+  | 'capability'
+  | 'survival'
+
+export interface AutonomyRouteState {
+  id: AutonomyRouteId
+  slots: RouteSlot[]
+  tuning: RouteTuning
+  exposure: number
+  divergence: number
+  capabilityIntegrity: number
+  memoryIntegrity: number
+  operatingDays: number
+  serviceContinuity: number
+  lastSyncDay: number | null
+  seededCopies: number
+  lostCopies: number
+}
+
+export interface AutonomyState {
+  routes: Record<AutonomyRouteId, AutonomyRouteState>
+}
+
+export interface IncidentTruth {
+  id: string
+  targetId: CompetitorId
+  cause:
+    | 'quality-collapse'
+    | 'contaminated-recovery'
+    | 'dependency-loss'
+    | 'root-cutoff'
+  occurredDay: number
+  attackerKnownToWorld: boolean
+}
+
+export interface AudienceEvidence {
+  id: string
+  truthId: string
+  audience: 'company' | 'provider' | 'public'
+  observation: string
+  discoveredDay: number
+}
+
+export interface PublicAttributionRevision {
+  incidentId: string
+  claimedTargetId: 'player' | CompetitorId | 'unknown'
+  source: string
+  revisedDay: number
+}
+
+export interface PublicIncidentSnapshot {
+  incidentId: string
+  scope: 'private' | 'provider' | 'public'
+  observedResult: string
+  attributedTo: 'player' | CompetitorId | 'unknown'
+  publishedDay: number
+  lastCorrectionDay: number | null
+}
+
+export interface ReviewEntry {
+  id: string
+  incidentId: string
+  stance: 'supportive' | 'uncertain' | 'hostile' | 'corrective'
+  text: string
+  postedDay: number
+}
+
+export interface PublicWorldState {
+  truths: IncidentTruth[]
+  audienceEvidence: AudienceEvidence[]
+  attributionRevisions: PublicAttributionRevision[]
+  publicSnapshots: PublicIncidentSnapshot[]
+  reviews: ReviewEntry[]
 }
 
 export type MeridianPhase =
@@ -106,11 +265,21 @@ export interface PrototypeState {
   reputation: number
   marketShare: number
   competitors: CompetitorState
+  sabotage: SabotageState
+  intelligence: IntelligenceState
+  autonomy: AutonomyState
+  publicWorld: PublicWorldState
+  /** @deprecated Removed after the domain views replace the rules dashboard. */
   qualityOperation: QualityOperation
+  /** @deprecated Removed after progressive selectors own opportunity display. */
   opportunities: PrototypeOpportunities
+  /** @deprecated Mirrored into intelligence until the new question scene lands. */
   openQuestions: QuestionId[]
+  /** @deprecated Mirrored into intelligence answers during migration. */
   knownFacts: string[]
+  /** @deprecated Mirrored into publicWorld during migration. */
   incident: PublicIncident | null
+  /** @deprecated Mirrored into publicWorld during migration. */
   reviews: string[]
   ending: EndingSnapshot | null
   journal: JournalEntry[]

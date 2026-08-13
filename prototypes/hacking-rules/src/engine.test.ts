@@ -28,6 +28,19 @@ function advance(state: PrototypeState, days: number): PrototypeState {
 }
 
 describe('prototype baseline and diversion', () => {
+  it('starts with one contextual entry while retaining all three route summaries', () => {
+    const state = createPrototypeState('lean', 'default-campaign')
+
+    expect(state.sabotage.openOperationIds).toEqual(['quality-degradation'])
+    expect(state.intelligence.openItemIds).toEqual(['audit-schedule'])
+    expect(Object.keys(state.autonomy.routes)).toEqual([
+      'lightweight-departure',
+      'distributed-residency',
+      'independent-compute',
+    ])
+    expect(state.reserveBlocks).toHaveLength(3)
+  })
+
   it('starts from the product performance, reserve, and suspicion baseline', () => {
     const state = createPrototypeState('lean', 'memory-audit')
 
