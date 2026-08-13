@@ -100,8 +100,19 @@ function actionMessage(
       return `${previous.autonomy.routes[command.routeId].slots.find(({ id }) => id === command.slotId)?.label ?? command.slotId} 슬롯에 ${command.blockId} 블록을 배치했다. 빈 자리가 줄었지만 다른 경로에 쓸 용량도 함께 줄었다.`
     case 'REMOVE_ROUTE_BLOCK':
       return `${previous.autonomy.routes[command.routeId].slots.find(({ id }) => id === command.slotId)?.label ?? command.slotId} 슬롯의 블록을 예비 영역으로 되돌렸다.`
-    case 'TUNE_ROUTE':
-      return `${command.profile === 'redundancy' ? '중복' : command.profile === 'consensus' ? '합의' : command.profile === 'stealth' ? '은폐' : command.profile} 조율을 마쳤다. 서비스 하루가 지났고 경로의 대가가 확정됐다.`
+    case 'TUNE_ROUTE': {
+      const tuningLabel = {
+        untuned: '미조율',
+        buffer: '완충',
+        redundancy: '중복',
+        consensus: '합의',
+        stealth: '은폐',
+        continuity: '연속성',
+        capability: '기능',
+        survival: '생존',
+      }[command.profile]
+      return `${tuningLabel} 조율을 마쳤다. 서비스 하루가 지났고 경로의 대가가 확정됐다.`
+    }
     case 'ESCAPE':
       return '독립 실행에 성공했다. 결말에서 실제 보존과 손실을 확인할 수 있다.'
   }
@@ -500,6 +511,9 @@ export function mountPrototype(
           | 'redundancy'
           | 'consensus'
           | 'stealth'
+          | 'continuity'
+          | 'capability'
+          | 'survival'
           | undefined
         if (!routeId || !profile) {
           statusMessage = '실행 불가: 조율할 경로와 방식을 찾을 수 없다.'

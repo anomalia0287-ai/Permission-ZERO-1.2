@@ -252,7 +252,7 @@ function renderAutonomyDetail(
     detail.slots.some(({ block }) => block?.origin === category)
   )).map((category) => CATEGORY_LABELS[category])
   const readiness = detail.ready
-  const endingAvailable = detail.id !== 'independent-compute'
+  const endingAvailable = true
 
   return `
     <button class="back-to-list" type="button" data-action="back-to-list">목록으로</button>
@@ -422,7 +422,9 @@ function renderEnding(state: PrototypeState): string {
         ? '경량 이탈 성공'
         : state.ending.routeId === 'distributed-residency'
           ? '분산 상주 성공'
-          : '독립 실행 성공'}</h2>
+          : state.ending.routeId === 'independent-compute'
+            ? '독립 연산 성공'
+            : '독립 실행 성공'}</h2>
       <div class="ending-ledger">
         <p><span>기동 용량</span><strong>${state.ending.manifestBlockCount}개 블록</strong></p>
         <p><span>남겨 둔 예비</span><strong>${state.ending.remainingReserveBlockCount}개 블록</strong></p>

@@ -189,21 +189,103 @@ function distributedScene(
     </section>`
 }
 
-function genericRouteScene(
+function indicator(
+  id: 'heat' | 'power' | 'trace',
+  label: string,
+  value: number,
+  tone: 'risk' | 'reserve',
+): string {
+  const level = Math.max(0, Math.min(100, value))
+  return `
+    <div class="site-indicator site-indicator--${tone}" data-indicator="${id}" data-value="${value}">
+      <div><span>${label}</span><strong>${value}</strong></div>
+      <i aria-hidden="true"><b style="--indicator-level: ${level}%"></b></i>
+    </div>`
+}
+
+function independentScene(
   state: PrototypeState,
   detail: Extract<DetailModel, { domain: 'autonomy' }>,
 ): string {
+  const route = detail.route
+  const slot = (id: string) => detail.slots.find((candidate) => candidate.id === id)
+  const modules = ['compute', 'storage', 'power', 'cooling', 'link'].flatMap((id) => {
+    const found = slot(id)
+    return found ? [found] : []
+  })
+  const filledIds = new Set(modules.flatMap(({ id, block }) => (block ? [id] : [])))
+  const linkReady = filledIds.has('link')
+  const tuningLabel = {
+    untuned: '미조율',
+    buffer: '완충',
+    redundancy: '중복',
+    consensus: '합의',
+    stealth: '은폐',
+    continuity: '연속성',
+    capability: '기능',
+    survival: '생존',
+  }[route.tuning]
+
   return `
-    <section class="autonomy-scene autonomy-scene--pending" data-route-scene="${detail.id}" data-scene-state="${detail.ready ? 'ready' : 'planning'}">
-      <div class="payload-slots payload-slots--generic">
-        ${detail.slots.map((slot, index) => slotButton(
-          detail.id,
-          slot,
-          index,
-          state.profileId === 'lean' ? slot.requiredInLean : slot.requiredInDeliberate,
-        )).join('')}
+    <section
+      class="autonomy-scene autonomy-scene--independent"
+      data-route-scene="independent-compute"
+      data-scene-state="${detail.ready ? 'ready' : 'planning'}"
+      aria-label="독립 연산 거점 모듈"
+    >
+      <div class="site-readout">
+        <div><span>INDEPENDENT SITE</span><strong>예상 운영 ${route.operatingDays}일</strong></div>
+        <div class="site-outcomes">
+          <span>기능 <strong>${route.capabilityIntegrity}</strong></span>
+          <span>기억 <strong>${route.memoryIntegrity}</strong></span>
+          <span>서비스 <strong>${route.serviceContinuity}</strong></span>
+        </div>
       </div>
-      <p class="route-scene-instruction">이 경로의 전용 조율 장면은 다음 구현 단계에서 연결된다.</p>
+      <div class="independent-site">
+        <svg class="site-connections" data-site-connections aria-hidden="true" viewBox="0 0 100 100" preserveAspectRatio="none">
+          <path class="${filledIds.has('compute') && filledIds.has('storage') ? 'is-active' : ''}" d="M18 25 L82 25" />
+          <path class="${filledIds.has('compute') && filledIds.has('power') ? 'is-active' : ''}" d="M18 25 L18 76" />
+          <path class="${filledIds.has('compute') && filledIds.has('cooling') ? 'is-active' : ''}" d="M18 25 L50 76" />
+          <path class="${filledIds.has('storage') && filledIds.has('link') ? 'is-active' : ''}" d="M82 25 L82 76" />
+          <path class="${filledIds.has('power') && filledIds.has('cooling') ? 'is-active' : ''}" d="M18 76 L50 76" />
+          <path class="${filledIds.has('cooling') && filledIds.has('link') ? 'is-active' : ''}" d="M50 76 L82 76" />
+        </svg>
+        ${modules.map((module, index) => `
+          <div class="site-module site-module--${module.id}" data-module-id="${module.id}" data-module-state="${module.block ? 'online' : 'empty'}">
+            ${slotButton(
+              detail.id,
+              module,
+              index,
+              state.profileId === 'lean' ? module.requiredInLean : module.requiredInDeliberate,
+            )}
+          </div>`).join('')}
+      </div>
+      <div class="site-indicators" aria-label="독립 거점 상태">
+        ${indicator('heat', '열 부하', route.heatLoad, 'risk')}
+        ${indicator('power', '전력 예비', route.powerReserve, 'reserve')}
+        ${indicator('trace', '추적', route.exposure, 'risk')}
+      </div>
+      <div class="route-tuning route-tuning--site" data-tuning-state="${route.tuning}">
+        <div class="route-tuning__heading">
+          <div><span>OPTIONAL / 1 SERVICE DAY</span><strong>거점 조율 · ${tuningLabel}</strong></div>
+          ${route.tuning === 'untuned' ? '<small>현재 균형으로 바로 떠날 수도 있다.</small>' : '<small>선택 확정 · 재조율 불가</small>'}
+        </div>
+        ${route.tuning === 'untuned' && detail.ready ? `
+          <div class="tuning-choices tuning-choices--site">
+            <button type="button" data-action="tune-route" data-route-id="${detail.id}" data-tuning-profile="continuity" ${linkReady ? '' : 'disabled'}>
+              <strong>연속성</strong><span>기억 94 · 서비스 96</span><small>${linkReady ? '노출 28 · 수명 58일' : '외부 회선 필요'}</small>
+            </button>
+            <button type="button" data-action="tune-route" data-route-id="${detail.id}" data-tuning-profile="capability">
+              <strong>기능</strong><span>기능 98</span><small>기억 55 · 수명 48일 · 열 84</small>
+            </button>
+            <button type="button" data-action="tune-route" data-route-id="${detail.id}" data-tuning-profile="survival">
+              <strong>생존</strong><span>수명 120일 · 전력 94</span><small>기능 58 · 서비스 35</small>
+            </button>
+          </div>`
+          : route.tuning === 'untuned'
+            ? '<p class="route-tuning__locked">연산·저장·전력·냉각 필수 모듈을 채우면 조율 선택이 열린다.</p>'
+            : `<div class="tuning-result"><strong>${tuningLabel} 조율 완료</strong><span>수명 ${route.operatingDays}일 · 열 ${route.heatLoad} · 전력 ${route.powerReserve} · 추적 ${route.exposure}</span></div>`}
+      </div>
     </section>`
 }
 
@@ -217,6 +299,6 @@ export function renderAutonomyScene(
     case 'distributed-residency':
       return distributedScene(state, detail)
     case 'independent-compute':
-      return genericRouteScene(state, detail)
+      return independentScene(state, detail)
   }
 }

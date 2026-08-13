@@ -133,6 +133,8 @@ export interface AutonomyRouteState {
   operatingDays: number
   serviceContinuity: number
   syncTraffic: number
+  heatLoad: number
+  powerReserve: number
   lastSyncDay: number | null
   seededCopies: number
   lostCopies: number

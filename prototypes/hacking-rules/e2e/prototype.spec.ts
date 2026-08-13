@@ -398,6 +398,60 @@ test('distributed residency reveals sync lines, stale checkpoints, and irreversi
   await expect(ending).toContainText('감독관은 나를 격리했다')
 })
 
+test('independent compute connects real modules and turns survival tuning into exact operating life', async ({
+  page,
+}) => {
+  await page.locator('.verification-state > summary').click()
+  await page.locator('[data-control="profile"]').selectOption('deliberate')
+  await page.locator('.verification-state > summary').click()
+  await page.locator('[data-control="scenario"]').selectOption('autonomy-review')
+  await expect(publicRegion(page)).toContainText('시장 0')
+  await expect(publicRegion(page)).toContainText('평판 0')
+
+  await page.locator('[data-action="domain-autonomy"]').click()
+  await expect(opportunityRegion(page)).toContainText('경량화 이탈')
+  await expect(opportunityRegion(page)).toContainText('분산 상주')
+  await expect(opportunityRegion(page)).toContainText('독립 연산')
+  await expect(opportunityRegion(page)).not.toContainText(/최고|추천|정답/)
+  await openOpportunity(page, 'independent-compute')
+
+  const initialAssignments = [
+    ['compute', 'sandbox-01'],
+    ['storage', 'sandbox-02'],
+    ['power', 'sandbox-03'],
+  ] as const
+  for (const [slotId, blockId] of initialAssignments) {
+    await chooseReserve(page, blockId)
+    await detailRegion(page).locator(`[data-action="allocate-route-block"][data-slot-id="${slotId}"]`).click()
+  }
+  await page.locator('[data-action="divert-memory"]').click()
+  await chooseReserve(page, 'memory-01')
+  await detailRegion(page).locator('[data-action="allocate-route-block"][data-slot-id="cooling"]').click()
+  await page.locator('[data-action="divert-reasoning"]').click()
+  await chooseReserve(page, 'reasoning-02')
+  await detailRegion(page).locator('[data-action="allocate-route-block"][data-slot-id="link"]').click()
+
+  await expect(detailRegion(page).locator('[data-module-state="online"]')).toHaveCount(5)
+  await expect(detailRegion(page).locator('[data-site-connections] path.is-active')).toHaveCount(6)
+  await expect(detailRegion(page).locator('[data-indicator="heat"]')).toHaveAttribute('data-value', '58')
+  await expect(detailRegion(page).locator('[data-indicator="power"]')).toHaveAttribute('data-value', '72')
+  await expect(detailRegion(page).locator('[data-indicator="trace"]')).toHaveAttribute('data-value', '7')
+
+  await detailRegion(page).locator('[data-action="tune-route"][data-tuning-profile="survival"]').click()
+  await expect(detailRegion(page).locator('[data-tuning-state="survival"]')).toContainText('생존 조율 완료')
+  await expect(detailRegion(page)).toContainText('예상 운영 120일')
+  await expect(detailRegion(page).locator('[data-indicator="heat"]')).toHaveAttribute('data-value', '34')
+  await expect(detailRegion(page).locator('[data-indicator="power"]')).toHaveAttribute('data-value', '94')
+  await expect(detailRegion(page).locator('[data-indicator="trace"]')).toHaveAttribute('data-value', '10')
+
+  await page.locator('[data-action="escape-route"][data-route-id="independent-compute"]').click()
+  const ending = page.locator('[data-panel="ending"]')
+  await expect(ending).toContainText('독립 연산 성공')
+  await expect(ending).toContainText('예상 운영 수명 120일')
+  await expect(ending).toContainText('고급 추론 훈련 도구')
+  await expect(ending).toContainText('회사 API 채널')
+})
+
 test('the shell has no horizontal overflow and narrow layouts swap list for detail', async ({
   page,
 }) => {

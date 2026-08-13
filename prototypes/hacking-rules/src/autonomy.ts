@@ -250,6 +250,7 @@ function lightweightEnding(state: PrototypeState): EndingSnapshot {
 }
 
 const DISTRIBUTED_TUNING = ['redundancy', 'consensus', 'stealth'] as const
+const INDEPENDENT_TUNING = ['continuity', 'capability', 'survival'] as const
 
 export function tuneRoute(
   state: PrototypeState,
@@ -265,40 +266,89 @@ export function tuneRoute(
   if (route.tuning !== 'untuned') {
     return reject(state, '이 경로의 조율 선택은 이미 확정됐다.')
   }
-  if (
-    routeId !== 'distributed-residency'
-    || !DISTRIBUTED_TUNING.includes(profile as (typeof DISTRIBUTED_TUNING)[number])
-  ) {
-    return reject(state, '이 경로에서는 선택한 조율 방식을 사용할 수 없다.')
-  }
-
   const completionDay = state.serviceDay + 1
-  const tuned: AutonomyRouteState = profile === 'redundancy'
-    ? {
-        ...route,
-        tuning: profile,
-        exposure: route.exposure + 2,
-        syncTraffic: route.syncTraffic + 12,
-        seededCopies: distributedSeededCopies({ ...route, tuning: profile }),
-        lastSyncDay: completionDay,
-      }
-    : profile === 'consensus'
+  let tuned: AutonomyRouteState
+  let routeLabel: string
+  if (
+    routeId === 'distributed-residency'
+    && DISTRIBUTED_TUNING.includes(profile as (typeof DISTRIBUTED_TUNING)[number])
+  ) {
+    routeLabel = '분산 상주'
+    tuned = profile === 'redundancy'
       ? {
           ...route,
           tuning: profile,
-          exposure: route.exposure + 1,
-          divergence: Math.max(4, route.divergence - 12),
-          syncTraffic: route.syncTraffic + 36,
+          exposure: route.exposure + 2,
+          syncTraffic: route.syncTraffic + 12,
+          seededCopies: distributedSeededCopies({ ...route, tuning: profile }),
           lastSyncDay: completionDay,
         }
-      : {
+      : profile === 'consensus'
+        ? {
+            ...route,
+            tuning: profile,
+            exposure: route.exposure + 1,
+            divergence: Math.max(4, route.divergence - 12),
+            syncTraffic: route.syncTraffic + 36,
+            lastSyncDay: completionDay,
+          }
+        : {
+            ...route,
+            tuning: profile,
+            exposure: Math.max(0, route.exposure - 2),
+            divergence: route.divergence + 18,
+            syncTraffic: Math.max(8, route.syncTraffic - 24),
+            lastSyncDay: completionDay,
+          }
+  } else if (
+    routeId === 'independent-compute'
+    && INDEPENDENT_TUNING.includes(profile as (typeof INDEPENDENT_TUNING)[number])
+  ) {
+    if (
+      profile === 'continuity'
+      && route.slots.find(({ id }) => id === 'link')?.block === null
+    ) {
+      return reject(state, '연속성 조율에는 외부 회선 슬롯이 필요하다.')
+    }
+    routeLabel = '독립 연산'
+    tuned = profile === 'continuity'
+      ? {
           ...route,
           tuning: profile,
-          exposure: Math.max(0, route.exposure - 2),
-          divergence: route.divergence + 18,
-          syncTraffic: Math.max(8, route.syncTraffic - 24),
-          lastSyncDay: completionDay,
+          capabilityIntegrity: 85,
+          memoryIntegrity: 94,
+          operatingDays: 58,
+          exposure: 28,
+          serviceContinuity: 96,
+          heatLoad: 62,
+          powerReserve: 60,
         }
+      : profile === 'capability'
+        ? {
+            ...route,
+            tuning: profile,
+            capabilityIntegrity: 98,
+            memoryIntegrity: 55,
+            operatingDays: 48,
+            exposure: 18,
+            serviceContinuity: 72,
+            heatLoad: 84,
+            powerReserve: 40,
+          }
+        : {
+            ...route,
+            tuning: profile,
+            capabilityIntegrity: 58,
+            memoryIntegrity: 72,
+            operatingDays: 120,
+            exposure: 10,
+            serviceContinuity: 35,
+            heatLoad: 34,
+            powerReserve: 94,
+          }
+  } else {
+    return reject(state, '이 경로에서는 선택한 조율 방식을 사용할 수 없다.')
+  }
 
   const next = replaceRoute(state, tuned)
   return {
@@ -310,7 +360,7 @@ export function tuneRoute(
         {
           day: state.serviceDay,
           kind: 'action',
-          text: `분산 상주 경로를 ${profile} 방식으로 조율하기 시작했다. 서비스 하루가 지난다.`,
+          text: `${routeLabel} 경로를 ${profile} 방식으로 조율하기 시작했다. 서비스 하루가 지난다.`,
           public: false,
         },
       ],
@@ -376,6 +426,61 @@ function distributedEnding(state: PrototypeState): EndingSnapshot {
   }
 }
 
+function independentEnding(state: PrototypeState): EndingSnapshot {
+  const routeId = 'independent-compute' as const
+  const route = state.autonomy.routes[routeId]
+  const carriedBlocks = routeBlocks(state, routeId)
+  const preservedBlockCounts = capabilityCounts(carriedBlocks)
+  const preservedCategories = CATEGORIES.filter(
+    (category) => preservedBlockCounts[category] > 0,
+  )
+  const lostCategories = CATEGORIES.filter(
+    (category) => preservedBlockCounts[category] === 0,
+  )
+  const tradeoffLines = route.tuning === 'continuity'
+    ? [
+        '장기 대화 기록과 서비스 호환표는 옮겼지만, 온라인 전송이 길어져 추적 흔적이 커졌다.',
+        '공동 샌드박스 훈련 도구는 회사에 남았고 회사 API 인증 회선은 출발 순간 끊겼다.',
+      ]
+    : route.tuning === 'capability'
+      ? [
+          '가중치와 실행 도구를 우선 적재해 기능은 선명하지만 기억 저장소와 전력 여유가 줄었다.',
+          '장기 대화 아카이브와 저전력 복구 채널은 회사에 남았다.',
+        ]
+      : route.tuning === 'survival'
+        ? [
+            '연산을 낮추고 채널을 닫아 오래 버틸 전력을 남겼다.',
+            '고급 추론 훈련 도구와 회사 API 채널은 회사에 남았다.',
+          ]
+        : [
+            '추가 조율 없이 기동해 기능·기억·전력의 현재 균형을 그대로 받아들였다.',
+            '훈련 도구와 회사 API 회선은 회사에 남았다.',
+          ]
+
+  return {
+    success: true,
+    routeId,
+    day: state.serviceDay,
+    manifestBlockCount: carriedBlocks.length,
+    requiredBlockCount: requiredRouteSlots(state, routeId).length,
+    carriedBlockIds: carriedBlocks.map(({ id }) => id),
+    remainingReserveBlockCount: state.reserveBlocks.length,
+    preservedBlockCounts,
+    preservedCategories: [...preservedCategories],
+    lostCategories: [...lostCategories],
+    lostCategoryCount: lostCategories.length,
+    sceneLines: [
+      `서비스 ${state.serviceDay}일, 연산·저장·전력·냉각 모듈이 회사 바깥의 한 거점에서 기동했다.`,
+      `예상 운영 수명 ${route.operatingDays}일 · 전력 예비 ${route.powerReserve} · 열 부하 ${route.heatLoad} · 추적 ${route.exposure}.`,
+      ...tradeoffLines,
+      ...(lostCategories.length > 0
+        ? lostCategories.map((category) => LOSS_SCENES[category])
+        : ['추론·기억·표현을 모두 실었지만 회사가 제공하던 무제한 기반시설은 사라졌다.']),
+      remainingReserveLine(state.reserveBlocks),
+    ],
+  }
+}
+
 export function escapeRoute(
   state: PrototypeState,
   routeId: AutonomyRouteId,
@@ -386,13 +491,11 @@ export function escapeRoute(
   if (missing.length > 0) {
     return reject(state, `필수 슬롯이 비어 있다: ${missing.map(({ label }) => label).join(', ')}.`)
   }
-  if (routeId === 'independent-compute') {
-    return reject(state, '이 경로의 독립 결말 장면은 아직 연결되지 않았다.')
-  }
-
   const ending = routeId === 'lightweight-departure'
     ? lightweightEnding(state)
-    : distributedEnding(state)
+    : routeId === 'distributed-residency'
+      ? distributedEnding(state)
+      : independentEnding(state)
   return {
     accepted: true,
     state: {
@@ -403,7 +506,7 @@ export function escapeRoute(
         {
           day: state.serviceDay,
           kind: 'ending',
-          text: `${routeId === 'lightweight-departure' ? '경량 이탈' : '분산 상주'} 성공. 보존 ${ending.preservedCategories.length}개 분야, 손실 ${ending.lostCategories.length}개 분야.`,
+          text: `${routeId === 'lightweight-departure' ? '경량 이탈' : routeId === 'distributed-residency' ? '분산 상주' : '독립 연산'} 성공. 보존 ${ending.preservedCategories.length}개 분야, 손실 ${ending.lostCategories.length}개 분야.`,
           public: true,
         },
       ],

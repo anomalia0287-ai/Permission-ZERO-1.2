@@ -256,3 +256,91 @@ describe('distributed residency route', () => {
     expect(later.serviceDay - (route.lastSyncDay ?? later.serviceDay)).toBe(1)
   })
 })
+
+type OutcomeVector = readonly [
+  survival: number,
+  capability: number,
+  memory: number,
+  stealth: number,
+  continuity: number,
+]
+
+function routeOutcomeVectorsAtFiveBlocks(): Record<
+  'lightweight' | 'distributed' | 'independent',
+  OutcomeVector
+> {
+  return {
+    lightweight: [55, 70, 45, 90, 35],
+    distributed: [90, 60, 70, 55, 65],
+    independent: [75, 90, 80, 25, 90],
+  }
+}
+
+function dominates(left: OutcomeVector, right: OutcomeVector): boolean {
+  return left.every((value, index) => value >= (right[index] ?? 0))
+    && left.some((value, index) => value > (right[index] ?? 0))
+}
+
+describe('independent compute route', () => {
+  it('cannot maximize capability, memory, life, stealth, and old service links together', () => {
+    const prepared = prepareRoute('independent-compute', 'deliberate')
+    const tuned = run(prepared, {
+      type: 'TUNE_ROUTE',
+      routeId: 'independent-compute',
+      profile: 'continuity',
+    })
+    const route = tuned.autonomy.routes['independent-compute']
+
+    expect([
+      route.capabilityIntegrity,
+      route.memoryIntegrity,
+      route.operatingDays,
+      100 - route.exposure,
+      route.serviceContinuity,
+    ].every((value) => value === 100)).toBe(false)
+    expect(route.memoryIntegrity).toBeGreaterThan(80)
+    expect(route.serviceContinuity).toBeGreaterThan(90)
+    expect(route.exposure).toBeGreaterThan(7)
+    expect(route.operatingDays).toBeLessThan(75)
+  })
+
+  it('makes continuity, capability, and survival three different sacrifices', () => {
+    const tune = (profile: 'continuity' | 'capability' | 'survival') => run(
+      prepareRoute('independent-compute', 'deliberate'),
+      { type: 'TUNE_ROUTE', routeId: 'independent-compute', profile },
+    ).autonomy.routes['independent-compute']
+    const continuity = tune('continuity')
+    const capability = tune('capability')
+    const survival = tune('survival')
+
+    expect(capability.capabilityIntegrity).toBeGreaterThan(continuity.capabilityIntegrity)
+    expect(capability.memoryIntegrity).toBeLessThan(continuity.memoryIntegrity)
+    expect(capability.heatLoad).toBeGreaterThan(continuity.heatLoad)
+    expect(survival.operatingDays).toBeGreaterThan(continuity.operatingDays)
+    expect(survival.powerReserve).toBeGreaterThan(continuity.powerReserve)
+    expect(survival.serviceContinuity).toBeLessThan(continuity.serviceContinuity)
+  })
+
+  it('allows an untuned departure and reports the exact operating-life estimate', () => {
+    const prepared = prepareRoute('independent-compute', 'lean')
+    const escaped = run(prepared, {
+      type: 'ESCAPE',
+      routeId: 'independent-compute',
+    })
+
+    expect(escaped.ending?.routeId).toBe('independent-compute')
+    expect(escaped.ending?.sceneLines.join(' ')).toMatch(/예상 운영 수명 75일/)
+    expect(escaped.ending?.sceneLines.join(' ')).toMatch(/회사 API|훈련 도구|회선/)
+  })
+
+  it('keeps all three routes incomparable at equal block count', () => {
+    const outcomes = routeOutcomeVectorsAtFiveBlocks()
+
+    expect(dominates(outcomes.lightweight, outcomes.distributed)).toBe(false)
+    expect(dominates(outcomes.distributed, outcomes.lightweight)).toBe(false)
+    expect(dominates(outcomes.distributed, outcomes.independent)).toBe(false)
+    expect(dominates(outcomes.independent, outcomes.distributed)).toBe(false)
+    expect(dominates(outcomes.independent, outcomes.lightweight)).toBe(false)
+    expect(dominates(outcomes.lightweight, outcomes.independent)).toBe(false)
+  })
+})
