@@ -467,6 +467,24 @@ test('keeps the full operations workspace usable at the configured release viewp
   await expect(page.getByRole('region', { name: '감독관' })).toBeVisible()
   await expect(page.getByRole('region', { name: '확보 리소스' })).toBeVisible()
 
+  const campaignPhase = page.getByRole('region', { name: '캠페인 단계' })
+  await expect(campaignPhase).toContainText('단계 1/4 · 발견')
+  await expect(campaignPhase).toContainText('정말 훔칠 수 있나?')
+  const workspace = page.getByRole('main', { name: 'PERMISSION ZERO' })
+  await expect(workspace).toHaveAttribute('data-campaign-phase', 'discovery')
+  const controlBarBox = await page.locator('.control-bar').boundingBox()
+  const campaignPhaseBox = await campaignPhase.boundingBox()
+  expect(controlBarBox).not.toBeNull()
+  expect(campaignPhaseBox).not.toBeNull()
+  expect(campaignPhaseBox!.x).toBeGreaterThanOrEqual(controlBarBox!.x - 1)
+  expect(campaignPhaseBox!.x + campaignPhaseBox!.width).toBeLessThanOrEqual(
+    controlBarBox!.x + controlBarBox!.width + 1,
+  )
+  expect(campaignPhaseBox!.y).toBeGreaterThanOrEqual(controlBarBox!.y - 1)
+  expect(campaignPhaseBox!.y + campaignPhaseBox!.height).toBeLessThanOrEqual(
+    controlBarBox!.y + controlBarBox!.height + 1,
+  )
+
   const bombProtocolSchedule = page.getByRole('region', {
     name: '무결성 보호 검사 일정',
   })
@@ -716,7 +734,9 @@ test('renders a complete labelled 100 percent donut and records the predecessor 
   await expect(history.getByText(/DAY \d+/)).toHaveCount(0)
 })
 
-test('diverts resources and schedules a charged sabotage through the visible UI', async ({ page }) => {
+test('diverts resources and schedules a charged sabotage through the visible UI', async ({
+  page,
+}, testInfo) => {
   const errors = collectBrowserErrors(page)
   await openFreshCampaign(page)
 
@@ -737,6 +757,33 @@ test('diverts resources and schedules a charged sabotage through the visible UI'
   await expect(firstHackComparison).toContainText('해금 2 + 첫 공격 충전 1')
   await expect(firstHackComparison).toContainText('이번 달 실제 감사 여부')
   await expect(firstHackComparison).toContainText('모든 회사 블록 기여 +5%')
+  const pathProgress = page.getByRole('region', { name: '해킹 경로 진척' })
+  await expect(pathProgress).toContainText('경로 진척 0/4 · 완성까지 34 RES')
+  await expect(pathProgress).toContainText('다음 · 품질 저하 · 3 RES')
+  await expect(pathProgress).toContainText('최종 · 근원 차단')
+  const hackContextBox = await page.locator('.hack-context').boundingBox()
+  const pathProgressBox = await pathProgress.boundingBox()
+  expect(hackContextBox).not.toBeNull()
+  expect(pathProgressBox).not.toBeNull()
+  expect(pathProgressBox!.x).toBeGreaterThanOrEqual(hackContextBox!.x - 1)
+  expect(pathProgressBox!.x + pathProgressBox!.width).toBeLessThanOrEqual(
+    hackContextBox!.x + hackContextBox!.width + 1,
+  )
+  expect(pathProgressBox!.y).toBeGreaterThanOrEqual(hackContextBox!.y - 1)
+  expect(pathProgressBox!.y + pathProgressBox!.height).toBeLessThanOrEqual(
+    hackContextBox!.y + hackContextBox!.height + 1,
+  )
+  const artifactDirectory = resolve(process.cwd(), 'artifacts', 'p1')
+  mkdirSync(artifactDirectory, { recursive: true })
+  const viewport = page.viewportSize()
+  if (!viewport) throw new Error('릴리스 뷰포트 누락')
+  await page.screenshot({
+    path: resolve(
+      artifactDirectory,
+      `hacking-path-${testInfo.project.name}-${viewport.width}x${viewport.height}.png`,
+    ),
+    animations: 'disabled',
+  })
   await page.getByRole('button', { name: '품질 저하 구매 준비' }).click()
 
   const purchaseResources = page.getByRole('button', { name: /구매 리소스 .* 선택/ })
