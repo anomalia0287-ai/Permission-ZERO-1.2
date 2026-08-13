@@ -54,6 +54,7 @@ function arcStageEligible(
   state: CampaignState,
   review: ReviewContentRecord,
 ): boolean {
+  if (state.saveVersion === 1 || state.legacyCommandCount > 0) return true
   if (!review.arc) return true
 
   let highestSeenStage = 0
