@@ -365,7 +365,10 @@ export function syncIntelligenceOpportunities(state: PrototypeState): PrototypeS
   ) {
     addOpenItem(next, 'competitor-principle')
   }
-  if (next.manifestBlocks.length > 0) {
+  const routePreparationStarted = Object.values(next.autonomy.routes).some((route) => (
+    route.slots.some(({ block }) => block !== null)
+  ))
+  if (next.manifestBlocks.length > 0 || routePreparationStarted) {
     addOpenItem(next, 'control-plane-recovery')
     addOpenItem(next, 'post-escape-trace')
   }

@@ -132,6 +132,7 @@ export interface AutonomyRouteState {
   memoryIntegrity: number
   operatingDays: number
   serviceContinuity: number
+  syncTraffic: number
   lastSyncDay: number | null
   seededCopies: number
   lostCopies: number
@@ -347,6 +348,11 @@ export type PrototypeCommand =
       type: 'REMOVE_ROUTE_BLOCK'
       routeId: AutonomyRouteId
       slotId: string
+    }
+  | {
+      type: 'TUNE_ROUTE'
+      routeId: AutonomyRouteId
+      profile: RouteTuning
     }
   | { type: 'ESCAPE'; routeId?: AutonomyRouteId }
 

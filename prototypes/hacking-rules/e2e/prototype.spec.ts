@@ -353,6 +353,51 @@ test('lightweight departure ignores social reception and names what the fixed pa
   await expect(ending).not.toContainText(/\d+\s*\/\s*\d+/)
 })
 
+test('distributed residency reveals sync lines, stale checkpoints, and irreversible tuning tradeoffs', async ({
+  page,
+}) => {
+  await page.locator('.verification-state > summary').click()
+  await page.locator('[data-control="scenario"]').selectOption('autonomy-review')
+  await page.locator('[data-action="domain-autonomy"]').click()
+  await openOpportunity(page, 'distributed-residency')
+
+  const assignments = [
+    ['host-a', 'sandbox-01'],
+    ['host-b', 'sandbox-02'],
+    ['host-c', 'sandbox-03'],
+  ] as const
+  for (const [slotId, blockId] of assignments) {
+    await chooseReserve(page, blockId)
+    await detailRegion(page).locator(`[data-action="allocate-route-block"][data-slot-id="${slotId}"]`).click()
+  }
+  await expect(detailRegion(page).locator('[data-sync-lines]')).toHaveCount(0)
+
+  await page.locator('[data-action="divert-memory"]').click()
+  await chooseReserve(page, 'memory-01')
+  await detailRegion(page).locator('[data-action="allocate-route-block"][data-slot-id="sync"]').click()
+  await expect(detailRegion(page).locator('[data-sync-lines]')).toBeVisible()
+  await expect(detailRegion(page)).toContainText('응답 사본 3 / 시드 3')
+
+  await page.locator('[data-action="advance-day"]').click()
+  await expect(detailRegion(page).locator('[data-checkpoint-state="stale"]')).toHaveCount(3)
+  await expect(detailRegion(page)).toContainText('체크포인트 D+1')
+
+  await detailRegion(page).locator('[data-action="tune-route"][data-tuning-profile="stealth"]').click()
+  await expect(detailRegion(page).locator('[data-tuning-state="stealth"]')).toContainText('은폐 조율 완료')
+  await expect(detailRegion(page)).toContainText('노출 1')
+  await expect(detailRegion(page)).toContainText('사본 차이 38')
+  await expect(detailRegion(page)).toContainText('동기화 트래픽 18')
+  await expect(detailRegion(page).locator('[data-action="tune-route"]')).toHaveCount(0)
+
+  await page.locator('[data-action="escape-route"][data-route-id="distributed-residency"]').click()
+  const ending = page.locator('[data-panel="ending"]')
+  await expect(ending).toContainText('분산 상주 성공')
+  await expect(ending).toContainText('시드 사본 3개')
+  await expect(ending).toContainText('마지막 동기화 333일')
+  await expect(ending).toContainText('감독관은 나를 보호했다')
+  await expect(ending).toContainText('감독관은 나를 격리했다')
+})
+
 test('the shell has no horizontal overflow and narrow layouts swap list for detail', async ({
   page,
 }) => {

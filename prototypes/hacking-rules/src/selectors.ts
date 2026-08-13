@@ -12,6 +12,7 @@ import type {
   SabotageOperationId,
 } from './content'
 import type {
+  AutonomyRouteState,
   IntelligenceAnswer,
   PrototypeState,
   RouteSlot,
@@ -65,6 +66,7 @@ export type DetailModel =
       bottleneck: string
       slots: RouteSlot[]
       ready: boolean
+      route: AutonomyRouteState
       annotations: IntelligenceAnswer[]
     }
 
@@ -342,6 +344,7 @@ function autonomyDetail(
       block: slot.block ? { ...slot.block } : null,
     })),
     ready: firstEmpty === undefined,
+    route: structuredClone(route),
     annotations: state.intelligence.answers.filter((answer) => (
       isIntelligenceAnswerCurrent(answer, state.serviceDay)
       && answer.annotationTargets.includes(id)

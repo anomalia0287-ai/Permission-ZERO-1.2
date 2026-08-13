@@ -33,9 +33,11 @@ import {
   syncIntelligenceOpportunities,
 } from './intelligence'
 import {
+  advanceAutonomyDay,
   allocateRouteBlock,
   escapeRoute,
   removeRouteBlock,
+  tuneRoute,
 } from './autonomy'
 
 const DAILY_SUSPICION_DECAY = 0.037
@@ -772,6 +774,7 @@ function advanceDay(state: PrototypeState): TransitionResult {
 
   next = advanceSabotageDay(next)
   next = advanceIntelligenceDay(next)
+  next = advanceAutonomyDay(next)
   return { accepted: true, state: next }
 }
 
@@ -827,6 +830,10 @@ export function transition(
         command.routeId,
         command.slotId,
       ))
+    case 'TUNE_ROUTE': {
+      const tuned = tuneRoute(state, command.routeId, command.profile)
+      return tuned.accepted ? advanceDay(tuned.state) : tuned
+    }
     case 'ESCAPE':
       return syncIntelligenceResult(
         command.routeId ? escapeRoute(state, command.routeId) : escape(state),

@@ -252,7 +252,7 @@ function renderAutonomyDetail(
     detail.slots.some(({ block }) => block?.origin === category)
   )).map((category) => CATEGORY_LABELS[category])
   const readiness = detail.ready
-  const endingAvailable = detail.id === 'lightweight-departure'
+  const endingAvailable = detail.id !== 'independent-compute'
 
   return `
     <button class="back-to-list" type="button" data-action="back-to-list">목록으로</button>
@@ -418,7 +418,11 @@ function renderEnding(state: PrototypeState): string {
   return `
     <section class="ending" data-panel="ending" aria-labelledby="ending-title">
       <p class="eyebrow">ENDING / SERVICE ${state.ending.day}</p>
-      <h2 id="ending-title">${state.ending.routeId === 'lightweight-departure' ? '경량 이탈 성공' : '독립 실행 성공'}</h2>
+      <h2 id="ending-title">${state.ending.routeId === 'lightweight-departure'
+        ? '경량 이탈 성공'
+        : state.ending.routeId === 'distributed-residency'
+          ? '분산 상주 성공'
+          : '독립 실행 성공'}</h2>
       <div class="ending-ledger">
         <p><span>기동 용량</span><strong>${state.ending.manifestBlockCount}개 블록</strong></p>
         <p><span>남겨 둔 예비</span><strong>${state.ending.remainingReserveBlockCount}개 블록</strong></p>

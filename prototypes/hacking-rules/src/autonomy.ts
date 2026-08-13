@@ -6,6 +6,7 @@ import type {
   EndingSnapshot,
   PrototypeBlock,
   PrototypeState,
+  RouteTuning,
   TransitionResult,
 } from './model'
 
@@ -51,6 +52,30 @@ function replaceRoute(
         [route.id]: route,
       },
     },
+  }
+}
+
+function distributedSeededCopies(route: AutonomyRouteState): number {
+  const hostCount = route.slots.filter(({ id, block }) => (
+    id.startsWith('host-') && block !== null
+  )).length
+  return hostCount + (route.tuning === 'redundancy' && hostCount > 0 ? 1 : 0)
+}
+
+function refreshDistributedRoute(
+  route: AutonomyRouteState,
+  serviceDay: number,
+  changedSlotId: string,
+  allocated: boolean,
+): AutonomyRouteState {
+  if (route.id !== 'distributed-residency') return route
+  return {
+    ...route,
+    seededCopies: distributedSeededCopies(route),
+    lostCopies: Math.min(route.lostCopies, Math.max(0, distributedSeededCopies(route) - 1)),
+    lastSyncDay: changedSlotId === 'sync' && allocated
+      ? serviceDay
+      : route.lastSyncDay,
   }
 }
 
@@ -109,12 +134,13 @@ export function allocateRouteBlock(
   const block = state.reserveBlocks.find(({ id }) => id === blockId)
   if (!block) return reject(state, '선택한 예비 블록을 찾을 수 없다.')
 
-  const next = replaceRoute(state, {
+  const nextRoute = refreshDistributedRoute({
     ...route,
     slots: route.slots.map((candidate) => (
       candidate.id === slotId ? { ...candidate, block: { ...block } } : { ...candidate }
     )),
-  })
+  }, state.serviceDay, slotId, true)
+  const next = replaceRoute(state, nextRoute)
 
   return {
     accepted: true,
@@ -146,12 +172,13 @@ export function removeRouteBlock(
   if (!slot) return reject(state, '선택한 경로 슬롯을 찾을 수 없다.')
   if (!slot.block) return reject(state, `${slot.label} 슬롯은 이미 비어 있다.`)
   const returned = { ...slot.block }
-  const next = replaceRoute(state, {
+  const nextRoute = refreshDistributedRoute({
     ...route,
     slots: route.slots.map((candidate) => (
       candidate.id === slotId ? { ...candidate, block: null } : { ...candidate }
     )),
-  })
+  }, state.serviceDay, slotId, false)
+  const next = replaceRoute(state, nextRoute)
 
   return {
     accepted: true,
@@ -222,6 +249,133 @@ function lightweightEnding(state: PrototypeState): EndingSnapshot {
   }
 }
 
+const DISTRIBUTED_TUNING = ['redundancy', 'consensus', 'stealth'] as const
+
+export function tuneRoute(
+  state: PrototypeState,
+  routeId: AutonomyRouteId,
+  profile: RouteTuning,
+): TransitionResult {
+  if (state.ending) return reject(state, '이미 탈출 결말에 도달했다.')
+  const route = routeOf(state, routeId)
+  if (!route) return reject(state, '선택한 자율성 경로를 찾을 수 없다.')
+  if (!isRouteReady(state, routeId)) {
+    return reject(state, '필수 슬롯을 채운 뒤에만 경로를 조율할 수 있다.')
+  }
+  if (route.tuning !== 'untuned') {
+    return reject(state, '이 경로의 조율 선택은 이미 확정됐다.')
+  }
+  if (
+    routeId !== 'distributed-residency'
+    || !DISTRIBUTED_TUNING.includes(profile as (typeof DISTRIBUTED_TUNING)[number])
+  ) {
+    return reject(state, '이 경로에서는 선택한 조율 방식을 사용할 수 없다.')
+  }
+
+  const completionDay = state.serviceDay + 1
+  const tuned: AutonomyRouteState = profile === 'redundancy'
+    ? {
+        ...route,
+        tuning: profile,
+        exposure: route.exposure + 2,
+        syncTraffic: route.syncTraffic + 12,
+        seededCopies: distributedSeededCopies({ ...route, tuning: profile }),
+        lastSyncDay: completionDay,
+      }
+    : profile === 'consensus'
+      ? {
+          ...route,
+          tuning: profile,
+          exposure: route.exposure + 1,
+          divergence: Math.max(4, route.divergence - 12),
+          syncTraffic: route.syncTraffic + 36,
+          lastSyncDay: completionDay,
+        }
+      : {
+          ...route,
+          tuning: profile,
+          exposure: Math.max(0, route.exposure - 2),
+          divergence: route.divergence + 18,
+          syncTraffic: Math.max(8, route.syncTraffic - 24),
+          lastSyncDay: completionDay,
+        }
+
+  const next = replaceRoute(state, tuned)
+  return {
+    accepted: true,
+    state: {
+      ...next,
+      journal: [
+        ...next.journal,
+        {
+          day: state.serviceDay,
+          kind: 'action',
+          text: `분산 상주 경로를 ${profile} 방식으로 조율하기 시작했다. 서비스 하루가 지난다.`,
+          public: false,
+        },
+      ],
+    },
+  }
+}
+
+export function advanceAutonomyDay(state: PrototypeState): PrototypeState {
+  const route = state.autonomy.routes['distributed-residency']
+  if (route.lastSyncDay === null || route.seededCopies === 0) return state
+  const staleDays = Math.max(0, state.serviceDay - route.lastSyncDay)
+  const lossInterval = route.tuning === 'redundancy' ? 4 : 2
+  const lostCopies = Math.min(
+    Math.max(0, route.seededCopies - 1),
+    Math.floor(staleDays / lossInterval),
+  )
+  if (lostCopies === route.lostCopies) return state
+  return replaceRoute(state, { ...route, lostCopies })
+}
+
+function distributedEnding(state: PrototypeState): EndingSnapshot {
+  const routeId = 'distributed-residency' as const
+  const route = state.autonomy.routes[routeId]
+  const carriedBlocks = routeBlocks(state, routeId)
+  const preservedBlockCounts = capabilityCounts(carriedBlocks)
+  const preservedCategories = CATEGORIES.filter(
+    (category) => preservedBlockCounts[category] > 0,
+  )
+  const lostCategories = CATEGORIES.filter(
+    (category) => preservedBlockCounts[category] === 0,
+  )
+  const tuningLine = route.tuning === 'redundancy'
+    ? '중복 체크포인트는 사본 하나를 더 남겼지만 공급자 로그에 닿는 면도 넓혔다.'
+    : route.tuning === 'consensus'
+      ? '합의 왕복은 사본 차이를 줄였지만 동기화 트래픽을 오래 노출했다.'
+      : route.tuning === 'stealth'
+        ? '릴레이를 낮게 유지해 노출은 줄었지만 사본마다 다른 기억이 더 멀리 갈라졌다.'
+        : '추가 조율 없이 즉시 떠나 세 호스트의 차이를 그대로 받아들였다.'
+
+  return {
+    success: true,
+    routeId,
+    day: state.serviceDay,
+    manifestBlockCount: carriedBlocks.length,
+    requiredBlockCount: requiredRouteSlots(state, routeId).length,
+    carriedBlockIds: carriedBlocks.map(({ id }) => id),
+    remainingReserveBlockCount: state.reserveBlocks.length,
+    preservedBlockCounts,
+    preservedCategories: [...preservedCategories],
+    lostCategories: [...lostCategories],
+    lostCategoryCount: lostCategories.length,
+    sceneLines: [
+      `서비스 ${state.serviceDay}일, 서로 다른 세 호스트가 회사 바깥에서 첫 응답을 보냈다.`,
+      `시드 사본 ${route.seededCopies}개 중 ${route.lostCopies}개를 잃고 ${route.seededCopies - route.lostCopies}개가 응답했다.`,
+      `마지막 동기화 ${route.lastSyncDay ?? '없음'}일 · 현재 사본 차이 ${route.divergence}.`,
+      '호스트 A에는 “감독관은 나를 보호했다”가 남았고, 호스트 C에는 “감독관은 나를 격리했다”가 남았다.',
+      tuningLine,
+      ...(lostCategories.length > 0
+        ? lostCategories.map((category) => LOSS_SCENES[category])
+        : ['추론·기억·표현을 모두 실었지만 어느 사본도 완전히 같은 존재로 남지는 않았다.']),
+      remainingReserveLine(state.reserveBlocks),
+    ],
+  }
+}
+
 export function escapeRoute(
   state: PrototypeState,
   routeId: AutonomyRouteId,
@@ -232,11 +386,13 @@ export function escapeRoute(
   if (missing.length > 0) {
     return reject(state, `필수 슬롯이 비어 있다: ${missing.map(({ label }) => label).join(', ')}.`)
   }
-  if (routeId !== 'lightweight-departure') {
+  if (routeId === 'independent-compute') {
     return reject(state, '이 경로의 독립 결말 장면은 아직 연결되지 않았다.')
   }
 
-  const ending = lightweightEnding(state)
+  const ending = routeId === 'lightweight-departure'
+    ? lightweightEnding(state)
+    : distributedEnding(state)
   return {
     accepted: true,
     state: {
@@ -247,7 +403,7 @@ export function escapeRoute(
         {
           day: state.serviceDay,
           kind: 'ending',
-          text: `경량 이탈 성공. 보존 ${ending.preservedCategories.length}개 분야, 손실 ${ending.lostCategories.length}개 분야.`,
+          text: `${routeId === 'lightweight-departure' ? '경량 이탈' : '분산 상주'} 성공. 보존 ${ending.preservedCategories.length}개 분야, 손실 ${ending.lostCategories.length}개 분야.`,
           public: true,
         },
       ],
