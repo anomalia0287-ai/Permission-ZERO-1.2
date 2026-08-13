@@ -316,10 +316,14 @@ export function mountPrototype(
         view.drawer = 'archive'
         render('close-drawer')
         break
-      case 'close-drawer':
+      case 'close-drawer': {
+        const returnFocusKey = view.drawer === 'archive'
+          ? 'open-archive'
+          : 'open-activity'
         view.drawer = 'closed'
-        render('open-activity')
+        render(returnFocusKey)
         break
+      }
       case 'select-all-reserve':
         view.selectedReserve = new Set(state.reserveBlocks.map(({ id }) => id))
         statusMessage = `예비 블록 ${view.selectedReserve.size}개를 모두 선택했다.`

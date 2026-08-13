@@ -199,7 +199,7 @@ function indicator(
   return `
     <div class="site-indicator site-indicator--${tone}" data-indicator="${id}" data-value="${value}">
       <div><span>${label}</span><strong>${value}</strong></div>
-      <i aria-hidden="true"><b style="--indicator-level: ${level}%"></b></i>
+      <i aria-hidden="true"><b style="--indicator-ratio: ${level / 100}"></b></i>
     </div>`
 }
 

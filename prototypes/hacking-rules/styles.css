@@ -1264,7 +1264,7 @@ summary:focus-visible {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 8px;
   font-style: normal;
-  transition: color 180ms ease, background 180ms ease, transform 180ms ease;
+  transition: transform 180ms ease;
 }
 
 .payload-capacity i.is-filled {
@@ -1303,7 +1303,7 @@ summary:focus-visible {
   border: 1px dashed #435049;
   font: inherit;
   text-align: left;
-  transition: color 180ms ease, background 180ms ease, border-color 180ms ease, transform 180ms ease;
+  transition: transform 180ms ease;
 }
 
 .route-slot:hover,
@@ -1388,7 +1388,7 @@ summary:focus-visible {
   min-width: 0;
   padding: 8px;
   border: 1px solid #28332e;
-  transition: opacity 220ms ease, transform 220ms ease, border-color 220ms ease;
+  transition: opacity 220ms ease, transform 220ms ease;
 }
 
 .capability-silhouette i {
@@ -1513,7 +1513,6 @@ summary:focus-visible {
   stroke-dasharray: 2.5 2;
   stroke-width: 1.15;
   vector-effect: non-scaling-stroke;
-  animation: sync-line-flow 900ms linear infinite;
 }
 
 .host-node,
@@ -1647,7 +1646,7 @@ summary:focus-visible {
   border: 0;
   font: inherit;
   text-align: left;
-  transition: color 160ms ease, background 160ms ease, transform 160ms ease;
+  transition: transform 160ms ease;
 }
 
 .tuning-choices button:hover,
@@ -1685,12 +1684,6 @@ summary:focus-visible {
   justify-content: space-between;
   color: #cbd6cf;
   border-left: 3px solid var(--accent);
-}
-
-@keyframes sync-line-flow {
-  to {
-    stroke-dashoffset: -9;
-  }
 }
 
 @keyframes sync-hub-pulse {
@@ -1775,7 +1768,6 @@ summary:focus-visible {
   stroke-dasharray: 2 2;
   stroke-width: 0.8;
   vector-effect: non-scaling-stroke;
-  transition: stroke 180ms ease, stroke-width 180ms ease;
 }
 
 .site-connections path.is-active {
@@ -1883,11 +1875,12 @@ summary:focus-visible {
 
 .site-indicator b {
   display: block;
-  width: var(--indicator-level);
+  width: 100%;
   height: 100%;
   background: #dd9463;
   transform-origin: left center;
-  transition: width 240ms ease;
+  transform: scaleX(var(--indicator-ratio));
+  transition: transform 240ms ease;
 }
 
 .site-indicator--reserve b {

@@ -452,6 +452,135 @@ test('independent compute connects real modules and turns survival tuning into e
   await expect(ending).toContainText('회사 API 채널')
 })
 
+test('accessibility keyboard flow preserves focus across tabs, detail, reserve, and archive', async ({
+  page,
+}) => {
+  const sabotageTab = page.locator('[data-action="domain-sabotage"]')
+  const intelligenceTab = page.locator('[data-action="domain-intelligence"]')
+  const autonomyTab = page.locator('[data-action="domain-autonomy"]')
+
+  await sabotageTab.focus()
+  await page.keyboard.press('Tab')
+  await expect(intelligenceTab).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(autonomyTab).toBeFocused()
+  await page.keyboard.press('Shift+Tab')
+  await expect(intelligenceTab).toBeFocused()
+  await sabotageTab.focus()
+  await page.keyboard.press('Enter')
+
+  const quality = page.locator('[data-opportunity-id="quality-degradation"]')
+  await quality.focus()
+  await page.keyboard.press('Space')
+  await expect(detailRegion(page)).toBeVisible()
+  if (isNarrow(page)) {
+    const back = page.locator('[data-action="back-to-list"]')
+    await expect(back).toBeVisible()
+    await back.focus()
+    await page.keyboard.press('Enter')
+    await expect(opportunityRegion(page)).toBeVisible()
+    await expect(quality).toBeFocused()
+    await page.keyboard.press('Space')
+  } else {
+    await expect(quality).toBeFocused()
+  }
+
+  const reserve = (page.viewportSize()?.width ?? 1280) <= 760
+    ? page.locator('input[name="detail-reserve-block"][value="sandbox-01"]')
+    : page.locator('input[name="reserve-block"][value="sandbox-01"]')
+  await reserve.focus()
+  await page.keyboard.press('Space')
+  await expect(reserve).toBeChecked()
+  await expect(reserve).toBeFocused()
+
+  const archiveTrigger = page.locator('[data-action="open-archive"]')
+  await archiveTrigger.click()
+  const close = page.locator('[data-action="close-drawer"]')
+  await expect(close).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(archiveTrigger).toBeFocused()
+})
+
+test('reduced motion keeps operation and route state changes without travel animation', async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.reload()
+  await openOpportunity(page, 'quality-degradation')
+  await chooseReserve(page, 'sandbox-01')
+  await detailRegion(page).locator('[data-action="start-sabotage"][data-operation-id="quality-degradation"]').first().click()
+  await expect(detailRegion(page).locator('[data-scene-state="scheduled"]')).toBeVisible()
+  await expect(page.getByRole('status')).toContainText('품질 저하 예약')
+  expect(await detailRegion(page).locator('.flow-arrow').evaluate(
+    (element) => getComputedStyle(element).animationDuration,
+  )).toBe('0s')
+
+  await page.locator('[data-action="domain-autonomy"]').click()
+  await openOpportunity(page, 'lightweight-departure')
+  await page.locator('[data-action="divert-memory"]').click()
+  await chooseReserve(page, 'sandbox-02')
+  const runtime = detailRegion(page).locator('[data-slot-id="runtime"]')
+  await runtime.click()
+  await expect(runtime).toHaveAttribute('data-slot-state', 'filled')
+  await expect(page.getByRole('status')).toContainText('런타임 슬롯')
+  expect(await runtime.evaluate(
+    (element) => getComputedStyle(element).animationDuration,
+  )).toBe('0s')
+})
+
+test('console and responsive drawer checks keep errors and primary-action overlap at zero', async ({
+  page,
+}) => {
+  const consoleErrors: string[] = []
+  const pageErrors: string[] = []
+  page.on('console', (message) => {
+    if (message.type() === 'error') consoleErrors.push(message.text())
+  })
+  page.on('pageerror', (error) => pageErrors.push(error.message))
+  await page.reload()
+  await openOpportunity(page, 'quality-degradation')
+
+  const horizontalOverflow = await page.evaluate(
+    () => document.documentElement.scrollWidth - window.innerWidth,
+  )
+  expect(horizontalOverflow).toBeLessThanOrEqual(1)
+  if (isNarrow(page)) {
+    await expect(page.locator('[data-action="back-to-list"]')).toBeVisible()
+  } else {
+    await expect(opportunityRegion(page)).toBeVisible()
+  }
+
+  const primary = detailRegion(page).locator('.primary-action').first()
+  await primary.scrollIntoViewIfNeeded()
+  await page.locator('[data-action="open-activity"]').evaluate((element: HTMLElement) => element.click())
+  const overlap = await page.evaluate(() => {
+    const action = document.querySelector<HTMLElement>('.workspace-detail .primary-action')
+    const drawer = document.querySelector<HTMLElement>('.record-drawer')
+    if (!action || !drawer) return true
+    const actionRect = action.getBoundingClientRect()
+    const drawerRect = drawer.getBoundingClientRect()
+    const scrollX = window.scrollX
+    const scrollY = window.scrollY
+    const a = {
+      left: actionRect.left + scrollX,
+      right: actionRect.right + scrollX,
+      top: actionRect.top + scrollY,
+      bottom: actionRect.bottom + scrollY,
+    }
+    const d = {
+      left: drawerRect.left + scrollX,
+      right: drawerRect.right + scrollX,
+      top: drawerRect.top + scrollY,
+      bottom: drawerRect.bottom + scrollY,
+    }
+    return a.left < d.right && a.right > d.left && a.top < d.bottom && a.bottom > d.top
+  })
+  expect(overlap).toBe(false)
+  await expect(page.locator('[data-action="close-drawer"]')).toBeVisible()
+  expect(consoleErrors).toEqual([])
+  expect(pageErrors).toEqual([])
+})
+
 test('the shell has no horizontal overflow and narrow layouts swap list for detail', async ({
   page,
 }) => {
