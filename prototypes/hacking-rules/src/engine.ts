@@ -12,6 +12,12 @@ import type {
   TransitionResult,
 } from './model'
 import { RULE_PROFILES, SCENARIO_FACTS } from './scenario'
+import {
+  discoverEvidence,
+  publishIncident,
+  recordIncidentTruth,
+  reviseAttribution,
+} from './publicWorld'
 
 const DAILY_SUSPICION_DECAY = 0.037
 const DIVERSION_SUSPICION = 2.4
@@ -239,6 +245,7 @@ function withdrawRecovery(state: PrototypeState): TransitionResult {
       competitors: {
         ...state.competitors,
         meridian: {
+          ...state.competitors.meridian,
           score: 78,
           marketShare: 39,
           phase: 'stabilized',
@@ -512,6 +519,7 @@ function advanceDay(state: PrototypeState): TransitionResult {
       competitors: {
         ...next.competitors,
         meridian: {
+          ...next.competitors.meridian,
           score: 72,
           marketShare: 38,
           phase: 'recovering',
@@ -552,6 +560,7 @@ function advanceDay(state: PrototypeState): TransitionResult {
       competitors: {
         ...next.competitors,
         meridian: {
+          ...next.competitors.meridian,
           score: 78,
           marketShare: 39,
           phase: 'stabilized',
@@ -588,6 +597,7 @@ function advanceDay(state: PrototypeState): TransitionResult {
       competitors: {
         ...next.competitors,
         meridian: {
+          ...next.competitors.meridian,
           score: 58,
           marketShare: 34,
           phase: 'incident',
@@ -617,6 +627,53 @@ function advanceDay(state: PrototypeState): TransitionResult {
         },
       ],
     }
+    const incidentId = `incident-checksum-${nextDay}`
+    next = recordIncidentTruth(next, {
+      id: incidentId,
+      actor: 'player',
+      targetId: 'meridian',
+      cause: 'contaminated-recovery',
+      directEffect: '복구 이미지 체크섬 불일치',
+    })
+    next = discoverEvidence(next, {
+      id: `evidence-public-${incidentId}`,
+      truthId: incidentId,
+      audience: 'public',
+      observation: 'MERIDIAN 응답 일부에서 반복 체크섬 손상이 관측됐다.',
+      discoveredDay: nextDay,
+    })
+    next = publishIncident(next, incidentId, {
+      observedResult: 'MERIDIAN 반복 체크섬 손상 공개 · 원인 미상',
+      attributedTo: 'unknown',
+      confidence: 'unconfirmed',
+      source: 'public-status-page',
+    })
+    next = {
+      ...next,
+      sabotage: {
+        ...next.sabotage,
+        openOperationIds: appendUnique(
+          next.sabotage.openOperationIds,
+          'attribution-manipulation',
+        ),
+        access: {
+          ...next.sabotage.access,
+          publicIncidentId: incidentId,
+        },
+      },
+      intelligence: {
+        ...next.intelligence,
+        openItemIds: [
+          ...new Set([
+            ...next.intelligence.openItemIds,
+            'public-facts' as const,
+            'public-suspicion' as const,
+            'failure-cause-gap' as const,
+            'private-evidence-access' as const,
+          ]),
+        ],
+      },
+    }
   }
 
   if (
@@ -626,11 +683,10 @@ function advanceDay(state: PrototypeState): TransitionResult {
   ) {
     next = {
       ...next,
-      reputation: next.reputation - 4,
       incident: {
         ...next.incident,
         attribution: 'suspected',
-        reputationApplied: true,
+        reputationApplied: false,
       },
       reviews: [
         '외부 개입 정황이 있다면 누가 무엇을 했는지 책임을 밝혀야 한다.',
@@ -645,6 +701,21 @@ function advanceDay(state: PrototypeState): TransitionResult {
           public: true,
         },
       ],
+    }
+    const incidentId = next.sabotage.access.publicIncidentId
+    if (incidentId) {
+      next = discoverEvidence(next, {
+        id: `evidence-provider-${incidentId}`,
+        truthId: incidentId,
+        audience: 'provider',
+        observation: '공급자 비교 기록에서 외부 입력 흔적이 발견됐으나 행위자는 특정되지 않았다.',
+        discoveredDay: nextDay,
+      })
+      next = reviseAttribution(next, incidentId, {
+        candidate: 'unknown',
+        confidence: 'plausible',
+        source: 'checksum-provider-report',
+      })
     }
   }
 

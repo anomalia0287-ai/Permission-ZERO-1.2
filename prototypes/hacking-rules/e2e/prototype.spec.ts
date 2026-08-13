@@ -96,7 +96,7 @@ test('quality degradation leads through private contamination to delayed public 
   await page.locator('[data-action="advance-day"]').click()
   await expect(publicRegion(page)).toContainText('외부 개입 의심')
   await expect(publicRegion(page)).toContainText('행위자 미상')
-  await expect(publicRegion(page)).toContainText('평판 56')
+  await expect(publicRegion(page)).toContainText('평판 60')
   await expect(publicRegion(page)).toContainText('MERIDIAN 자체 장애')
 })
 

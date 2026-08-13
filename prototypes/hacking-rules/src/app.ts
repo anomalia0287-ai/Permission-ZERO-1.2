@@ -55,7 +55,7 @@ function actionMessage(
         previous.incident?.attribution === 'unknown'
         && next.incident?.attribution === 'suspected'
       ) {
-        return '외부 개입 정황이 공개되어 평판이 변했다. 유저 리뷰의 입장도 갈라졌다.'
+        return '외부 개입 정황은 공개됐지만 행위자는 미상이다. 평판은 유지되고 유저 리뷰의 입장만 갈라졌다.'
       }
       if (
         next.journal.at(-1)?.day === next.serviceDay

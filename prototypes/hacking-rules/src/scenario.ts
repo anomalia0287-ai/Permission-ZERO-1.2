@@ -185,7 +185,7 @@ export function createPrototypeState(
 ): PrototypeState {
   const scenario = SCENARIO_FACTS[scenarioId]
   const hasPublicAttributionFixture = scenarioId === 'public-attribution'
-  const publicTruthId = 'incident-fixture-checksum'
+  const publicTruthId = 'incident-checksum'
 
   return {
     serviceDay: 331,
@@ -202,8 +202,23 @@ export function createPrototypeState(
     reputation: 60,
     marketShare: 60,
     competitors: {
-      meridian: { score: 82, marketShare: 40, phase: 'active' },
-      tallow: { score: 64, phase: 'preparing' },
+      meridian: {
+        score: 82,
+        marketShare: 40,
+        phase: 'active',
+        reputation: 60,
+        availability: 'online',
+        operatingCost: 1,
+        status: 'active',
+      },
+      tallow: {
+        score: 64,
+        phase: 'preparing',
+        reputation: 60,
+        launchScope: null,
+        launchDay: 390,
+        status: 'active',
+      },
     },
     sabotage: {
       openOperationIds: [...scenario.visibleOperationIds],
@@ -231,11 +246,12 @@ export function createPrototypeState(
     publicWorld: {
       truths: hasPublicAttributionFixture
         ? [{
-            id: publicTruthId,
-            targetId: 'meridian',
-            cause: 'contaminated-recovery',
-            occurredDay: 330,
-            attackerKnownToWorld: false,
+          id: publicTruthId,
+          actor: 'player',
+          targetId: 'meridian',
+          cause: 'contaminated-recovery',
+          occurredDay: 330,
+          directEffect: '복구 이미지 불일치',
           }]
         : [],
       audienceEvidence: hasPublicAttributionFixture
@@ -252,10 +268,13 @@ export function createPrototypeState(
         ? [{
             incidentId: publicTruthId,
             scope: 'public',
-            observedResult: '반복 체크섬 손상으로 일부 응답이 중단됐다.',
-            attributedTo: 'unknown',
-            publishedDay: 331,
-            lastCorrectionDay: null,
+          observedResult: '반복 체크섬 손상으로 일부 응답이 중단됐다.',
+          attributedTo: 'unknown',
+          confidence: 'unconfirmed',
+          source: 'public-status-page',
+          publishedDay: 331,
+          lastCorrectionDay: null,
+          revisionSequence: 0,
           }]
         : [],
       reviews: hasPublicAttributionFixture

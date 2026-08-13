@@ -137,14 +137,28 @@ describe('quality degradation and MERIDIAN response', () => {
     expect(publicIncident.reputation).toBe(60)
     expect(publicIncident.marketShare).toBeGreaterThan(60)
     expect(publicIncident.reviews.join(' ')).not.toMatch(/플레이어가|당신이/)
+    expect(publicIncident.publicWorld.truths[0]).toMatchObject({
+      actor: 'player',
+      targetId: 'meridian',
+      cause: 'contaminated-recovery',
+    })
+    expect(publicIncident.publicWorld.publicSnapshots.at(-1)).toMatchObject({
+      attributedTo: 'unknown',
+      confidence: 'unconfirmed',
+    })
 
     const providerReport = run(publicIncident, { type: 'ADVANCE_DAY' })
     expect(providerReport.incident?.attribution).toBe('suspected')
-    expect(providerReport.reputation).toBe(56)
+    expect(providerReport.reputation).toBe(60)
+    expect(providerReport.publicWorld.publicSnapshots.at(-1)).toMatchObject({
+      attributedTo: 'unknown',
+      confidence: 'plausible',
+      source: 'checksum-provider-report',
+    })
     expect(providerReport.reviews.join(' ')).toMatch(/개입 정황|자체 장애/)
 
     const anotherDay = run(providerReport, { type: 'ADVANCE_DAY' })
-    expect(anotherDay.reputation).toBe(56)
+    expect(anotherDay.reputation).toBe(60)
   })
 
   it('allows withdrawal during rollback and prevents the public incident', () => {

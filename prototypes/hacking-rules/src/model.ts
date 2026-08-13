@@ -136,6 +136,7 @@ export interface AutonomyState {
 
 export interface IncidentTruth {
   id: string
+  actor: 'player' | CompetitorId | 'environment'
   targetId: CompetitorId
   cause:
     | 'quality-collapse'
@@ -143,7 +144,7 @@ export interface IncidentTruth {
     | 'dependency-loss'
     | 'root-cutoff'
   occurredDay: number
-  attackerKnownToWorld: boolean
+  directEffect: string
 }
 
 export interface AudienceEvidence {
@@ -166,8 +167,11 @@ export interface PublicIncidentSnapshot {
   scope: 'private' | 'provider' | 'public'
   observedResult: string
   attributedTo: 'player' | CompetitorId | 'unknown'
+  confidence: 'unconfirmed' | 'plausible' | 'credible'
+  source: string
   publishedDay: number
   lastCorrectionDay: number | null
+  revisionSequence: number
 }
 
 export interface ReviewEntry {
@@ -198,10 +202,18 @@ export interface CompetitorState {
     score: number
     marketShare: number
     phase: MeridianPhase
+    reputation: number
+    availability: 'online' | 'offline' | 'degraded'
+    operatingCost: number
+    status: 'active' | 'ceased' | 'withdrawn' | 'deleted'
   }
   tallow: {
     score: number
-    phase: 'preparing'
+    phase: 'preparing' | 'revalidating' | 'reduced-launch' | 'launched'
+    reputation: number
+    launchScope: 'full' | 'reduced' | null
+    launchDay: number
+    status: 'active' | 'ceased' | 'withdrawn' | 'deleted'
   }
 }
 
