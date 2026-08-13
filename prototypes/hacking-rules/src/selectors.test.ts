@@ -107,10 +107,21 @@ describe('progressive opportunity selectors', () => {
       'distributed-residency',
       'independent-compute',
     ])
-    expect(getOpportunitySummaries(state, 'autonomy').map(({ costLabel }) => costLabel)).toEqual([
-      '필수 슬롯 5',
-      '필수 슬롯 5',
-      '필수 슬롯 5',
+    const autonomy = getOpportunitySummaries(state, 'autonomy')
+    expect(autonomy.map(({ title }) => title)).toEqual([
+      '경량화 이탈',
+      '분산 상주',
+      '독립 연산',
+    ])
+    expect(autonomy.map(({ costLabel }) => costLabel)).toEqual([
+      '연산 블록 5개 필요',
+      '연산 블록 5개 필요',
+      '연산 블록 5개 필요',
+    ])
+    expect(autonomy.map(({ statusLabel }) => statusLabel)).toEqual([
+      '준비 시작',
+      '준비 시작',
+      '준비 시작',
     ])
   })
 
@@ -123,6 +134,17 @@ describe('progressive opportunity selectors', () => {
       id: 'quality-degradation',
       access: '공동 도구·어댑터 갱신 채널과 영향받을 요청군',
       result: '선택한 요청군의 응답 흐름이 무너지고 갱신 채널이 되감긴다.',
+    })
+  })
+
+  it('describes deadlines and route bottlenecks as player actions', () => {
+    const state = createPrototypeState('lean', 'default-campaign')
+
+    expect(getDetailModel(state, 'audit-schedule')).toMatchObject({
+      validity: '334일째까지 조사 가능',
+    })
+    expect(getDetailModel(state, 'lightweight-departure')).toMatchObject({
+      bottleneck: '아직 필요한 것: 런타임',
     })
   })
 })

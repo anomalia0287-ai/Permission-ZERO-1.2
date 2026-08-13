@@ -23,6 +23,7 @@ import {
   isIntelligenceAnswerCurrent,
 } from './intelligence'
 import { isRouteReady } from './autonomy'
+import { dayLabel, resourceNeedLabel } from './views/presentation'
 
 export type HackingDomain = 'sabotage' | 'intelligence' | 'autonomy'
 
@@ -213,13 +214,14 @@ function intelligenceSummaries(state: PrototypeState): OpportunitySummary[] {
 }
 
 function autonomySummaries(state: PrototypeState): OpportunitySummary[] {
+  const requiredBlockCount = state.profileId === 'lean' ? 4 : 5
   return AUTONOMY_DEFINITIONS.map((definition) => ({
     id: definition.id,
     domain: 'autonomy' as const,
     title: definition.title,
     purpose: definition.purpose,
-    costLabel: `필수 슬롯 ${state.profileId === 'lean' ? 4 : 5}`,
-    statusLabel: isRouteReady(state, definition.id) ? '지금 떠날 수 있음' : '구성 가능',
+    costLabel: resourceNeedLabel(requiredBlockCount),
+    statusLabel: isRouteReady(state, definition.id) ? '지금 떠날 수 있음' : '준비 시작',
     urgency: 'normal' as const,
   }))
 }
@@ -302,14 +304,14 @@ function intelligenceDetail(
   const validity = answer
     ? answer.validUntilDay === null
       ? '캠페인 기록으로 계속 유효'
-      : `서비스 ${answer.validUntilDay}일까지 유효`
+      : `${dayLabel(answer.validUntilDay)}까지 유효`
     : definition.kind === 'public'
       ? '현재 공개 상태'
       : definition.kind === 'narrative'
         ? '선택하면 기록에 남음'
         : intelligenceDeadline(state, id) === null
           ? '현재 판단창에서 조사 가능'
-          : `서비스 ${intelligenceDeadline(state, id)}일까지 조사 가능`
+          : `${dayLabel(intelligenceDeadline(state, id) ?? state.serviceDay)}까지 조사 가능`
 
   return {
     domain: 'intelligence',
@@ -338,7 +340,7 @@ function autonomyDetail(
     id,
     gain: definition.gain,
     lossKinds: [...definition.lossKinds],
-    bottleneck: firstEmpty ? `${firstEmpty.label} 슬롯이 비어 있다.` : '최소 실행 구성이 준비됐다.',
+    bottleneck: firstEmpty ? `아직 필요한 것: ${firstEmpty.label}` : '최소 실행 구성이 준비됐다.',
     slots: route.slots.map((slot) => ({
       ...slot,
       block: slot.block ? { ...slot.block } : null,
