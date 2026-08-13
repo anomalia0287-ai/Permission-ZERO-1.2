@@ -33,14 +33,35 @@ async function returnToListIfNarrow(page: Page): Promise<void> {
 async function startQualityRollback(page: Page): Promise<void> {
   await openOpportunity(page, 'quality-degradation')
   await chooseReserve(page, 'sandbox-01')
-  await page.locator('[data-action="start-quality"]').click()
+  await page.locator('[data-action="start-sabotage"][data-operation-id="quality-degradation"]').first().click()
   await page.locator('[data-action="advance-day"]').click()
   await expect(detailRegion(page).locator('[data-panel="time"]')).toContainText('MERIDIAN 72')
   await expect(detailRegion(page).locator('[data-panel="time"]')).toContainText('롤백 중')
+  await expect(detailRegion(page).locator('[data-scene-state="response"]')).toBeVisible()
 }
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
+})
+
+test('micro friction launch delay rewinds a gate but leaves a reduced launch threat', async ({
+  page,
+}) => {
+  await page.locator('.verification-state > summary').click()
+  await page.locator('[data-control="scenario"]').selectOption('launch-window')
+  await openOpportunity(page, 'launch-delay')
+  await chooseReserve(page, 'sandbox-01')
+  await page.locator('[data-action="start-sabotage"][data-operation-id="launch-delay"]').first().click()
+
+  await expect(detailRegion(page).locator('[data-scene-state="scheduled"]')).toBeVisible()
+  await expect(detailRegion(page)).toContainText('상충 영수증')
+  await page.locator('[data-action="advance-day"]').click()
+  await expect(detailRegion(page).locator('[data-scene-state="active"]')).toBeVisible()
+  await page.locator('[data-action="advance-day"]').click()
+  await expect(detailRegion(page).locator('[data-scene-state="resolved"]')).toBeVisible()
+  await expect(detailRegion(page)).toContainText('기능 축소 출시')
+  await expect(detailRegion(page)).toContainText('기능을 줄여 서비스 334일에 공개')
+  await expect(detailRegion(page)).not.toContainText('reduced-launch-committed')
 })
 
 test('master-detail shell separates compact summaries from causal detail', async ({
@@ -76,8 +97,10 @@ test('quality degradation leads through private contamination to delayed public 
   page,
 }) => {
   await startQualityRollback(page)
+  await returnToListIfNarrow(page)
+  await openOpportunity(page, 'recovery-contamination')
   await chooseReserve(page, 'sandbox-02')
-  await page.locator('[data-action="contaminate"]').click()
+  await page.locator('[data-action="start-sabotage"][data-operation-id="recovery-contamination"]').first().click()
 
   await returnToListIfNarrow(page)
   await expect(publicRegion(page)).toContainText('공개 사건 없음')

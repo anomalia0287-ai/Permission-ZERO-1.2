@@ -96,7 +96,7 @@ describe('clickable hacking-rules prototype', () => {
   it('spends a selected block, advances to rollback, and offers a real branch', () => {
     const root = setup()
     selectReserve(root, 'sandbox-01')
-    clickAction(root, 'start-quality')
+    clickAction(root, 'start-sabotage')
 
     expect(root.querySelector('[role="status"]')?.textContent).toContain(
       '품질 저하 예약',
@@ -108,8 +108,7 @@ describe('clickable hacking-rules prototype', () => {
     expect(timePanel?.textContent).toContain('서비스 332일')
     expect(timePanel?.textContent).toContain('MERIDIAN 72')
     expect(timePanel?.textContent).toContain('롤백 중')
-    expect(root.querySelector('[data-action="contaminate"]')).not.toBeNull()
-    expect(root.querySelector('[data-action="withdraw"]')).not.toBeNull()
+    expect(root.querySelector('[data-opportunity-id="recovery-contamination"]')).not.toBeNull()
   })
 
   it('turns a paid audit question into a visible memory warning', () => {
@@ -134,10 +133,11 @@ describe('clickable hacking-rules prototype', () => {
   it('keeps contamination attribution hidden until the public world changes', () => {
     const root = setup()
     selectReserve(root, 'sandbox-01')
-    clickAction(root, 'start-quality')
+    clickAction(root, 'start-sabotage')
     clickAction(root, 'advance-day')
+    root.querySelector<HTMLButtonElement>('[data-opportunity-id="recovery-contamination"]')?.click()
     selectReserve(root, 'sandbox-02')
-    clickAction(root, 'contaminate')
+    clickAction(root, 'start-sabotage')
 
     expect(root.textContent).not.toMatch(/플레이어가 오염|당신이 공격/)
     for (let day = 0; day < 5; day += 1) {

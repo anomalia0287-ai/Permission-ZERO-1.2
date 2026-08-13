@@ -1,11 +1,14 @@
 import { transition } from './engine'
 import type {
+  CompetitorId,
   ProfileId,
   PrototypeCommand,
   PrototypeState,
   QuestionId,
   ScenarioId,
 } from './model'
+import { getSabotageDefinition } from './content'
+import type { SabotageOperationId } from './content'
 import { createPrototypeState } from './scenario'
 import {
   resolveSelectedItemId,
@@ -45,6 +48,8 @@ function actionMessage(
   switch (command.type) {
     case 'DIVERT_BLOCK':
       return `${CATEGORY_LABELS[command.category]} 블록 1개를 확보했다. 회사 성능은 1 낮아지고 의심은 2.4 높아졌다.`
+    case 'START_SABOTAGE':
+      return `${getSabotageDefinition(command.operationId).title} 예약 완료. ${command.optionId ?? '선택 대상'}에 블록을 결속했고 직접 결과와 상대 대응은 같은 상세 장면에서 이어진다.`
     case 'START_QUALITY':
       return `품질 저하 예약 완료. 선택한 ${command.blockIds.length}개 블록은 작전에 묶였고 결과는 다음 날 드러난다.`
     case 'ADVANCE_DAY':
@@ -317,6 +322,24 @@ export function mountPrototype(
       case 'start-quality':
         dispatch({ type: 'START_QUALITY', blockIds: [...view.selectedReserve] })
         break
+      case 'start-sabotage': {
+        const operationId = button.dataset.operationId as SabotageOperationId | undefined
+        const targetId = button.dataset.targetId as CompetitorId | undefined
+        const optionId = button.dataset.optionId
+        if (!operationId || !targetId || !optionId) {
+          statusMessage = '실행 불가: 작전 대상 정보가 완전하지 않다.'
+          updateSelectionFeedback()
+          break
+        }
+        dispatch({
+          type: 'START_SABOTAGE',
+          operationId,
+          targetId,
+          blockIds: [...view.selectedReserve],
+          optionId,
+        })
+        break
+      }
       case 'advance-day':
         dispatch({ type: 'ADVANCE_DAY' })
         break

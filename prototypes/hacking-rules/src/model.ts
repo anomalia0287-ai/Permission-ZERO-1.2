@@ -67,6 +67,10 @@ export interface OperationRun {
   deadlineDay: number | null
   exposure: number
   outcome: string | null
+  optionId: string | null
+  routingShare: number | null
+  opponentResponse: string | null
+  publicIncidentId: string | null
 }
 
 export interface SabotageAccessState {
@@ -300,6 +304,14 @@ export interface PrototypeState {
 
 export type PrototypeCommand =
   | { type: 'DIVERT_BLOCK'; category: Category }
+  | {
+      type: 'START_SABOTAGE'
+      operationId: SabotageOperationId
+      targetId: CompetitorId
+      blockIds: string[]
+      optionId?: string
+      routingShare?: number
+    }
   | { type: 'START_QUALITY'; blockIds: string[] }
   | { type: 'ADVANCE_DAY' }
   | { type: 'CONTAMINATE_RECOVERY'; blockId: string }

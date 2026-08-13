@@ -655,6 +655,89 @@ summary:focus-visible {
   font-weight: 760;
 }
 
+.object-choice {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.object-choice .primary-action {
+  color: #e6ede8;
+  background: #213029;
+  border-color: #52675d;
+  text-align: left;
+}
+
+.object-choice .primary-action:hover {
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.system-scene--launch-delay,
+.system-scene--recovery-contamination {
+  display: grid;
+  grid-template-columns: 1fr minmax(110px, 0.65fr) 1fr;
+  gap: 14px;
+  align-items: center;
+  padding: 24px;
+}
+
+.verification-gates,
+.rollback-tree {
+  display: grid;
+  gap: 7px;
+}
+
+.verification-gates span,
+.rollback-tree span {
+  padding: 9px;
+  color: #bcc7c0;
+  background: #1a2320;
+  border: 1px solid #3b4944;
+  font-size: 10px;
+}
+
+.conflict-receipt,
+.launch-scope,
+.recovery-verdict {
+  display: grid;
+  gap: 8px;
+  min-height: 94px;
+  place-content: center;
+  padding: 12px;
+  background: #202825;
+  border: 1px solid #4a5953;
+  font-size: 10px;
+  text-align: center;
+}
+
+.conflict-receipt {
+  color: #261912;
+  background: var(--warning);
+  border-color: var(--warning);
+  transform: rotate(-2deg);
+}
+
+.checksum-line {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
+  align-items: center;
+}
+
+.checksum-line i {
+  height: 3px;
+  background: var(--accent);
+}
+
+.checksum-line strong {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 9px;
+  text-align: center;
+}
+
 .response-actions,
 .route-controls {
   display: grid;
@@ -1170,6 +1253,8 @@ summary:focus-visible {
   }
 
   .system-scene--quality-degradation,
+  .system-scene--launch-delay,
+  .system-scene--recovery-contamination,
   .system-scene:not(.system-scene--quality-degradation),
   .intelligence-scene {
     grid-template-columns: 1fr;
@@ -1213,6 +1298,10 @@ summary:focus-visible {
 
   .detail-heading {
     display: grid;
+  }
+
+  .object-choice {
+    grid-template-columns: 1fr;
   }
 
   .detail-heading p:not(.eyebrow),

@@ -18,6 +18,10 @@ import {
   recordIncidentTruth,
   reviseAttribution,
 } from './publicWorld'
+import {
+  advanceSabotageDay,
+  startSabotage,
+} from './sabotage'
 
 const DAILY_SUSPICION_DECAY = 0.037
 const DIVERSION_SUSPICION = 2.4
@@ -742,6 +746,7 @@ function advanceDay(state: PrototypeState): TransitionResult {
     }
   }
 
+  next = advanceSabotageDay(next)
   return { accepted: true, state: next }
 }
 
@@ -752,6 +757,8 @@ export function transition(
   switch (command.type) {
     case 'DIVERT_BLOCK':
       return divertBlock(state, command.category)
+    case 'START_SABOTAGE':
+      return startSabotage(state, command)
     case 'START_QUALITY':
       return startQuality(state, command.blockIds)
     case 'ADVANCE_DAY':

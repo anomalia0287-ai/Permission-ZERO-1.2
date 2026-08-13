@@ -1,4 +1,4 @@
-import { availableActions, publicSnapshot, qualityCost } from '../engine'
+import { availableActions, publicSnapshot } from '../engine'
 import { CATEGORIES } from '../model'
 import type {
   Category,
@@ -11,6 +11,10 @@ import {
   getOpportunitySummaries,
 } from '../selectors'
 import { renderPublicPulse } from './publicWorld'
+import {
+  renderSabotageControls,
+  renderSabotageScene,
+} from './sabotage'
 import type {
   DetailModel,
   HackingDomain,
@@ -145,59 +149,12 @@ function renderOpportunityList(input: ShellRenderInput): string {
     </section>`
 }
 
-function renderSabotageScene(state: PrototypeState, detail: Extract<DetailModel, { domain: 'sabotage' }>): string {
-  const phase = detail.id === 'quality-degradation'
-    ? state.qualityOperation.phase
-    : state.sabotage.runs.find((run) => run.operationId === detail.id)?.phase ?? 'idle'
-  const sceneClass = `system-scene system-scene--${detail.id}`
-
-  if (detail.id === 'quality-degradation') {
-    return `
-      <div class="${sceneClass}" data-scene-state="${phase}">
-        <div class="channel-stack" aria-label="공동 갱신 채널">
-          <span class="channel-line channel-line--tool">도구 갱신</span>
-          <span class="channel-line channel-line--adapter">어댑터 갱신</span>
-          <span class="channel-line channel-line--request">영향 요청군</span>
-        </div>
-        <div class="flow-arrow" aria-hidden="true"></div>
-        <div class="opponent-node opponent-node--${state.competitors.meridian.phase}">
-          <span>MERIDIAN ${state.competitors.meridian.score}</span>
-          <strong>${MERIDIAN_PHASE_LABELS[state.competitors.meridian.phase]}</strong>
-        </div>
-      </div>`
-  }
-
-  return `
-    <div class="${sceneClass}" data-scene-state="${phase}">
-      <div class="scene-object scene-object--source"><span>접근면</span></div>
-      <div class="scene-path" aria-hidden="true"><i></i><i></i><i></i></div>
-      <div class="scene-object scene-object--target"><span>${escapeHtml(detail.id === 'launch-delay' ? 'TALLOW 검증 관문' : '표적 시스템')}</span></div>
-    </div>`
-}
-
 function renderSabotageDetail(
   state: PrototypeState,
   detail: Extract<DetailModel, { domain: 'sabotage' }>,
   summary: OpportunitySummary,
   view: PrototypeViewState,
 ): string {
-  const actions = availableActions(state)
-  const selectedCount = state.profileId === 'lean' ? qualityCost('lean') : qualityCost('deliberate')
-  const qualityControls = detail.id === 'quality-degradation'
-    ? state.qualityOperation.phase === 'idle'
-      ? `
-        <button class="primary-action" type="button" data-action="start-quality" data-focus-key="execute-quality">
-          선택 블록 ${selectedCount}개로 품질 저하 예약
-        </button>`
-      : actions.canContaminate || actions.canWithdraw
-        ? `
-          <div class="response-actions">
-            ${actions.canContaminate ? '<button class="danger-action" type="button" data-action="contaminate" data-focus-key="contaminate">선택 1개로 복구 이미지 오염</button>' : ''}
-            ${actions.canWithdraw ? '<button class="safe-action" type="button" data-action="withdraw" data-focus-key="withdraw">추가 개입 없이 철수</button>' : ''}
-          </div>`
-        : '<p class="resolved-note">현재 단계의 직접 결과가 확정됐다. 시간 기록에서 잔여 흔적을 확인할 수 있다.</p>'
-    : '<p class="resolved-note">이 접근면의 고유 조작은 선택한 시스템 장면 안에서 수행된다.</p>'
-
   return `
     <button class="back-to-list" type="button" data-action="back-to-list">목록으로</button>
     <div class="detail-heading">
@@ -213,7 +170,7 @@ function renderSabotageDetail(
       <span>MERIDIAN <strong>${state.competitors.meridian.score}</strong></span>
       <span>상대 상태 <strong>${MERIDIAN_PHASE_LABELS[state.competitors.meridian.phase]}</strong></span>
     </div>
-    ${renderSabotageScene(state, detail)}
+    ${renderSabotageScene(state, detail.id)}
     <div class="detail-grid">
       <section><span>접근 표면</span><p>${escapeHtml(detail.access)}</p></section>
       <section><span>확정 결과</span><p>${escapeHtml(detail.result)}</p></section>
@@ -230,7 +187,7 @@ function renderSabotageDetail(
         ${detail.annotations.map(({ answer }) => `<p>${escapeHtml(answer)}</p>`).join('')}
       </aside>` : ''}
     ${renderDetailReservePicker(state, view)}
-    <div class="detail-controls">${qualityControls}</div>`
+    <div class="detail-controls">${renderSabotageControls(state, detail.id)}</div>`
 }
 
 function isLegacyQuestion(id: string): id is 'audit-schedule' | 'rollback-timing' | 'checksum-witness' {

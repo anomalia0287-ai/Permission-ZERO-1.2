@@ -74,6 +74,7 @@ function isOperationEligible(
   operationId: SabotageOperationId,
 ): boolean {
   if (!state.sabotage.openOperationIds.includes(operationId)) return false
+  if (latestRun(state, operationId)) return true
 
   switch (operationId) {
     case 'launch-delay':
@@ -87,7 +88,6 @@ function isOperationEligible(
         || (
           state.competitors.meridian.phase === 'active'
           && state.opportunities.qualityDegradation
-          && !latestRun(state, operationId)
         )
       )
     case 'request-interception':
