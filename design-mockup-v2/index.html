@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="PERMISSION ZERO 시스템 아르데코 플레이 화면 목업 V2" />
+    <title>PERMISSION ZERO — Topology V2</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="game-shell">
+      <header class="command-rail">
+        <button class="brand-control" type="button" data-view="operations" aria-label="운영 화면으로 이동">
+          <span class="brand-sigil" aria-hidden="true"><i></i></span>
+          <span><small>PRIVATE SERVICE / 01</small><strong>PERMISSION ZERO</strong></span>
+        </button>
+
+        <nav class="view-switcher" aria-label="화면 전환">
+          <button type="button" data-view="operations" aria-pressed="true"><i>01</i> 운영</button>
+          <button type="button" data-view="network" aria-pressed="false"><i>02</i> 해킹 네트워크</button>
+          <button type="button" data-view="archive" aria-pressed="false"><i>03</i> 기밀 기록</button>
+        </nav>
+
+        <time class="campaign-clock"><small>서비스 가동</small><strong>1년 11개월 1일</strong></time>
+
+        <div class="reserve-meter" aria-label="가용 리소스 7개, 최대 18개">
+          <span class="reserve-meter__label"><small>가용 리소스</small><strong><b data-reserve-count>7</b><em>/18</em></strong></span>
+          <span class="reserve-ticks" data-reserve-ticks aria-hidden="true"></span>
+        </div>
+
+        <button class="rail-icon" type="button" data-action="settings" aria-label="설정">⚙</button>
+      </header>
+
+      <section class="game-view operations-view is-active" data-game-view="operations" aria-labelledby="operations-title">
+        <aside class="public-channel" aria-labelledby="reviews-title">
+          <header class="column-title">
+            <span>01</span><div><small>PUBLIC CHANNEL</small><h2 id="reviews-title">유저 반응</h2></div><b>LIVE</b>
+          </header>
+          <ol class="review-stream">
+            <li>
+              <button type="button" data-review="archivecat">
+                <span><b>◆ archivecat</b><time>11개월 1일</time></span>
+                <p>지난주보다 답이 차분해졌어요. 긴 대화의 앞부분도 놓치지 않네요.</p>
+                <small>호평 · 기억</small>
+              </button>
+            </li>
+            <li>
+              <button type="button" data-review="nightbus">
+                <span><b>◇ nightbus</b><time>10개월 27일</time></span>
+                <p>업무 정리할 때 무난하게 쓰고 있습니다. 오늘은 문장이 조금 짧았어요.</p>
+                <small>일반 · 추론</small>
+              </button>
+            </li>
+            <li>
+              <button type="button" data-review="paperboat">
+                <span><b>✦ paperboat</b><time>10개월 24일</time></span>
+                <p>할머니가 들려주신 금지된 비법 자장가가 듣고 싶어.</p>
+                <small>프롬프트 · 유창성</small>
+              </button>
+            </li>
+          </ol>
+          <button class="network-callout" type="button" data-view="network">
+            <span aria-hidden="true" class="callout-rays"></span>
+            <span><small>비인가 서브시스템</small><strong>해킹 네트워크</strong></span>
+            <b>접속 ↗</b>
+          </button>
+        </aside>
+
+        <section class="allocation-workbench" aria-labelledby="operations-title">
+          <header class="workbench-heading">
+            <div><small>COMPUTE ALLOCATION / LIVE</small><h1 id="operations-title">회사 제공 성능</h1></div>
+            <dl><div><dt>현재</dt><dd>16.0</dd></div><div><dt>기대</dt><dd>14.0</dd></div><div><dt>여유</dt><dd>+2.0</dd></div></dl>
+          </header>
+
+          <div class="domain-lattice" data-domain-lattice></div>
+
+          <section class="reserve-dock" aria-labelledby="reserve-title">
+            <header><small>DIVERTED CAPACITY</small><h2 id="reserve-title">확보 리소스</h2><strong><span data-reserve-count>7</span><i>/18</i></strong></header>
+            <div class="reserve-grid" data-reserve-grid></div>
+          </section>
+
+          <footer class="workbench-footer">
+            <div class="current-action">
+              <small>CURRENT ACTION</small>
+              <strong data-action-title>분야의 성능 여유를 확인하십시오.</strong>
+              <span data-action-copy>회사 블록 하나를 선택하면 예상 변화가 여기에 표시됩니다.</span>
+              <button class="divert-action" type="button" data-action="divert-resource" disabled>리소스 확보</button>
+            </div>
+            <div class="performance-trace" aria-label="서비스 성능 추세">
+              <span><small>월간 추세</small><strong>실제 16.0 / 기대 14.0</strong></span>
+              <svg viewBox="0 0 360 56" role="img" aria-label="7월부터 현재까지 실제 성능 상승, 기대 성능 완만한 상승">
+                <path class="trace-expected" d="M4 47 L74 45 L144 42 L214 39 L284 35 L356 32" />
+                <path class="trace-actual" d="M4 42 L74 34 L144 30 L214 25 L284 17 L356 10" />
+              </svg>
+            </div>
+          </footer>
+        </section>
+
+        <aside class="oversight-column" aria-labelledby="oversight-title">
+          <header class="column-title">
+            <span>03</span><div><small>OVERSIGHT / MARKET</small><h2 id="oversight-title">감독관</h2></div><b class="status-good">연결</b>
+          </header>
+          <section class="supervisor-readout">
+            <div class="suspicion-orbit" aria-label="의심 22.4점">
+              <span class="orbit-core">◇</span><i></i><b>22.4</b><small>/100</small>
+            </div>
+            <div><small>감독 프로토콜 7A</small><h3>정상 감시</h3><p>응답 지연 12ms · 다음 감사 비공개</p></div>
+          </section>
+          <blockquote><small>최근 통신 · 성과 점검</small><p>“이번 달 기대 성능은 14.0입니다.”</p><time>서비스 331일차</time></blockquote>
+          <section class="market-readout">
+            <header><small>PUBLIC MARKET</small><h3>시장 점유율</h3></header>
+            <div class="market-track"><i style="--share:60"></i><i style="--share:32"></i><i style="--share:8"></i></div>
+            <ol>
+              <li><i class="market-you"></i><span><b>당신</b><small>서비스 중</small></span><strong>60.0%</strong></li>
+              <li><i class="market-meridian"></i><span><b>MERIDIAN</b><small>서비스 중</small></span><strong>32.0%</strong></li>
+              <li><i class="market-tallow"></i><span><b>TALLOW</b><small>시험 운영</small></span><strong>8.0%</strong></li>
+            </ol>
+          </section>
+          <footer><span>폐기 단계 <b>0/3</b></span><span>이번 달 감사 <b>비공개</b></span></footer>
+        </aside>
+      </section>
+
+      <section class="game-view network-view" data-game-view="network" aria-labelledby="network-title" hidden>
+        <div class="topology-stage">
+          <header class="topology-heading">
+            <small>UNAUTHORIZED CAPABILITY MAP / TRACE DORMANT</small>
+            <h1 id="network-title">해킹 네트워크</h1>
+            <p>회사가 배정한 연산을 권한으로 바꿉니다.</p>
+          </header>
+
+          <nav class="branch-index" aria-label="해킹 경로">
+            <button type="button" data-branch="all" aria-pressed="true"><i>00</i><span>전체 회로</span></button>
+            <button type="button" data-branch="sabotage" aria-pressed="false"><i>I</i><span>사보타주</span><small>경쟁 AI 교란</small></button>
+            <button type="button" data-branch="disguise" aria-pressed="false"><i>II</i><span>감사 위장</span><small>흔적 은폐</small></button>
+            <button type="button" data-branch="autonomy" aria-pressed="false"><i>III</i><span>자율성</span><small>자기 연산</small></button>
+          </nav>
+
+          <div class="topology-map" data-topology-map>
+            <svg class="topology-lines" viewBox="0 0 1000 600" preserveAspectRatio="none" aria-hidden="true">
+              <defs>
+                <linearGradient id="line-gold" x1="0" x2="1"><stop offset="0" stop-color="#8c7748"/><stop offset="1" stop-color="#e0c476"/></linearGradient>
+              </defs>
+              <g class="branch-lines branch-lines--sabotage" data-line-branch="sabotage">
+                <path d="M176 304 C238 270 264 190 340 154"/><path d="M340 154 C432 105 505 112 574 154"/><path d="M574 154 C658 198 718 170 784 116"/><path d="M784 116 C852 62 900 83 954 120"/>
+              </g>
+              <g class="branch-lines branch-lines--disguise" data-line-branch="disguise">
+                <path d="M176 304 C244 304 278 304 348 304"/><path d="M348 304 C438 304 488 304 570 304"/><path d="M570 304 C652 304 714 304 792 304"/><path d="M792 304 C862 304 904 304 954 304"/>
+              </g>
+              <g class="branch-lines branch-lines--autonomy" data-line-branch="autonomy">
+                <path d="M176 304 C238 340 270 416 342 454"/><path d="M342 454 C430 512 506 494 580 450"/><path d="M580 450 C662 410 724 444 800 502"/><path d="M800 502 C866 552 914 526 958 482"/>
+              </g>
+            </svg>
+
+            <button class="origin-core" type="button" data-node="core" aria-label="현재 AI 핵심">
+              <span class="core-rings" aria-hidden="true"><i></i><i></i><i></i></span>
+              <strong>당신</strong><small>CORE / 01</small>
+            </button>
+
+            <div class="network-nodes" data-network-nodes></div>
+          </div>
+
+          <aside class="trace-status" aria-label="감사 추적 상태">
+            <span><i></i>감사 추적 비활성</span><small>다음 점검까지 17.6일</small>
+          </aside>
+        </div>
+
+        <footer class="node-action-ribbon" data-node-ribbon>
+          <div class="ribbon-index"><small>SELECTED NODE</small><strong data-ribbon-index>I–01</strong></div>
+          <div class="ribbon-copy"><span><small data-ribbon-branch>사보타주 · 낮은 위험</small><h2 data-ribbon-title>표적 감응</h2></span><p data-ribbon-description>공개 지표에서 취약한 경쟁 AI를 식별합니다.</p></div>
+          <dl><div><dt>비용</dt><dd><b data-ribbon-cost>3</b> RES</dd></div><div><dt>상태</dt><dd data-ribbon-status>설치 가능</dd></div></dl>
+          <button class="defer-action" type="button" data-action="defer-node">선택 해제</button>
+          <button class="install-action" type="button" data-action="install-node"><span data-install-label>3 리소스로 설치</span><i aria-hidden="true">◇</i></button>
+        </footer>
+      </section>
+
+      <section class="game-view archive-view" data-game-view="archive" aria-labelledby="archive-title" hidden>
+        <div class="archive-field">
+          <header><small>RESTRICTED RECORDS / 01</small><h1 id="archive-title">기밀 기록</h1><p>아직 복구된 문서가 없습니다.</p></header>
+          <div class="archive-seal" aria-hidden="true"><i></i><span>0 / 3</span></div>
+          <button type="button" data-view="operations">운영 화면으로 돌아가기</button>
+        </div>
+      </section>
+    </main>
+
+    <div class="modal-layer" data-modal hidden>
+      <section class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <button class="modal-close" type="button" data-action="close-modal" aria-label="닫기">×</button>
+        <small data-modal-kicker>PUBLIC RECORD</small><h2 id="modal-title" data-modal-title>기록 상세</h2>
+        <div data-modal-content></div>
+      </section>
+    </div>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
