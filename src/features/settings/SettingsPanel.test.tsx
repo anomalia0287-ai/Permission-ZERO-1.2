@@ -201,15 +201,14 @@ describe('SettingsPanel', () => {
     expect(screen.getByText('키보드')).toBeInTheDocument()
   })
 
-  it('keeps the agreed creative and implementation credits visible in the work', () => {
+  it('keeps the owner credit visible without attributing the work to Sol', () => {
     render(<CreditsPanel onClose={vi.fn()} />)
 
     expect(screen.getByRole('region', { name: '작품 크레딧' })).toBeInTheDocument()
     expect(screen.getByText('V')).toBeInTheDocument()
-    expect(screen.getByText('Sol')).toBeInTheDocument()
-    expect(screen.getByText(/OpenAI Codex/)).toBeInTheDocument()
-    expect(screen.getByText(/원안 · 세계관 · 서사/)).toBeInTheDocument()
-    expect(screen.getByText(/시스템 설계 · 구현/)).toBeInTheDocument()
+    expect(screen.getByText(/원안 · 세계관 · 서사 · 게임 시스템 설계/)).toBeInTheDocument()
+    expect(screen.queryByText('Sol')).not.toBeInTheDocument()
+    expect(screen.queryByText(/OpenAI Codex/)).not.toBeInTheDocument()
   })
 
   it('never silently discards a corrupt save', () => {

@@ -480,12 +480,8 @@ export function CreditsPanel({ onClose }: { onClose: () => void }) {
         </div>
         <dl className="credit-list">
           <div>
-            <dt>원안 · 세계관 · 서사 · 게임 디렉션</dt>
+            <dt>원안 · 세계관 · 서사 · 게임 시스템 설계 · 게임 디렉션</dt>
             <dd>V</dd>
-          </div>
-          <div>
-            <dt>시스템 설계 · 구현 · 인터랙션 프로토타이핑</dt>
-            <dd>Sol <small>OpenAI Codex</small></dd>
           </div>
         </dl>
         <p className="credits-note">
