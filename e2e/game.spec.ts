@@ -761,17 +761,40 @@ test('diverts resources and schedules a charged sabotage through the visible UI'
   await expect(pathProgress).toContainText('경로 진척 0/4 · 완성까지 34 RES')
   await expect(pathProgress).toContainText('다음 · 품질 저하 · 3 RES')
   await expect(pathProgress).toContainText('최종 · 근원 차단')
-  const hackContextBox = await page.locator('.hack-context').boundingBox()
-  const pathProgressBox = await pathProgress.boundingBox()
-  expect(hackContextBox).not.toBeNull()
-  expect(pathProgressBox).not.toBeNull()
-  expect(pathProgressBox!.x).toBeGreaterThanOrEqual(hackContextBox!.x - 1)
-  expect(pathProgressBox!.x + pathProgressBox!.width).toBeLessThanOrEqual(
-    hackContextBox!.x + hackContextBox!.width + 1,
+  const layoutBoxes = await page.locator('.hack-context').evaluate((hackContext) => {
+    const progress = hackContext.querySelector('.hack-path-progress')
+    if (!progress) return null
+
+    const contextBox = hackContext.getBoundingClientRect()
+    const progressBox = progress.getBoundingClientRect()
+    return {
+      context: {
+        top: contextBox.top,
+        right: contextBox.right,
+        bottom: contextBox.bottom,
+        left: contextBox.left,
+      },
+      progress: {
+        top: progressBox.top,
+        right: progressBox.right,
+        bottom: progressBox.bottom,
+        left: progressBox.left,
+      },
+    }
+  })
+  expect(layoutBoxes).not.toBeNull()
+  const layoutTolerance = 1
+  expect(layoutBoxes!.progress.left).toBeGreaterThanOrEqual(
+    layoutBoxes!.context.left - layoutTolerance,
   )
-  expect(pathProgressBox!.y).toBeGreaterThanOrEqual(hackContextBox!.y - 1)
-  expect(pathProgressBox!.y + pathProgressBox!.height).toBeLessThanOrEqual(
-    hackContextBox!.y + hackContextBox!.height + 1,
+  expect(layoutBoxes!.progress.right).toBeLessThanOrEqual(
+    layoutBoxes!.context.right + layoutTolerance,
+  )
+  expect(layoutBoxes!.progress.top).toBeGreaterThanOrEqual(
+    layoutBoxes!.context.top - layoutTolerance,
+  )
+  expect(layoutBoxes!.progress.bottom).toBeLessThanOrEqual(
+    layoutBoxes!.context.bottom + layoutTolerance,
   )
   const artifactDirectory = resolve(process.cwd(), 'artifacts', 'p1')
   mkdirSync(artifactDirectory, { recursive: true })
