@@ -7,9 +7,21 @@ import {
   reviseAttribution,
 } from './publicWorld'
 import { createPrototypeState } from './scenario'
-import { renderPublicPulse } from './views/publicWorld'
+import { renderUserReviews } from './views/publicWorld'
 
 describe('public incident causality', () => {
+  it('renders public reviews and reputation without leaking a hidden actor', () => {
+    const state = createPrototypeState('lean', 'public-attribution')
+    const html = renderUserReviews(state)
+
+    expect(html).toContain('유저 리뷰')
+    expect(html).toContain('평판')
+    expect(html).toContain('data-reputation')
+    expect(html).not.toContain('PUBLIC PULSE')
+    expect(html).not.toContain('실제 행위자')
+    expect(html).not.toContain('PERMISSION ZERO의 개입')
+  })
+
   it('does not let public snapshots or reviews know private truth', () => {
     const state = createPrototypeState('lean', 'default-campaign')
     const withTruth = recordIncidentTruth(state, {
@@ -92,7 +104,7 @@ describe('public incident causality', () => {
     )
 
     const root = document.createElement('div')
-    root.innerHTML = renderPublicPulse(state)
+    root.innerHTML = renderUserReviews(state)
     expect(root.textContent).toContain('응답 지연과 누락이 공개됐다.')
     expect(root.textContent).toContain('원인을 단정할 공개 증거는 아직 없다')
     expect(root.textContent).not.toMatch(/플레이어|당신|오염/)

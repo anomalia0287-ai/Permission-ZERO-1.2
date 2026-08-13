@@ -10,7 +10,7 @@ import {
   getDetailModel,
   getOpportunitySummaries,
 } from '../selectors'
-import { renderPublicPulse } from './publicWorld'
+import { renderUserReviews } from './publicWorld'
 import { renderIntelligenceScene } from './intelligence'
 import { renderAutonomyScene } from './autonomy'
 import {
@@ -464,7 +464,7 @@ export function renderShell(input: ShellRenderInput): string {
       <main class="operation-workspace hacking-workspace" id="operation-workspace">
         <aside class="operation-master workspace-master">
           ${renderOpportunityList(input)}
-          ${renderPublicPulse(input.state)}
+          ${renderUserReviews(input.state)}
         </aside>
         <section class="operation-detail workspace-detail" role="region" aria-label="선택 항목 상세">
           <div class="operation-detail__scroll" data-detail-host>${renderDetailHost(input)}</div>

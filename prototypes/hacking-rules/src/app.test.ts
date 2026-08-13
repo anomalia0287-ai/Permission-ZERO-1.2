@@ -67,8 +67,6 @@ describe('clickable hacking-rules prototype', () => {
 
   it('contains one detail surface without dashboard counters, locked rows, or manifest controls', () => {
     const root = setup()
-    const review = '응답 품질은 안정적이다. 다음 갱신에서도 이 수준이면 좋겠다.'
-
     expect(root.querySelectorAll('[role="region"][aria-label="선택 항목 상세"]')).toHaveLength(1)
     expect(root.querySelector('[data-panel="current-selection"], .current-selection-dashboard')).toBeNull()
     expect(root.textContent).not.toMatch(/현재\s*\/\s*전체/)
@@ -76,7 +74,9 @@ describe('clickable hacking-rules prototype', () => {
     expect(root.querySelector('[data-action="assign-manifest"], [data-action="remove-manifest"]')).toBeNull()
     expect(root.querySelector('input[name="manifest-block"]')).toBeNull()
     expect(root.querySelector('.verification-state')?.hasAttribute('open')).toBe(false)
-    expect(root.textContent?.split(review).length).toBe(2)
+    expect(root.querySelector('.user-review-window')?.textContent).toContain(
+      '아직 공개된 사건 반응이 없다.',
+    )
   })
 
   it('renders a compact opportunity list, one adjacent detail, and the resource rail', () => {

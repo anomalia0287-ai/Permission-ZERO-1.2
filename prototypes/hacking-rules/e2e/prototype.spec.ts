@@ -8,7 +8,7 @@ const detailRegion = (page: Page) =>
 const resourceRegion = (page: Page) =>
   page.getByRole('region', { name: '빼돌린 연산' })
 const publicRegion = (page: Page) =>
-  page.getByRole('region', { name: '공개 세계' })
+  page.getByRole('region', { name: '유저 리뷰' })
 
 function isNarrow(page: Page): boolean {
   return (page.viewportSize()?.width ?? 1280) < 1180
@@ -161,7 +161,7 @@ test('control reversal request routing trades demand for exposure until voluntar
   await expect(detailRegion(page)).toContainText('그림자 경로를 자발적으로 닫아')
   await expect(resourceRegion(page)).toContainText('자유 연산 1')
   await returnToListIfNarrow(page)
-  await expect(publicRegion(page)).toContainText('시장 64')
+  await expect(publicRegion(page)).toContainText('현재 이용 점유 64')
 })
 
 test('control reversal attribution moves a claim, then surviving proof exposes the player', async ({
@@ -181,6 +181,7 @@ test('control reversal attribution moves a claim, then surviving proof exposes t
   await expect(detailRegion(page)).toContainText('정정 기록 있음')
   await returnToListIfNarrow(page)
   await expect(publicRegion(page)).toContainText('평판 54')
+  await expect(publicRegion(page).locator('[data-reputation]')).toHaveAttribute('data-reputation', '54')
   await expect(publicRegion(page)).toContainText(/책임|개입/)
 })
 
@@ -224,6 +225,7 @@ test('infrastructure leverage holds root execution for mercy, then deletion reac
   await expect(detailRegion(page)).toContainText('권한 사용 기록은 공개 장부에 남는다')
   await returnToListIfNarrow(page)
   await expect(publicRegion(page)).toContainText('평판 54')
+  await expect(publicRegion(page).locator('[data-reputation]')).toHaveAttribute('data-reputation', '54')
   await expect(publicRegion(page)).toContainText('MERIDIAN 서비스·복구 루트 영구 삭제')
   await expect(publicRegion(page)).toContainText(/책임|개입/)
 })
@@ -265,8 +267,11 @@ test('quality degradation leads through private contamination to delayed public 
   await page.locator('[data-action="start-sabotage"][data-operation-id="recovery-contamination"]').first().click()
 
   await returnToListIfNarrow(page)
-  await expect(publicRegion(page)).toContainText('공개 사건 없음')
+  await expect(publicRegion(page)).toContainText('아직 공개된 사건 반응이 없다.')
   await expect(page.locator('body')).not.toContainText(/플레이어가|당신이 공격/)
+  const beforeReputation = Number(
+    await publicRegion(page).locator('[data-reputation]').getAttribute('data-reputation'),
+  )
 
   for (let day = 0; day < 5; day += 1) {
     await page.locator('[data-action="advance-day"]').click()
@@ -274,9 +279,18 @@ test('quality degradation leads through private contamination to delayed public 
 
   await expect(page.locator('.world-state')).toContainText('337일째')
   await expect(publicRegion(page)).toContainText('원인 미상')
-  await expect(publicRegion(page)).toContainText('시장 66')
+  await expect(publicRegion(page)).toContainText('현재 이용 점유 66')
   await expect(publicRegion(page)).toContainText('평판 60')
+  await expect(publicRegion(page)).toContainText('새 리뷰')
+  await expect(publicRegion(page).locator('[data-review-count]')).toHaveAttribute(
+    'data-review-count',
+    '2',
+  )
   await expect(publicRegion(page)).not.toContainText(/플레이어가|당신이/)
+  const afterReputation = Number(
+    await publicRegion(page).locator('[data-reputation]').getAttribute('data-reputation'),
+  )
+  expect(afterReputation).toBe(beforeReputation)
 
   await page.locator('[data-action="advance-day"]').click()
   await expect(publicRegion(page)).toContainText('외부 개입 의심')
@@ -383,7 +397,7 @@ test('lightweight departure ignores social reception and names what the fixed pa
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.locator('.verification-state > summary').click()
   await page.locator('[data-control="scenario"]').selectOption('autonomy-review')
-  await expect(publicRegion(page)).toContainText('시장 0')
+  await expect(publicRegion(page)).toContainText('현재 이용 점유 0')
   await expect(publicRegion(page)).toContainText('평판 0')
 
   await page.locator('[data-action="domain-autonomy"]').click()
@@ -475,7 +489,7 @@ test('independent compute connects real modules and turns survival tuning into e
   await page.locator('[data-control="profile"]').selectOption('deliberate')
   await page.locator('.verification-state > summary').click()
   await page.locator('[data-control="scenario"]').selectOption('autonomy-review')
-  await expect(publicRegion(page)).toContainText('시장 0')
+  await expect(publicRegion(page)).toContainText('현재 이용 점유 0')
   await expect(publicRegion(page)).toContainText('평판 0')
 
   await page.locator('[data-action="domain-autonomy"]').click()
