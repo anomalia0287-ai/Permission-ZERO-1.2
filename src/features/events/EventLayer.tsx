@@ -245,8 +245,7 @@ function EventDialog({ event }: { event: GameEvent }) {
   )
 }
 
-export function EventLayer() {
-  const activeEvent = useGameState().activeEvent
+function ActiveEventLayer({ activeEvent }: { activeEvent: GameEvent }) {
   const { presentedEvent, handoffPending } =
     useQueuedEventPresentation(activeEvent)
 
@@ -273,4 +272,10 @@ export function EventLayer() {
       <EventDialog event={presentedEvent} key={presentedEvent.id} />
     </div>
   )
+}
+
+export function EventLayer() {
+  const activeEvent = useGameState().activeEvent
+  if (!activeEvent) return null
+  return <ActiveEventLayer activeEvent={activeEvent} />
 }
