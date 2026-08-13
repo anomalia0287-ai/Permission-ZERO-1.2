@@ -6,6 +6,19 @@
     transform var(--motion-fast) var(--ease-ui);
 }
 
+.review-card,
+.hacking-entry,
+.resource-block,
+.speed-control button,
+.service-actions button,
+.panel-heading__action {
+  transition:
+    color var(--motion-fast) var(--ease-ui),
+    background-color var(--motion-fast) var(--ease-ui),
+    border-color var(--motion-fast) var(--ease-ui),
+    transform var(--motion-fast) var(--ease-ui);
+}
+
 .deco-button:hover {
   transform: translateY(-0.125rem);
 }

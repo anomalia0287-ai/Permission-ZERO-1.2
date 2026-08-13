@@ -14,44 +14,55 @@
   font-display: block;
 }
 
+@font-face {
+  font-family: "PZ Editorial";
+  src: url("../assets/fonts/GowunBatang-Regular.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+}
+
 :root {
   color-scheme: dark;
   font-family: "PZ Sans", sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 
-  --navy-950: #04101f;
-  --navy-900: #06152a;
-  --navy-850: #081a31;
-  --navy-800: #0b203b;
-  --navy-700: #102a48;
-  --navy-600: #173959;
-  --ivory-50: #fffaf0;
+  --navy-950: #030a1e;
+  --navy-925: #051334;
+  --navy-900: #071a45;
+  --navy-850: #0a2356;
+  --navy-800: #0d2d67;
+  --navy-700: #123978;
+  --navy-600: #1a4b8c;
+  --ivory-50: #fffdf6;
   --ivory-100: #f4eedf;
-  --ivory-300: #d7d2c5;
-  --slate-200: #c8d4de;
-  --slate-300: #b9c6d2;
-  --slate-500: #8297aa;
-  --brass-300: #ebd394;
-  --brass-400: #d7b96e;
-  --brass-500: #b58c3d;
-  --company-300: #a8d4e1;
-  --company-400: #82bbd0;
-  --reserve-300: #f0c37f;
-  --reserve-400: #e5a85e;
+  --ivory-300: #d8d2c3;
+  --slate-200: #d8e1ec;
+  --slate-300: #b7c5d7;
+  --slate-500: #8194ac;
+  --brass-200: #f2dfaa;
+  --brass-300: #e6cd8a;
+  --brass-400: #ceb36e;
+  --brass-500: #9f7933;
+  --company-300: #b8e2ee;
+  --company-400: #86c7dd;
+  --reserve-300: #f3c982;
+  --reserve-400: #dea856;
   --danger-400: #d9635d;
   --positive-400: #76b99a;
 
-  --line-soft: rgb(173 205 222 / 22%);
-  --line-medium: rgb(202 224 235 / 38%);
-  --line-brass: rgb(215 185 110 / 72%);
-  --surface-shadow: 0 24px 80px rgb(0 0 0 / 36%);
+  --line-soft: rgb(191 211 230 / 22%);
+  --line-medium: rgb(214 228 240 / 38%);
+  --line-brass: rgb(230 205 138 / 78%);
+  --line-brass-soft: rgb(230 205 138 / 30%);
+  --surface-shadow: 0 20px 56px rgb(0 3 16 / 36%);
 
-  --type-micro: 0.75rem;
-  --type-meta: 0.875rem;
+  --type-micro: 0.8125rem;
+  --type-meta: 0.9375rem;
   --type-body: 1.0625rem;
   --type-control: 1.125rem;
-  --type-panel: 1.5rem;
+  --type-panel: 1.625rem;
   --type-metric: 2rem;
   --type-display: clamp(4rem, 6vw, 4.75rem);
 
@@ -63,7 +74,9 @@
   --space-6: 1.5rem;
   --space-8: 2rem;
 
-  --radius-control: 0.25rem;
+  --cut-small: 0.375rem;
+  --cut-medium: 0.625rem;
+  --cut-large: 0.875rem;
   --ease-ui: cubic-bezier(0.2, 0.8, 0.2, 1);
   --motion-fast: 160ms;
   --motion-ui: 220ms;
