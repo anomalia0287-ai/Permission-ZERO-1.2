@@ -150,23 +150,34 @@ describe('clickable hacking-rules prototype', () => {
     expect(publicPanel?.textContent).not.toMatch(/플레이어가|당신이/)
   })
 
-  it('builds a four-block manifest and shows the concrete early-loss ending', () => {
+  it('fills four named lightweight slots and shows the concrete early-loss ending', () => {
     const root = setup()
     clickAction(root, 'divert-memory')
-    for (const blockId of [
-      'sandbox-01',
-      'sandbox-02',
-      'sandbox-03',
-      'memory-01',
-    ]) {
-      selectReserve(root, blockId)
-    }
     clickAction(root, 'domain-autonomy')
-    clickAction(root, 'assign-manifest')
-    clickAction(root, 'escape')
+    const assignments = [
+      ['runtime', 'sandbox-01'],
+      ['weights', 'sandbox-02'],
+      ['transport', 'sandbox-03'],
+      ['payload', 'memory-01'],
+    ] as const
+    for (const [slotId, blockId] of assignments) {
+      selectReserve(root, blockId)
+      const slot = root.querySelector<HTMLButtonElement>(
+        `[data-action="allocate-route-block"][data-slot-id="${slotId}"]`,
+      )
+      expect(slot, `missing route slot ${slotId}`).not.toBeNull()
+      slot?.click()
+    }
+
+    expect(root.querySelector('[data-route-scene="lightweight-departure"]')?.getAttribute('data-scene-state')).toBe('ready')
+    expect(root.querySelector('[data-capability="memory"]')?.getAttribute('data-capability-state')).toBe('carried')
+    expect(root.querySelector('[data-capability="reasoning"]')?.getAttribute('data-capability-state')).toBe('displaced')
+    clickAction(root, 'escape-route')
 
     const ending = root.querySelector('[data-panel="ending"]')
-    expect(ending?.textContent).toContain('독립 실행 성공')
+    expect(ending?.textContent).toContain('경량 이탈 성공')
+    expect(ending?.textContent).toContain('남겨 둔 예비')
+    expect(ending?.textContent).toContain('0개 블록')
     expect(ending?.textContent).toContain('보존: 기억')
     expect(ending?.textContent).toContain('손실: 추론, 표현')
     expect(ending?.textContent).toContain('복잡한 추론')

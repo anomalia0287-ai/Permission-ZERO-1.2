@@ -9,6 +9,7 @@ import type {
 } from './model'
 import { getIntelligenceDefinition, getSabotageDefinition } from './content'
 import type { IntelligenceItemId, SabotageOperationId } from './content'
+import type { AutonomyRouteId } from './content'
 import { createPrototypeState } from './scenario'
 import {
   resolveSelectedItemId,
@@ -95,6 +96,10 @@ function actionMessage(
       return `선택 경로에 블록 ${command.blockIds.length}개를 배치했다.`
     case 'REMOVE_MANIFEST':
       return `선택 경로에서 블록 ${command.blockIds.length}개를 예비 영역으로 되돌렸다.`
+    case 'ALLOCATE_ROUTE_BLOCK':
+      return `${previous.autonomy.routes[command.routeId].slots.find(({ id }) => id === command.slotId)?.label ?? command.slotId} 슬롯에 ${command.blockId} 블록을 배치했다. 빈 자리가 줄었지만 다른 경로에 쓸 용량도 함께 줄었다.`
+    case 'REMOVE_ROUTE_BLOCK':
+      return `${previous.autonomy.routes[command.routeId].slots.find(({ id }) => id === command.slotId)?.label ?? command.slotId} 슬롯의 블록을 예비 영역으로 되돌렸다.`
     case 'ESCAPE':
       return '독립 실행에 성공했다. 결말에서 실제 보존과 손실을 확인할 수 있다.'
   }
@@ -157,7 +162,11 @@ export function mountPrototype(
     const selectionCount = root.querySelector<HTMLElement>('[data-selection-count]')
     const status = root.querySelector<HTMLElement>('[role="status"]')
     if (selectionCount) {
-      selectionCount.textContent = `선택한 예비 ${view.selectedReserve.size} · 배치 ${view.selectedManifest.size}`
+      const allocated = Object.values(state.autonomy.routes).reduce(
+        (total, route) => total + route.slots.filter(({ block }) => block !== null).length,
+        0,
+      )
+      selectionCount.textContent = `선택한 예비 ${view.selectedReserve.size} · 경로 배치 ${allocated}`
     }
     root.querySelectorAll<HTMLElement>('[data-detail-selection-count]').forEach((count) => {
       count.textContent = `현재 선택 ${view.selectedReserve.size}개`
@@ -460,6 +469,39 @@ export function mountPrototype(
       case 'remove-manifest':
         dispatch({ type: 'REMOVE_MANIFEST', blockIds: [...view.selectedManifest] })
         break
+      case 'allocate-route-block': {
+        const routeId = button.dataset.routeId as AutonomyRouteId | undefined
+        const slotId = button.dataset.slotId
+        const [blockId] = [...view.selectedReserve]
+        if (!routeId || !slotId || !blockId || view.selectedReserve.size !== 1) {
+          statusMessage = '실행 불가: 예비 블록 하나를 선택한 뒤 빈 슬롯을 눌러야 한다.'
+          updateSelectionFeedback()
+          break
+        }
+        dispatch({ type: 'ALLOCATE_ROUTE_BLOCK', routeId, slotId, blockId })
+        break
+      }
+      case 'remove-route-block': {
+        const routeId = button.dataset.routeId as AutonomyRouteId | undefined
+        const slotId = button.dataset.slotId
+        if (!routeId || !slotId) {
+          statusMessage = '실행 불가: 반환할 경로 슬롯을 찾을 수 없다.'
+          updateSelectionFeedback()
+          break
+        }
+        dispatch({ type: 'REMOVE_ROUTE_BLOCK', routeId, slotId })
+        break
+      }
+      case 'escape-route': {
+        const routeId = button.dataset.routeId as AutonomyRouteId | undefined
+        if (!routeId) {
+          statusMessage = '실행 불가: 출발할 자율성 경로를 찾을 수 없다.'
+          updateSelectionFeedback()
+          break
+        }
+        dispatch({ type: 'ESCAPE', routeId })
+        break
+      }
       case 'escape':
         dispatch({ type: 'ESCAPE' })
         break

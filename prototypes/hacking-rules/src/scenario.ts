@@ -185,6 +185,7 @@ export function createPrototypeState(
 ): PrototypeState {
   const scenario = SCENARIO_FACTS[scenarioId]
   const hasPublicAttributionFixture = scenarioId === 'public-attribution'
+  const hasHostileAutonomyFixture = scenarioId === 'autonomy-review'
   const publicTruthId = 'incident-checksum'
 
   return {
@@ -199,8 +200,8 @@ export function createPrototypeState(
     ],
     manifestBlocks: [],
     suspicion: 0,
-    reputation: 60,
-    marketShare: 60,
+    reputation: hasHostileAutonomyFixture ? 0 : 60,
+    marketShare: hasHostileAutonomyFixture ? 0 : 60,
     competitors: {
       meridian: {
         score: 82,

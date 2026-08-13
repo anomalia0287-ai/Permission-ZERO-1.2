@@ -21,6 +21,7 @@ import {
   intelligenceDeadline,
   isIntelligenceAnswerCurrent,
 } from './intelligence'
+import { isRouteReady } from './autonomy'
 
 export type HackingDomain = 'sabotage' | 'intelligence' | 'autonomy'
 
@@ -209,15 +210,6 @@ function intelligenceSummaries(state: PrototypeState): OpportunitySummary[] {
     })
 }
 
-function routeIsReady(state: PrototypeState, routeId: AutonomyRouteId): boolean {
-  const route = state.autonomy.routes[routeId]
-  return route.slots
-    .filter((slot) => (
-      state.profileId === 'lean' ? slot.requiredInLean : slot.requiredInDeliberate
-    ))
-    .every(({ block }) => block !== null)
-}
-
 function autonomySummaries(state: PrototypeState): OpportunitySummary[] {
   return AUTONOMY_DEFINITIONS.map((definition) => ({
     id: definition.id,
@@ -225,7 +217,7 @@ function autonomySummaries(state: PrototypeState): OpportunitySummary[] {
     title: definition.title,
     purpose: definition.purpose,
     costLabel: `필수 슬롯 ${state.profileId === 'lean' ? 4 : 5}`,
-    statusLabel: routeIsReady(state, definition.id) ? '지금 떠날 수 있음' : '구성 가능',
+    statusLabel: isRouteReady(state, definition.id) ? '지금 떠날 수 있음' : '구성 가능',
     urgency: 'normal' as const,
   }))
 }

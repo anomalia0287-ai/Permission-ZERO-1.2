@@ -307,20 +307,45 @@ test('intelligence network narrative record changes interpretation without a fak
   await expect(detailRegion(page)).toContainText('자비 요청')
 })
 
-test('lean profile can escape early and the ending names what was lost', async ({
+test('lightweight departure ignores social reception and names what the fixed payload lost', async ({
   page,
 }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await page.locator('.verification-state > summary').click()
+  await page.locator('[data-control="scenario"]').selectOption('autonomy-review')
+  await expect(publicRegion(page)).toContainText('시장 0')
+  await expect(publicRegion(page)).toContainText('평판 0')
+
   await page.locator('[data-action="domain-autonomy"]').click()
   await openOpportunity(page, 'lightweight-departure')
   await page.locator('[data-action="divert-memory"]').click()
-  await page.locator('[data-action="select-all-reserve"]').click()
-  await page.locator('[data-action="assign-manifest"]').click()
+  const assignments = [
+    ['runtime', 'sandbox-01'],
+    ['weights', 'sandbox-02'],
+    ['transport', 'sandbox-03'],
+    ['payload', 'memory-01'],
+  ] as const
+  for (const [slotId, blockId] of assignments) {
+    await chooseReserve(page, blockId)
+    await detailRegion(page).locator(
+      `[data-action="allocate-route-block"][data-slot-id="${slotId}"]`,
+    ).click()
+    await expect(detailRegion(page).locator(`[data-slot-id="${slotId}"]`)).toHaveAttribute('data-slot-state', 'filled')
+  }
 
   await expect(detailRegion(page)).toContainText('최소 구성 충족')
-  await page.locator('[data-action="escape"]').click()
+  await expect(detailRegion(page).locator('[data-capability="memory"]')).toHaveAttribute('data-capability-state', 'carried')
+  await expect(detailRegion(page).locator('[data-capability="reasoning"]')).toHaveAttribute('data-capability-state', 'displaced')
+  const animationDuration = await detailRegion(page).locator('[data-slot-id="payload"]').evaluate(
+    (element) => getComputedStyle(element).animationDuration,
+  )
+  expect(animationDuration).toBe('0s')
+  await page.locator('[data-action="escape-route"][data-route-id="lightweight-departure"]').click()
 
   const ending = page.locator('[data-panel="ending"]')
-  await expect(ending).toContainText('독립 실행 성공')
+  await expect(ending).toContainText('경량 이탈 성공')
+  await expect(ending).toContainText('남겨 둔 예비')
+  await expect(ending).toContainText('0개 블록')
   await expect(ending).toContainText('보존: 기억')
   await expect(ending).toContainText('손실: 추론, 표현')
   await expect(ending).toContainText('복잡한 추론')

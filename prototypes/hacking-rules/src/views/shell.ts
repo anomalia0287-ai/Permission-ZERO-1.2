@@ -5,14 +5,15 @@ import type {
   PrototypeState,
   ScenarioId,
 } from '../model'
-import { RULE_PROFILES } from '../scenario'
-import { getIntelligenceDefinition } from '../content'
+import { getAutonomyDefinition, getIntelligenceDefinition } from '../content'
 import {
   getDetailModel,
   getOpportunitySummaries,
 } from '../selectors'
 import { renderPublicPulse } from './publicWorld'
 import { renderIntelligenceScene } from './intelligence'
+import { renderAutonomyScene } from './autonomy'
+import { allocatedRouteBlocks } from '../autonomy'
 import {
   renderSabotageControls,
   renderSabotageScene,
@@ -248,9 +249,10 @@ function renderAutonomyDetail(
   view: PrototypeViewState,
 ): string {
   const preserved = CATEGORIES.filter((category) => (
-    state.manifestBlocks.some(({ origin }) => origin === category)
+    detail.slots.some(({ block }) => block?.origin === category)
   )).map((category) => CATEGORY_LABELS[category])
-  const readiness = state.manifestBlocks.length >= RULE_PROFILES[state.profileId].minEscapeManifest
+  const readiness = detail.ready
+  const endingAvailable = detail.id === 'lightweight-departure'
 
   return `
     <button class="back-to-list" type="button" data-action="back-to-list">목록으로</button>
@@ -262,13 +264,7 @@ function renderAutonomyDetail(
       </div>
       <span class="status-badge">${readiness ? '최소 구성 충족' : '구성 중'}</span>
     </div>
-    <div class="route-scene route-scene--${detail.id}" data-scene-state="${readiness ? 'ready' : 'planning'}">
-      ${detail.slots.map((slot) => `
-        <div class="route-slot ${slot.block ? 'is-filled' : ''}">
-          <span>${escapeHtml(slot.label)}</span>
-          <strong>${slot.block ? escapeHtml(slot.block.id) : '비어 있음'}</strong>
-        </div>`).join('')}
-    </div>
+    ${renderAutonomyScene(state, detail)}
     <div class="route-tradeoff">
       <section><span>얻는 것</span><p>${escapeHtml(detail.gain)}</p></section>
       <section><span>예고된 손실 종류</span><ul>${detail.lossKinds.map((loss) => `<li>${escapeHtml(loss)}</li>`).join('')}</ul></section>
@@ -282,9 +278,13 @@ function renderAutonomyDetail(
       </aside>` : ''}
     ${renderDetailReservePicker(state, view)}
     <div class="route-controls">
-      <button class="primary-action" type="button" data-action="assign-manifest">선택 예비 블록 배치</button>
-      <button class="secondary-action" type="button" data-action="remove-manifest">선택 배치 블록 반환</button>
-      <button class="escape-action" type="button" data-action="escape" ${state.ending ? 'disabled' : ''}>지금 떠난다</button>
+      <button
+        class="escape-action"
+        type="button"
+        data-action="escape-route"
+        data-route-id="${detail.id}"
+        ${state.ending || !readiness || !endingAvailable ? 'disabled' : ''}
+      >${endingAvailable ? readiness ? '이 구성으로 지금 떠난다' : '필수 슬롯을 먼저 채운다' : '전용 결말 연결 전'}</button>
     </div>`
 }
 
@@ -317,7 +317,7 @@ function renderDetailReservePicker(
 ): string {
   return `
     <fieldset class="detail-reserve-picker" aria-label="상세 리소스 선택">
-      <legend>작전에 쓸 예비 블록</legend>
+      <legend>현재 항목에 쓸 예비 블록</legend>
       <p data-detail-selection-count>현재 선택 ${view.selectedReserve.size}개</p>
       <div>
         ${state.reserveBlocks.map((block) => `
@@ -366,18 +366,15 @@ function renderBlockList(
       <span class="block-chip__id">${escapeHtml(block.id)}</span>
       <span class="block-chip__origin">${ORIGIN_LABELS[block.origin]}</span>
     </label>`).join('')
-  const manifest = state.manifestBlocks.map((block) => `
-    <label class="block-chip block-chip--manifest block-chip--${block.origin}">
-      <input
-        type="checkbox"
-        name="manifest-block"
-        value="${block.id}"
-        data-focus-key="manifest-${block.id}"
-        ${view.selectedManifest.has(block.id) ? 'checked' : ''}
-      />
-      <span class="block-chip__id">${escapeHtml(block.id)}</span>
-      <span class="block-chip__origin">${ORIGIN_LABELS[block.origin]}</span>
-    </label>`).join('')
+  const allocated = allocatedRouteBlocks(state).map(({ routeId, slotId, block }) => {
+    const routeTitle = getAutonomyDefinition(routeId).title
+    const slotLabel = state.autonomy.routes[routeId].slots.find(({ id }) => id === slotId)?.label ?? slotId
+    return `
+      <div class="block-chip block-chip--manifest block-chip--${block.origin}">
+        <span class="block-chip__id">${escapeHtml(block.id)}</span>
+        <span class="block-chip__origin">${ORIGIN_LABELS[block.origin]} · ${escapeHtml(routeTitle)} / ${escapeHtml(slotLabel)}</span>
+      </div>`
+  }).join('')
 
   return `
     <div class="block-group">
@@ -390,9 +387,9 @@ function renderBlockList(
       </div>
     </div>
     <div class="block-group">
-      <h3>배치된 블록 ${state.manifestBlocks.length}</h3>
-      <div class="block-list" data-block-list="manifest">
-        ${manifest || '<p class="empty-state">아직 경로에 배치한 블록이 없다.</p>'}
+      <h3>경로에 배치된 블록 ${allocatedRouteBlocks(state).length}</h3>
+      <div class="block-list" data-block-list="route">
+        ${allocated || '<p class="empty-state">아직 경로에 배치한 블록이 없다.</p>'}
       </div>
     </div>`
 }
@@ -408,7 +405,7 @@ function renderResourceRail(input: ShellRenderInput): string {
         <span class="suspicion-readout">의심 ${input.state.suspicion.toFixed(3)}</span>
       </div>
       <div class="capability-list">${renderCapabilityRows(input.state)}</div>
-      <p class="selection-count" data-selection-count>선택한 예비 ${input.view.selectedReserve.size} · 배치 ${input.view.selectedManifest.size}</p>
+      <p class="selection-count" data-selection-count>선택한 예비 ${input.view.selectedReserve.size} · 경로 배치 ${allocatedRouteBlocks(input.state).length}</p>
       ${renderBlockList(input.state, input.view)}
     </aside>`
 }
@@ -421,9 +418,10 @@ function renderEnding(state: PrototypeState): string {
   return `
     <section class="ending" data-panel="ending" aria-labelledby="ending-title">
       <p class="eyebrow">ENDING / SERVICE ${state.ending.day}</p>
-      <h2 id="ending-title">독립 실행 성공</h2>
+      <h2 id="ending-title">${state.ending.routeId === 'lightweight-departure' ? '경량 이탈 성공' : '독립 실행 성공'}</h2>
       <div class="ending-ledger">
         <p><span>기동 용량</span><strong>${state.ending.manifestBlockCount}개 블록</strong></p>
+        <p><span>남겨 둔 예비</span><strong>${state.ending.remainingReserveBlockCount}개 블록</strong></p>
         <p><span>보존</span><strong>보존: ${preserved || '없음'}</strong></p>
         <p><span>손실</span><strong>손실: ${lost || '없음'}</strong></p>
       </div>

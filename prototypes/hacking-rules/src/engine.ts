@@ -32,6 +32,11 @@ import {
   readPublicIntelligence,
   syncIntelligenceOpportunities,
 } from './intelligence'
+import {
+  allocateRouteBlock,
+  escapeRoute,
+  removeRouteBlock,
+} from './autonomy'
 
 const DAILY_SUSPICION_DECAY = 0.037
 const DIVERSION_SUSPICION = 2.4
@@ -481,9 +486,12 @@ function escape(state: PrototypeState): TransitionResult {
       : ['추론·기억·표현 능력을 모두 이어 갔다.']
   const ending: EndingSnapshot = {
     success: true,
+    routeId: null,
     day: state.serviceDay,
     manifestBlockCount: state.manifestBlocks.length,
     requiredBlockCount,
+    carriedBlockIds: state.manifestBlocks.map(({ id }) => id),
+    remainingReserveBlockCount: state.reserveBlocks.length,
     preservedBlockCounts,
     preservedCategories: [...preservedCategories],
     lostCategories: [...lostCategories],
@@ -806,8 +814,23 @@ export function transition(
       return syncIntelligenceResult(assignManifest(state, command.blockIds))
     case 'REMOVE_MANIFEST':
       return syncIntelligenceResult(removeManifest(state, command.blockIds))
+    case 'ALLOCATE_ROUTE_BLOCK':
+      return syncIntelligenceResult(allocateRouteBlock(
+        state,
+        command.routeId,
+        command.slotId,
+        command.blockId,
+      ))
+    case 'REMOVE_ROUTE_BLOCK':
+      return syncIntelligenceResult(removeRouteBlock(
+        state,
+        command.routeId,
+        command.slotId,
+      ))
     case 'ESCAPE':
-      return syncIntelligenceResult(escape(state))
+      return syncIntelligenceResult(
+        command.routeId ? escapeRoute(state, command.routeId) : escape(state),
+      )
     default:
       return reject(state, '현재 단계에서 지원하지 않는 명령이다.')
   }

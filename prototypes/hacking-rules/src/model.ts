@@ -256,9 +256,12 @@ export interface PublicIncident {
 
 export interface EndingSnapshot {
   success: true
+  routeId: AutonomyRouteId | null
   day: number
   manifestBlockCount: number
   requiredBlockCount: number
+  carriedBlockIds: string[]
+  remainingReserveBlockCount: number
   preservedBlockCounts: Record<Category, number>
   preservedCategories: Category[]
   lostCategories: Category[]
@@ -334,7 +337,18 @@ export type PrototypeCommand =
   | { type: 'ASK_QUESTION'; questionId: QuestionId; blockId: string }
   | { type: 'ASSIGN_MANIFEST'; blockIds: string[] }
   | { type: 'REMOVE_MANIFEST'; blockIds: string[] }
-  | { type: 'ESCAPE' }
+  | {
+      type: 'ALLOCATE_ROUTE_BLOCK'
+      routeId: AutonomyRouteId
+      slotId: string
+      blockId: string
+    }
+  | {
+      type: 'REMOVE_ROUTE_BLOCK'
+      routeId: AutonomyRouteId
+      slotId: string
+    }
+  | { type: 'ESCAPE'; routeId?: AutonomyRouteId }
 
 export type TransitionResult =
   | { accepted: true; state: PrototypeState }
