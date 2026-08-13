@@ -80,8 +80,16 @@ function isOperationEligible(
       return state.sabotage.access.launchVerification
         && state.competitors.tallow.phase === 'preparing'
     case 'quality-degradation':
-      return state.competitors.meridian.phase === 'active'
-        && !latestRun(state, operationId)
+      return (
+        state.qualityOperation.phase === 'scheduled'
+        || state.qualityOperation.phase === 'recovering'
+        || state.qualityOperation.phase === 'contaminated'
+        || (
+          state.competitors.meridian.phase === 'active'
+          && state.opportunities.qualityDegradation
+          && !latestRun(state, operationId)
+        )
+      )
     case 'request-interception':
       return state.sabotage.access.routerFailover
     case 'dependency-cutoff':
@@ -106,6 +114,20 @@ function sabotageStatus(
   operationId: SabotageOperationId,
 ): Pick<OpportunitySummary, 'statusLabel' | 'urgency'> {
   const run = latestRun(state, operationId)
+  if (!run && operationId === 'quality-degradation') {
+    const legacyStatus = {
+      idle: '지금 개입 가능',
+      scheduled: '다음 날 실행 대기',
+      recovering: '롤백 대응창',
+      contaminated: '복구 모순 누적',
+      withdrawn: '자발적 철수',
+      resolved: '결과 확인',
+    } as const
+    return {
+      statusLabel: legacyStatus[state.qualityOperation.phase],
+      urgency: state.qualityOperation.phase === 'recovering' ? 'critical' : 'normal',
+    }
+  }
   if (!run) return { statusLabel: '지금 개입 가능', urgency: 'normal' }
 
   if (run.deadlineDay !== null) {

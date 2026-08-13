@@ -1,13 +1,14 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { mountPrototype } from './app'
+import type { ScenarioId } from './model'
 
-function setup(): HTMLElement {
+function setup(scenarioId: ScenarioId = 'default-campaign'): HTMLElement {
   document.body.innerHTML = '<main id="prototype"></main>'
   const root = document.querySelector<HTMLElement>('#prototype')
   if (!root) {
     throw new Error('prototype root missing')
   }
-  mountPrototype(root)
+  mountPrototype(root, { scenarioId })
   return root
 }
 
@@ -32,22 +33,47 @@ afterEach(() => {
 })
 
 describe('clickable hacking-rules prototype', () => {
-  it('renders the four decision regions and the actual starting numbers', () => {
+  it('renders a compact opportunity list, one adjacent detail, and the resource rail', () => {
     const root = setup()
+    const list = root.querySelector('[aria-label="현재 해킹 기회"]')
+    const detail = root.querySelector('[role="region"][aria-label="선택 항목 상세"]')
+    const resource = root.querySelector('[role="region"][aria-label="확보 리소스"]')
 
-    for (const label of [
-      '회사와 확보 블록',
-      '현재 선택',
-      '시간과 상대 대응',
-      '공개 세계',
-    ]) {
-      expect(root.querySelector(`[role="region"][aria-label="${label}"]`)).not
-        .toBeNull()
-    }
+    expect(list?.querySelectorAll('[data-opportunity-id]')).toHaveLength(1)
+    expect(list?.textContent).toContain('품질 저하')
+    expect(list?.textContent).not.toContain('공동 도구·어댑터 갱신 채널')
+    expect(detail?.textContent).toContain('공동 도구·어댑터 갱신 채널')
+    expect(resource).not.toBeNull()
     expect(root.textContent).toContain('추론 16')
     expect(root.textContent).toContain('기억 16')
     expect(root.textContent).toContain('표현 16')
     expect(root.textContent).toContain('예비 블록 3')
+  })
+
+  it('updates detail without replacing the focused opportunity button', () => {
+    const root = setup('launch-window')
+    const button = root.querySelector<HTMLButtonElement>(
+      '[data-opportunity-id="launch-delay"]',
+    )
+    expect(button).not.toBeNull()
+
+    button?.focus()
+    button?.click()
+
+    expect(root.contains(button)).toBe(true)
+    expect(document.activeElement).toBe(button)
+    expect(root.querySelector('[data-detail-host]')?.textContent).toContain(
+      '상충 시험 영수증',
+    )
+  })
+
+  it('keeps a compact reserve picker inside the selected detail for narrow layouts', () => {
+    const root = setup()
+    const detail = root.querySelector('[role="region"][aria-label="선택 항목 상세"]')
+    const picker = detail?.querySelector('[aria-label="상세 리소스 선택"]')
+
+    expect(picker?.querySelectorAll('input[name="detail-reserve-block"]')).toHaveLength(3)
+    expect(picker?.textContent).toContain('현재 선택 0개')
   })
 
   it('keeps the selected checkbox and keyboard focus stable', () => {
@@ -81,7 +107,7 @@ describe('clickable hacking-rules prototype', () => {
     const timePanel = root.querySelector('[data-panel="time"]')
     expect(timePanel?.textContent).toContain('서비스 332일')
     expect(timePanel?.textContent).toContain('MERIDIAN 72')
-    expect(timePanel?.textContent).toContain('복구 중')
+    expect(timePanel?.textContent).toContain('롤백 중')
     expect(root.querySelector('[data-action="contaminate"]')).not.toBeNull()
     expect(root.querySelector('[data-action="withdraw"]')).not.toBeNull()
   })
@@ -89,6 +115,8 @@ describe('clickable hacking-rules prototype', () => {
   it('turns a paid audit question into a visible memory warning', () => {
     const root = setup()
     selectReserve(root, 'sandbox-01')
+
+    clickAction(root, 'domain-intelligence')
 
     const question = root.querySelector<HTMLButtonElement>(
       '[data-question-id="audit-schedule"]',
@@ -133,6 +161,7 @@ describe('clickable hacking-rules prototype', () => {
     ]) {
       selectReserve(root, blockId)
     }
+    clickAction(root, 'domain-autonomy')
     clickAction(root, 'assign-manifest')
     clickAction(root, 'escape')
 

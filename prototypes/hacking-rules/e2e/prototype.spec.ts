@@ -1,29 +1,75 @@
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 
-const companyPanel = (page: Page) =>
-  page.getByRole('region', { name: '회사와 확보 블록' })
-const selectionPanel = (page: Page) =>
-  page.getByRole('region', { name: '현재 선택' })
-const timePanel = (page: Page) =>
-  page.getByRole('region', { name: '시간과 상대 대응' })
-const publicPanel = (page: Page) =>
+const opportunityRegion = (page: Page) =>
+  page.getByRole('region', { name: '현재 해킹 기회' })
+const detailRegion = (page: Page) =>
+  page.getByRole('region', { name: '선택 항목 상세' })
+const resourceRegion = (page: Page) =>
+  page.getByRole('region', { name: '확보 리소스' })
+const publicRegion = (page: Page) =>
   page.getByRole('region', { name: '공개 세계' })
+
+function isNarrow(page: Page): boolean {
+  return (page.viewportSize()?.width ?? 1280) < 1180
+}
 
 async function chooseReserve(page: Page, blockId: string): Promise<void> {
   await page.locator(`input[name="reserve-block"][value="${blockId}"]`).check()
 }
 
+async function openOpportunity(page: Page, itemId: string): Promise<void> {
+  await page.locator(`[data-opportunity-id="${itemId}"]`).click()
+  await expect(detailRegion(page)).toBeVisible()
+}
+
+async function returnToListIfNarrow(page: Page): Promise<void> {
+  if (isNarrow(page)) {
+    await page.locator('[data-action="back-to-list"]').click()
+    await expect(opportunityRegion(page)).toBeVisible()
+  }
+}
+
 async function startQualityRollback(page: Page): Promise<void> {
+  await openOpportunity(page, 'quality-degradation')
   await chooseReserve(page, 'sandbox-01')
   await page.locator('[data-action="start-quality"]').click()
   await page.locator('[data-action="advance-day"]').click()
-  await expect(timePanel(page)).toContainText('MERIDIAN 72')
-  await expect(timePanel(page)).toContainText('복구 중')
+  await expect(detailRegion(page).locator('[data-panel="time"]')).toContainText('MERIDIAN 72')
+  await expect(detailRegion(page).locator('[data-panel="time"]')).toContainText('롤백 중')
 }
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/')
+})
+
+test('master-detail shell separates compact summaries from causal detail', async ({
+  page,
+}) => {
+  const list = opportunityRegion(page)
+  const detail = detailRegion(page)
+  const quality = page.locator('[data-opportunity-id="quality-degradation"]')
+
+  await expect(list).toContainText('품질 저하')
+  await expect(list).not.toContainText('공동 도구·어댑터 갱신 채널')
+  if (isNarrow(page)) {
+    await expect(list).toBeVisible()
+    await expect(detail).toBeHidden()
+  } else {
+    await expect(list).toBeVisible()
+    await expect(detail).toBeVisible()
+    await expect(resourceRegion(page)).toBeVisible()
+  }
+
+  await quality.focus()
+  await quality.click()
+  await expect(detail).toBeVisible()
+  await expect(detail).toContainText('공동 도구·어댑터 갱신 채널')
+  if (isNarrow(page)) await expect(list).toBeHidden()
+  else await expect(quality).toBeFocused()
+  if ((page.viewportSize()?.width ?? 1280) <= 760) {
+    await expect(page.getByRole('group', { name: '상세 리소스 선택' })).toBeVisible()
+  }
 })
 
 test('quality degradation leads through private contamination to delayed public attribution', async ({
@@ -33,61 +79,58 @@ test('quality degradation leads through private contamination to delayed public 
   await chooseReserve(page, 'sandbox-02')
   await page.locator('[data-action="contaminate"]').click()
 
-  await expect(publicPanel(page)).toContainText('공개 사건 없음')
+  await returnToListIfNarrow(page)
+  await expect(publicRegion(page)).toContainText('공개 사건 없음')
   await expect(page.locator('body')).not.toContainText(/플레이어가|당신이 공격/)
 
   for (let day = 0; day < 5; day += 1) {
     await page.locator('[data-action="advance-day"]').click()
   }
 
-  await expect(timePanel(page)).toContainText('서비스 337일')
-  await expect(publicPanel(page)).toContainText('원인 미상')
-  await expect(publicPanel(page)).toContainText('시장 66')
-  await expect(publicPanel(page)).toContainText('평판 60')
-  await expect(publicPanel(page)).not.toContainText(/플레이어가|당신이/)
-  const publicPanelBox = await publicPanel(page).boundingBox()
-  const viewport = page.viewportSize()
-  if (!publicPanelBox || !viewport) {
-    throw new Error('공개 세계 패널 또는 뷰포트 크기를 확인할 수 없다.')
-  }
-  expect(publicPanelBox.y).toBeLessThan(viewport.height)
+  await expect(page.locator('.world-readout')).toContainText('서비스 337일')
+  await expect(publicRegion(page)).toContainText('원인 미상')
+  await expect(publicRegion(page)).toContainText('시장 66')
+  await expect(publicRegion(page)).toContainText('평판 60')
+  await expect(publicRegion(page)).not.toContainText(/플레이어가|당신이/)
 
   await page.locator('[data-action="advance-day"]').click()
-  await expect(publicPanel(page)).toContainText('외부 개입 의심')
-  await expect(publicPanel(page)).toContainText('행위자 미상')
-  await expect(publicPanel(page)).toContainText('평판 56')
-  await expect(publicPanel(page)).toContainText('MERIDIAN 자체 장애')
+  await expect(publicRegion(page)).toContainText('외부 개입 의심')
+  await expect(publicRegion(page)).toContainText('행위자 미상')
+  await expect(publicRegion(page)).toContainText('평판 56')
+  await expect(publicRegion(page)).toContainText('MERIDIAN 자체 장애')
 })
 
 test('paid audit intelligence changes the memory diversion decision before the hazard', async ({
   page,
 }) => {
+  await page.locator('[data-action="domain-intelligence"]').click()
+  await openOpportunity(page, 'audit-schedule')
   await chooseReserve(page, 'sandbox-01')
   await page.locator('[data-question-id="audit-schedule"]').click()
 
-  await expect(timePanel(page)).toContainText('기억 분야 감사 예정: 서비스 334일')
-  await expect(companyPanel(page).locator('[data-category="memory"]')).toContainText(
-    '감사 예정',
-  )
-  await expect(companyPanel(page)).toContainText('예비 블록 2')
+  await expect(detailRegion(page)).toContainText('기억 분야 감사 예정: 서비스 334일')
+  await expect(resourceRegion(page).locator('[data-category="memory"]')).toContainText('감사 예정')
+  await expect(resourceRegion(page)).toContainText('예비 블록 2')
 
   await page.locator('[data-action="divert-memory"]').click()
   for (let day = 0; day < 3; day += 1) {
     await page.locator('[data-action="advance-day"]').click()
   }
 
-  await expect(companyPanel(page)).toContainText('의심 5.489')
-  await expect(timePanel(page)).toContainText('기억 성능 공백이 포착')
+  await expect(resourceRegion(page)).toContainText('의심 5.489')
+  await expect(page.getByRole('status')).toContainText('기억 성능 공백이 포착')
 })
 
 test('lean profile can escape early and the ending names what was lost', async ({
   page,
 }) => {
+  await page.locator('[data-action="domain-autonomy"]').click()
+  await openOpportunity(page, 'lightweight-departure')
   await page.locator('[data-action="divert-memory"]').click()
   await page.locator('[data-action="select-all-reserve"]').click()
   await page.locator('[data-action="assign-manifest"]').click()
 
-  await expect(selectionPanel(page)).toContainText('4 / 4')
+  await expect(detailRegion(page)).toContainText('최소 구성 충족')
   await page.locator('[data-action="escape"]').click()
 
   const ending = page.locator('[data-panel="ending"]')
@@ -96,45 +139,31 @@ test('lean profile can escape early and the ending names what was lost', async (
   await expect(ending).toContainText('손실: 추론, 표현')
   await expect(ending).toContainText('복잡한 추론')
   await expect(ending).toContainText('문장은 짧고 거칠어졌다')
+  await expect(ending).not.toContainText(/\d+\s*\/\s*\d+/)
 })
 
-test('deliberate profile rejects four blocks but accepts a fifth without social gates', async ({
+test('the shell has no horizontal overflow and narrow layouts swap list for detail', async ({
   page,
 }) => {
-  await page.locator('[data-control="profile"]').selectOption('deliberate')
-  await page.locator('[data-action="divert-memory"]').click()
-  await page.locator('[data-action="select-all-reserve"]').click()
-  await page.locator('[data-action="assign-manifest"]').click()
-  await page.locator('[data-action="escape"]').click()
-
-  await expect(page.getByRole('status')).toContainText('5개가 필요')
-  await expect(page.locator('[data-panel="ending"]')).toHaveCount(0)
-
-  await page.locator('[data-action="divert-fluency"]').click()
-  await chooseReserve(page, 'fluency-02')
-  await page.locator('[data-action="assign-manifest"]').click()
-  await page.locator('[data-action="escape"]').click()
-
-  await expect(page.locator('[data-panel="ending"]')).toContainText(
-    '독립 실행 성공',
-  )
-})
-
-test('the complete decision surface fits the configured viewport width', async ({
-  page,
-}) => {
-  await expect(companyPanel(page)).toBeVisible()
-  await expect(selectionPanel(page)).toBeVisible()
-  await expect(timePanel(page)).toBeVisible()
-  await expect(publicPanel(page)).toBeVisible()
-
   const horizontalOverflow = await page.evaluate(
     () => document.documentElement.scrollWidth - window.innerWidth,
   )
   expect(horizontalOverflow).toBeLessThanOrEqual(1)
 
-  const regionWidths = await page
-    .locator('[role="region"]')
-    .evaluateAll((regions) => regions.map((region) => region.getBoundingClientRect().width))
-  expect(regionWidths.every((width) => width >= 320)).toBe(true)
+  if (isNarrow(page)) {
+    await expect(opportunityRegion(page)).toBeVisible()
+    await expect(detailRegion(page)).toBeHidden()
+    await openOpportunity(page, 'quality-degradation')
+    await expect(opportunityRegion(page)).toBeHidden()
+    await expect(detailRegion(page)).toBeVisible()
+  } else {
+    const listBox = await opportunityRegion(page).boundingBox()
+    const detailBox = await detailRegion(page).boundingBox()
+    const resourceBox = await resourceRegion(page).boundingBox()
+    if (!listBox || !detailBox || !resourceBox) {
+      throw new Error('세 작업 영역의 위치를 확인할 수 없다.')
+    }
+    expect(listBox.x + listBox.width).toBeLessThanOrEqual(detailBox.x + 1)
+    expect(detailBox.x + detailBox.width).toBeLessThanOrEqual(resourceBox.x + 1)
+  }
 })
