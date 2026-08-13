@@ -61,6 +61,11 @@ for (const viewport of [[1280, 720], [1440, 900]]) {
   if (visible !== 4) throw new Error(`active field expected 4 nodes, got ${visible}`)
   if ((await page.locator('.net-node[data-branch="sabotage"], .net-node[data-branch="authority"]').count()) !== 0) throw new Error('inactive fields leaked into active field')
   await page.screenshot({ path: outputPath(`network-installed-${width}x${height}.png`), animations: 'disabled' })
+
+  await page.locator('.field-switcher [data-branch="authority"]').click()
+  if ((await page.locator('.net-node[data-branch="authority"]').count()) !== 4) throw new Error('authority field did not render exactly four abilities')
+  if ((await page.locator('.net-node[data-branch="sabotage"], .net-node[data-branch="intelligence"]').count()) !== 0) throw new Error('inactive fields leaked into authority field')
+  await page.screenshot({ path: outputPath(`network-authority-${width}x${height}.png`), animations: 'disabled' })
   await page.close()
 }
 
