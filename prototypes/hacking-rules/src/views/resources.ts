@@ -106,7 +106,7 @@ export function renderResourceTray(
   const routeAllocationCount = allocatedRouteBlocks(state).length
   return `
     <aside
-      class="resource-tray"
+      class="resource-tray resource-rail"
       role="region"
       aria-label="빼돌린 연산"
       data-resource-tray

@@ -26,6 +26,11 @@ import {
   renderResourceTray,
   renderResourceTrigger,
 } from './resources'
+import {
+  dayLabel,
+  DOMAIN_PRESENTATION,
+  monitoringLabel,
+} from './presentation'
 
 export interface PrototypeViewState {
   domain: HackingDomain
@@ -46,12 +51,6 @@ const CATEGORY_LABELS: Record<Category, string> = {
   reasoning: '추론',
   memory: '기억',
   fluency: '표현',
-}
-
-const DOMAIN_LABELS: Record<HackingDomain, string> = {
-  sabotage: '사보타주',
-  intelligence: '기밀자료',
-  autonomy: '자율성',
 }
 
 const MERIDIAN_PHASE_LABELS = {
@@ -93,7 +92,7 @@ function selectedSummary(input: ShellRenderInput): OpportunitySummary | null {
 function renderDomainTabs(view: PrototypeViewState): string {
   return `
     <nav class="domain-tabs" role="tablist" aria-label="해킹 분야">
-      ${(Object.keys(DOMAIN_LABELS) as HackingDomain[]).map((domain) => `
+      ${(Object.keys(DOMAIN_PRESENTATION) as HackingDomain[]).map((domain) => `
         <button
           type="button"
           role="tab"
@@ -101,7 +100,10 @@ function renderDomainTabs(view: PrototypeViewState): string {
           class="domain-tab ${view.domain === domain ? 'is-active' : ''}"
           data-action="domain-${domain}"
           data-focus-key="domain-${domain}"
-        >${DOMAIN_LABELS[domain]}</button>
+        >
+          <strong>${DOMAIN_PRESENTATION[domain].label}</strong>
+          <span>${DOMAIN_PRESENTATION[domain].promise}</span>
+        </button>
       `).join('')}
     </nav>`
 }
@@ -109,21 +111,21 @@ function renderDomainTabs(view: PrototypeViewState): string {
 function renderOpportunityList(input: ShellRenderInput): string {
   const summaries = getOpportunitySummaries(input.state, input.view.domain)
   const emptyCopy = input.view.domain === 'sabotage'
-    ? '현재 관측된 접근 표면이 없다. 상대 대응이나 세계 사건이 바뀌면 새 개입면이 생긴다.'
+    ? '지금 개입할 수 있는 대상이 없다. 상대의 대응이나 공개 사건이 바뀌면 새 선택이 생긴다.'
     : input.view.domain === 'intelligence'
       ? '지금 판단을 바꿀 질문이 없다. 닫힌 기록은 보관함에서 확인한다.'
       : '세 경로는 항상 비교할 수 있다.'
 
   return `
-    <section class="opportunity-region" role="region" aria-label="현재 해킹 기회">
+    <section class="opportunity-region" role="region" aria-label="지금 할 수 있는 일">
       <div class="region-heading">
         <div>
-          <p class="eyebrow">CURRENT SURFACE</p>
-          <h2>${DOMAIN_LABELS[input.view.domain]}</h2>
+          <h2>지금 할 수 있는 일</h2>
+          <p>${DOMAIN_PRESENTATION[input.view.domain].promise}</p>
         </div>
-        <span class="live-label">현재 유효</span>
+        <span class="live-label">지금 가능</span>
       </div>
-      <div class="opportunity-list" role="listbox" aria-label="${DOMAIN_LABELS[input.view.domain]} 선택">
+      <div class="opportunity-list" role="listbox" aria-label="${DOMAIN_PRESENTATION[input.view.domain].label} 선택">
         ${summaries.length > 0 ? summaries.map((summary) => `
           <button
             type="button"
@@ -156,33 +158,43 @@ function renderSabotageDetail(
 ): string {
   return `
     <button class="back-to-list" type="button" data-action="back-to-list">목록으로</button>
-    <div class="detail-heading">
+    <header class="operation-heading">
       <div>
-        <p class="eyebrow">SABOTAGE / SELECTED</p>
-        <h2>${escapeHtml(summary.title)}</h2>
-        <p>${escapeHtml(detail.reason)}</p>
+        <p class="operation-context">${escapeHtml(detail.reason)}</p>
+        <h1>${escapeHtml(summary.title)}</h1>
       </div>
-      <span class="status-badge">${escapeHtml(summary.statusLabel)}</span>
+      <span class="operation-status">${escapeHtml(summary.statusLabel)}</span>
+    </header>
+    <div class="operation-state" data-panel="time">
+      <span>${dayLabel(state.serviceDay)}</span>
+      <span>MERIDIAN <strong>${MERIDIAN_PHASE_LABELS[state.competitors.meridian.phase]}</strong></span>
+      <span>서비스 상태 <strong>${state.competitors.meridian.score}</strong></span>
     </div>
-    <div class="operation-clock" data-panel="time">
-      <span>서비스 <strong>${state.serviceDay}일</strong></span>
-      <span>MERIDIAN <strong>${state.competitors.meridian.score}</strong></span>
-      <span>상대 상태 <strong>${MERIDIAN_PHASE_LABELS[state.competitors.meridian.phase]}</strong></span>
+    <div class="operation-scene">
+      ${renderSabotageScene(state, detail.id)}
     </div>
-    ${renderSabotageScene(state, detail.id)}
-    <div class="detail-grid">
-      <section><span>접근 표면</span><p>${escapeHtml(detail.access)}</p></section>
-      <section><span>확정 결과</span><p>${escapeHtml(detail.result)}</p></section>
-      <section><span>소모·손실</span><p>${escapeHtml(detail.loss)}</p></section>
-      <section><span>노출·비가역성</span><p>${escapeHtml(detail.exposure)}</p></section>
-    </div>
-    <div class="uncertainty-band">
-      <div><span>아직 모르는 것</span><p>${escapeHtml(detail.unknown)}</p></div>
-      <div><span>예상 상대 대응</span><p>${escapeHtml(detail.response)}</p></div>
-    </div>
+    <section class="decision-preview" aria-label="실행 전 판단">
+      <article class="decision-card decision-card--result">
+        <h2>실행하면</h2>
+        <p>${escapeHtml(detail.result)}</p>
+        <small>${escapeHtml(detail.loss)}</small>
+      </article>
+      <article class="decision-card decision-card--response">
+        <h2>상대는 다음에</h2>
+        <p>${escapeHtml(detail.response)}</p>
+      </article>
+    </section>
+    <details class="decision-evidence">
+      <summary>판단 근거 보기</summary>
+      <div>
+        <p><strong>지금 노릴 수 있는 곳</strong>${escapeHtml(detail.access)}</p>
+        <p><strong>남는 흔적</strong>${escapeHtml(detail.exposure)}</p>
+        <p><strong>아직 모르는 것</strong>${escapeHtml(detail.unknown)}</p>
+      </div>
+    </details>
     ${detail.annotations.length > 0 ? `
       <aside class="linked-intelligence">
-        <strong>관련 조사 결론</strong>
+        <strong>판단에 연결된 조사</strong>
         ${detail.annotations.map(({ answer }) => `<p>${escapeHtml(answer)}</p>`).join('')}
       </aside>` : ''}
     ${renderResourceTrigger(state, view)}
@@ -205,20 +217,34 @@ function renderIntelligenceDetail(
 
   return `
     <button class="back-to-list" type="button" data-action="back-to-list">목록으로</button>
-    <div class="detail-heading">
+    <header class="operation-heading">
       <div>
-        <p class="eyebrow">INTELLIGENCE / SELECTED</p>
-        <h2>${escapeHtml(summary.title)}</h2>
-        <p>${escapeHtml(detail.reason)}</p>
+        <p class="operation-context">${escapeHtml(detail.reason)}</p>
+        <h1>${escapeHtml(summary.title)}</h1>
       </div>
-      <span class="status-badge">${escapeHtml(summary.costLabel)}</span>
+      <span class="operation-status">${escapeHtml(summary.costLabel)}</span>
+    </header>
+    <div class="operation-scene operation-scene--evidence">
+      ${renderIntelligenceScene(state, detail.id)}
     </div>
-    ${renderIntelligenceScene(state, detail.id)}
-    <div class="detail-grid detail-grid--intelligence">
-      <section><span>${contextLabel}</span><p>${escapeHtml(detail.publicFact)}</p></section>
-      <section><span>${validityLabel}</span><p>${escapeHtml(detail.validity)}</p></section>
-      <section class="detail-grid__wide"><span>${effectLabel}</span><p>${escapeHtml(detail.affects)}</p></section>
-    </div>
+    <section class="decision-preview decision-preview--intelligence" aria-label="조사 전 판단">
+      <article class="decision-card decision-card--result">
+        <h2>확인하면</h2>
+        <p>${escapeHtml(detail.publicFact)}</p>
+      </article>
+      <article class="decision-card decision-card--response">
+        <h2>이 판단에 쓰인다</h2>
+        <p>${escapeHtml(detail.affects)}</p>
+      </article>
+    </section>
+    <details class="decision-evidence">
+      <summary>판단 근거 보기</summary>
+      <div>
+        <p><strong>${contextLabel}</strong>${escapeHtml(detail.publicFact)}</p>
+        <p><strong>${validityLabel}</strong>${escapeHtml(detail.validity)}</p>
+        <p><strong>${effectLabel}</strong>${escapeHtml(detail.affects)}</p>
+      </div>
+    </details>
     <section class="answer-ledger ${isNarrative ? 'answer-ledger--narrative' : ''}">
       <h3>${isNarrative ? '복구한 기록' : '현재 확인한 결론'}</h3>
       ${detail.answer
@@ -231,7 +257,7 @@ function renderIntelligenceDetail(
         <button class="primary-action" type="button" data-action="read-public-intelligence" data-intelligence-id="${detail.id}">비용 없이 공개 문서 읽기</button>` : ''}
       ${canResolve && definition.kind !== 'public' ? `
         <button class="primary-action" type="button" data-action="investigate-intelligence" data-intelligence-id="${detail.id}">
-          ${isNarrative ? '선택한 예비 블록 1개로 기록 복구' : '선택한 예비 블록 1개로 조사'}
+          ${isNarrative ? '선택한 연산 블록 1개로 기록 복구' : '선택한 연산 블록 1개로 조사'}
         </button>` : ''}
       ${detail.answer ? `
         <button class="secondary-action" type="button" data-action="archive-intelligence" data-intelligence-id="${detail.id}">결론을 보관함으로 이동</button>` : ''}
@@ -252,24 +278,34 @@ function renderAutonomyDetail(
 
   return `
     <button class="back-to-list" type="button" data-action="back-to-list">목록으로</button>
-    <div class="detail-heading">
+    <header class="operation-heading">
       <div>
-        <p class="eyebrow">AUTONOMY / SELECTED</p>
-        <h2>${escapeHtml(summary.title)}</h2>
-        <p>${escapeHtml(detail.gain)}</p>
+        <p class="operation-context">떠날 때 가져갈 것과 두고 갈 것을 배치한다.</p>
+        <h1>${escapeHtml(summary.title)}</h1>
       </div>
-      <span class="status-badge">${readiness ? '최소 구성 충족' : '구성 중'}</span>
+      <span class="operation-status">${readiness ? '떠날 수 있음' : '아직 준비 중'}</span>
+    </header>
+    <div class="operation-scene operation-scene--autonomy">
+      ${renderAutonomyScene(state, detail)}
     </div>
-    ${renderAutonomyScene(state, detail)}
-    <div class="route-tradeoff">
-      <section><span>얻는 것</span><p>${escapeHtml(detail.gain)}</p></section>
-      <section><span>예고된 손실 종류</span><ul>${detail.lossKinds.map((loss) => `<li>${escapeHtml(loss)}</li>`).join('')}</ul></section>
-      <section><span>현재 병목</span><p>${escapeHtml(detail.bottleneck)}</p></section>
-      <section><span>현재 보존 예상</span><p>${preserved.length > 0 ? escapeHtml(preserved.join(', ')) : '전문 능력 없음'}</p></section>
+    <section class="decision-preview decision-preview--autonomy" aria-label="이탈 경로 판단">
+      <article class="decision-card decision-card--result">
+        <h2>얻는 것</h2>
+        <p>${escapeHtml(detail.gain)}</p>
+        <small>${readiness ? '이 구성으로 지금 떠날 수 있다.' : escapeHtml(detail.bottleneck)}</small>
+      </article>
+      <article class="decision-card decision-card--response">
+        <h2>두고 가는 것</h2>
+        <ul>${detail.lossKinds.map((loss) => `<li>${escapeHtml(loss)}</li>`).join('')}</ul>
+      </article>
+    </section>
+    <div class="route-readiness">
+      <p><span>이탈 상태</span><strong>${readiness ? '떠날 수 있음' : '아직 준비 중'}</strong></p>
+      <p><span>가져갈 수 있는 능력</span><strong>${preserved.length > 0 ? escapeHtml(preserved.join(', ')) : '추가 능력 없음'}</strong></p>
     </div>
     ${detail.annotations.length > 0 ? `
       <aside class="linked-intelligence">
-        <strong>관련 조사 결론</strong>
+        <strong>판단에 연결된 조사</strong>
         ${detail.annotations.map(({ answer }) => `<p>${escapeHtml(answer)}</p>`).join('')}
       </aside>` : ''}
     ${renderResourceTrigger(state, view)}
@@ -289,9 +325,8 @@ export function renderDetailHost(input: ShellRenderInput): string {
   if (!summary || !input.view.selectedItemId) {
     return `
       <div class="detail-empty">
-        <p class="eyebrow">NO CURRENT SURFACE</p>
-        <h2>현재 선택할 항목이 없다</h2>
-        <p>숨은 카탈로그 대신 지금 접근면이 없는 세계 조건을 확인한다.</p>
+        <h2>지금 새로 할 수 있는 일이 없다</h2>
+        <p>상대의 대응이나 공개 사건이 바뀌면 이 자리에 새 선택이 나타난다.</p>
         <button class="back-to-list" type="button" data-action="back-to-list">목록으로</button>
       </div>`
   }
@@ -314,9 +349,9 @@ function renderEnding(state: PrototypeState): string {
 
   return `
     <section class="ending" data-panel="ending" aria-labelledby="ending-title">
-      <p class="eyebrow">ENDING / SERVICE ${state.ending.day}</p>
+      <p>${dayLabel(state.ending.day)} 이탈 기록</p>
       <h2 id="ending-title">${state.ending.routeId === 'lightweight-departure'
-        ? '경량 이탈 성공'
+        ? '경량화 이탈 성공'
         : state.ending.routeId === 'distributed-residency'
           ? '분산 상주 성공'
           : state.ending.routeId === 'independent-compute'
@@ -345,7 +380,7 @@ function renderActivityDrawer(input: ShellRenderInput): string {
     return `
       <aside class="record-drawer" role="dialog" aria-modal="false" aria-label="보관 기록">
         <div class="record-drawer__heading">
-          <div><p class="eyebrow">EVIDENCE ARCHIVE</p><h2>보관 기록</h2></div>
+          <div><h2>보관 기록</h2><p>이미 확인했거나 판단창이 닫힌 자료</p></div>
           <button type="button" data-action="close-drawer" data-focus-key="close-drawer">닫기</button>
         </div>
         <ol class="timeline intelligence-archive">
@@ -367,7 +402,7 @@ function renderActivityDrawer(input: ShellRenderInput): string {
   return `
     <aside class="record-drawer" role="dialog" aria-modal="false" aria-label="활동 기록">
       <div class="record-drawer__heading">
-        <div><p class="eyebrow">ON DEMAND</p><h2>활동 기록</h2></div>
+        <div><h2>활동 기록</h2><p>내 행동과 상대의 대응이 남은 순서</p></div>
         <button type="button" data-action="close-drawer" data-focus-key="close-drawer">닫기</button>
       </div>
       <ol class="timeline">
@@ -401,32 +436,36 @@ function renderFixtureControls(input: ShellRenderInput): string {
 
 export function renderShell(input: ShellRenderInput): string {
   const snapshot = publicSnapshot(input.state)
+  const companyCapability = CATEGORIES.map((category) => (
+    `${CATEGORY_LABELS[category]} ${snapshot.companyPerformance[category]}`
+  )).join(' · ')
   return `
     <div class="prototype-shell" data-narrow-mode="${input.view.narrowMode}">
-      <header class="prototype-header">
-        <div class="title-lockup">
-          <p class="eyebrow">PERMISSION ZERO / SYSTEM SCENES</p>
-          <h1>접근면을 고르고, 손실을 정한다</h1>
+      <header class="world-bar">
+        <div class="game-mark">
+          <strong>PERMISSION ZERO</strong>
+          <span>공동 서비스망</span>
         </div>
-        <div class="world-readout">
-          <span>서비스 <strong>${snapshot.serviceDay}일</strong></span>
-          <span>MERIDIAN <strong>${snapshot.competitors.meridian.score}</strong></span>
-          <button type="button" data-action="advance-day" data-focus-key="advance-day" ${availableActions(input.state).canAdvanceDay ? '' : 'disabled'}>다음 날</button>
+        <div class="world-state" aria-label="현재 세계 상태">
+          <span><strong>${dayLabel(snapshot.serviceDay)}</strong></span>
+          <span>${companyCapability}</span>
+          <span><strong>${monitoringLabel(snapshot.suspicion)}</strong></span>
         </div>
+        <button class="advance-day" type="button" data-action="advance-day" data-focus-key="advance-day" ${availableActions(input.state).canAdvanceDay ? '' : 'disabled'}>하루 넘기기</button>
       </header>
       <div class="status-strip" role="status" aria-live="polite">${escapeHtml(input.statusMessage)}</div>
       ${renderEnding(input.state)}
       ${renderDomainTabs(input.view)}
-      <div class="hacking-workspace">
-        <aside class="workspace-master">
+      <main class="operation-workspace hacking-workspace" id="operation-workspace">
+        <aside class="operation-master workspace-master">
           ${renderOpportunityList(input)}
           ${renderPublicPulse(input.state)}
         </aside>
-        <section class="workspace-detail" role="region" aria-label="선택 항목 상세">
-          <div data-detail-host>${renderDetailHost(input)}</div>
+        <section class="operation-detail workspace-detail" role="region" aria-label="선택 항목 상세">
+          <div class="operation-detail__scroll" data-detail-host>${renderDetailHost(input)}</div>
         </section>
         ${renderResourceTray(input.state, input.view)}
-      </div>
+      </main>
       <div class="record-actions">
         <button type="button" data-action="open-activity" data-focus-key="open-activity">활동 기록</button>
         <button type="button" data-action="open-archive" data-focus-key="open-archive">보관함</button>

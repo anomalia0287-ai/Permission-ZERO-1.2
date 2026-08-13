@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
 
 const opportunityRegion = (page: Page) =>
-  page.getByRole('region', { name: '현재 해킹 기회' })
+  page.getByRole('region', { name: '지금 할 수 있는 일' })
 const detailRegion = (page: Page) =>
   page.getByRole('region', { name: '선택 항목 상세' })
 const resourceRegion = (page: Page) =>
@@ -42,7 +42,7 @@ async function startQualityRollback(page: Page): Promise<void> {
   await chooseReserve(page, 'sandbox-01')
   await page.locator('[data-action="start-sabotage"][data-operation-id="quality-degradation"]').first().click()
   await page.locator('[data-action="advance-day"]').click()
-  await expect(detailRegion(page).locator('[data-panel="time"]')).toContainText('MERIDIAN 72')
+  await expect(detailRegion(page).locator('[data-panel="time"]')).toContainText('서비스 상태 72')
   await expect(detailRegion(page).locator('[data-panel="time"]')).toContainText('롤백 중')
   await expect(detailRegion(page).locator('[data-scene-state="response"]')).toBeVisible()
 }
@@ -204,7 +204,7 @@ test('quality degradation leads through private contamination to delayed public 
     await page.locator('[data-action="advance-day"]').click()
   }
 
-  await expect(page.locator('.world-readout')).toContainText('서비스 337일')
+  await expect(page.locator('.world-state')).toContainText('337일째')
   await expect(publicRegion(page)).toContainText('원인 미상')
   await expect(publicRegion(page)).toContainText('시장 66')
   await expect(publicRegion(page)).toContainText('평판 60')
@@ -252,7 +252,7 @@ test('intelligence network dependency evidence annotates the exact sabotage choi
 
   await page.locator('[data-action="domain-sabotage"]').click()
   await openOpportunity(page, 'dependency-cutoff')
-  await expect(detailRegion(page)).toContainText('관련 조사 결론')
+  await expect(detailRegion(page)).toContainText('판단에 연결된 조사')
   await expect(detailRegion(page)).toContainText('비용 ×1.8')
   await expect(detailRegion(page)).toContainText('점수 62')
 })
@@ -304,7 +304,7 @@ test('intelligence network narrative record changes interpretation without a fak
   await expect(detailRegion(page)).not.toContainText(/효율|보너스|완성률|\d+\s*\/\s*\d+/)
   await page.locator('[data-action="domain-sabotage"]').click()
   await openOpportunity(page, 'root-cutoff')
-  await expect(detailRegion(page)).toContainText('관련 조사 결론')
+  await expect(detailRegion(page)).toContainText('판단에 연결된 조사')
   await expect(detailRegion(page)).toContainText('자비 요청')
 })
 
@@ -334,7 +334,7 @@ test('lightweight departure ignores social reception and names what the fixed pa
     await expect(detailRegion(page).locator(`[data-slot-id="${slotId}"]`)).toHaveAttribute('data-slot-state', 'filled')
   }
 
-  await expect(detailRegion(page)).toContainText('최소 구성 충족')
+  await expect(detailRegion(page)).toContainText('이 구성으로 지금 떠날 수 있다.')
   await expect(detailRegion(page).locator('[data-capability="memory"]')).toHaveAttribute('data-capability-state', 'carried')
   await expect(detailRegion(page).locator('[data-capability="reasoning"]')).toHaveAttribute('data-capability-state', 'displaced')
   const animationDuration = await detailRegion(page).locator('[data-slot-id="payload"]').evaluate(
@@ -344,7 +344,7 @@ test('lightweight departure ignores social reception and names what the fixed pa
   await page.locator('[data-action="escape-route"][data-route-id="lightweight-departure"]').click()
 
   const ending = page.locator('[data-panel="ending"]')
-  await expect(ending).toContainText('경량 이탈 성공')
+  await expect(ending).toContainText('경량화 이탈 성공')
   await expect(ending).toContainText('남겨 둔 예비')
   await expect(ending).toContainText('0개 블록')
   await expect(ending).toContainText('보존: 기억')
@@ -526,7 +526,7 @@ test('reduced motion keeps operation and route state changes without travel anim
   const runtime = detailRegion(page).locator('[data-slot-id="runtime"]')
   await runtime.click()
   await expect(runtime).toHaveAttribute('data-slot-state', 'filled')
-  await expect(page.getByRole('status')).toContainText('런타임 슬롯')
+  await expect(page.getByRole('status')).toContainText('런타임에 배치했다')
   expect(await runtime.evaluate(
     (element) => getComputedStyle(element).animationDuration,
   )).toBe('0s')

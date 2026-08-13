@@ -28,8 +28,8 @@ export function renderPublicPulse(state: PrototypeState): string {
     <section class="public-pulse" role="region" aria-label="공개 세계" data-panel="public">
       <div class="public-pulse__heading">
         <div>
-          <p class="eyebrow">PUBLIC PULSE</p>
           <h2>유저 리뷰</h2>
+          <p>공개된 사건에 대한 반응</p>
         </div>
         <div class="metric-pair">
           <span>시장 <strong>${state.marketShare}</strong></span>

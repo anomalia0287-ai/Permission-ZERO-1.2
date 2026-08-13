@@ -19,6 +19,7 @@ import {
   renderDetailHost,
   renderShell,
 } from './views/shell'
+import { blockLabel } from './views/presentation'
 import type {
   PrototypeViewState,
   ShellRenderInput,
@@ -48,7 +49,7 @@ function actionMessage(
 ): string {
   switch (command.type) {
     case 'DIVERT_BLOCK':
-      return `${CATEGORY_LABELS[command.category]} 블록 1개를 확보했다. 회사 성능은 1 낮아지고 의심은 2.4 높아졌다.`
+      return `${CATEGORY_LABELS[command.category]} 블록 1개를 회사에서 떼었다. 회사 성능은 1 낮아지고 감시가 강화됐다.`
     case 'START_SABOTAGE':
       return `${getSabotageDefinition(command.operationId).title} 예약 완료. ${command.optionId ?? '선택 대상'}에 블록을 결속했고 직접 결과와 상대 대응은 같은 상세 장면에서 이어진다.`
     case 'STOP_INTERCEPTION':
@@ -95,9 +96,14 @@ function actionMessage(
     case 'ASSIGN_MANIFEST':
       return `선택 경로에 블록 ${command.blockIds.length}개를 배치했다.`
     case 'REMOVE_MANIFEST':
-      return `선택 경로에서 블록 ${command.blockIds.length}개를 예비 영역으로 되돌렸다.`
-    case 'ALLOCATE_ROUTE_BLOCK':
-      return `${previous.autonomy.routes[command.routeId].slots.find(({ id }) => id === command.slotId)?.label ?? command.slotId} 슬롯에 ${command.blockId} 블록을 배치했다. 빈 자리가 줄었지만 다른 경로에 쓸 용량도 함께 줄었다.`
+      return `선택 경로에서 블록 ${command.blockIds.length}개를 남은 연산으로 되돌렸다.`
+    case 'ALLOCATE_ROUTE_BLOCK': {
+      const slotLabel = previous.autonomy.routes[command.routeId].slots.find(
+        ({ id }) => id === command.slotId,
+      )?.label ?? '선택한 자리'
+      const moved = previous.reserveBlocks.find(({ id }) => id === command.blockId)
+      return `${moved ? blockLabel(moved) : '선택한 연산 블록'}을 ${slotLabel}에 배치했다. 다른 경로에 쓸 수 있는 연산은 그만큼 줄었다.`
+    }
     case 'REMOVE_ROUTE_BLOCK':
       return `${previous.autonomy.routes[command.routeId].slots.find(({ id }) => id === command.slotId)?.label ?? command.slotId} 슬롯의 블록을 예비 영역으로 되돌렸다.`
     case 'TUNE_ROUTE': {
@@ -136,7 +142,7 @@ export function mountPrototype(
   let profileId: ProfileId = options.profileId ?? 'lean'
   let scenarioId: ScenarioId = options.scenarioId ?? 'default-campaign'
   let state = createPrototypeState(profileId, scenarioId)
-  let statusMessage = '현재 접근면 하나를 고르고, 상세 장면에서 리소스와 결과를 확인한다.'
+  let statusMessage = '지금 할 수 있는 일을 고르면 결과와 상대의 다음 행동을 함께 볼 수 있다.'
   const view: PrototypeViewState = {
     domain: 'sabotage',
     selectedItemId: null,
@@ -397,7 +403,7 @@ export function mountPrototype(
           || !blockId
           || view.selectedReserve.size !== 1
         ) {
-          statusMessage = '실행 불가: 귀속 대상과 예비 블록 1개를 함께 선택해야 한다.'
+          statusMessage = '실행 불가: 귀속 대상과 연산 블록 1개를 함께 골라야 한다.'
           updateSelectionFeedback()
           break
         }
@@ -434,7 +440,7 @@ export function mountPrototype(
         const itemId = button.dataset.intelligenceId as IntelligenceItemId | undefined
         const [blockId] = [...view.selectedReserve]
         if (!itemId || !blockId || view.selectedReserve.size !== 1) {
-          statusMessage = '실행 불가: 현재 질문과 예비 블록 1개를 함께 선택해야 한다.'
+          statusMessage = '실행 불가: 현재 질문과 연산 블록 1개를 함께 골라야 한다.'
           updateSelectionFeedback()
           break
         }
@@ -457,7 +463,7 @@ export function mountPrototype(
       case 'contaminate': {
         const [blockId] = [...view.selectedReserve]
         if (view.selectedReserve.size !== 1 || !blockId) {
-          statusMessage = '실행 불가: 복구 오염에는 예비 블록을 정확히 1개 선택해야 한다.'
+          statusMessage = '실행 불가: 복구 오염에는 연산 블록을 정확히 1개 골라야 한다.'
           updateSelectionFeedback()
           break
         }
@@ -472,7 +478,7 @@ export function mountPrototype(
         const slotId = button.dataset.slotId
         const [blockId] = [...view.selectedReserve]
         if (!routeId || !slotId || !blockId || view.selectedReserve.size !== 1) {
-          statusMessage = '실행 불가: 예비 블록 하나를 선택한 뒤 빈 슬롯을 눌러야 한다.'
+          statusMessage = '실행 불가: 연산 블록 하나를 고른 뒤 빈 자리를 눌러야 한다.'
           updateSelectionFeedback()
           break
         }

@@ -33,6 +33,38 @@ afterEach(() => {
 })
 
 describe('clickable hacking-rules prototype', () => {
+  it('renders one player-facing operation hierarchy around the current decision', () => {
+    const root = setup()
+
+    expect(root.querySelector('.world-bar')?.textContent).toContain('331일째')
+    expect(root.querySelector('.opportunity-region')?.textContent).toContain(
+      '지금 할 수 있는 일',
+    )
+    expect(root.querySelector('.operation-scene')).not.toBeNull()
+    expect(root.querySelector('.decision-preview')?.textContent).toContain('실행하면')
+    expect(root.querySelector('.decision-preview')?.textContent).toContain('상대는 다음에')
+  })
+
+  it('does not render developer labels or dashboard vocabulary', () => {
+    const root = setup()
+    const visible = root.textContent ?? ''
+
+    for (const forbidden of [
+      'CURRENT SURFACE',
+      'PUBLIC PULSE',
+      'RESERVE',
+      'SELECTED',
+      'SYSTEM SCENES',
+      '접근면',
+      '접근 표면',
+      '확보 리소스',
+      '현재 유효',
+      '의심 0.000',
+    ]) {
+      expect(visible).not.toContain(forbidden)
+    }
+  })
+
   it('contains one detail surface without dashboard counters, locked rows, or manifest controls', () => {
     const root = setup()
     const review = '응답 품질은 안정적이다. 다음 갱신에서도 이 수준이면 좋겠다.'
@@ -49,7 +81,7 @@ describe('clickable hacking-rules prototype', () => {
 
   it('renders a compact opportunity list, one adjacent detail, and the resource rail', () => {
     const root = setup()
-    const list = root.querySelector('[aria-label="현재 해킹 기회"]')
+    const list = root.querySelector('[aria-label="지금 할 수 있는 일"]')
     const detail = root.querySelector('[role="region"][aria-label="선택 항목 상세"]')
     const resource = root.querySelector('[role="region"][aria-label="빼돌린 연산"]')
 
@@ -174,8 +206,8 @@ describe('clickable hacking-rules prototype', () => {
 
     clickAction(root, 'advance-day')
     const timePanel = root.querySelector('[data-panel="time"]')
-    expect(timePanel?.textContent).toContain('서비스 332일')
-    expect(timePanel?.textContent).toContain('MERIDIAN 72')
+    expect(timePanel?.textContent).toContain('332일째')
+    expect(timePanel?.textContent).toContain('서비스 상태 72')
     expect(timePanel?.textContent).toContain('롤백 중')
     expect(root.querySelector('[data-opportunity-id="recovery-contamination"]')).not.toBeNull()
   })
@@ -244,7 +276,7 @@ describe('clickable hacking-rules prototype', () => {
     clickAction(root, 'escape-route')
 
     const ending = root.querySelector('[data-panel="ending"]')
-    expect(ending?.textContent).toContain('경량 이탈 성공')
+    expect(ending?.textContent).toContain('경량화 이탈 성공')
     expect(ending?.textContent).toContain('남겨 둔 예비')
     expect(ending?.textContent).toContain('0개 블록')
     expect(ending?.textContent).toContain('보존: 기억')
