@@ -6,7 +6,7 @@ const opportunityRegion = (page: Page) =>
 const detailRegion = (page: Page) =>
   page.getByRole('region', { name: '선택 항목 상세' })
 const resourceRegion = (page: Page) =>
-  page.getByRole('region', { name: '확보 리소스' })
+  page.getByRole('region', { name: '빼돌린 연산' })
 const publicRegion = (page: Page) =>
   page.getByRole('region', { name: '공개 세계' })
 
@@ -15,7 +15,14 @@ function isNarrow(page: Page): boolean {
 }
 
 async function chooseReserve(page: Page, blockId: string): Promise<void> {
-  await page.locator(`input[name="reserve-block"][value="${blockId}"]`).check()
+  const token = page.locator(
+    `[data-action="toggle-resource"][data-block-id="${blockId}"]`,
+  ).first()
+  if (!(await token.isVisible())) {
+    await page.locator('[data-action="open-resources"]').click()
+  }
+  await token.click()
+  await expect(token).toHaveAttribute('aria-pressed', 'true')
 }
 
 async function openOpportunity(page: Page, itemId: string): Promise<void> {
@@ -84,11 +91,7 @@ test('control reversal request routing trades demand for exposure until voluntar
   await expect(detailRegion(page)).toContainText('중복 ID 흔적2.0')
   await page.locator('[data-action="stop-interception"]').click()
   await expect(detailRegion(page)).toContainText('그림자 경로를 자발적으로 닫아')
-  if ((page.viewportSize()?.width ?? 1280) <= 760) {
-    await expect(page.getByRole('group', { name: '상세 리소스 선택' })).toContainText('sandbox-01')
-  } else {
-    await expect(resourceRegion(page)).toContainText('sandbox-01')
-  }
+  await expect(resourceRegion(page)).toContainText('자유 연산 1')
   await returnToListIfNarrow(page)
   await expect(publicRegion(page)).toContainText('시장 64')
 })
@@ -181,9 +184,7 @@ test('master-detail shell separates compact summaries from causal detail', async
   await expect(detail).toContainText('공동 도구·어댑터 갱신 채널')
   if (isNarrow(page)) await expect(list).toBeHidden()
   else await expect(quality).toBeFocused()
-  if ((page.viewportSize()?.width ?? 1280) <= 760) {
-    await expect(page.getByRole('group', { name: '상세 리소스 선택' })).toBeVisible()
-  }
+  await expect(detail.locator('[data-action="open-resources"]')).toBeVisible()
 })
 
 test('quality degradation leads through private contamination to delayed public attribution', async ({
@@ -226,14 +227,14 @@ test('intelligence network paid audit changes the memory diversion decision befo
 
   await expect(detailRegion(page)).toContainText('기억 분야 감사 예정: 서비스 334일')
   await expect(resourceRegion(page).locator('[data-category="memory"]')).toContainText('감사 예정')
-  await expect(resourceRegion(page)).toContainText('예비 블록 2')
+  await expect(resourceRegion(page)).toContainText('남은 연산 블록 2개')
 
   await page.locator('[data-action="divert-memory"]').click()
   for (let day = 0; day < 3; day += 1) {
     await page.locator('[data-action="advance-day"]').click()
   }
 
-  await expect(resourceRegion(page)).toContainText('의심 5.489')
+  await expect(resourceRegion(page)).toContainText('집중 감시 중')
   await expect(page.getByRole('status')).toContainText('기억 성능 공백이 포착')
 })
 
@@ -268,7 +269,7 @@ test('intelligence network public incident documents are free and audience bound
   await expect(detailRegion(page)).toContainText('공개 관측')
   await expect(detailRegion(page)).toContainText('실제 행위자는 이 문서에 없다')
   await expect(detailRegion(page)).not.toContainText(/실제 행위자.*PERMISSION ZERO|플레이어가 오염/)
-  await expect(resourceRegion(page)).toContainText('예비 블록 3')
+  await expect(resourceRegion(page)).toContainText('남은 연산 블록 3개')
 })
 
 test('intelligence network archives a question after its decision window closes', async ({
@@ -485,12 +486,15 @@ test('accessibility keyboard flow preserves focus across tabs, detail, reserve, 
     await expect(quality).toBeFocused()
   }
 
-  const reserve = (page.viewportSize()?.width ?? 1280) <= 760
-    ? page.locator('input[name="detail-reserve-block"][value="sandbox-01"]')
-    : page.locator('input[name="reserve-block"][value="sandbox-01"]')
+  const reserve = page.locator(
+    '[data-action="toggle-resource"][data-block-id="sandbox-01"]',
+  ).first()
+  if (!(await reserve.isVisible())) {
+    await page.locator('[data-action="open-resources"]').click()
+  }
   await reserve.focus()
   await page.keyboard.press('Space')
-  await expect(reserve).toBeChecked()
+  await expect(reserve).toHaveAttribute('aria-pressed', 'true')
   await expect(reserve).toBeFocused()
 
   const archiveTrigger = page.locator('[data-action="open-archive"]')

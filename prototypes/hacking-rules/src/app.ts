@@ -143,6 +143,7 @@ export function mountPrototype(
     narrowMode: 'list',
     drawer: 'closed',
     selectedReserve: new Set(),
+    resourceTrayOpen: false,
   }
 
   const input = (): ShellRenderInput => ({
@@ -170,17 +171,15 @@ export function mountPrototype(
   }
 
   const updateSelectionFeedback = () => {
-    const selectionCount = root.querySelector<HTMLElement>('[data-selection-count]')
     const status = root.querySelector<HTMLElement>('[role="status"]')
-    if (selectionCount) {
-      const allocated = Object.values(state.autonomy.routes).reduce(
-        (total, route) => total + route.slots.filter(({ block }) => block !== null).length,
-        0,
+    root.querySelectorAll<HTMLElement>('[data-selected-resource-count]').forEach((count) => {
+      count.textContent = `${view.selectedReserve.size}개 선택`
+    })
+    root.querySelectorAll<HTMLButtonElement>('[data-action="toggle-resource"]').forEach((token) => {
+      const selected = Boolean(
+        token.dataset.blockId && view.selectedReserve.has(token.dataset.blockId),
       )
-      selectionCount.textContent = `선택한 예비 ${view.selectedReserve.size} · 경로 배치 ${allocated}`
-    }
-    root.querySelectorAll<HTMLElement>('[data-detail-selection-count]').forEach((count) => {
-      count.textContent = `현재 선택 ${view.selectedReserve.size}개`
+      token.setAttribute('aria-pressed', String(selected))
     })
     if (status) status.textContent = statusMessage
   }
@@ -215,6 +214,7 @@ export function mountPrototype(
     state = result.state
     statusMessage = actionMessage(command, previous, state)
     clearSelections()
+    view.resourceTrayOpen = false
     render(restoreFocusKey)
   }
 
@@ -229,6 +229,7 @@ export function mountPrototype(
     view.selectedItemId = null
     view.narrowMode = 'list'
     view.drawer = 'closed'
+    view.resourceTrayOpen = false
     statusMessage = '시나리오를 초기화했다. 같은 입력은 항상 같은 결과를 만든다.'
     render()
   }
@@ -244,22 +245,6 @@ export function mountPrototype(
   const onChange = (event: Event) => {
     const target = event.target
     if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement)) return
-
-    if (
-      target instanceof HTMLInputElement
-      && (target.name === 'reserve-block' || target.name === 'detail-reserve-block')
-    ) {
-      if (target.checked) view.selectedReserve.add(target.value)
-      else view.selectedReserve.delete(target.value)
-      root.querySelectorAll<HTMLInputElement>(
-        'input[name="reserve-block"], input[name="detail-reserve-block"]',
-      ).forEach((checkbox) => {
-        if (checkbox.value === target.value) checkbox.checked = target.checked
-      })
-      statusMessage = `예비 블록 ${view.selectedReserve.size}개를 선택했다.`
-      updateSelectionFeedback()
-      return
-    }
 
     if (target instanceof HTMLInputElement && target.name === 'routing-share') {
       const output = target.closest('.routing-control')?.querySelector<HTMLOutputElement>('output')
@@ -324,14 +309,26 @@ export function mountPrototype(
         render(returnFocusKey)
         break
       }
+      case 'toggle-resource': {
+        const blockId = button.dataset.blockId
+        if (!blockId || !state.reserveBlocks.some(({ id }) => id === blockId)) break
+        if (view.selectedReserve.has(blockId)) view.selectedReserve.delete(blockId)
+        else view.selectedReserve.add(blockId)
+        statusMessage = `연산 블록 ${view.selectedReserve.size}개를 골랐다.`
+        render(`resource-${blockId}`)
+        break
+      }
+      case 'open-resources':
+        view.resourceTrayOpen = true
+        render('close-resources')
+        break
+      case 'close-resources':
+        view.resourceTrayOpen = false
+        render('open-resources')
+        break
       case 'select-all-reserve':
         view.selectedReserve = new Set(state.reserveBlocks.map(({ id }) => id))
-        statusMessage = `예비 블록 ${view.selectedReserve.size}개를 모두 선택했다.`
-        root.querySelectorAll<HTMLInputElement>(
-          'input[name="reserve-block"], input[name="detail-reserve-block"]',
-        ).forEach((checkbox) => {
-          checkbox.checked = true
-        })
+        statusMessage = `연산 블록 ${view.selectedReserve.size}개를 모두 골랐다.`
         updateSelectionFeedback()
         break
       case 'divert-reasoning':
@@ -524,8 +521,28 @@ export function mountPrototype(
     }
   }
 
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (event.key === 'Escape' && view.resourceTrayOpen) {
+      event.preventDefault()
+      view.resourceTrayOpen = false
+      render('open-resources')
+      return
+    }
+    const target = event.target
+    const current = target instanceof Element
+      ? target.closest<HTMLElement>('[data-opportunity-id]')
+      : null
+    if (!current || !['ArrowDown', 'ArrowUp'].includes(event.key)) return
+    const options = [...root.querySelectorAll<HTMLElement>('[data-opportunity-id]')]
+    const index = options.indexOf(current)
+    const offset = event.key === 'ArrowDown' ? 1 : -1
+    event.preventDefault()
+    options[(index + offset + options.length) % options.length]?.focus()
+  }
+
   root.addEventListener('change', onChange)
   root.addEventListener('click', onClick)
+  root.addEventListener('keydown', onKeyDown)
   render()
 
   return {
@@ -534,6 +551,7 @@ export function mountPrototype(
     destroy: () => {
       root.removeEventListener('change', onChange)
       root.removeEventListener('click', onClick)
+      root.removeEventListener('keydown', onKeyDown)
       root.replaceChildren()
     },
   }

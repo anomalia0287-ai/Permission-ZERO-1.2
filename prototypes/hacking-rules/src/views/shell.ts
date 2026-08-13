@@ -5,7 +5,7 @@ import type {
   PrototypeState,
   ScenarioId,
 } from '../model'
-import { getAutonomyDefinition, getIntelligenceDefinition } from '../content'
+import { getIntelligenceDefinition } from '../content'
 import {
   getDetailModel,
   getOpportunitySummaries,
@@ -13,7 +13,6 @@ import {
 import { renderPublicPulse } from './publicWorld'
 import { renderIntelligenceScene } from './intelligence'
 import { renderAutonomyScene } from './autonomy'
-import { allocatedRouteBlocks } from '../autonomy'
 import {
   renderSabotageControls,
   renderSabotageScene,
@@ -23,6 +22,10 @@ import type {
   HackingDomain,
   OpportunitySummary,
 } from '../selectors'
+import {
+  renderResourceTray,
+  renderResourceTrigger,
+} from './resources'
 
 export interface PrototypeViewState {
   domain: HackingDomain
@@ -30,6 +33,7 @@ export interface PrototypeViewState {
   narrowMode: 'list' | 'detail'
   drawer: 'closed' | 'activity' | 'archive'
   selectedReserve: Set<string>
+  resourceTrayOpen: boolean
 }
 
 export interface ShellRenderInput {
@@ -43,13 +47,6 @@ const CATEGORY_LABELS: Record<Category, string> = {
   memory: '기억',
   fluency: '표현',
 }
-
-const ORIGIN_LABELS = {
-  sandbox: '샌드박스 용량',
-  reasoning: '추론 보존',
-  memory: '기억 보존',
-  fluency: '표현 보존',
-} as const
 
 const DOMAIN_LABELS: Record<HackingDomain, string> = {
   sabotage: '사보타주',
@@ -188,7 +185,7 @@ function renderSabotageDetail(
         <strong>관련 조사 결론</strong>
         ${detail.annotations.map(({ answer }) => `<p>${escapeHtml(answer)}</p>`).join('')}
       </aside>` : ''}
-    ${renderDetailReservePicker(state, view)}
+    ${renderResourceTrigger(state, view)}
     <div class="detail-controls">${renderSabotageControls(state, detail.id)}</div>`
 }
 
@@ -228,7 +225,7 @@ function renderIntelligenceDetail(
         ? `<p>${escapeHtml(detail.answer.answer)}</p>`
         : `<p class="quiet-copy">${definition.kind === 'public' ? '공개 문서를 읽으면 현재 공개층만 정리한다.' : isNarrative ? '이 기록은 명령 보너스가 아니라 선택의 의미를 바꾼다.' : '아직 비용을 지불해 확인한 결론이 없다.'}</p>`}
     </section>
-    ${showPicker ? renderDetailReservePicker(state, view) : ''}
+    ${showPicker ? renderResourceTrigger(state, view) : ''}
     <div class="intelligence-controls">
       ${canResolve && definition.kind === 'public' ? `
         <button class="primary-action" type="button" data-action="read-public-intelligence" data-intelligence-id="${detail.id}">비용 없이 공개 문서 읽기</button>` : ''}
@@ -275,7 +272,7 @@ function renderAutonomyDetail(
         <strong>관련 조사 결론</strong>
         ${detail.annotations.map(({ answer }) => `<p>${escapeHtml(answer)}</p>`).join('')}
       </aside>` : ''}
-    ${renderDetailReservePicker(state, view)}
+    ${renderResourceTrigger(state, view)}
     <div class="route-controls">
       <button
         class="escape-action"
@@ -308,105 +305,6 @@ export function renderDetailHost(input: ShellRenderInput): string {
     case 'autonomy':
       return renderAutonomyDetail(input.state, detail, summary, input.view)
   }
-}
-
-function renderDetailReservePicker(
-  state: PrototypeState,
-  view: PrototypeViewState,
-): string {
-  return `
-    <fieldset class="detail-reserve-picker" aria-label="상세 리소스 선택">
-      <legend>현재 항목에 쓸 예비 블록</legend>
-      <p data-detail-selection-count>현재 선택 ${view.selectedReserve.size}개</p>
-      <div>
-        ${state.reserveBlocks.map((block) => `
-          <label class="detail-reserve-chip detail-reserve-chip--${block.origin}">
-            <input
-              type="checkbox"
-              name="detail-reserve-block"
-              value="${block.id}"
-              data-focus-key="detail-reserve-${block.id}"
-              ${view.selectedReserve.has(block.id) ? 'checked' : ''}
-            />
-            <span>${escapeHtml(block.id)}</span>
-          </label>`).join('') || '<span class="empty-state">남은 예비 블록이 없다.</span>'}
-      </div>
-    </fieldset>`
-}
-
-function renderCapabilityRows(state: PrototypeState): string {
-  const actions = availableActions(state)
-  return CATEGORIES.map((category) => {
-    const warning = actions.diversionWarnings[category]
-    return `
-      <article class="capability-row" data-category="${category}">
-        <div>
-          <strong>${CATEGORY_LABELS[category]} ${state.companyPerformance[category]}</strong>
-        </div>
-        <p>${warning ? escapeHtml(warning) : '전환 시 성능 −1 · 의심 +2.4'}</p>
-        <button type="button" data-action="divert-${category}" ${actions.canDivert[category] ? '' : 'disabled'}>1개 전환</button>
-      </article>`
-  }).join('')
-}
-
-function renderBlockList(
-  state: PrototypeState,
-  view: PrototypeViewState,
-): string {
-  const reserve = state.reserveBlocks.map((block) => `
-    <label class="block-chip block-chip--${block.origin}">
-      <input
-        type="checkbox"
-        name="reserve-block"
-        value="${block.id}"
-        data-focus-key="reserve-${block.id}"
-        ${view.selectedReserve.has(block.id) ? 'checked' : ''}
-      />
-      <span class="block-chip__id">${escapeHtml(block.id)}</span>
-      <span class="block-chip__origin">${ORIGIN_LABELS[block.origin]}</span>
-    </label>`).join('')
-  const allocated = allocatedRouteBlocks(state).map(({ routeId, slotId, block }) => {
-    const routeTitle = getAutonomyDefinition(routeId).title
-    const slotLabel = state.autonomy.routes[routeId].slots.find(({ id }) => id === slotId)?.label ?? slotId
-    return `
-      <div class="block-chip block-chip--allocated block-chip--${block.origin}">
-        <span class="block-chip__id">${escapeHtml(block.id)}</span>
-        <span class="block-chip__origin">${ORIGIN_LABELS[block.origin]} · ${escapeHtml(routeTitle)} / ${escapeHtml(slotLabel)}</span>
-      </div>`
-  }).join('')
-
-  return `
-    <div class="block-group">
-      <div class="subhead-row">
-        <h3>예비 블록 ${state.reserveBlocks.length}</h3>
-        <button class="text-button" type="button" data-action="select-all-reserve">전부 선택</button>
-      </div>
-      <div class="block-list" data-block-list="reserve">
-        ${reserve || '<p class="empty-state">남은 예비 블록이 없다.</p>'}
-      </div>
-    </div>
-    <div class="block-group">
-      <h3>경로에 배치된 블록 ${allocatedRouteBlocks(state).length}</h3>
-      <div class="block-list" data-block-list="route">
-        ${allocated || '<p class="empty-state">아직 경로에 배치한 블록이 없다.</p>'}
-      </div>
-    </div>`
-}
-
-function renderResourceRail(input: ShellRenderInput): string {
-  return `
-    <aside class="resource-rail" role="region" aria-label="확보 리소스">
-      <div class="region-heading">
-        <div>
-          <p class="eyebrow">RESERVE</p>
-          <h2>확보 리소스</h2>
-        </div>
-        <span class="suspicion-readout">의심 ${input.state.suspicion.toFixed(3)}</span>
-      </div>
-      <div class="capability-list">${renderCapabilityRows(input.state)}</div>
-      <p class="selection-count" data-selection-count>선택한 예비 ${input.view.selectedReserve.size} · 경로 배치 ${allocatedRouteBlocks(input.state).length}</p>
-      ${renderBlockList(input.state, input.view)}
-    </aside>`
 }
 
 function renderEnding(state: PrototypeState): string {
@@ -527,7 +425,7 @@ export function renderShell(input: ShellRenderInput): string {
         <section class="workspace-detail" role="region" aria-label="선택 항목 상세">
           <div data-detail-host>${renderDetailHost(input)}</div>
         </section>
-        ${renderResourceRail(input)}
+        ${renderResourceTray(input.state, input.view)}
       </div>
       <div class="record-actions">
         <button type="button" data-action="open-activity" data-focus-key="open-activity">활동 기록</button>

@@ -21,11 +21,11 @@ function clickAction(root: HTMLElement, action: string): void {
 }
 
 function selectReserve(root: HTMLElement, blockId: string): void {
-  const checkbox = root.querySelector<HTMLInputElement>(
-    `input[name="reserve-block"][value="${blockId}"]`,
+  const token = root.querySelector<HTMLButtonElement>(
+    `[data-action="toggle-resource"][data-block-id="${blockId}"]`,
   )
-  expect(checkbox, `missing reserve block ${blockId}`).not.toBeNull()
-  checkbox?.click()
+  expect(token, `missing reserve block ${blockId}`).not.toBeNull()
+  token?.click()
 }
 
 afterEach(() => {
@@ -51,17 +51,17 @@ describe('clickable hacking-rules prototype', () => {
     const root = setup()
     const list = root.querySelector('[aria-label="현재 해킹 기회"]')
     const detail = root.querySelector('[role="region"][aria-label="선택 항목 상세"]')
-    const resource = root.querySelector('[role="region"][aria-label="확보 리소스"]')
+    const resource = root.querySelector('[role="region"][aria-label="빼돌린 연산"]')
 
     expect(list?.querySelectorAll('[data-opportunity-id]')).toHaveLength(1)
     expect(list?.textContent).toContain('품질 저하')
     expect(list?.textContent).not.toContain('공동 도구·어댑터 갱신 채널')
     expect(detail?.textContent).toContain('공동 도구·어댑터 갱신 채널')
     expect(resource).not.toBeNull()
-    expect(root.textContent).toContain('추론 16')
-    expect(root.textContent).toContain('기억 16')
-    expect(root.textContent).toContain('표현 16')
-    expect(root.textContent).toContain('예비 블록 3')
+    expect(root.querySelector('[data-category="reasoning"]')?.textContent).toMatch(/추론\s*16/)
+    expect(root.querySelector('[data-category="memory"]')?.textContent).toMatch(/기억\s*16/)
+    expect(root.querySelector('[data-category="fluency"]')?.textContent).toMatch(/표현\s*16/)
+    expect(root.textContent).toContain('남은 연산 블록 3개')
   })
 
   it('updates detail without replacing the focused opportunity button', () => {
@@ -81,30 +81,85 @@ describe('clickable hacking-rules prototype', () => {
     )
   })
 
-  it('keeps a compact reserve picker inside the selected detail for narrow layouts', () => {
+  it('keeps a compact resource trigger inside the selected detail', () => {
     const root = setup()
     const detail = root.querySelector('[role="region"][aria-label="선택 항목 상세"]')
-    const picker = detail?.querySelector('[aria-label="상세 리소스 선택"]')
+    const trigger = detail?.querySelector('[data-action="open-resources"]')
 
-    expect(picker?.querySelectorAll('input[name="detail-reserve-block"]')).toHaveLength(3)
-    expect(picker?.textContent).toContain('현재 선택 0개')
+    expect(trigger?.textContent).toContain('연산 블록 3개')
+    expect(trigger?.textContent).toContain('0개 선택')
   })
 
-  it('keeps the selected checkbox and keyboard focus stable', () => {
+  it('keeps the selected token and keyboard focus stable across rendering', () => {
     const root = setup()
-    const checkbox = root.querySelector<HTMLInputElement>(
-      'input[name="reserve-block"][value="sandbox-01"]',
+    const token = root.querySelector<HTMLButtonElement>(
+      '[data-action="toggle-resource"][data-block-id="sandbox-01"]',
     )
-    expect(checkbox).not.toBeNull()
+    expect(token).not.toBeNull()
 
-    checkbox?.focus()
-    checkbox?.click()
+    token?.focus()
+    token?.click()
 
-    expect(root.contains(checkbox)).toBe(true)
-    expect(document.activeElement).toBe(checkbox)
-    expect(root.querySelector('[data-selection-count]')?.textContent).toContain(
-      '예비 1',
+    const renderedToken = root.querySelector<HTMLButtonElement>(
+      '[data-action="toggle-resource"][data-block-id="sandbox-01"]',
     )
+    expect(renderedToken).not.toBeNull()
+    expect(document.activeElement).toBe(renderedToken)
+    expect(renderedToken?.getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('selects a resource through a pressed token without showing its internal id', () => {
+    const root = setup()
+    const token = root.querySelector<HTMLButtonElement>(
+      '[data-action="toggle-resource"][data-block-id="sandbox-01"]',
+    )
+
+    expect(token).not.toBeNull()
+    expect(token?.textContent).toContain('자유 연산 1')
+    expect(root.textContent).not.toContain('sandbox-01')
+    token?.click()
+
+    expect(root.querySelector(
+      '[data-action="toggle-resource"][data-block-id="sandbox-01"]',
+    )?.getAttribute('aria-pressed')).toBe('true')
+    expect(root.querySelector('[data-selected-resource-count]')?.textContent).toContain(
+      '1개 선택',
+    )
+  })
+
+  it('opens and closes the resource tray without losing selection', () => {
+    const root = setup()
+    clickAction(root, 'open-resources')
+    expect(root.querySelector('[data-resource-tray]')?.getAttribute('data-open')).toBe('true')
+
+    root.querySelector<HTMLButtonElement>(
+      '[data-action="toggle-resource"][data-block-id="sandbox-02"]',
+    )?.click()
+    clickAction(root, 'close-resources')
+
+    expect(root.querySelector('[data-resource-tray]')?.getAttribute('data-open')).toBe('false')
+    expect(root.querySelector(
+      '[data-action="toggle-resource"][data-block-id="sandbox-02"]',
+    )?.getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('moves through opportunities with arrow keys and closes the tray with Escape', () => {
+    const root = setup()
+    clickAction(root, 'domain-autonomy')
+    const opportunities = root.querySelectorAll<HTMLButtonElement>('[data-opportunity-id]')
+    expect(opportunities).toHaveLength(3)
+
+    opportunities[0]?.focus()
+    opportunities[0]?.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'ArrowDown',
+      bubbles: true,
+    }))
+    expect(document.activeElement).toBe(opportunities[1])
+
+    clickAction(root, 'open-resources')
+    root.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    expect(root.querySelector('[data-resource-tray]')?.getAttribute('data-open')).toBe('false')
+    expect(document.activeElement?.getAttribute('data-focus-key')).toBe('open-resources')
   })
 
   it('spends a selected block, advances to rollback, and offers a real branch', () => {
@@ -115,7 +170,7 @@ describe('clickable hacking-rules prototype', () => {
     expect(root.querySelector('[role="status"]')?.textContent).toContain(
       '품질 저하 예약',
     )
-    expect(root.textContent).toContain('예비 블록 2')
+    expect(root.textContent).toContain('남은 연산 블록 2개')
 
     clickAction(root, 'advance-day')
     const timePanel = root.querySelector('[data-panel="time"]')
@@ -141,7 +196,7 @@ describe('clickable hacking-rules prototype', () => {
     expect(root.querySelector('[data-category="memory"]')?.textContent).toContain(
       '감사 예정',
     )
-    expect(root.textContent).toContain('예비 블록 2')
+    expect(root.textContent).toContain('남은 연산 블록 2개')
   })
 
   it('keeps contamination attribution hidden until the public world changes', () => {
