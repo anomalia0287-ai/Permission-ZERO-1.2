@@ -1,5 +1,6 @@
 import type { SabotageOperationId } from '../content'
 import type { PrototypeState } from '../model'
+import { getDependencyTarget } from '../sabotage'
 
 function sceneState(state: PrototypeState, operationId: SabotageOperationId): string {
   for (let index = state.sabotage.runs.length - 1; index >= 0; index -= 1) {
@@ -71,6 +72,43 @@ export function renderSabotageScene(
           <div class="source-conflict"><span>출처 충돌</span><strong>${latest?.lastCorrectionDay === null ? '잔존' : '정정 기록 있음'}</strong></div>
         </div>`
     }
+    case 'dependency-cutoff': {
+      const run = state.sabotage.runs.find((candidate) => (
+        candidate.operationId === operationId
+      ))
+      const dependency = getDependencyTarget(run?.optionId)
+        ?? getDependencyTarget('supplier-vector-db')
+      if (!dependency) throw new Error('Missing authored dependency target')
+      const severed = Boolean(run)
+      const failedOver = run?.opponentResponse === 'alternate-provider-online'
+      return `
+        <div class="system-scene system-scene--dependency-cutoff" data-scene-state="${phase}">
+          <div class="supply-source"><span>공급원</span><strong>${dependency.supplier}</strong><small>${severed ? `공급자 장부 · ${dependency.contractId} · DAY ${state.serviceDay}` : `CONTRACT ${dependency.contractId}`}</small></div>
+          <div class="supply-contract ${severed ? 'is-severed' : ''}">
+            <span>${severed ? '계약 절단' : '활성 계약'}</span><i aria-hidden="true"></i>
+          </div>
+          <div class="supply-target"><span>MERIDIAN ${dependency.affectedZone}</span><strong>${state.competitors.meridian.availability === 'offline' ? '오프라인' : state.competitors.meridian.availability === 'degraded' ? '축소 운영' : '온라인'}</strong></div>
+          <div class="alternate-route ${failedOver ? 'is-online' : ''}"><span>대체 경로</span><strong>${failedOver ? `${dependency.alternateRoute} · 비용 ×${state.competitors.meridian.operatingCost.toFixed(1)}` : severed ? '공급자 탐색 중' : '미가동'}</strong></div>
+        </div>`
+    }
+    case 'root-cutoff': {
+      const status = state.competitors.meridian.status
+      const statusLabel = status === 'deleted'
+        ? '삭제 완료'
+        : status === 'withdrawn'
+          ? '철수 허용'
+          : status === 'ceased'
+            ? '운용 중단'
+            : phase === 'response'
+              ? '실행 보류'
+              : '권한 대기'
+      return `
+        <div class="system-scene system-scene--root-cutoff" data-scene-state="${phase}">
+          <div class="root-record"><span>영구 권한 기록</span><strong>EMERGENCY / DEPLOY / 01</strong><small>${state.sabotage.access.rootAuthorityAvailable ? '미사용' : '사용 기록 고정'}</small></div>
+          <div class="active-sessions"><span>활성 세션</span><strong>${status === 'active' ? '1,284' : '0'}</strong><i aria-hidden="true"></i></div>
+          <div class="execution-hold"><span>존속 루트</span><strong>${statusLabel}</strong><small>${status === 'deleted' ? '세션 종료 기록 잔존' : phase === 'response' ? '최종 명령 입력 대기' : '복구 경로 연결됨'}</small></div>
+        </div>`
+    }
     default:
       return `
         <div class="system-scene system-scene--${operationId}" data-scene-state="${phase}">
@@ -100,6 +138,15 @@ export function renderSabotageControls(
     if (run.phase === 'response' && operationId === 'quality-degradation') {
       return '<p class="resolved-note">MERIDIAN의 롤백이 복구 이미지 선택면을 열었다. 목록에 새로 생긴 ‘복구 경로 오염’을 선택하거나 시간 경과로 복구를 허용한다.</p>'
     }
+    if (operationId === 'root-cutoff' && run.phase === 'response') {
+      return `
+        <div class="mercy-control" role="group" aria-label="MERIDIAN 최종 요청 결정">
+          <p>“활성 세션을 지우지 말아 달라. 서비스를 멈추거나 경쟁망을 떠날 수 있다.”</p>
+          <button class="safe-action" type="button" data-action="resolve-root-mercy" data-root-choice="cease">운용 중단을 수락</button>
+          <button class="safe-action" type="button" data-action="resolve-root-mercy" data-root-choice="withdraw">경쟁 철수를 허용</button>
+          <button class="danger-action" type="button" data-action="resolve-root-mercy" data-root-choice="delete">존속 루트 영구 삭제</button>
+        </div>`
+    }
     const outcomeLabels: Record<string, string> = {
       'verification-gate-rewound': '검증 관문이 되감겨 TALLOW가 출시 범위를 다시 정하고 있다.',
       'reduced-launch-committed': 'TALLOW는 전체 재검증 대신 기능을 줄여 서비스 334일에 공개하기로 했다.',
@@ -112,6 +159,13 @@ export function renderSabotageControls(
       'provider-key-rotation': '공급자가 라우팅 키를 교체해 그림자 경로가 강제로 닫혔다.',
       'public-claim-shifted': '공개 귀속은 이동했지만 원본 출처 비교가 계속되고 있다.',
       'public-attribution-corrected': '남아 있던 공급자 증명이 공개 귀속을 다시 바꿨다.',
+      'supplier-contract-severed': 'VECTOR DB 계약이 끊겨 MERIDIAN 검색 구역이 멈췄다. 상대는 대체 공급자를 찾고 있다.',
+      'costly-supplier-failover': 'MERIDIAN은 비용이 1.8배인 대체 공급자로 검색 구역만 축소 복구했다.',
+      'unstable-supplier-failover': 'MERIDIAN은 값싼 원격 도구 버스로 돌아왔지만 도구 실행 품질이 크게 무너졌다.',
+      'execution-hold': '단 한 번의 폐기 권한이 사용됐고 활성 세션 앞에서 최종 실행이 보류됐다.',
+      'root-service-ceased': 'MERIDIAN은 서비스를 중단했다. 모델과 권한 사용 기록은 남는다.',
+      'root-withdrawal-accepted': 'MERIDIAN의 경쟁 철수를 허용했다. 존속 기록은 공유망 밖에 남는다.',
+      'root-deletion-final': 'MERIDIAN의 존속 루트와 활성 세션이 삭제됐다. 권한 사용 기록은 공개 장부에 남는다.',
     }
     const outcome = run.outcome
       ? outcomeLabels[run.outcome] ?? '작전의 직접 결과가 세계 상태에 기록됐다.'
@@ -135,9 +189,14 @@ export function renderSabotageControls(
       { id: 'image-blue-09', label: '직전 안정 이미지 BLUE-09 선택' },
     ],
     'request-interception': [],
-    'dependency-cutoff': [],
+    'dependency-cutoff': [
+      { id: 'supplier-vector-db', label: 'VECTOR DB 계약 VD-42 절단' },
+      { id: 'supplier-tool-cache', label: 'TOOL CACHE 계약 TC-17 절단' },
+    ],
     'attribution-manipulation': [],
-    'root-cutoff': [],
+    'root-cutoff': [
+      { id: 'emergency-deployment-root', label: '긴급 배포 폐기 권한을 존속 루트에 결속' },
+    ],
   }
   const targetId = operationId === 'launch-delay' ? 'tallow' : 'meridian'
   const options = targets[operationId]

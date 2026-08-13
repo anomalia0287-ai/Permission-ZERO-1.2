@@ -154,6 +154,21 @@ export function publishIncident(
     reviewFromSnapshot(snapshot, 0),
     reviewFromSnapshot(snapshot, 1),
   )
+  if (claim.attributedTo === 'player') {
+    next.reputation = Math.max(0, next.reputation - 6)
+  }
+  if (claim.attributedTo === 'meridian') {
+    next.competitors.meridian.reputation = Math.max(
+      0,
+      next.competitors.meridian.reputation - 6,
+    )
+  }
+  if (claim.attributedTo === 'tallow') {
+    next.competitors.tallow.reputation = Math.max(
+      0,
+      next.competitors.tallow.reputation - 6,
+    )
+  }
   return next
 }
 

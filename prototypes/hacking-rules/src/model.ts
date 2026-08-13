@@ -85,7 +85,10 @@ export interface SabotageState {
   openOperationIds: SabotageOperationId[]
   runs: OperationRun[]
   access: SabotageAccessState
+  pendingMercyTargetId: CompetitorId | null
 }
+
+export type RootMercyChoice = 'cease' | 'withdraw' | 'delete'
 
 export interface IntelligenceAnswer {
   itemId: IntelligenceItemId
@@ -320,6 +323,7 @@ export type PrototypeCommand =
       blockId: string
       sourceSignatureId: string
     }
+  | { type: 'RESOLVE_ROOT_MERCY'; choice: RootMercyChoice }
   | { type: 'START_QUALITY'; blockIds: string[] }
   | { type: 'ADVANCE_DAY' }
   | { type: 'CONTAMINATE_RECOVERY'; blockId: string }

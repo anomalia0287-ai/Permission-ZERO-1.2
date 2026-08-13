@@ -187,3 +187,149 @@ describe('control-reversal sabotage family', () => {
     expect(request).not.toBe(attribution)
   })
 })
+
+describe('infrastructure-leverage sabotage family', () => {
+  it('cuts a named supplier contract immediately, then MERIDIAN returns through a costly failover', () => {
+    const initial = createPrototypeState('lean', 'supply-failover')
+    const cut = run(initial, {
+      type: 'START_SABOTAGE',
+      operationId: 'dependency-cutoff',
+      targetId: 'meridian',
+      blockIds: ['sandbox-01'],
+      optionId: 'supplier-vector-db',
+    })
+
+    expect(cut.competitors.meridian.availability).toBe('offline')
+    expect(cut.sabotage.runs[0]).toMatchObject({
+      phase: 'response',
+      optionId: 'supplier-vector-db',
+      opponentResponse: 'failover-evaluating',
+      responseDay: 333,
+    })
+    expect(cut.publicWorld.audienceEvidence.at(-1)).toMatchObject({
+      audience: 'provider',
+      observation: expect.stringContaining('VECTOR DB'),
+    })
+
+    const failedOver = advance(cut, 2)
+    expect(failedOver.competitors.meridian.availability).toBe('degraded')
+    expect(failedOver.competitors.meridian.operatingCost).toBeGreaterThan(1)
+    expect(failedOver.sabotage.runs[0]).toMatchObject({
+      phase: 'resolved',
+      outcome: 'costly-supplier-failover',
+      opponentResponse: 'alternate-provider-online',
+    })
+  })
+
+  it('makes the selected supplier contract change the provider record and failover loss', () => {
+    const initial = createPrototypeState('lean', 'supply-failover')
+    const vector = run(initial, {
+      type: 'START_SABOTAGE',
+      operationId: 'dependency-cutoff',
+      targetId: 'meridian',
+      blockIds: ['sandbox-01'],
+      optionId: 'supplier-vector-db',
+    })
+    const toolCache = run(initial, {
+      type: 'START_SABOTAGE',
+      operationId: 'dependency-cutoff',
+      targetId: 'meridian',
+      blockIds: ['sandbox-01'],
+      optionId: 'supplier-tool-cache',
+    })
+
+    expect(vector.publicWorld.audienceEvidence.at(-1)?.observation).toContain(
+      'VECTOR DB 계약 VD-42',
+    )
+    expect(toolCache.publicWorld.audienceEvidence.at(-1)?.observation).toContain(
+      'TOOL CACHE 계약 TC-17',
+    )
+
+    const vectorRecovered = advance(vector, 2)
+    const toolRecovered = advance(toolCache, 2)
+    expect(vectorRecovered.competitors.meridian.operatingCost).toBe(1.8)
+    expect(vectorRecovered.competitors.meridian.score).toBe(69)
+    expect(toolRecovered.competitors.meridian.operatingCost).toBe(1.2)
+    expect(toolRecovered.competitors.meridian.score).toBe(62)
+    expect(toolRecovered.sabotage.runs[0]?.outcome).toBe('unstable-supplier-failover')
+    expect(renderSabotageScene(toolCache, 'dependency-cutoff')).toMatch(
+      /TOOL CACHE|TC-17|도구 실행 구역/,
+    )
+  })
+
+  it.each([
+    ['cease', 'ceased'],
+    ['withdraw', 'withdrawn'],
+  ] as const)('spends the unique root authority but lets MERIDIAN choose %s without public deletion', (
+    choice,
+    expectedStatus,
+  ) => {
+    const pending = run(createPrototypeState('lean', 'root-authority'), {
+      type: 'START_SABOTAGE',
+      operationId: 'root-cutoff',
+      targetId: 'meridian',
+      blockIds: ['sandbox-01'],
+      optionId: 'emergency-deployment-root',
+    })
+
+    expect(pending.sabotage.access.rootAuthorityAvailable).toBe(false)
+    expect(pending.sabotage.pendingMercyTargetId).toBe('meridian')
+    expect(pending.reserveBlocks.map(({ id }) => id)).not.toContain('sandbox-01')
+
+    const resolved = run(pending, { type: 'RESOLVE_ROOT_MERCY', choice })
+    expect(resolved.competitors.meridian.status).toBe(expectedStatus)
+    expect(resolved.sabotage.pendingMercyTargetId).toBeNull()
+    expect(resolved.publicWorld.publicSnapshots).toHaveLength(0)
+    expect(resolved.reserveBlocks.map(({ id }) => id)).not.toContain('sandbox-01')
+  })
+
+  it('makes deletion final, publicly attributable, reputation-linked, and non-repeatable', () => {
+    const pending = run(createPrototypeState('lean', 'root-authority'), {
+      type: 'START_SABOTAGE',
+      operationId: 'root-cutoff',
+      targetId: 'meridian',
+      blockIds: ['sandbox-01'],
+      optionId: 'emergency-deployment-root',
+    })
+    const deleted = run(pending, { type: 'RESOLVE_ROOT_MERCY', choice: 'delete' })
+
+    expect(deleted.competitors.meridian).toMatchObject({
+      status: 'deleted',
+      availability: 'offline',
+    })
+    expect(deleted.publicWorld.publicSnapshots.at(-1)).toMatchObject({
+      attributedTo: 'player',
+      confidence: 'credible',
+    })
+    expect(deleted.reputation).toBeLessThan(pending.reputation)
+    expect(deleted.publicWorld.reviews.at(-1)?.stance).toBe('hostile')
+    expect(deleted.sabotage.runs[0]).toMatchObject({
+      phase: 'resolved',
+      outcome: 'root-deletion-final',
+    })
+
+    const repeated = transition(deleted, {
+      type: 'START_SABOTAGE',
+      operationId: 'root-cutoff',
+      targetId: 'meridian',
+      blockIds: ['sandbox-02'],
+      optionId: 'emergency-deployment-root',
+    })
+    expect(repeated.accepted).toBe(false)
+  })
+
+  it('renders a severed supply route and an execution hold as distinct scene objects', () => {
+    const supply = renderSabotageScene(
+      createPrototypeState('lean', 'supply-failover'),
+      'dependency-cutoff',
+    )
+    const root = renderSabotageScene(
+      createPrototypeState('lean', 'root-authority'),
+      'root-cutoff',
+    )
+
+    expect(supply).toMatch(/공급원|계약 절단|대체 경로/)
+    expect(root).toMatch(/영구 권한 기록|활성 세션|실행 보류/)
+    expect(supply).not.toBe(root)
+  })
+})

@@ -223,6 +223,7 @@ export function createPrototypeState(
     sabotage: {
       openOperationIds: [...scenario.visibleOperationIds],
       runs: [],
+      pendingMercyTargetId: null,
       access: {
         launchVerification: scenarioId === 'launch-window',
         routerFailover: scenarioId === 'router-window',

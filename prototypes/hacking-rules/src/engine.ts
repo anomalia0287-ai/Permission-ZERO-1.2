@@ -21,6 +21,7 @@ import {
 import {
   advanceSabotageDay,
   manipulateAttribution,
+  resolveRootMercy,
   startSabotage,
   stopInterception,
 } from './sabotage'
@@ -765,6 +766,8 @@ export function transition(
       return stopInterception(state, command.runId)
     case 'MANIPULATE_ATTRIBUTION':
       return manipulateAttribution(state, command)
+    case 'RESOLVE_ROOT_MERCY':
+      return resolveRootMercy(state, command.choice)
     case 'START_QUALITY':
       return startQuality(state, command.blockIds)
     case 'ADVANCE_DAY':

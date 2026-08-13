@@ -113,6 +113,50 @@ test('control reversal attribution moves a claim, then surviving proof exposes t
   await expect(publicRegion(page)).toContainText(/책임|개입/)
 })
 
+test('infrastructure leverage cuts one supplier before a costly failover appears', async ({
+  page,
+}) => {
+  await page.locator('.verification-state > summary').click()
+  await page.locator('[data-control="scenario"]').selectOption('supply-failover')
+  await openOpportunity(page, 'dependency-cutoff')
+  await chooseReserve(page, 'sandbox-01')
+  await page.locator('[data-action="start-sabotage"][data-operation-id="dependency-cutoff"]').first().click()
+
+  await expect(detailRegion(page)).toContainText('VECTOR DB')
+  await expect(detailRegion(page)).toContainText('공급자 장부 · VD-42 · DAY 331')
+  await expect(detailRegion(page)).toContainText('계약 절단')
+  await expect(detailRegion(page)).toContainText('오프라인')
+  await expect(detailRegion(page)).toContainText('대체 공급자를 찾고 있다')
+  await page.locator('[data-action="advance-day"]').click()
+  await page.locator('[data-action="advance-day"]').click()
+  await expect(detailRegion(page)).toContainText('축소 운영')
+  await expect(detailRegion(page)).toContainText('ALT-SHARD · 비용 ×1.8')
+  await expect(detailRegion(page)).toContainText('비용이 1.8배인 대체 공급자')
+})
+
+test('infrastructure leverage holds root execution for mercy, then deletion reaches reputation and reviews', async ({
+  page,
+}) => {
+  await page.locator('.verification-state > summary').click()
+  await page.locator('[data-control="scenario"]').selectOption('root-authority')
+  await openOpportunity(page, 'root-cutoff')
+  await chooseReserve(page, 'sandbox-01')
+  await page.locator('[data-action="start-sabotage"][data-operation-id="root-cutoff"]').click()
+
+  await expect(detailRegion(page)).toContainText('영구 권한 기록')
+  await expect(detailRegion(page)).toContainText('활성 세션1,284')
+  await expect(detailRegion(page)).toContainText('실행 보류')
+  await expect(detailRegion(page).getByRole('group', { name: 'MERIDIAN 최종 요청 결정' })).toBeVisible()
+  await page.locator('[data-action="resolve-root-mercy"][data-root-choice="delete"]').click()
+  await expect(detailRegion(page)).toContainText('삭제 완료')
+  await expect(detailRegion(page)).toContainText('세션 종료 기록 잔존')
+  await expect(detailRegion(page)).toContainText('권한 사용 기록은 공개 장부에 남는다')
+  await returnToListIfNarrow(page)
+  await expect(publicRegion(page)).toContainText('평판 54')
+  await expect(publicRegion(page)).toContainText('MERIDIAN 서비스·복구 루트 영구 삭제')
+  await expect(publicRegion(page)).toContainText(/책임|개입/)
+})
+
 test('master-detail shell separates compact summaries from causal detail', async ({
   page,
 }) => {

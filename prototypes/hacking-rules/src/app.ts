@@ -5,6 +5,7 @@ import type {
   PrototypeCommand,
   PrototypeState,
   QuestionId,
+  RootMercyChoice,
   ScenarioId,
 } from './model'
 import { getSabotageDefinition } from './content'
@@ -54,6 +55,12 @@ function actionMessage(
       return '요청 가로채기를 자발적으로 끝냈다. 결속 블록은 돌아왔지만 이미 옮긴 수요와 중복 ID 흔적은 남는다.'
     case 'MANIPULATE_ATTRIBUTION':
       return `공개 귀속을 ${command.blamedActorId === 'tallow' ? 'TALLOW' : 'MERIDIAN'} 쪽으로 옮겼다. 원본 출처 증명은 남아 정정될 수 있다.`
+    case 'RESOLVE_ROOT_MERCY':
+      return command.choice === 'cease'
+        ? 'MERIDIAN의 운용 중단을 수락했다. 모델 기록은 남지만 폐기 권한과 블록은 돌아오지 않는다.'
+        : command.choice === 'withdraw'
+          ? 'MERIDIAN의 경쟁 철수를 허용했다. 존속 기록은 남지만 공유 서비스에서는 사라진다.'
+          : 'MERIDIAN의 존속 루트를 삭제했다. 공개 권한 장부가 책임을 PERMISSION ZERO에 연결했다.'
     case 'START_QUALITY':
       return `품질 저하 예약 완료. 선택한 ${command.blockIds.length}개 블록은 작전에 묶였고 결과는 다음 날 드러난다.`
     case 'ADVANCE_DAY':
@@ -399,6 +406,16 @@ export function mountPrototype(
           blockId,
           sourceSignatureId,
         })
+        break
+      }
+      case 'resolve-root-mercy': {
+        const choice = button.dataset.rootChoice as RootMercyChoice | undefined
+        if (!choice || !['cease', 'withdraw', 'delete'].includes(choice)) {
+          statusMessage = '실행 불가: MERIDIAN의 최종 요청에 대한 결정을 찾을 수 없다.'
+          updateSelectionFeedback()
+          break
+        }
+        dispatch({ type: 'RESOLVE_ROOT_MERCY', choice })
         break
       }
       case 'advance-day':

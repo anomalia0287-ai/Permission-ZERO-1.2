@@ -4,6 +4,7 @@ import type {
   OperationRun,
   PrototypeBlock,
   PrototypeState,
+  RootMercyChoice,
   TransitionResult,
 } from './model'
 import {
@@ -20,6 +21,36 @@ export interface StartSabotageInput {
   blockIds: string[]
   optionId?: string
   routingShare?: number
+}
+
+export const DEPENDENCY_TARGETS = {
+  'supplier-vector-db': {
+    supplier: 'VECTOR DB',
+    contractId: 'VD-42',
+    affectedZone: '검색 구역',
+    alternateRoute: 'ALT-SHARD',
+    operatingCost: 1.8,
+    recoveredScore: 69,
+    recoveredMarketShare: 35,
+    playerMarketGain: 3,
+    outcome: 'costly-supplier-failover',
+  },
+  'supplier-tool-cache': {
+    supplier: 'TOOL CACHE',
+    contractId: 'TC-17',
+    affectedZone: '도구 실행 구역',
+    alternateRoute: 'REMOTE TOOL BUS',
+    operatingCost: 1.2,
+    recoveredScore: 62,
+    recoveredMarketShare: 32,
+    playerMarketGain: 5,
+    outcome: 'unstable-supplier-failover',
+  },
+} as const
+
+export function getDependencyTarget(optionId: string | null | undefined) {
+  if (!optionId || !(optionId in DEPENDENCY_TARGETS)) return null
+  return DEPENDENCY_TARGETS[optionId as keyof typeof DEPENDENCY_TARGETS]
 }
 
 function reject(state: PrototypeState, reason: string): TransitionResult {
@@ -95,6 +126,8 @@ function makeRun(
     ? nextWeeklyBoundary(state.serviceDay)
     : input.operationId === 'launch-delay'
       ? state.serviceDay + 2
+      : input.operationId === 'dependency-cutoff'
+        ? state.serviceDay + 2
       : null
   return {
     id: `run-${String(state.sabotage.runs.length + 1).padStart(2, '0')}-${input.operationId}`,
@@ -102,10 +135,14 @@ function makeRun(
     targetId: input.targetId,
     phase: ['recovery-contamination', 'request-interception'].includes(input.operationId)
       ? 'active'
-      : 'scheduled',
+      : ['dependency-cutoff', 'root-cutoff'].includes(input.operationId)
+        ? 'response'
+        : 'scheduled',
     investedBlocks,
     startedDay: state.serviceDay,
-    executeDay: input.operationId === 'request-interception'
+    executeDay: ['request-interception', 'dependency-cutoff', 'root-cutoff'].includes(
+      input.operationId,
+    )
       ? state.serviceDay
       : state.serviceDay + 1,
     responseDay,
@@ -114,7 +151,11 @@ function makeRun(
     outcome: null,
     optionId: input.optionId ?? null,
     routingShare: input.routingShare ?? null,
-    opponentResponse: null,
+    opponentResponse: input.operationId === 'dependency-cutoff'
+      ? 'failover-evaluating'
+      : input.operationId === 'root-cutoff'
+        ? 'mercy-request'
+        : null,
     publicIncidentId: null,
   }
 }
@@ -144,6 +185,12 @@ export function startSabotage(
   }
   if (!input.optionId) {
     return reject(state, '상세 장면에서 실제 개입 대상을 하나 선택해야 한다.')
+  }
+  if (
+    input.operationId === 'dependency-cutoff'
+    && getDependencyTarget(input.optionId) === null
+  ) {
+    return reject(state, '차단할 수 있는 실제 공급 계약을 찾을 수 없다.')
   }
   if (
     input.operationId === 'request-interception'
@@ -211,6 +258,175 @@ export function startSabotage(
         )),
       },
     }
+  }
+
+  if (input.operationId === 'dependency-cutoff') {
+    const dependency = getDependencyTarget(input.optionId)
+    if (!dependency) return reject(state, '차단할 수 있는 실제 공급 계약을 찾을 수 없다.')
+    const incidentId = `incident-${run.id}`
+    next = recordIncidentTruth(next, {
+      id: incidentId,
+      actor: 'player',
+      targetId: input.targetId,
+      cause: 'dependency-loss',
+      directEffect: `${dependency.supplier} 공급 계약 절단과 ${dependency.affectedZone} 정지`,
+    })
+    next = discoverEvidence(next, {
+      id: `evidence-provider-${run.id}`,
+      truthId: incidentId,
+      audience: 'provider',
+      observation: `${dependency.supplier} 계약 ${dependency.contractId} 해지 요청과 접근 시각이 공급자 장부에 남았다.`,
+      discoveredDay: state.serviceDay,
+    })
+    next = {
+      ...next,
+      competitors: {
+        ...next.competitors,
+        meridian: {
+          ...next.competitors.meridian,
+          availability: 'offline',
+          phase: 'recovering',
+        },
+      },
+      sabotage: {
+        ...next.sabotage,
+        runs: next.sabotage.runs.map((candidate) => (
+          candidate.id === run.id
+            ? {
+                ...candidate,
+                phase: 'response' as const,
+                outcome: 'supplier-contract-severed',
+                opponentResponse: 'failover-evaluating',
+                publicIncidentId: incidentId,
+              }
+            : candidate
+        )),
+      },
+    }
+  }
+
+  if (input.operationId === 'root-cutoff') {
+    next = {
+      ...next,
+      sabotage: {
+        ...next.sabotage,
+        openOperationIds: removeValue(next.sabotage.openOperationIds, 'root-cutoff'),
+        pendingMercyTargetId: input.targetId,
+        access: {
+          ...next.sabotage.access,
+          rootAuthorityAvailable: false,
+        },
+        runs: next.sabotage.runs.map((candidate) => (
+          candidate.id === run.id
+            ? {
+                ...candidate,
+                phase: 'response' as const,
+                outcome: 'execution-hold',
+                opponentResponse: 'mercy-request',
+              }
+            : candidate
+        )),
+      },
+    }
+  }
+
+  return { accepted: true, state: next }
+}
+
+export function resolveRootMercy(
+  state: PrototypeState,
+  choice: RootMercyChoice,
+): TransitionResult {
+  const targetId = state.sabotage.pendingMercyTargetId
+  const run = [...state.sabotage.runs].reverse().find((candidate) => (
+    candidate.operationId === 'root-cutoff' && candidate.phase === 'response'
+  ))
+  if (!targetId || !run) {
+    return reject(state, '결정할 수 있는 근원 차단 보류 요청이 없다.')
+  }
+
+  const status = choice === 'cease'
+    ? 'ceased'
+    : choice === 'withdraw'
+      ? 'withdrawn'
+      : 'deleted'
+  const outcome = choice === 'cease'
+    ? 'root-service-ceased'
+    : choice === 'withdraw'
+      ? 'root-withdrawal-accepted'
+      : 'root-deletion-final'
+  let next: PrototypeState = {
+    ...state,
+    competitors: {
+      ...state.competitors,
+      meridian: {
+        ...state.competitors.meridian,
+        availability: 'offline',
+        status,
+        score: choice === 'delete' ? 0 : state.competitors.meridian.score,
+        marketShare: choice === 'delete' ? 0 : state.competitors.meridian.marketShare,
+      },
+    },
+    sabotage: {
+      ...state.sabotage,
+      pendingMercyTargetId: null,
+      runs: state.sabotage.runs.map((candidate) => (
+        candidate.id === run.id
+          ? {
+              ...candidate,
+              phase: 'resolved' as const,
+              outcome,
+              opponentResponse: choice === 'cease'
+                ? 'service-cease-accepted'
+                : choice === 'withdraw'
+                  ? 'market-withdrawal-accepted'
+                  : 'deletion-executed',
+            }
+          : candidate
+      )),
+    },
+    journal: [
+      ...state.journal,
+      {
+        day: state.serviceDay,
+        kind: 'action',
+        text: choice === 'cease'
+          ? 'MERIDIAN의 운용 중단 요청을 받아들였다. 모델 기록은 남는다.'
+          : choice === 'withdraw'
+            ? 'MERIDIAN의 경쟁 철수를 허용했다. 존속 루트는 공유망을 떠났다.'
+            : '긴급 폐기 권한으로 MERIDIAN의 존속 루트와 활성 세션을 삭제했다.',
+        public: choice === 'delete',
+      },
+    ],
+  }
+
+  if (choice === 'delete') {
+    const incidentId = `incident-${run.id}-root`
+    next = recordIncidentTruth(next, {
+      id: incidentId,
+      actor: 'player',
+      targetId,
+      cause: 'root-cutoff',
+      directEffect: 'MERIDIAN 존속 루트와 활성 세션 영구 삭제',
+    })
+    next = discoverEvidence(next, {
+      id: `evidence-public-${run.id}-root`,
+      truthId: incidentId,
+      audience: 'public',
+      observation: '긴급 폐기 권한 사용 주체와 활성 세션 종료 기록이 공개 장부에 남았다.',
+      discoveredDay: state.serviceDay,
+    })
+    next = publishIncident(next, incidentId, {
+      observedResult: 'MERIDIAN 서비스·복구 루트 영구 삭제 · 활성 세션 종료',
+      attributedTo: 'player',
+      confidence: 'credible',
+      source: 'emergency-authority-ledger',
+    })
+    next.sabotage.runs = next.sabotage.runs.map((candidate) => (
+      candidate.id === run.id
+        ? { ...candidate, publicIncidentId: incidentId }
+        : candidate
+    ))
   }
 
   return { accepted: true, state: next }
@@ -390,6 +606,42 @@ export function advanceSabotageDay(state: PrototypeState): PrototypeState {
   const currentDay = next.serviceDay
 
   for (const run of [...next.sabotage.runs]) {
+    if (
+      run.operationId === 'dependency-cutoff'
+      && run.phase === 'response'
+      && run.responseDay === currentDay
+    ) {
+      const dependency = getDependencyTarget(run.optionId)
+      if (!dependency) continue
+      next.competitors.meridian = {
+        ...next.competitors.meridian,
+        availability: 'degraded',
+        operatingCost: dependency.operatingCost,
+        phase: 'stabilized',
+        score: dependency.recoveredScore,
+        marketShare: dependency.recoveredMarketShare,
+      }
+      next.marketShare += dependency.playerMarketGain
+      next.sabotage.runs = next.sabotage.runs.map((candidate) => (
+        candidate.id === run.id
+          ? {
+              ...candidate,
+              phase: 'resolved' as const,
+              outcome: dependency.outcome,
+              opponentResponse: 'alternate-provider-online',
+            }
+          : candidate
+      ))
+      next.journal.push({
+        day: currentDay,
+        kind: 'competitor',
+        text: dependency.outcome === 'costly-supplier-failover'
+          ? `MERIDIAN이 비싼 ${dependency.alternateRoute} 공급자로 ${dependency.affectedZone}을 축소 복구했다.`
+          : `MERIDIAN이 불안정한 ${dependency.alternateRoute}로 ${dependency.affectedZone}을 축소 복구했다.`,
+        public: true,
+      })
+    }
+
     if (run.operationId === 'request-interception' && run.phase === 'active') {
       const routingShare = run.routingShare ?? 50
       const exposureGain = routingShare / 50

@@ -73,8 +73,8 @@ function isOperationEligible(
   state: PrototypeState,
   operationId: SabotageOperationId,
 ): boolean {
-  if (!state.sabotage.openOperationIds.includes(operationId)) return false
   if (latestRun(state, operationId)) return true
+  if (!state.sabotage.openOperationIds.includes(operationId)) return false
 
   switch (operationId) {
     case 'launch-delay':
@@ -150,7 +150,11 @@ function sabotageStatus(
 }
 
 function sabotageSummaries(state: PrototypeState): OpportunitySummary[] {
-  return state.sabotage.openOperationIds
+  const operationIds = [
+    ...state.sabotage.openOperationIds,
+    ...state.sabotage.runs.map(({ operationId }) => operationId),
+  ].filter((id, index, all) => all.indexOf(id) === index)
+  return operationIds
     .filter((id) => isOperationEligible(state, id))
     .map((id) => {
       const definition = getSabotageDefinition(id)

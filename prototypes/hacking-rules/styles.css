@@ -692,6 +692,133 @@ summary:focus-visible {
   padding: 24px;
 }
 
+.system-scene--dependency-cutoff {
+  display: grid;
+  grid-template-columns: minmax(105px, 0.8fr) minmax(64px, 0.45fr) minmax(120px, 1fr);
+  grid-template-areas:
+    "source contract target"
+    ". alternate alternate";
+  gap: 12px;
+  align-items: center;
+  padding: 24px;
+}
+
+.supply-source,
+.supply-target,
+.alternate-route,
+.root-record,
+.active-sessions,
+.execution-hold {
+  display: grid;
+  gap: 8px;
+  min-height: 94px;
+  align-content: center;
+  padding: 13px;
+  background: #1a2320;
+  border: 1px solid #43514c;
+  text-align: center;
+}
+
+.supply-source {
+  grid-area: source;
+}
+
+.supply-contract {
+  grid-area: contract;
+  display: grid;
+  gap: 8px;
+  place-items: center;
+  color: var(--muted);
+  font-size: 9px;
+  text-align: center;
+}
+
+.supply-contract i {
+  width: 100%;
+  height: 2px;
+  background: var(--accent);
+  transform-origin: center;
+}
+
+.supply-contract.is-severed {
+  color: var(--danger);
+}
+
+.supply-contract.is-severed i {
+  background: linear-gradient(90deg, var(--danger) 0 42%, transparent 42% 58%, var(--danger) 58%);
+  transform: rotate(-4deg);
+}
+
+.supply-target {
+  grid-area: target;
+}
+
+.alternate-route {
+  grid-area: alternate;
+  min-height: 62px;
+  border-style: dashed;
+  border-color: var(--warning);
+}
+
+.alternate-route.is-online {
+  border-style: solid;
+  border-color: var(--info);
+  transform: translateY(-2px);
+}
+
+.system-scene--root-cutoff {
+  display: grid;
+  grid-template-columns: 1.15fr 0.7fr 1fr;
+  gap: 12px;
+  align-items: center;
+  padding: 24px;
+}
+
+.root-record {
+  border-color: var(--danger);
+}
+
+.active-sessions {
+  position: relative;
+}
+
+.active-sessions i {
+  width: 8px;
+  height: 8px;
+  margin: 0 auto;
+  background: var(--accent);
+  border-radius: 50%;
+  box-shadow: 0 0 0 5px rgb(169 232 115 / 0.12);
+  animation: session-pulse 1.8s ease-in-out infinite;
+}
+
+.system-scene--root-cutoff[data-scene-state="resolved"] .active-sessions i {
+  background: var(--danger);
+  box-shadow: none;
+  animation: none;
+}
+
+.execution-hold {
+  border-color: var(--warning);
+}
+
+.supply-source span,
+.supply-target span,
+.alternate-route span,
+.root-record span,
+.active-sessions span,
+.execution-hold span {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.supply-source small,
+.root-record small,
+.execution-hold small {
+  color: var(--quiet);
+  font-size: 8px;
+}
+
 .normal-route,
 .shadow-route,
 .duplicate-trace,
@@ -731,9 +858,29 @@ summary:focus-visible {
 
 .routing-control,
 .attribution-control,
-.interception-control {
+.interception-control,
+.mercy-control {
   display: grid;
   gap: 10px;
+}
+
+.mercy-control {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.mercy-control p {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 12px;
+  color: #cbd5ce;
+  background: var(--surface-2);
+  border-left: 2px solid var(--warning);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+@keyframes session-pulse {
+  50% { opacity: 0.45; transform: scale(0.72); }
 }
 
 .routing-control label,
@@ -1392,8 +1539,30 @@ summary:focus-visible {
   }
 
   .attribution-control,
-  .interception-control {
+  .interception-control,
+  .mercy-control {
     grid-template-columns: 1fr;
+  }
+
+  .mercy-control p {
+    grid-column: 1;
+  }
+
+  .system-scene--dependency-cutoff {
+    grid-template-areas:
+      "source"
+      "contract"
+      "target"
+      "alternate";
+  }
+
+  .supply-contract i {
+    width: 2px;
+    height: 32px;
+  }
+
+  .supply-contract.is-severed i {
+    background: linear-gradient(180deg, var(--danger) 0 42%, transparent 42% 58%, var(--danger) 58%);
   }
 
   .interception-control .safe-action {

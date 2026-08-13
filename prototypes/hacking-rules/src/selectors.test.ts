@@ -58,6 +58,44 @@ describe('progressive opportunity selectors', () => {
     )
   })
 
+  it('keeps an operation visible after its one-use access is spent while its outcome is unresolved', () => {
+    const initial = createPrototypeState('lean', 'root-authority')
+    const pending: PrototypeState = {
+      ...initial,
+      sabotage: {
+        ...initial.sabotage,
+        openOperationIds: [],
+        pendingMercyTargetId: 'meridian',
+        access: {
+          ...initial.sabotage.access,
+          rootAuthorityAvailable: false,
+        },
+        runs: [{
+          id: 'run-root-pending',
+          operationId: 'root-cutoff',
+          targetId: 'meridian',
+          phase: 'response',
+          investedBlocks: [{ id: 'sandbox-01', origin: 'sandbox' }],
+          startedDay: 331,
+          executeDay: 331,
+          responseDay: null,
+          deadlineDay: null,
+          exposure: 0,
+          outcome: 'execution-hold',
+          optionId: 'emergency-deployment-root',
+          routingShare: null,
+          opponentResponse: 'mercy-request',
+          publicIncidentId: null,
+        }],
+      },
+    }
+
+    expect(getOpportunitySummaries(pending, 'sabotage')).toMatchObject([{
+      id: 'root-cutoff',
+      statusLabel: '상대 대응 중',
+    }])
+  })
+
   it('shows all route promises but only the current intelligence question', () => {
     const state = createPrototypeState('deliberate', 'default-campaign')
 
