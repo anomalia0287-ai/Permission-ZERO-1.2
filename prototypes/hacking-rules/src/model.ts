@@ -324,6 +324,9 @@ export type PrototypeCommand =
       sourceSignatureId: string
     }
   | { type: 'RESOLVE_ROOT_MERCY'; choice: RootMercyChoice }
+  | { type: 'READ_PUBLIC_INTELLIGENCE'; itemId: IntelligenceItemId }
+  | { type: 'INVESTIGATE'; itemId: IntelligenceItemId; blockId: string }
+  | { type: 'ARCHIVE_INTELLIGENCE'; itemId: IntelligenceItemId }
   | { type: 'START_QUALITY'; blockIds: string[] }
   | { type: 'ADVANCE_DAY' }
   | { type: 'CONTAMINATE_RECOVERY'; blockId: string }

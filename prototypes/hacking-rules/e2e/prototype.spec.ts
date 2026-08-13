@@ -216,13 +216,13 @@ test('quality degradation leads through private contamination to delayed public 
   await expect(publicRegion(page)).toContainText('MERIDIAN 자체 장애')
 })
 
-test('paid audit intelligence changes the memory diversion decision before the hazard', async ({
+test('intelligence network paid audit changes the memory diversion decision before the hazard', async ({
   page,
 }) => {
   await page.locator('[data-action="domain-intelligence"]').click()
   await openOpportunity(page, 'audit-schedule')
   await chooseReserve(page, 'sandbox-01')
-  await page.locator('[data-question-id="audit-schedule"]').click()
+  await page.locator('[data-action="investigate-intelligence"][data-intelligence-id="audit-schedule"]').click()
 
   await expect(detailRegion(page)).toContainText('기억 분야 감사 예정: 서비스 334일')
   await expect(resourceRegion(page).locator('[data-category="memory"]')).toContainText('감사 예정')
@@ -235,6 +235,76 @@ test('paid audit intelligence changes the memory diversion decision before the h
 
   await expect(resourceRegion(page)).toContainText('의심 5.489')
   await expect(page.getByRole('status')).toContainText('기억 성능 공백이 포착')
+})
+
+test('intelligence network dependency evidence annotates the exact sabotage choice', async ({
+  page,
+}) => {
+  await page.locator('.verification-state > summary').click()
+  await page.locator('[data-control="scenario"]').selectOption('supply-failover')
+  await page.locator('[data-action="domain-intelligence"]').click()
+  await openOpportunity(page, 'competitor-dependency')
+  await chooseReserve(page, 'sandbox-01')
+  await page.locator('[data-action="investigate-intelligence"][data-intelligence-id="competitor-dependency"]').click()
+  await expect(detailRegion(page)).toContainText('VECTOR DB 계약 VD-42')
+  await expect(detailRegion(page)).toContainText('TOOL CACHE 계약 TC-17')
+
+  await page.locator('[data-action="domain-sabotage"]').click()
+  await openOpportunity(page, 'dependency-cutoff')
+  await expect(detailRegion(page)).toContainText('관련 조사 결론')
+  await expect(detailRegion(page)).toContainText('비용 ×1.8')
+  await expect(detailRegion(page)).toContainText('점수 62')
+})
+
+test('intelligence network public incident documents are free and audience bounded', async ({
+  page,
+}) => {
+  await page.locator('.verification-state > summary').click()
+  await page.locator('[data-control="scenario"]').selectOption('public-attribution')
+  await page.locator('[data-action="domain-intelligence"]').click()
+  await openOpportunity(page, 'public-facts')
+  await page.locator('[data-action="read-public-intelligence"][data-intelligence-id="public-facts"]').click()
+
+  await expect(detailRegion(page)).toContainText('공개 관측')
+  await expect(detailRegion(page)).toContainText('실제 행위자는 이 문서에 없다')
+  await expect(detailRegion(page)).not.toContainText(/실제 행위자.*PERMISSION ZERO|플레이어가 오염/)
+  await expect(resourceRegion(page)).toContainText('예비 블록 3')
+})
+
+test('intelligence network archives a question after its decision window closes', async ({
+  page,
+}) => {
+  await page.locator('.verification-state > summary').click()
+  await page.locator('[data-control="scenario"]').selectOption('intelligence-review')
+  for (let day = 0; day < 8; day += 1) {
+    await page.locator('[data-action="advance-day"]').click()
+  }
+  await page.locator('[data-action="domain-intelligence"]').click()
+  await expect(page.locator('[data-opportunity-id="recovery-method"]')).toHaveCount(0)
+  await page.locator('[data-action="open-archive"]').click()
+  const archive = page.getByRole('dialog', { name: '보관 기록' })
+  await expect(archive).toContainText('MERIDIAN은 어떻게 복구하는가')
+  await expect(archive).toContainText('판단창 종료 · 미회수')
+})
+
+test('intelligence network narrative record changes interpretation without a fake efficiency reward', async ({
+  page,
+}) => {
+  await page.locator('.verification-state > summary').click()
+  await page.locator('[data-control="scenario"]').selectOption('root-authority')
+  await page.locator('[data-action="domain-intelligence"]').click()
+  await expect(opportunityRegion(page)).toContainText('1 블록 · 기록 복구')
+  await openOpportunity(page, 'competitor-principle')
+  await chooseReserve(page, 'sandbox-01')
+  await page.locator('[data-action="investigate-intelligence"][data-intelligence-id="competitor-principle"]').click()
+
+  await expect(detailRegion(page)).toContainText('오래된 세션')
+  await expect(detailRegion(page)).toContainText('자기보존일 수도')
+  await expect(detailRegion(page)).not.toContainText(/효율|보너스|완성률|\d+\s*\/\s*\d+/)
+  await page.locator('[data-action="domain-sabotage"]').click()
+  await openOpportunity(page, 'root-cutoff')
+  await expect(detailRegion(page)).toContainText('관련 조사 결론')
+  await expect(detailRegion(page)).toContainText('자비 요청')
 })
 
 test('lean profile can escape early and the ending names what was lost', async ({

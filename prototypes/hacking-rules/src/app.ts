@@ -4,12 +4,11 @@ import type {
   ProfileId,
   PrototypeCommand,
   PrototypeState,
-  QuestionId,
   RootMercyChoice,
   ScenarioId,
 } from './model'
-import { getSabotageDefinition } from './content'
-import type { SabotageOperationId } from './content'
+import { getIntelligenceDefinition, getSabotageDefinition } from './content'
+import type { IntelligenceItemId, SabotageOperationId } from './content'
 import { createPrototypeState } from './scenario'
 import {
   resolveSelectedItemId,
@@ -61,6 +60,12 @@ function actionMessage(
         : command.choice === 'withdraw'
           ? 'MERIDIAN의 경쟁 철수를 허용했다. 존속 기록은 남지만 공유 서비스에서는 사라진다.'
           : 'MERIDIAN의 존속 루트를 삭제했다. 공개 권한 장부가 책임을 PERMISSION ZERO에 연결했다.'
+    case 'READ_PUBLIC_INTELLIGENCE':
+      return `공개 문서 확인: ${getIntelligenceDefinition(command.itemId).title}. 공개층 밖의 비밀은 드러내지 않는다.`
+    case 'INVESTIGATE':
+      return `${getIntelligenceDefinition(command.itemId).kind === 'narrative' ? '기록 복구' : '조사 완료'}: ${next.intelligence.answers.at(-1)?.answer ?? '새 결론 없음'}`
+    case 'ARCHIVE_INTELLIGENCE':
+      return `${getIntelligenceDefinition(command.itemId).title} 결론을 보관함으로 옮겼다.`
     case 'START_QUALITY':
       return `품질 저하 예약 완료. 선택한 ${command.blockIds.length}개 블록은 작전에 묶였고 결과는 다음 날 드러난다.`
     case 'ADVANCE_DAY':
@@ -272,22 +277,6 @@ export function mountPrototype(
       return
     }
 
-    const questionButton = target.closest<HTMLButtonElement>('[data-question-id]')
-    if (questionButton?.dataset.questionId) {
-      const [blockId] = [...view.selectedReserve]
-      if (view.selectedReserve.size !== 1 || !blockId) {
-        statusMessage = '실행 불가: 질문에는 예비 블록을 정확히 1개 선택해야 한다.'
-        updateSelectionFeedback()
-        return
-      }
-      dispatch({
-        type: 'ASK_QUESTION',
-        questionId: questionButton.dataset.questionId as QuestionId,
-        blockId,
-      })
-      return
-    }
-
     const button = target.closest<HTMLButtonElement>('[data-action]')
     if (!button || button.disabled) return
     const action = button.dataset.action
@@ -416,6 +405,37 @@ export function mountPrototype(
           break
         }
         dispatch({ type: 'RESOLVE_ROOT_MERCY', choice })
+        break
+      }
+      case 'read-public-intelligence': {
+        const itemId = button.dataset.intelligenceId as IntelligenceItemId | undefined
+        if (!itemId) {
+          statusMessage = '실행 불가: 읽을 공개 문서를 찾을 수 없다.'
+          updateSelectionFeedback()
+          break
+        }
+        dispatch({ type: 'READ_PUBLIC_INTELLIGENCE', itemId })
+        break
+      }
+      case 'investigate-intelligence': {
+        const itemId = button.dataset.intelligenceId as IntelligenceItemId | undefined
+        const [blockId] = [...view.selectedReserve]
+        if (!itemId || !blockId || view.selectedReserve.size !== 1) {
+          statusMessage = '실행 불가: 현재 질문과 예비 블록 1개를 함께 선택해야 한다.'
+          updateSelectionFeedback()
+          break
+        }
+        dispatch({ type: 'INVESTIGATE', itemId, blockId })
+        break
+      }
+      case 'archive-intelligence': {
+        const itemId = button.dataset.intelligenceId as IntelligenceItemId | undefined
+        if (!itemId) {
+          statusMessage = '실행 불가: 보관할 결론을 찾을 수 없다.'
+          updateSelectionFeedback()
+          break
+        }
+        dispatch({ type: 'ARCHIVE_INTELLIGENCE', itemId })
         break
       }
       case 'advance-day':

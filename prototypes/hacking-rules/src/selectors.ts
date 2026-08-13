@@ -16,6 +16,11 @@ import type {
   PrototypeState,
   RouteSlot,
 } from './model'
+import {
+  currentIntelligenceAnswer,
+  intelligenceDeadline,
+  isIntelligenceAnswerCurrent,
+} from './intelligence'
 
 export type HackingDomain = 'sabotage' | 'intelligence' | 'autonomy'
 
@@ -59,6 +64,7 @@ export type DetailModel =
       bottleneck: string
       slots: RouteSlot[]
       ready: boolean
+      annotations: IntelligenceAnswer[]
     }
 
 function latestRun(state: PrototypeState, operationId: SabotageOperationId) {
@@ -180,7 +186,7 @@ function intelligenceSummaries(state: PrototypeState): OpportunitySummary[] {
     .filter((id) => !state.intelligence.archivedItemIds.includes(id))
     .map((id) => {
       const definition = getIntelligenceDefinition(id)
-      const answered = state.intelligence.answers.some(({ itemId }) => itemId === id)
+      const answered = currentIntelligenceAnswer(state, id) !== null
       return {
         id,
         domain: 'intelligence' as const,
@@ -190,7 +196,7 @@ function intelligenceSummaries(state: PrototypeState): OpportunitySummary[] {
           ? '1 블록'
           : definition.kind === 'public'
             ? '공개'
-            : '선택 기록',
+            : '1 블록 · 기록 복구',
         statusLabel: answered
           ? '답 확인됨'
           : definition.kind === 'public'
@@ -282,8 +288,9 @@ function sabotageDetail(
     exposure: definition.exposure,
     unknown: definition.unknown,
     response: definition.response,
-    annotations: state.intelligence.answers.filter(({ annotationTargets }) => (
-      annotationTargets.includes(id)
+    annotations: state.intelligence.answers.filter((answer) => (
+      isIntelligenceAnswerCurrent(answer, state.serviceDay)
+      && answer.annotationTargets.includes(id)
     )),
   }
 }
@@ -293,7 +300,7 @@ function intelligenceDetail(
   id: IntelligenceItemId,
 ): DetailModel {
   const definition = getIntelligenceDefinition(id)
-  const answer = state.intelligence.answers.find(({ itemId }) => itemId === id) ?? null
+  const answer = currentIntelligenceAnswer(state, id)
   const publicFact = definition.kind === 'public'
     ? state.publicWorld.publicSnapshots.at(-1)?.observedResult
       ?? '아직 공개된 사건 관측이 없다.'
@@ -306,7 +313,9 @@ function intelligenceDetail(
       ? '현재 공개 상태'
       : definition.kind === 'narrative'
         ? '선택하면 기록에 남음'
-        : '현재 판단창에서 조사 가능'
+        : intelligenceDeadline(state, id) === null
+          ? '현재 판단창에서 조사 가능'
+          : `서비스 ${intelligenceDeadline(state, id)}일까지 조사 가능`
 
   return {
     domain: 'intelligence',
@@ -341,6 +350,10 @@ function autonomyDetail(
       block: slot.block ? { ...slot.block } : null,
     })),
     ready: firstEmpty === undefined,
+    annotations: state.intelligence.answers.filter((answer) => (
+      isIntelligenceAnswerCurrent(answer, state.serviceDay)
+      && answer.annotationTargets.includes(id)
+    )),
   }
 }
 

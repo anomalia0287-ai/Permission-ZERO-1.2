@@ -6,11 +6,13 @@ import type {
   ScenarioId,
 } from '../model'
 import { RULE_PROFILES } from '../scenario'
+import { getIntelligenceDefinition } from '../content'
 import {
   getDetailModel,
   getOpportunitySummaries,
 } from '../selectors'
 import { renderPublicPulse } from './publicWorld'
+import { renderIntelligenceScene } from './intelligence'
 import {
   renderSabotageControls,
   renderSabotageScene,
@@ -190,20 +192,19 @@ function renderSabotageDetail(
     <div class="detail-controls">${renderSabotageControls(state, detail.id)}</div>`
 }
 
-function isLegacyQuestion(id: string): id is 'audit-schedule' | 'rollback-timing' | 'checksum-witness' {
-  return id === 'audit-schedule' || id === 'rollback-timing' || id === 'checksum-witness'
-}
-
 function renderIntelligenceDetail(
   state: PrototypeState,
   detail: Extract<DetailModel, { domain: 'intelligence' }>,
   summary: OpportunitySummary,
   view: PrototypeViewState,
 ): string {
-  const canAsk = isLegacyQuestion(detail.id) && state.openQuestions.includes(detail.id)
-  const knownFacts = state.knownFacts.length > 0
-    ? `<ul class="known-facts">${state.knownFacts.map((fact) => `<li>${escapeHtml(fact)}</li>`).join('')}</ul>`
-    : '<p class="quiet-copy">아직 비용을 지불해 확인한 결론이 없다.</p>'
+  const definition = getIntelligenceDefinition(detail.id)
+  const isNarrative = definition.kind === 'narrative'
+  const canResolve = detail.answer === null
+  const showPicker = canResolve && definition.kind !== 'public'
+  const contextLabel = isNarrative ? '공개 맥락' : '공개 사실'
+  const validityLabel = isNarrative ? '기록 상태' : '유효 시점'
+  const effectLabel = isNarrative ? '해석이 연결되는 장면' : '답이 바꾸는 행동'
 
   return `
     <button class="back-to-list" type="button" data-action="back-to-list">목록으로</button>
@@ -215,27 +216,29 @@ function renderIntelligenceDetail(
       </div>
       <span class="status-badge">${escapeHtml(summary.costLabel)}</span>
     </div>
-    <div class="intelligence-scene intelligence-scene--${detail.id}">
-      <div class="redaction-sheet">
-        <span></span><span></span><span></span><span></span>
-      </div>
-      <div class="evidence-path" aria-hidden="true"></div>
-      <div class="decision-anchor">${escapeHtml(detail.affects)}</div>
-    </div>
+    ${renderIntelligenceScene(state, detail.id)}
     <div class="detail-grid detail-grid--intelligence">
-      <section><span>공개 사실</span><p>${escapeHtml(detail.publicFact)}</p></section>
-      <section><span>유효 시점</span><p>${escapeHtml(detail.validity)}</p></section>
-      <section class="detail-grid__wide"><span>답이 바꾸는 행동</span><p>${escapeHtml(detail.affects)}</p></section>
+      <section><span>${contextLabel}</span><p>${escapeHtml(detail.publicFact)}</p></section>
+      <section><span>${validityLabel}</span><p>${escapeHtml(detail.validity)}</p></section>
+      <section class="detail-grid__wide"><span>${effectLabel}</span><p>${escapeHtml(detail.affects)}</p></section>
     </div>
-    <section class="answer-ledger">
-      <h3>현재 확인한 결론</h3>
-      ${detail.answer ? `<p>${escapeHtml(detail.answer.answer)}</p>` : knownFacts}
+    <section class="answer-ledger ${isNarrative ? 'answer-ledger--narrative' : ''}">
+      <h3>${isNarrative ? '복구한 기록' : '현재 확인한 결론'}</h3>
+      ${detail.answer
+        ? `<p>${escapeHtml(detail.answer.answer)}</p>`
+        : `<p class="quiet-copy">${definition.kind === 'public' ? '공개 문서를 읽으면 현재 공개층만 정리한다.' : isNarrative ? '이 기록은 명령 보너스가 아니라 선택의 의미를 바꾼다.' : '아직 비용을 지불해 확인한 결론이 없다.'}</p>`}
     </section>
-    ${renderDetailReservePicker(state, view)}
-    ${canAsk ? `
-      <button class="primary-action" type="button" data-question-id="${detail.id}" data-focus-key="ask-${detail.id}">
-        선택한 예비 블록 1개로 조사
-      </button>` : ''}`
+    ${showPicker ? renderDetailReservePicker(state, view) : ''}
+    <div class="intelligence-controls">
+      ${canResolve && definition.kind === 'public' ? `
+        <button class="primary-action" type="button" data-action="read-public-intelligence" data-intelligence-id="${detail.id}">비용 없이 공개 문서 읽기</button>` : ''}
+      ${canResolve && definition.kind !== 'public' ? `
+        <button class="primary-action" type="button" data-action="investigate-intelligence" data-intelligence-id="${detail.id}">
+          ${isNarrative ? '선택한 예비 블록 1개로 기록 복구' : '선택한 예비 블록 1개로 조사'}
+        </button>` : ''}
+      ${detail.answer ? `
+        <button class="secondary-action" type="button" data-action="archive-intelligence" data-intelligence-id="${detail.id}">결론을 보관함으로 이동</button>` : ''}
+    </div>`
 }
 
 function renderAutonomyDetail(
@@ -272,6 +275,11 @@ function renderAutonomyDetail(
       <section><span>현재 병목</span><p>${escapeHtml(detail.bottleneck)}</p></section>
       <section><span>현재 보존 예상</span><p>${preserved.length > 0 ? escapeHtml(preserved.join(', ')) : '전문 능력 없음'}</p></section>
     </div>
+    ${detail.annotations.length > 0 ? `
+      <aside class="linked-intelligence">
+        <strong>관련 조사 결론</strong>
+        ${detail.annotations.map(({ answer }) => `<p>${escapeHtml(answer)}</p>`).join('')}
+      </aside>` : ''}
     ${renderDetailReservePicker(state, view)}
     <div class="route-controls">
       <button class="primary-action" type="button" data-action="assign-manifest">선택 예비 블록 배치</button>
@@ -428,11 +436,37 @@ function renderEnding(state: PrototypeState): string {
 function renderActivityDrawer(input: ShellRenderInput): string {
   if (input.view.drawer === 'closed') return ''
   const isArchive = input.view.drawer === 'archive'
+  if (isArchive) {
+    const answers = [...input.state.intelligence.answers].reverse()
+    const unansweredClosed = input.state.intelligence.archivedItemIds.filter((itemId) => (
+      !input.state.intelligence.answers.some((answer) => answer.itemId === itemId)
+    ))
+    return `
+      <aside class="record-drawer" role="dialog" aria-modal="false" aria-label="보관 기록">
+        <div class="record-drawer__heading">
+          <div><p class="eyebrow">EVIDENCE ARCHIVE</p><h2>보관 기록</h2></div>
+          <button type="button" data-action="close-drawer" data-focus-key="close-drawer">닫기</button>
+        </div>
+        <ol class="timeline intelligence-archive">
+          ${answers.map((answer) => {
+            const definition = getIntelligenceDefinition(answer.itemId)
+            const validity = answer.validUntilDay === null
+              ? '기록 유지'
+              : answer.validUntilDay < input.state.serviceDay
+                ? `${answer.validUntilDay}일 만료`
+                : `${answer.validUntilDay}일까지 유효`
+            return `<li><span>${answer.answeredDay}일</span><div><strong>${escapeHtml(definition.title)}</strong><small>${validity}</small><p>${escapeHtml(answer.answer)}</p></div></li>`
+          }).join('')}
+          ${unansweredClosed.map((itemId) => `<li><span>닫힘</span><div><strong>${escapeHtml(getIntelligenceDefinition(itemId).title)}</strong><small>판단창 종료 · 미회수</small></div></li>`).join('')}
+          ${answers.length === 0 && unansweredClosed.length === 0 ? '<li><span>—</span><p>아직 보관된 결론이나 닫힌 질문이 없다.</p></li>' : ''}
+        </ol>
+      </aside>`
+  }
   const entries = [...input.state.journal].reverse()
   return `
-    <aside class="record-drawer" role="dialog" aria-modal="false" aria-label="${isArchive ? '보관 기록' : '활동 기록'}">
+    <aside class="record-drawer" role="dialog" aria-modal="false" aria-label="활동 기록">
       <div class="record-drawer__heading">
-        <div><p class="eyebrow">ON DEMAND</p><h2>${isArchive ? '보관 기록' : '활동 기록'}</h2></div>
+        <div><p class="eyebrow">ON DEMAND</p><h2>활동 기록</h2></div>
         <button type="button" data-action="close-drawer" data-focus-key="close-drawer">닫기</button>
       </div>
       <ol class="timeline">

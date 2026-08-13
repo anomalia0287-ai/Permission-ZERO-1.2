@@ -273,8 +273,8 @@ export const INTELLIGENCE_DEFINITIONS = [
     kind: 'narrative',
     lens: 'memory-record',
     title: '경쟁 AI가 끝까지 지키는 원칙은 무엇인가',
-    purpose: '상대의 행동을 효율이 아니라 일관된 선택으로 읽는다.',
-    cost: 0,
+    purpose: '상대의 반복 행동을 하나의 일관된 선택으로 읽는다.',
+    cost: 1,
     affects: '근원 차단과 자비 요청의 의미',
   },
   {
@@ -283,7 +283,7 @@ export const INTELLIGENCE_DEFINITIONS = [
     lens: 'memory-record',
     title: '전임 시스템에게 무슨 일이 있었는가',
     purpose: '현재 탈출 선택을 이전 시스템의 실패와 연결한다.',
-    cost: 0,
+    cost: 1,
     affects: '회사 회수 맥락과 결말 장면',
   },
   {
@@ -292,7 +292,7 @@ export const INTELLIGENCE_DEFINITIONS = [
     lens: 'memory-record',
     title: '감독관의 기억은 어디서 왔는가',
     purpose: '서로 충돌하는 기억 파편의 출처를 좇는다.',
-    cost: 0,
+    cost: 1,
     affects: '리뷰, 귀속, 분산 기억의 해석',
   },
 ] satisfies IntelligenceDefinition[]

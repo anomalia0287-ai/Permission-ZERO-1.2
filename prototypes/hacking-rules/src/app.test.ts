@@ -118,7 +118,7 @@ describe('clickable hacking-rules prototype', () => {
     clickAction(root, 'domain-intelligence')
 
     const question = root.querySelector<HTMLButtonElement>(
-      '[data-question-id="audit-schedule"]',
+      '[data-action="investigate-intelligence"][data-intelligence-id="audit-schedule"]',
     )
     expect(question).not.toBeNull()
     question?.click()

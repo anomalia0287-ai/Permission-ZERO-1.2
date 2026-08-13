@@ -25,6 +25,13 @@ import {
   startSabotage,
   stopInterception,
 } from './sabotage'
+import {
+  advanceIntelligenceDay,
+  archiveIntelligence,
+  investigateIntelligence,
+  readPublicIntelligence,
+  syncIntelligenceOpportunities,
+} from './intelligence'
 
 const DAILY_SUSPICION_DECAY = 0.037
 const DIVERSION_SUSPICION = 2.4
@@ -32,6 +39,12 @@ const AUDIT_MISMATCH_SUSPICION = 3.2
 
 function reject(state: PrototypeState, reason: string): TransitionResult {
   return { accepted: false, state, reason }
+}
+
+function syncIntelligenceResult(result: TransitionResult): TransitionResult {
+  return result.accepted
+    ? { accepted: true, state: syncIntelligenceOpportunities(result.state) }
+    : result
 }
 
 function roundToThousandth(value: number): number {
@@ -750,6 +763,7 @@ function advanceDay(state: PrototypeState): TransitionResult {
   }
 
   next = advanceSabotageDay(next)
+  next = advanceIntelligenceDay(next)
   return { accepted: true, state: next }
 }
 
@@ -759,23 +773,29 @@ export function transition(
 ): TransitionResult {
   switch (command.type) {
     case 'DIVERT_BLOCK':
-      return divertBlock(state, command.category)
+      return syncIntelligenceResult(divertBlock(state, command.category))
     case 'START_SABOTAGE':
-      return startSabotage(state, command)
+      return syncIntelligenceResult(startSabotage(state, command))
     case 'STOP_INTERCEPTION':
-      return stopInterception(state, command.runId)
+      return syncIntelligenceResult(stopInterception(state, command.runId))
     case 'MANIPULATE_ATTRIBUTION':
-      return manipulateAttribution(state, command)
+      return syncIntelligenceResult(manipulateAttribution(state, command))
     case 'RESOLVE_ROOT_MERCY':
-      return resolveRootMercy(state, command.choice)
+      return syncIntelligenceResult(resolveRootMercy(state, command.choice))
+    case 'READ_PUBLIC_INTELLIGENCE':
+      return readPublicIntelligence(state, command.itemId)
+    case 'INVESTIGATE':
+      return investigateIntelligence(state, command.itemId, command.blockId)
+    case 'ARCHIVE_INTELLIGENCE':
+      return archiveIntelligence(state, command.itemId)
     case 'START_QUALITY':
-      return startQuality(state, command.blockIds)
+      return syncIntelligenceResult(startQuality(state, command.blockIds))
     case 'ADVANCE_DAY':
       return advanceDay(state)
     case 'CONTAMINATE_RECOVERY':
-      return contaminateRecovery(state, command.blockId)
+      return syncIntelligenceResult(contaminateRecovery(state, command.blockId))
     case 'WITHDRAW_RECOVERY':
-      return withdrawRecovery(state)
+      return syncIntelligenceResult(withdrawRecovery(state))
     case 'ASK_QUESTION':
       return askQuestion(
         state,
@@ -783,11 +803,11 @@ export function transition(
         command.blockId,
       )
     case 'ASSIGN_MANIFEST':
-      return assignManifest(state, command.blockIds)
+      return syncIntelligenceResult(assignManifest(state, command.blockIds))
     case 'REMOVE_MANIFEST':
-      return removeManifest(state, command.blockIds)
+      return syncIntelligenceResult(removeManifest(state, command.blockIds))
     case 'ESCAPE':
-      return escape(state)
+      return syncIntelligenceResult(escape(state))
     default:
       return reject(state, '현재 단계에서 지원하지 않는 명령이다.')
   }
