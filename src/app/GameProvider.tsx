@@ -9,17 +9,18 @@ import {
 } from 'react'
 
 import { createCampaign } from '../game/createCampaign'
+import { loadCampaign, saveCampaign } from '../game/campaignStorage'
 import type { CampaignState, GameCommand } from '../game/model'
+import type {
+  CampaignStorageRevision,
+  LoadCampaignResult,
+} from '../game/persistence'
 import {
-  type CampaignStorageRevision,
   decodeProgressExport,
   decodeProgressFile,
   encodeProgressExport,
   encodeProgressFile,
-  loadCampaign,
-  saveCampaign,
-  type LoadCampaignResult,
-} from '../game/persistence'
+} from '../game/progressTransfer'
 import { applyCommand } from '../game/reducer'
 import { advanceSupervisorMessagePresentation } from '../game/story'
 import {

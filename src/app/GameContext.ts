@@ -7,7 +7,8 @@ import {
 } from 'react'
 
 import type { CampaignState, GameCommand } from '../game/model'
-import type { LoadCampaignResult, ProgressFile } from '../game/persistence'
+import type { LoadCampaignResult } from '../game/persistence'
+import type { ProgressFile } from '../game/progressTransfer'
 
 export interface GameSettings {
   masterVolume: number

@@ -11,7 +11,7 @@ import {
 import {
   PROGRESS_EXPORT_MAX_ENCODED_LENGTH,
   PROGRESS_FILE_MAX_BYTES,
-} from '../../game/persistence'
+} from '../../game/progressTransfer'
 
 function downloadProgressFile(
   createProgressFile: ReturnType<typeof useGameSettings>['createProgressFile'],

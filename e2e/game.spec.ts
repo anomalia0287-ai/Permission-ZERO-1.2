@@ -10,11 +10,11 @@ import { createGameEvent, enqueueBlockingEvent } from '../src/game/events'
 import { HACK_NODE_IDS } from '../src/game/hacking'
 import type { CampaignState, GameCommand, GameEvent } from '../src/game/model'
 import {
-  encodeProgressExport,
   encodeSave,
   LEGACY_SAVE_STORAGE_KEY,
   SAVE_STORAGE_KEY,
 } from '../src/game/persistence'
+import { encodeProgressExport } from '../src/game/progressTransfer'
 import { applyCommand } from '../src/game/reducer'
 import {
   captureReviewPublicSnapshot,

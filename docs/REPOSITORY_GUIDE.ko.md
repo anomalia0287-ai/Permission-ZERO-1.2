@@ -23,6 +23,18 @@ pnpm dev
 pnpm verify
 ```
 
+`package.json`은 Node.js `24.14.0`을 정확한 기준 버전으로 선언한다. 다른 24.x 버전에서는 도구가 실행되더라도 엔진 경고가 발생하므로, 재현 가능한 검증 보고에는 기준 버전을 사용한다.
+
+## 코드 책임 경계
+
+- `src/game/persistence.ts` — 저장 포맷 인코딩·검증·마이그레이션·명령 리플레이와 공유 프로토콜 타입
+- `src/game/campaignStorage.ts` — 브라우저 로컬 저장, Web Locks, 탭 충돌, 증분 저널 캐시
+- `src/game/progressTransfer.ts` — 클립보드용 `PZ5` 전송과 `.pz5` 파일 입출력 한계
+- `src/styles/global.css` — 셸과 기본 작업 화면만 담당하는 공통 스타일
+- `src/styles/connected-details.css`, `hacking.css`, `statistics.css`, `settings.css`, `overlays.css` — 상세 화면별 스타일
+
+스타일 파일은 `src/main.tsx`의 import 순서가 곧 캐스케이드 순서다. 저장 책임과 스타일 경계는 각각 `persistenceBoundaries.test.ts`, `styleBoundaries.test.ts`가 검사한다.
+
 ## 문서 우선순위
 
 충돌할 때는 다음 순서로 판단한다.

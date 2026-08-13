@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { createCampaign } from './createCampaign'
+import { loadCampaign, saveCampaign } from './campaignStorage'
 import { STORY_FILES, SUPERVISOR_PRIVATE_MESSAGE } from '../content/story.ko'
 import { createGameEvent, enqueueBlockingEvent } from './events'
 import { serviceMonthForDay } from './evaluation'
@@ -16,20 +17,20 @@ import type {
   GameEvent,
 } from './model'
 import {
-  PROGRESS_FILE_MAX_BYTES,
-  PROGRESS_EXPORT_MAX_ENCODED_LENGTH,
   SAVE_STORAGE_KEY,
-  decodeProgressExport,
-  decodeProgressFile,
   decodeSave,
-  encodeProgressExport,
-  encodeProgressFile,
   encodeSave,
   exportSeed,
-  loadCampaign,
   replayCommands,
-  saveCampaign,
 } from './persistence'
+import {
+  PROGRESS_EXPORT_MAX_ENCODED_LENGTH,
+  PROGRESS_FILE_MAX_BYTES,
+  decodeProgressExport,
+  decodeProgressFile,
+  encodeProgressExport,
+  encodeProgressFile,
+} from './progressTransfer'
 import { applyCommand } from './reducer'
 import {
   advanceSupervisorMessagePresentation,
@@ -41,7 +42,7 @@ import {
 } from './story'
 import { MemoryStorage } from '../test/fixtures'
 import legacyV1TransferEnvelope from '../test/legacy-v1-transfer-save.json'
-import * as persistenceApi from './persistence'
+import * as progressTransferApi from './progressTransfer'
 
 const legacyV1TransferSave = JSON.stringify(legacyV1TransferEnvelope)
 
@@ -1554,7 +1555,7 @@ describe('versioned campaign saves', () => {
   })
 
   it('exposes a PZ5 export boundary that round-trips validated protocol metadata', () => {
-    const api = persistenceApi as typeof persistenceApi & {
+    const api = progressTransferApi as typeof progressTransferApi & {
       decodeProgressExport?: (payload: string) => ReturnType<typeof decodeSave>
     }
     expect(api.decodeProgressExport).toBeTypeOf('function')
@@ -1584,7 +1585,7 @@ describe('versioned campaign saves', () => {
     ['invalid UTF-8', 'PZ2:/w=='],
     ['valid UTF-8 but invalid JSON', 'PZ2:e30='],
   ])('rejects a %s progress payload without exposing parser details', (_name, payload) => {
-    const api = persistenceApi as typeof persistenceApi & {
+    const api = progressTransferApi as typeof progressTransferApi & {
       decodeProgressExport?: (value: string) => ReturnType<typeof decodeSave>
     }
     expect(api.decodeProgressExport).toBeTypeOf('function')
@@ -1599,7 +1600,7 @@ describe('versioned campaign saves', () => {
   })
 
   it('rejects an oversized PZ4 input before base64 decoding while allowing the exact encoded boundary', () => {
-    const api = persistenceApi as typeof persistenceApi & {
+    const api = progressTransferApi as typeof progressTransferApi & {
       PROGRESS_EXPORT_MAX_ENCODED_LENGTH?: number
     }
     expect(api.PROGRESS_EXPORT_MAX_ENCODED_LENGTH).toBeTypeOf('number')

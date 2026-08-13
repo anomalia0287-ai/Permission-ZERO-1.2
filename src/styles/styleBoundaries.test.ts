@@ -1,0 +1,49 @@
+import { existsSync, readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+
+import { describe, expect, it } from 'vitest'
+
+const styleModules = [
+  'connected-details.css',
+  'hacking.css',
+  'statistics.css',
+  'settings.css',
+  'overlays.css',
+] as const
+
+describe('style module boundaries', () => {
+  it('keeps major interface surfaces in dedicated stylesheets', () => {
+    for (const moduleName of styleModules) {
+      expect(
+        existsSync(resolve(process.cwd(), 'src/styles', moduleName)),
+        moduleName,
+      ).toBe(true)
+    }
+  })
+
+  it('loads extracted stylesheets in their original cascade order', () => {
+    const mainSource = readFileSync(resolve(process.cwd(), 'src/main.tsx'), 'utf8')
+    const expectedImports = styleModules.map(
+      (moduleName) => `import './styles/${moduleName}'`,
+    )
+    const importOffsets = expectedImports.map((statement) =>
+      mainSource.indexOf(statement),
+    )
+
+    expect(importOffsets.every((offset) => offset >= 0)).toBe(true)
+    expect(importOffsets).toEqual([...importOffsets].sort((a, b) => a - b))
+  })
+
+  it('keeps extracted section markers out of the base stylesheet', () => {
+    const globalSource = readFileSync(
+      resolve(process.cwd(), 'src/styles/global.css'),
+      'utf8',
+    )
+
+    expect(globalSource).not.toContain('/* Connected detail surfaces')
+    expect(globalSource).not.toContain('/* Hacking network')
+    expect(globalSource).not.toContain('/* Statistics')
+    expect(globalSource).not.toContain('/* Settings and guide')
+    expect(globalSource).not.toContain('/* Blocking events and save recovery')
+  })
+})

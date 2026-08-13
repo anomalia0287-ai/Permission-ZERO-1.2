@@ -9,17 +9,17 @@ import {
 } from '../../app/GameContext'
 import { GameProvider } from '../../app/GameProvider'
 import { AccessibleDialog } from '../../app/AccessibleDialog'
+import { saveCampaign } from '../../game/campaignStorage'
 import { createCampaign } from '../../game/createCampaign'
 import { createJournal } from '../../game/journal'
 import type { CampaignState } from '../../game/model'
+import { SAVE_STORAGE_KEY } from '../../game/persistence'
 import {
-  PROGRESS_FILE_MAX_BYTES,
   PROGRESS_EXPORT_MAX_ENCODED_LENGTH,
-  SAVE_STORAGE_KEY,
+  PROGRESS_FILE_MAX_BYTES,
   encodeProgressExport,
   encodeProgressFile,
-  saveCampaign,
-} from '../../game/persistence'
+} from '../../game/progressTransfer'
 import { MemoryStorage } from '../../test/fixtures'
 import {
   CreditsPanel,
