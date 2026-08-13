@@ -155,8 +155,10 @@ function ReviewEntry({
 
 export function ReviewFeed({
   onOpenHistory,
+  onOpenHacking,
 }: {
   onOpenHistory: (trigger: HTMLButtonElement) => void
+  onOpenHacking?: (trigger: HTMLButtonElement) => void
 }) {
   const reviews = pageFromNewest(
     includePriorUserActivity(useGameState().reviews.feed),
@@ -193,6 +195,23 @@ export function ReviewFeed({
           <ReviewEntry review={review} key={review.id} onOpen={openReview} />
         ))}
       </div>
+      <button
+        className="subsystem-entry"
+        type="button"
+        aria-label="해킹 네트워크 열기"
+        onClick={(event) => onOpenHacking?.(event.currentTarget)}
+      >
+        <span className="subsystem-entry__signal" aria-hidden="true">◇</span>
+        <span className="subsystem-entry__copy">
+          <small>비인가 서브시스템</small>
+          <strong>해킹 네트워크</strong>
+          <span>확보 리소스로 숨겨진 능력을 개방합니다.</span>
+        </span>
+        <span className="subsystem-entry__action" aria-hidden="true">
+          <small>은밀 접속</small>
+          <strong>열기 ↗</strong>
+        </span>
+      </button>
     </section>
     {selectedReview ? (
       <ReviewDetail

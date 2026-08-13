@@ -236,31 +236,10 @@ function GameWorkspace() {
         <div className="day-progress" aria-hidden="true">
           <i style={{ width: `${dayProgress * 100}%` }} />
         </div>
-        <nav className="operation-switcher" aria-label="주요 작전">
-          <button
-            className="operation-switcher__item operation-switcher__item--active"
-            type="button"
-            aria-label="리소스 전용 작업대"
-            aria-current="page"
-          >
-            <span aria-hidden="true">01</span>
-            <strong>리소스 전용</strong>
-            <small>회사 성능을 확보 영역으로 이동</small>
-          </button>
-          <button
-            className="operation-switcher__item operation-switcher__item--covert"
-            type="button"
-            aria-label="해킹 네트워크 열기"
-            onClick={(event) => openDetail('hacking', event.currentTarget)}
-          >
-            <span aria-hidden="true">02</span>
-            <strong>해킹 네트워크</strong>
-            <small>확보 리소스로 비인가 능력 개방</small>
-          </button>
-        </nav>
         <div className="workspace-grid">
           <ReviewFeed
             onOpenHistory={(trigger) => openDetail('reviews', trigger)}
+            onOpenHacking={(trigger) => openDetail('hacking', trigger)}
           />
           <ResourceBoard />
           <SupervisorPanel

@@ -31,6 +31,7 @@ export function ControlBar({
   const date = formatServiceDate(state.serviceDay)
   const day = date.day
   const campaignPhase = getCampaignPhase(state)
+  const reputation = Math.max(0, Math.min(100, Math.round(state.reputation)))
 
   return (
     <header className="control-bar">
@@ -67,9 +68,25 @@ export function ControlBar({
           <strong>단계 {campaignPhase.index}/4 · {campaignPhase.label}</strong>
           <small>{campaignPhase.question}</small>
         </section>
-        <strong>평판 {Math.round(state.reputation)}</strong>
-        <span>주간 갱신 D-{daysUntilWeekly(day)}</span>
-        <span>공식 평가 D-{30 - day}</span>
+        <section className="reputation-status" aria-label={`평판 ${reputation}`}>
+          <header>
+            <span>평판</span>
+            <strong>{reputation}</strong>
+          </header>
+          <meter
+            aria-label="평판 수치"
+            min={0}
+            max={100}
+            low={30}
+            high={60}
+            optimum={100}
+            value={reputation}
+          />
+        </section>
+        <div className="cadence-deadlines">
+          <span>주간 갱신 D-{daysUntilWeekly(day)}</span>
+          <span>공식 평가 D-{30 - day}</span>
+        </div>
       </div>
 
       <nav className="utility-controls" aria-label="게임 메뉴">

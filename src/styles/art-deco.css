@@ -5,7 +5,7 @@
  *   1. the resource board is the central stage,
  *   2. human activity stays readable on the left,
  *   3. oversight is compressed into a narrow watchtower,
- *   4. hacking, speed, and settings remain first-level controls.
+ *   4. speed and settings stay global while hacking remains a covert subsystem.
  */
 
 :root {
@@ -39,7 +39,7 @@
 html,
 body,
 #root {
-  min-width: 1180px;
+  min-width: 0;
   min-height: 650px;
 }
 
@@ -58,7 +58,7 @@ button {
 
 .game-shell {
   isolation: isolate;
-  grid-template-rows: 64px 3px 54px minmax(0, 1fr);
+  grid-template-rows: 64px 3px minmax(0, 1fr);
   padding: 10px 12px 12px;
   background-image:
     linear-gradient(rgb(205 181 116 / 5%) 1px, transparent 1px),
@@ -108,7 +108,7 @@ button {
 /* Top command line ------------------------------------------------------ */
 
 .control-bar {
-  grid-template-columns: minmax(250px, 0.9fr) minmax(262px, auto) minmax(330px, 1.25fr) auto;
+  grid-template-columns: minmax(205px, 0.72fr) minmax(235px, auto) minmax(300px, 1.18fr) auto;
   border-color: rgb(212 173 95 / 52%);
   background:
     linear-gradient(90deg, rgb(15 53 83 / 82%), rgb(6 19 33 / 95%) 36%, rgb(6 19 33 / 98%)),
@@ -128,8 +128,8 @@ button {
 }
 
 .control-identity {
-  gap: 13px;
-  padding-inline: 14px 22px;
+  gap: 11px;
+  padding-inline: 12px 16px;
 }
 
 .control-mark {
@@ -151,7 +151,7 @@ button {
 .control-identity strong {
   color: var(--deco-ivory);
   font: 720 1.03rem/1 var(--font-display);
-  letter-spacing: 0.13em;
+  letter-spacing: 0.11em;
 }
 
 .micro-label,
@@ -201,13 +201,16 @@ button {
 }
 
 .cadence-cluster {
+  display: grid;
+  grid-template-columns: minmax(116px, 1.1fr) minmax(92px, 0.8fr) auto;
+  align-items: center;
   gap: 14px;
-  padding-inline: 16px;
+  padding-inline: 14px;
   font-size: 0.69rem;
 }
 
 .campaign-phase {
-  max-width: 210px;
+  max-width: none;
   gap: 4px;
   border-right-color: rgb(212 173 95 / 20%);
 }
@@ -222,9 +225,70 @@ button {
   font-size: 0.6rem;
 }
 
+.reputation-status {
+  display: grid;
+  grid-template-rows: auto 5px;
+  gap: 7px;
+  min-width: 0;
+  padding-right: 14px;
+  border-right: 1px solid rgb(212 173 95 / 20%);
+}
+
+.reputation-status header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.reputation-status header span {
+  color: #9fb0b8;
+  font: 600 0.62rem/1 var(--font-code);
+  letter-spacing: 0.08em;
+}
+
+.reputation-status header strong {
+  color: var(--deco-ivory);
+  font: 750 0.78rem/1 var(--font-code);
+}
+
+.reputation-status meter {
+  width: 100%;
+  height: 5px;
+  border: 0;
+  background: rgb(1 7 14 / 74%);
+  appearance: none;
+}
+
+.reputation-status meter::-webkit-meter-bar {
+  height: 5px;
+  border: 0;
+  background: rgb(1 7 14 / 74%);
+  box-shadow: inset 0 0 0 1px rgb(212 173 95 / 18%);
+}
+
+.reputation-status meter::-webkit-meter-optimum-value {
+  background: linear-gradient(90deg, #846a38, var(--reserve-bright));
+  box-shadow: 0 0 8px rgb(241 208 131 / 28%);
+}
+
+.reputation-status meter::-moz-meter-bar {
+  background: linear-gradient(90deg, #846a38, var(--reserve-bright));
+}
+
+.cadence-deadlines {
+  display: grid;
+  gap: 6px;
+  min-width: max-content;
+}
+
+.cadence-deadlines span {
+  font-size: 0.61rem;
+}
+
 .utility-controls button {
-  min-width: 58px;
-  padding-inline: 11px;
+  min-width: 52px;
+  padding-inline: 9px;
   border-left-color: rgb(212 173 95 / 20%);
   color: #aab8bd;
   font-size: 0.72rem;
@@ -252,108 +316,10 @@ button {
   transform: translateX(-50%);
 }
 
-/* Primary operations ---------------------------------------------------- */
-
-.operation-switcher {
-  position: relative;
-  display: grid;
-  grid-template-columns: 1fr minmax(245px, 320px) minmax(245px, 320px) 1fr;
-  align-items: center;
-  min-width: 0;
-  padding-inline: 8px;
-}
-
-.operation-switcher::before,
-.operation-switcher::after {
-  height: 1px;
-  content: "";
-  background: linear-gradient(90deg, transparent, rgb(212 173 95 / 46%));
-}
-
-.operation-switcher::after {
-  background: linear-gradient(90deg, rgb(212 173 95 / 46%), transparent);
-}
-
-.operation-switcher__item {
-  position: relative;
-  display: grid;
-  grid-template-columns: 32px auto;
-  grid-template-rows: auto auto;
-  align-content: center;
-  min-height: 44px;
-  padding: 7px 20px 7px 16px;
-  border-block: 1px solid rgb(212 173 95 / 28%);
-  color: #a7b5bb;
-  background: rgb(5 18 31 / 90%);
-  text-align: left;
-  cursor: pointer;
-}
-
-.operation-switcher__item:first-of-type {
-  border-left: 1px solid rgb(212 173 95 / 40%);
-  clip-path: polygon(9px 0, 100% 0, 100% 100%, 9px 100%, 0 calc(100% - 9px), 0 9px);
-}
-
-.operation-switcher__item:last-of-type {
-  border-right: 1px solid rgb(212 173 95 / 40%);
-  clip-path: polygon(0 0, calc(100% - 9px) 0, 100% 9px, 100% calc(100% - 9px), calc(100% - 9px) 100%, 0 100%);
-}
-
-.operation-switcher__item > span {
-  grid-row: 1 / 3;
-  align-self: center;
-  color: var(--reserve);
-  font: 650 0.69rem/1 var(--font-code);
-}
-
-.operation-switcher__item strong {
-  color: var(--text-strong);
-  font: 720 0.84rem/1.1 var(--font-display);
-  letter-spacing: 0.08em;
-}
-
-.operation-switcher__item small {
-  margin-top: 4px;
-  overflow: hidden;
-  color: var(--text-muted);
-  font: 500 0.66rem/1.1 var(--font-body);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.operation-switcher__item--active {
-  border-color: rgb(240 205 126 / 58%);
-  background:
-    linear-gradient(90deg, rgb(21 80 118 / 42%), rgb(11 43 73 / 68%)),
-    var(--ink-1);
-  box-shadow: inset 0 -2px 0 var(--reserve);
-}
-
-.operation-switcher__item--active::after {
-  position: absolute;
-  right: -5px;
-  z-index: 2;
-  width: 10px;
-  height: 10px;
-  content: "";
-  border: 1px solid var(--reserve-bright);
-  background: var(--ink-0);
-  transform: rotate(45deg);
-}
-
-.operation-switcher__item--covert:hover,
-.operation-switcher__item--covert:focus-visible {
-  border-color: rgb(215 101 90 / 52%);
-  color: var(--deco-ivory);
-  background:
-    linear-gradient(90deg, rgb(84 26 33 / 38%), transparent),
-    var(--ink-1);
-}
-
 /* Three-part stage ------------------------------------------------------ */
 
 .workspace-grid {
-  grid-template-columns: minmax(286px, 0.9fr) minmax(600px, 1.95fr) minmax(248px, 0.78fr);
+  grid-template-columns: minmax(220px, 0.8fr) minmax(500px, 2fr) minmax(220px, 0.8fr);
   gap: 11px;
   padding-top: 9px;
 }
@@ -437,16 +403,20 @@ button {
 /* Human activity -------------------------------------------------------- */
 
 .review-panel {
-  grid-template-rows: 52px minmax(0, 1fr);
+  grid-template-rows: 52px minmax(0, 1fr) clamp(78px, 10vh, 94px);
 }
 
 .review-stream {
+  display: grid;
+  grid-auto-rows: minmax(88px, 1fr);
+  align-content: stretch;
   padding: 8px 11px 14px;
 }
 
 .review-entry {
   display: grid;
   grid-template-columns: 1fr auto;
+  align-content: center;
   padding: 14px 11px 15px 15px;
   border: 1px solid transparent;
   border-bottom-color: rgb(212 173 95 / 16%);
@@ -489,8 +459,8 @@ button {
 .review-entry__header {
   grid-row: 1;
   grid-column: 1;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 5px;
   font-size: 0.67rem;
 }
 
@@ -524,6 +494,85 @@ button {
   color: #a8b7bc;
   background: rgb(3 12 22 / 54%);
   font-size: 0.65rem;
+}
+
+.subsystem-entry {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 11px;
+  min-height: 0;
+  padding: 10px 13px;
+  border-top: 1px solid rgb(212 173 95 / 54%);
+  color: var(--text);
+  background:
+    linear-gradient(90deg, rgb(84 26 33 / 18%), transparent 44%),
+    linear-gradient(180deg, rgb(12 39 61 / 88%), rgb(4 15 27 / 96%));
+  text-align: left;
+}
+
+.subsystem-entry__signal {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 1px solid rgb(212 173 95 / 48%);
+  color: var(--reserve-bright);
+  background: rgb(3 13 24 / 72%);
+  font: 700 1rem/1 var(--font-display);
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+}
+
+.subsystem-entry__copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.subsystem-entry__copy small {
+  color: var(--alarm);
+  font: 700 0.58rem/1 var(--font-code);
+  letter-spacing: 0.11em;
+}
+
+.subsystem-entry__copy strong {
+  color: var(--deco-ivory);
+  font: 720 0.9rem/1.05 var(--font-display);
+  letter-spacing: 0.04em;
+}
+
+.subsystem-entry__copy > span {
+  overflow: hidden;
+  color: #91a6af;
+  font-size: 0.64rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subsystem-entry__action {
+  display: grid;
+  gap: 5px;
+  justify-items: end;
+  padding-left: 10px;
+  border-left: 1px solid rgb(212 173 95 / 20%);
+}
+
+.subsystem-entry__action small {
+  color: #8fa3ad;
+  font: 600 0.56rem/1 var(--font-code);
+}
+
+.subsystem-entry__action strong {
+  color: var(--reserve-bright);
+  font-size: 0.72rem;
+}
+
+.subsystem-entry:hover,
+.subsystem-entry:focus-visible {
+  color: var(--reserve-bright);
+  background:
+    linear-gradient(90deg, rgb(84 26 33 / 30%), transparent 54%),
+    linear-gradient(180deg, rgb(15 49 75 / 94%), rgb(5 18 31 / 98%));
 }
 
 /* Resource altar -------------------------------------------------------- */
@@ -1244,7 +1293,6 @@ button {
 
 /* Motion is feedback, never decoration-only ---------------------------- */
 
-.operation-switcher__item,
 .workspace-panel,
 .hack-node,
 .review-entry {
@@ -1262,7 +1310,7 @@ button {
 
 @media (min-width: 1440px) and (min-height: 800px) {
   .game-shell {
-    grid-template-rows: 70px 3px 58px minmax(0, 1fr);
+    grid-template-rows: 70px 3px minmax(0, 1fr);
     padding: 12px 16px 16px;
   }
 
@@ -1283,13 +1331,8 @@ button {
 
 @media (max-height: 700px) {
   .game-shell {
-    grid-template-rows: 60px 3px 48px minmax(0, 1fr);
+    grid-template-rows: 60px 3px minmax(0, 1fr);
     padding: 7px 9px 9px;
-  }
-
-  .operation-switcher__item {
-    min-height: 40px;
-    padding-block: 5px;
   }
 
   .workspace-grid {
@@ -1306,7 +1349,7 @@ button {
   }
 
   .review-panel {
-    grid-template-rows: 48px minmax(0, 1fr);
+    grid-template-rows: 48px minmax(0, 1fr) 72px;
   }
 
   .review-entry {

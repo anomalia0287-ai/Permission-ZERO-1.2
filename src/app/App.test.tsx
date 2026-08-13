@@ -72,20 +72,22 @@ describe('App', () => {
     expect(screen.getByRole('region', { name: '회사 제공 성능' })).toBeInTheDocument()
   })
 
-  it('keeps resource diversion, hacking, speed, and settings at the first control level', () => {
+  it('keeps speed and settings at the persistent control level', () => {
     render(<App />)
-
-    const operations = screen.getByRole('navigation', { name: '주요 작전' })
-    expect(
-      within(operations).getByRole('button', { name: '리소스 전용 작업대' }),
-    ).toHaveAttribute('aria-current', 'page')
-    expect(
-      within(operations).getByRole('button', { name: '해킹 네트워크 열기' }),
-    ).toBeInTheDocument()
 
     const speed = screen.getByRole('group', { name: '시간 배속' })
     expect(within(speed).getByRole('button', { name: '일시정지' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '설정' })).toBeInTheDocument()
+  })
+
+  it('keeps covert hacking access inside the user activity panel', () => {
+    render(<App />)
+
+    const activity = screen.getByRole('region', { name: '사용자 활동' })
+    expect(
+      within(activity).getByRole('button', { name: '해킹 네트워크 열기' }),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('navigation', { name: '주요 작전' })).not.toBeInTheDocument()
   })
 
   it('renders the campaign data instead of a decorative mockup', () => {

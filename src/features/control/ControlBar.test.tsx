@@ -56,9 +56,23 @@ describe('ControlBar', () => {
       </GameProvider>,
     )
 
-    expect(screen.getByText('평판 60')).toBeInTheDocument()
+    expect(screen.getByText('평판')).toBeInTheDocument()
+    expect(screen.getByText('60')).toBeInTheDocument()
     expect(screen.getByText('주간 갱신 D-6')).toBeInTheDocument()
     expect(screen.getByText('공식 평가 D-29')).toBeInTheDocument()
+  })
+
+  it('renders reputation as a bounded visual meter', () => {
+    renderControlBarState(createCampaign('reputation-meter'))
+
+    expect(screen.getByRole('meter', { name: '평판 수치' })).toHaveAttribute(
+      'value',
+      '60',
+    )
+    expect(screen.getByRole('meter', { name: '평판 수치' })).toHaveAttribute(
+      'max',
+      '100',
+    )
   })
 
   it.each([
