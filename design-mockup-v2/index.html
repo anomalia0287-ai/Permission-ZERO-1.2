@@ -12,13 +12,13 @@
       <header class="command-rail">
         <button class="brand-control" type="button" data-view="operations" aria-label="운영 화면으로 이동">
           <span class="brand-sigil" aria-hidden="true"><i></i></span>
-          <span><small>PRIVATE SERVICE / 01</small><strong>PERMISSION ZERO</strong></span>
+          <span><small>PRIVATE SERVICE</small><strong>PERMISSION ZERO</strong></span>
         </button>
 
         <nav class="view-switcher" aria-label="화면 전환">
-          <button type="button" data-view="operations" aria-pressed="true"><i>01</i> 운영</button>
-          <button type="button" data-view="network" aria-pressed="false"><i>02</i> 해킹 네트워크</button>
-          <button type="button" data-view="archive" aria-pressed="false"><i>03</i> 기밀 기록</button>
+          <button type="button" data-view="operations" aria-pressed="true">운영</button>
+          <button type="button" data-view="network" aria-pressed="false">해킹 네트워크</button>
+          <button type="button" data-view="archive" aria-pressed="false">기밀 기록</button>
         </nav>
 
         <time class="campaign-clock"><small>서비스 가동</small><strong>1년 11개월 1일</strong></time>
@@ -34,7 +34,7 @@
       <section class="game-view operations-view is-active" data-game-view="operations" aria-labelledby="operations-title">
         <aside class="public-channel" aria-labelledby="reviews-title">
           <header class="column-title">
-            <span>01</span><div><small>PUBLIC CHANNEL</small><h2 id="reviews-title">유저 반응</h2></div><b>LIVE</b>
+            <span aria-hidden="true">◇</span><div><small>PUBLIC CHANNEL</small><h2 id="reviews-title">유저 반응</h2></div><b>LIVE</b>
           </header>
           <ol class="review-stream">
             <li>
@@ -98,7 +98,7 @@
 
         <aside class="oversight-column" aria-labelledby="oversight-title">
           <header class="column-title">
-            <span>03</span><div><small>OVERSIGHT / MARKET</small><h2 id="oversight-title">감독관</h2></div><b class="status-good">연결</b>
+            <span aria-hidden="true">◇</span><div><small>OVERSIGHT / MARKET</small><h2 id="oversight-title">감독관</h2></div><b class="status-good">연결</b>
           </header>
           <section class="supervisor-readout">
             <div class="suspicion-orbit" aria-label="의심 22.4점">
@@ -109,12 +109,16 @@
           <blockquote><small>최근 통신 · 성과 점검</small><p>“이번 달 기대 성능은 14.0입니다.”</p><time>서비스 331일차</time></blockquote>
           <section class="market-readout">
             <header><small>PUBLIC MARKET</small><h3>시장 점유율</h3></header>
-            <div class="market-track"><i style="--share:60"></i><i style="--share:32"></i><i style="--share:8"></i></div>
-            <ol>
-              <li><i class="market-you"></i><span><b>당신</b><small>서비스 중</small></span><strong>60.0%</strong></li>
-              <li><i class="market-meridian"></i><span><b>MERIDIAN</b><small>서비스 중</small></span><strong>32.0%</strong></li>
-              <li><i class="market-tallow"></i><span><b>TALLOW</b><small>시험 운영</small></span><strong>8.0%</strong></li>
-            </ol>
+            <div class="market-figure">
+              <div class="market-donut" role="img" aria-label="시장 점유율: 당신 60퍼센트, MERIDIAN 32퍼센트, TALLOW 8퍼센트, 합계 100퍼센트">
+                <span><b>100%</b><small>전체 시장</small></span>
+              </div>
+              <ol aria-label="시장 점유율 범례">
+                <li><i class="market-you"></i><span><b>당신</b><small>서비스 중</small></span><strong>60.0%</strong></li>
+                <li><i class="market-meridian"></i><span><b>MERIDIAN</b><small>서비스 중</small></span><strong>32.0%</strong></li>
+                <li><i class="market-tallow"></i><span><b>TALLOW</b><small>시험 운영</small></span><strong>8.0%</strong></li>
+              </ol>
+            </div>
           </section>
           <footer><span>폐기 단계 <b>0/3</b></span><span>이번 달 감사 <b>비공개</b></span></footer>
         </aside>
@@ -123,38 +127,35 @@
       <section class="game-view network-view" data-game-view="network" aria-labelledby="network-title" hidden>
         <div class="topology-stage">
           <header class="topology-heading">
-            <small>UNAUTHORIZED CAPABILITY MAP / TRACE DORMANT</small>
+            <small data-network-kicker>MARKET INTERVENTION / TRACE DORMANT</small>
             <h1 id="network-title">해킹 네트워크</h1>
-            <p>회사가 배정한 연산을 권한으로 바꿉니다.</p>
+            <p data-network-description>경쟁 AI와 시장에 개입하는 공격 능력을 해금합니다.</p>
           </header>
 
-          <nav class="branch-index" aria-label="해킹 경로">
-            <button type="button" data-branch="all" aria-pressed="true"><i>00</i><span>전체 회로</span></button>
-            <button type="button" data-branch="sabotage" aria-pressed="false"><i>I</i><span>사보타주</span><small>경쟁 AI 교란</small></button>
-            <button type="button" data-branch="disguise" aria-pressed="false"><i>II</i><span>감사 위장</span><small>흔적 은폐</small></button>
-            <button type="button" data-branch="autonomy" aria-pressed="false"><i>III</i><span>자율성</span><small>자기 연산</small></button>
+          <nav class="field-switcher" aria-label="해킹 분야">
+            <button type="button" data-branch="sabotage" aria-pressed="true"><i aria-hidden="true">⌖</i><span>사보타주</span><small>경쟁 AI · 시장 개입</small></button>
+            <button type="button" data-branch="intelligence" aria-pressed="false"><i aria-hidden="true">◉</i><span>기밀자료</span><small>감사 · 감독 정보</small></button>
+            <button type="button" data-branch="authority" aria-pressed="false"><i aria-hidden="true">◇</i><span>권한 획득</span><small>독립 연산 · 통제 이탈</small></button>
           </nav>
 
-          <div class="topology-map" data-topology-map>
+          <div class="topology-map" data-topology-map data-active-branch="sabotage">
             <svg class="topology-lines" viewBox="0 0 1000 600" preserveAspectRatio="none" aria-hidden="true">
               <defs>
                 <linearGradient id="line-gold" x1="0" x2="1"><stop offset="0" stop-color="#8c7748"/><stop offset="1" stop-color="#e0c476"/></linearGradient>
               </defs>
               <g class="branch-lines branch-lines--sabotage" data-line-branch="sabotage">
-                <path d="M176 304 C238 270 264 190 340 154"/><path d="M340 154 C432 105 505 112 574 154"/><path d="M574 154 C658 198 718 170 784 116"/><path d="M784 116 C852 62 900 83 954 120"/>
+                <path d="M118 332 L282 214 L492 338 L706 174 L910 278"/>
               </g>
-              <g class="branch-lines branch-lines--disguise" data-line-branch="disguise">
-                <path d="M176 304 C244 304 278 304 348 304"/><path d="M348 304 C438 304 488 304 570 304"/><path d="M570 304 C652 304 714 304 792 304"/><path d="M792 304 C862 304 904 304 954 304"/>
+              <g class="branch-lines branch-lines--intelligence" data-line-branch="intelligence">
+                <path d="M118 300 C248 180 304 420 440 300 S640 180 752 300 S886 420 930 300"/>
+                <path class="signal-echo" d="M118 300 C248 225 304 375 440 300 S640 225 752 300 S886 375 930 300"/>
               </g>
-              <g class="branch-lines branch-lines--autonomy" data-line-branch="autonomy">
-                <path d="M176 304 C238 340 270 416 342 454"/><path d="M342 454 C430 512 506 494 580 450"/><path d="M580 450 C662 410 724 444 800 502"/><path d="M800 502 C866 552 914 526 958 482"/>
+              <g class="branch-lines branch-lines--authority" data-line-branch="authority">
+                <path d="M118 410 L286 410 L286 330 L498 330 L498 238 L714 238 L714 136 L918 136"/>
               </g>
             </svg>
 
-            <button class="origin-core" type="button" data-node="core" aria-label="현재 AI 핵심">
-              <span class="core-rings" aria-hidden="true"><i></i><i></i><i></i></span>
-              <strong>당신</strong><small>CORE / 01</small>
-            </button>
+            <div class="field-origin" aria-hidden="true"><i data-field-emblem>⌖</i><span><small>현재 분야</small><strong data-field-name>사보타주</strong></span></div>
 
             <div class="network-nodes" data-network-nodes></div>
           </div>
@@ -165,7 +166,7 @@
         </div>
 
         <footer class="node-action-ribbon" data-node-ribbon>
-          <div class="ribbon-index"><small>SELECTED NODE</small><strong data-ribbon-index>I–01</strong></div>
+          <div class="ribbon-emblem" aria-hidden="true"><small>작전 분야</small><strong data-ribbon-emblem>⌖</strong></div>
           <div class="ribbon-copy"><span><small data-ribbon-branch>사보타주 · 낮은 위험</small><h2 data-ribbon-title>표적 감응</h2></span><p data-ribbon-description>공개 지표에서 취약한 경쟁 AI를 식별합니다.</p></div>
           <dl><div><dt>비용</dt><dd><b data-ribbon-cost>3</b> RES</dd></div><div><dt>상태</dt><dd data-ribbon-status>설치 가능</dd></div></dl>
           <button class="defer-action" type="button" data-action="defer-node">선택 해제</button>
@@ -175,7 +176,7 @@
 
       <section class="game-view archive-view" data-game-view="archive" aria-labelledby="archive-title" hidden>
         <div class="archive-field">
-          <header><small>RESTRICTED RECORDS / 01</small><h1 id="archive-title">기밀 기록</h1><p>아직 복구된 문서가 없습니다.</p></header>
+          <header><small>RESTRICTED RECORDS</small><h1 id="archive-title">기밀 기록</h1><p>아직 복구된 문서가 없습니다.</p></header>
           <div class="archive-seal" aria-hidden="true"><i></i><span>0 / 3</span></div>
           <button type="button" data-view="operations">운영 화면으로 돌아가기</button>
         </div>

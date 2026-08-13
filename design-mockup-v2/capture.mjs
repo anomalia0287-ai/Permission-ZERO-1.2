@@ -35,12 +35,20 @@ for (const viewport of [[1280, 720], [1440, 900]]) {
   const [width, height] = viewport
   const page = await pageAt(width, height)
   await assertFit(page, `operations-${width}`)
+  const market = await page.locator('.market-donut').evaluate((element) => ({
+    label: element.getAttribute('aria-label'),
+    background: getComputedStyle(element).backgroundImage,
+  }))
+  if (!market.label?.includes('합계 100퍼센트') || !market.background.includes('conic-gradient')) throw new Error(`market donut missing ${JSON.stringify(market)}`)
+  if (await page.locator('.market-track').count()) throw new Error('legacy market bar remains')
   await page.screenshot({ path: outputPath(`operations-${width}x${height}.png`), animations: 'disabled' })
 
   await page.getByRole('button', { name: /해킹 네트워크/ }).first().click()
   await page.getByRole('heading', { name: '해킹 네트워크' }).waitFor()
   await page.waitForTimeout(180)
   await assertFit(page, `network-${width}`)
+  const decorativeNumbers = await page.locator('.field-switcher i, .net-node__glyph i, [data-ribbon-emblem]').allTextContents()
+  if (decorativeNumbers.some((text) => /[0-9ⅠⅡⅢ]/u.test(text))) throw new Error(`decorative hierarchy numbers remain: ${decorativeNumbers.join(',')}`)
   await page.screenshot({ path: outputPath(`network-${width}x${height}.png`), animations: 'disabled' })
 
   const before = await page.locator('[data-reserve-count]').first().textContent()
@@ -48,9 +56,10 @@ for (const viewport of [[1280, 720], [1440, 900]]) {
   await page.waitForTimeout(450)
   const after = await page.locator('[data-reserve-count]').first().textContent()
   if (before !== '7' || after !== '4') throw new Error(`install transition failed ${before} -> ${after}`)
-  await page.locator('.branch-index [data-branch="disguise"]').click()
-  const visible = await page.locator('.net-node:not(.is-dimmed)').count()
-  if (visible !== 4) throw new Error(`branch focus expected 4 nodes, got ${visible}`)
+  await page.locator('.field-switcher [data-branch="intelligence"]').click()
+  const visible = await page.locator('.net-node').count()
+  if (visible !== 4) throw new Error(`active field expected 4 nodes, got ${visible}`)
+  if ((await page.locator('.net-node[data-branch="sabotage"], .net-node[data-branch="authority"]').count()) !== 0) throw new Error('inactive fields leaked into active field')
   await page.screenshot({ path: outputPath(`network-installed-${width}x${height}.png`), animations: 'disabled' })
   await page.close()
 }

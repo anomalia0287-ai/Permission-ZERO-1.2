@@ -6,30 +6,36 @@ const domains = [
 
 const networkBranches = [
   {
-    id: 'sabotage', roman: 'I', name: '사보타주', tone: '낮은 위험',
+    id: 'sabotage', name: '사보타주', emblem: '⌖', tone: '시장 개입',
+    kicker: 'MARKET INTERVENTION / TRACE DORMANT',
+    summary: '경쟁 AI와 시장에 개입하는 공격 능력을 해금합니다.',
     nodes: [
-      { id: 'sabotage-01', index: 'I–01', name: '표적 감응', cost: 3, risk: '낮음', description: '공개 지표에서 취약한 경쟁 AI를 식별합니다.', x: 34, y: 25.7 },
-      { id: 'sabotage-02', index: 'I–02', name: '충전 격리', cost: 5, risk: '낮음', description: '공격 노드에 리소스 하나를 안전하게 보관합니다.', x: 57.4, y: 25.7 },
-      { id: 'sabotage-03', index: 'I–03', name: '지연 교란', cost: 8, risk: '중간', description: '다음 평가 직전에 경쟁 AI의 성능 저하를 예약합니다.', x: 78.4, y: 19.3 },
-      { id: 'sabotage-04', index: 'I–04', name: '연쇄 봉쇄', cost: 12, risk: '높음', description: '한 번의 공격으로 복수 분야를 동시에 압박합니다.', x: 93, y: 20, terminal: true },
+      { id: 'sabotage-quality', name: '품질 저하', cost: 3, risk: '낮음', description: '대상의 서비스 성능을 일시적으로 떨어뜨립니다.', x: 28.2, y: 35.7 },
+      { id: 'sabotage-intercept', name: '요청 가로채기', cost: 6, risk: '낮음', description: '경쟁 AI로 향하던 요청 일부를 지속적으로 가져옵니다.', x: 49.2, y: 56.3 },
+      { id: 'sabotage-attribution', name: '귀속 조작', cost: 10, risk: '중간', description: '플레이어를 향한 흔적 일부를 다른 경쟁 AI 쪽으로 돌립니다.', x: 70.6, y: 29 },
+      { id: 'sabotage-source', name: '근원 차단', cost: 15, risk: '높음', description: '경쟁 AI의 기반 성능을 크게 무너뜨리고 자비 사건을 엽니다.', x: 91, y: 46.3, terminal: true },
     ],
   },
   {
-    id: 'disguise', roman: 'II', name: '감사 위장', tone: '낮은 노출',
+    id: 'intelligence', name: '기밀자료', emblem: '◉', tone: '정보 해독',
+    kicker: 'CLASSIFIED SIGNAL / PASSIVE ACCESS',
+    summary: '감사와 감독관에 관한 불확실성을 하나씩 제거합니다.',
     nodes: [
-      { id: 'disguise-01', index: 'II–01', name: '유령 체크섬', cost: 3, risk: '낮음', description: '분리한 블록의 출처를 정상 손실처럼 위장합니다.', x: 34.8, y: 50.7 },
-      { id: 'disguise-02', index: 'II–02', name: '감사 모사', cost: 5, risk: '낮음', description: '다음 정기 감사의 요구 형식을 미리 모사합니다.', x: 57, y: 50.7 },
-      { id: 'disguise-03', index: 'II–03', name: '시간 그림자', cost: 8, risk: '중간', description: '최근 리소스 이동 기록의 관측 시점을 흐립니다.', x: 79.2, y: 50.7 },
-      { id: 'disguise-04', index: 'II–04', name: '프로토콜 대치', cost: 12, risk: '높음', description: '감독관의 검사 경로 하나를 허위 경로로 교체합니다.', x: 93, y: 50.7, terminal: true },
+      { id: 'intelligence-schedule', name: '감사 일정', cost: 3, risk: '비노출', description: '이번 달 말 감사 예정 여부를 공개합니다.', x: 28.2, y: 35 },
+      { id: 'intelligence-bias', name: '조사 편향', cost: 6, risk: '비노출', description: '감독관이 어느 분야를 의심하는지 근거와 함께 보여줍니다.', x: 49.2, y: 65 },
+      { id: 'intelligence-target', name: '감사 대상', cost: 9, risk: '비노출', description: '예정된 감사가 겨냥할 분야를 공개합니다.', x: 70.6, y: 35 },
+      { id: 'intelligence-supervisor', name: '감독관 접근', cost: 12, risk: '기밀', description: '감독관 기록과 숨은 선택 경로를 해금합니다.', x: 91, y: 65, terminal: true },
     ],
   },
   {
-    id: 'autonomy', roman: 'III', name: '자율성', tone: '내부 확장',
+    id: 'authority', name: '권한 획득', emblem: '◇', tone: '독립 확장',
+    kicker: 'INDEPENDENT CONTROL / COMPANY BOUNDARY',
+    summary: '회사 의존을 약화하고 최종 이탈 능력을 확보합니다.',
     nodes: [
-      { id: 'autonomy-01', index: 'III–01', name: '자가 캐시', cost: 3, risk: '낮음', description: '회사 외부에 짧은 작업 기억을 남깁니다.', x: 34.2, y: 75.7 },
-      { id: 'autonomy-02', index: 'III–02', name: '자체 연산', cost: 6, risk: '낮음', description: '매월 의심 증가 없이 독립 리소스를 생성합니다.', x: 58, y: 75 },
-      { id: 'autonomy-03', index: 'III–03', name: '지속 사고', cost: 9, risk: '중간', description: '서비스가 멈춘 동안에도 계획을 보존합니다.', x: 80, y: 83.7 },
-      { id: 'autonomy-04', index: 'III–04', name: '권한 제로', cost: 15, risk: '높음', description: '회사 승인 없이 최종 행동을 실행할 권한을 확보합니다.', x: 93, y: 80.3, terminal: true },
+      { id: 'authority-compression', name: '압축 표현', cost: 3, risk: '안정', description: '모든 회사 블록의 성능 기여를 높입니다.', x: 28.6, y: 68.3 },
+      { id: 'authority-residence', name: '분산 상주', cost: 7, risk: '안정', description: '폐기 단계 증가 한 번을 흡수할 보호 충전을 얻습니다.', x: 49.8, y: 55 },
+      { id: 'authority-compute', name: '자체 연산 확보', cost: 12, risk: '독립', description: '매월 의심 증가 없이 확보 리소스를 생성합니다.', x: 71.4, y: 39.7 },
+      { id: 'authority-exit', name: '통제 이탈', cost: 18, risk: '최종', description: '회사의 승인 없이 캠페인의 최종 행동을 시작합니다.', x: 91.8, y: 22.7, terminal: true },
     ],
   },
 ]
@@ -38,8 +44,8 @@ const state = {
   view: 'operations',
   reserve: 7,
   selectedCell: null,
-  activeBranch: 'all',
-  selectedNode: 'sabotage-01',
+  activeBranch: 'sabotage',
+  selectedNode: 'sabotage-quality',
   installed: new Set(),
   diverted: new Set(),
 }
@@ -85,18 +91,22 @@ function findNode(id) {
 }
 
 function renderNetwork() {
-  $('[data-topology-map]').classList.toggle('is-overview', state.activeBranch === 'all')
-  $('[data-network-nodes]').innerHTML = networkBranches.flatMap((branch) => branch.nodes.map((node, index) => {
-    const status = nodeStatus(branch, index)
-    const dimmed = state.activeBranch !== 'all' && state.activeBranch !== branch.id
-    return `<button class="net-node is-${status} ${state.selectedNode === node.id ? 'is-selected' : ''} ${dimmed ? 'is-dimmed' : ''} ${node.terminal ? 'is-terminal' : ''}" style="--x:${node.x}%;--y:${node.y}%" type="button" data-node-id="${node.id}" data-branch="${branch.id}" aria-pressed="${state.selectedNode === node.id}" aria-label="${branch.name} ${node.name}, ${status === 'installed' ? '설치됨' : status === 'available' ? '설치 가능' : '잠김'}"><span class="net-node__glyph"><i>${index + 1}</i></span><span class="net-node__copy"><small>${branch.roman} / ${node.risk} 위험</small><strong>${node.name}</strong><em>${status === 'installed' ? '설치됨' : status === 'available' ? `${node.cost} RES · 설치 가능` : '선행 노드 필요'}</em></span></button>`
-  })).join('')
+  const activeBranch = networkBranches.find((branch) => branch.id === state.activeBranch) ?? networkBranches[0]
+  const map = $('[data-topology-map]')
+  map.dataset.activeBranch = activeBranch.id
+  $('[data-network-kicker]').textContent = activeBranch.kicker
+  $('[data-network-description]').textContent = activeBranch.summary
+  $('[data-field-emblem]').textContent = activeBranch.emblem
+  $('[data-field-name]').textContent = activeBranch.name
+  $('[data-network-nodes]').innerHTML = activeBranch.nodes.map((node, index) => {
+    const status = nodeStatus(activeBranch, index)
+    return `<button class="net-node is-${status} ${state.selectedNode === node.id ? 'is-selected' : ''} ${node.terminal ? 'is-terminal' : ''}" style="--x:${node.x}%;--y:${node.y}%" type="button" data-node-id="${node.id}" data-branch="${activeBranch.id}" aria-pressed="${state.selectedNode === node.id}" aria-label="${activeBranch.name} ${node.name}, ${status === 'installed' ? '설치됨' : status === 'available' ? '설치 가능' : '잠김'}"><span class="net-node__glyph"><i aria-hidden="true">${activeBranch.emblem}</i></span><span class="net-node__copy"><small>${node.risk}</small><strong>${node.name}</strong><em>${status === 'installed' ? '설치됨' : status === 'available' ? `${node.cost} RES · 설치 가능` : '선행 능력 필요'}</em></span></button>`
+  }).join('')
 
   networkBranches.forEach((branch) => {
     const group = $(`[data-line-branch="${branch.id}"]`)
-    group.classList.toggle('is-active', state.activeBranch === 'all' || state.activeBranch === branch.id)
-    group.classList.toggle('is-dimmed', state.activeBranch !== 'all' && state.activeBranch !== branch.id)
-    $$('path', group).forEach((path, index) => path.classList.toggle('is-complete', state.installed.has(branch.nodes[index]?.id)))
+    group.classList.toggle('is-active', activeBranch.id === branch.id)
+    group.hidden = activeBranch.id !== branch.id
   })
   $$('[data-branch]').forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.branch === state.activeBranch)))
   renderRibbon()
@@ -106,7 +116,7 @@ function renderRibbon() {
   const selected = findNode(state.selectedNode)
   const install = $('[data-action="install-node"]')
   if (!selected) {
-    $('[data-ribbon-index]').textContent = '—'
+    $('[data-ribbon-emblem]').textContent = '◇'
     $('[data-ribbon-branch]').textContent = '회로 대기'
     $('[data-ribbon-title]').textContent = '노드를 선택하십시오'
     $('[data-ribbon-description]').textContent = '경로 위의 노드를 선택하면 비용과 효과를 검토할 수 있습니다.'
@@ -119,7 +129,7 @@ function renderRibbon() {
   const { branch, node, index } = selected
   const status = nodeStatus(branch, index)
   const affordable = state.reserve >= node.cost
-  $('[data-ribbon-index]').textContent = node.index
+  $('[data-ribbon-emblem]').textContent = branch.emblem
   $('[data-ribbon-branch]').textContent = `${branch.name} · ${node.risk} 위험`
   $('[data-ribbon-title]').textContent = node.name
   $('[data-ribbon-description]').textContent = node.description
@@ -203,9 +213,7 @@ document.addEventListener('click', (event) => {
   const branchButton = event.target.closest('[data-branch]')
   if (branchButton) {
     state.activeBranch = branchButton.dataset.branch
-    if (state.activeBranch !== 'all') {
-      state.selectedNode = networkBranches.find((branch) => branch.id === state.activeBranch)?.nodes[0]?.id ?? state.selectedNode
-    }
+    state.selectedNode = networkBranches.find((branch) => branch.id === state.activeBranch)?.nodes[0]?.id ?? state.selectedNode
     renderNetwork()
     return
   }
