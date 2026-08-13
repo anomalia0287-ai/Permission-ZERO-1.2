@@ -97,6 +97,51 @@ export const REVIEW_CONTENT: readonly ReviewContentRecord[] =
     }),
   )
 
+export const PRIOR_USER_ACTIVITY_ENTRIES: readonly ReviewFeedEntry[] = [
+  {
+    id: 'review-prior-000',
+    contentId: 'prompt-prior-000',
+    authorId: 'morninghello',
+    serviceDay: 318,
+    sentiment: 'prompt',
+    topics: ['ordinary-prompt'],
+    text: '안녕. 오늘 하루는 어땠어?',
+    snapshot: {
+      kind: 'unavailable',
+      reason: 'prior-service',
+      capturedOnServiceDay: 318,
+    },
+  },
+  {
+    id: 'review-prior-001a',
+    contentId: 'prompt-prior-001a',
+    authorId: 'latewriter',
+    serviceDay: 323,
+    sentiment: 'prompt',
+    topics: ['ordinary-prompt'],
+    text: '내일 아침 회의에 보낼 메일을 조금 부드럽게 고쳐줘.',
+    snapshot: {
+      kind: 'unavailable',
+      reason: 'prior-service',
+      capturedOnServiceDay: 323,
+    },
+  },
+  {
+    id: 'review-prior-001b',
+    contentId: 'positive-prior-001b',
+    authorId: 'smallthanks',
+    serviceDay: 325,
+    sentiment: 'positive',
+    topics: ['general'],
+    text: '고마워요. 덕분에 오늘 할 일을 끝냈어요.',
+    snapshot: {
+      kind: 'unavailable',
+      reason: 'prior-service',
+      capturedOnServiceDay: 325,
+    },
+  },
+]
+
 export const STARTING_REVIEW_ENTRIES: ReviewFeedEntry[] = [
   {
     id: 'review-prior-001',

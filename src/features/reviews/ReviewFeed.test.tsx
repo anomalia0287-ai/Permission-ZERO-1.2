@@ -64,14 +64,17 @@ describe('ReviewFeed', () => {
     render(
       <GameProvider storage={new MemoryStorage()} initialSeed="reviews-detail-pointer">
         <div data-app-background>
-          <ReviewFeed onOpenHistory={vi.fn()} onOpenHacking={vi.fn()} />
+          <ReviewFeed onOpenHistory={vi.fn()} />
         </div>
       </GameProvider>,
     )
     const reviewButtons = screen.getAllByRole('button', { name: /리뷰 상세 보기/ })
-    expect(reviewButtons).toHaveLength(2)
-    reviewButtons[0].focus()
-    fireEvent.click(reviewButtons[0])
+    expect(reviewButtons).toHaveLength(5)
+    const windowseatTrigger = screen.getByRole('button', {
+      name: 'windowseat 리뷰 상세 보기',
+    })
+    windowseatTrigger.focus()
+    fireEvent.click(windowseatTrigger)
 
     const dialog = await screen.findByRole('dialog', { name: '유저 리뷰 상세' })
     const detail = within(dialog)
@@ -85,18 +88,18 @@ describe('ReviewFeed', () => {
     expect(document.querySelector('[data-app-background]')).toHaveAttribute('inert')
 
     fireEvent.click(screen.getByRole('button', { name: '리뷰 상세 닫기' }))
-    await waitFor(() => expect(reviewButtons[0]).toHaveFocus())
+    await waitFor(() => expect(windowseatTrigger).toHaveFocus())
   })
 
   it('opens by keyboard, traps Tab, closes with Escape, and restores the exact trigger', async () => {
     render(
       <GameProvider storage={new MemoryStorage()} initialSeed="reviews-detail-keyboard">
         <div data-app-background>
-          <ReviewFeed onOpenHistory={vi.fn()} onOpenHacking={vi.fn()} />
+          <ReviewFeed onOpenHistory={vi.fn()} />
         </div>
       </GameProvider>,
     )
-    const trigger = screen.getAllByRole('button', { name: /리뷰 상세 보기/ })[1]
+    const trigger = screen.getByRole('button', { name: 'oldpine 리뷰 상세 보기' })
     trigger.focus()
     fireEvent.keyDown(trigger, { key: 'Enter' })
     fireEvent.click(trigger)
@@ -116,7 +119,7 @@ describe('ReviewFeed', () => {
       <StateContext value={nextState}>
         <div data-app-background>
           {fallback}
-          <ReviewFeed onOpenHistory={vi.fn()} onOpenHacking={vi.fn()} />
+          <ReviewFeed onOpenHistory={vi.fn()} />
         </div>
       </StateContext>
     )
@@ -188,7 +191,7 @@ describe('ReviewFeed', () => {
           <StateContext value={{ ...base, activeEvent: active }}>
             <div data-app-background>
               <button data-app-focus-fallback>작업 화면 포커스</button>
-              <ReviewFeed onOpenHistory={vi.fn()} onOpenHacking={vi.fn()} />
+              <ReviewFeed onOpenHistory={vi.fn()} />
             </div>
             <EventLayer />
           </StateContext>
@@ -242,11 +245,13 @@ describe('ReviewFeed', () => {
     render(
       <StateContext value={state}>
         <div data-app-background>
-          <ReviewFeed onOpenHistory={vi.fn()} onOpenHacking={vi.fn()} />
+          <ReviewFeed onOpenHistory={vi.fn()} />
         </div>
       </StateContext>,
     )
-    fireEvent.click(screen.getByRole('button', { name: /리뷰 상세 보기/ }))
+    fireEvent.click(
+      screen.getByRole('button', { name: 'archivecat 리뷰 상세 보기' }),
+    )
 
     const snapshot = within(screen.getByRole('region', { name: '당시 공개 상태' }))
     expect(snapshot.getByText('기억')).toBeInTheDocument()
@@ -259,11 +264,11 @@ describe('ReviewFeed', () => {
     const onOpenHistory = vi.fn()
     render(
       <GameProvider storage={new MemoryStorage()} initialSeed="reviews-ui">
-        <ReviewFeed onOpenHistory={onOpenHistory} onOpenHacking={vi.fn()} />
+        <ReviewFeed onOpenHistory={onOpenHistory} />
       </GameProvider>,
     )
 
-    expect(screen.getByRole('region', { name: '유저 리뷰' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: '사용자 활동' })).toBeInTheDocument()
     expect(screen.getByText('windowseat')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '전체 리뷰 기록' }))
     expect(onOpenHistory).toHaveBeenCalledTimes(1)
@@ -281,7 +286,7 @@ describe('ReviewFeed', () => {
     expect(screen.getByText('서비스 0년 10개월 21일')).toBeInTheDocument()
     expect(screen.queryByText(/DAY \d+/)).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '프롬프트만 보기' }))
-    expect(screen.getByText('조건에 맞는 리뷰가 없습니다.')).toBeInTheDocument()
+    expect(screen.getByText('안녕. 오늘 하루는 어땠어?')).toBeInTheDocument()
   })
 
   it('windows a long review archive while keeping older pages reachable', () => {

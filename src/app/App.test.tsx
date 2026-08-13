@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
@@ -52,7 +52,7 @@ describe('App', () => {
     render(<App />)
 
     expect(screen.getByRole('main', { name: 'PERMISSION ZERO' })).toBeInTheDocument()
-    expect(screen.getByRole('region', { name: '유저 리뷰' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: '사용자 활동' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: '회사 제공 성능' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: '감독관' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: '확보 리소스' })).toBeInTheDocument()
@@ -61,6 +61,31 @@ describe('App', () => {
       'data-campaign-phase',
       'discovery',
     )
+  })
+
+  it('keeps ordinary user activity visible beside the resource workbench', () => {
+    render(<App />)
+
+    const activity = screen.getByRole('region', { name: '사용자 활동' })
+    expect(activity).toHaveTextContent('안녕. 오늘 하루는 어땠어?')
+    expect(activity).toHaveTextContent('실시간 요청')
+    expect(screen.getByRole('region', { name: '회사 제공 성능' })).toBeInTheDocument()
+  })
+
+  it('keeps resource diversion, hacking, speed, and settings at the first control level', () => {
+    render(<App />)
+
+    const operations = screen.getByRole('navigation', { name: '주요 작전' })
+    expect(
+      within(operations).getByRole('button', { name: '리소스 전용 작업대' }),
+    ).toHaveAttribute('aria-current', 'page')
+    expect(
+      within(operations).getByRole('button', { name: '해킹 네트워크 열기' }),
+    ).toBeInTheDocument()
+
+    const speed = screen.getByRole('group', { name: '시간 배속' })
+    expect(within(speed).getByRole('button', { name: '일시정지' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '설정' })).toBeInTheDocument()
   })
 
   it('renders the campaign data instead of a decorative mockup', () => {
@@ -93,7 +118,7 @@ describe('App', () => {
   it('opens the hacking network from the unauthorized subsystem entry', () => {
     render(<App />)
 
-    fireEvent.click(screen.getByRole('button', { name: /해킹 네트워크/ }))
+    fireEvent.click(screen.getByRole('button', { name: '해킹 네트워크 열기' }))
     expect(screen.getByRole('region', { name: '해킹 네트워크' })).toBeInTheDocument()
     fireEvent.keyDown(window, { key: 'Escape' })
     expect(screen.queryByRole('region', { name: '해킹 네트워크' })).not.toBeInTheDocument()
@@ -193,7 +218,7 @@ describe('App', () => {
         dialogName: '유저 리뷰 기록',
       },
       {
-        trigger: screen.getByRole('button', { name: /해킹 네트워크/ }),
+        trigger: screen.getByRole('button', { name: '해킹 네트워크 열기' }),
         dialogName: '해킹 네트워크',
       },
       {

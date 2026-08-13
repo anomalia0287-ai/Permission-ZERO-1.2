@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 
 import { AccessibleDialog } from '../../app/AccessibleDialog'
 import { useGameState } from '../../app/GameContext'
+import { PRIOR_USER_ACTIVITY_ENTRIES } from '../../content/reviews.ko'
 import { formatServiceDateLabel } from '../../game/calendar'
 import type { ReviewFeedEntry, ReviewSentiment } from '../../game/model'
 import { pageFromNewest } from '../../game/pageRange'
@@ -13,6 +14,14 @@ import {
 } from '../../game/publicLabels'
 
 const HISTORY_PAGE_SIZE = 50
+
+function includePriorUserActivity(
+  reviews: readonly ReviewFeedEntry[],
+): ReviewFeedEntry[] {
+  return [...reviews, ...PRIOR_USER_ACTIVITY_ENTRIES].sort(
+    (left, right) => left.serviceDay - right.serviceDay || left.id.localeCompare(right.id),
+  )
+}
 
 function ReviewDetail({
   review,
@@ -131,6 +140,9 @@ function ReviewEntry({
       aria-label={`${review.authorId} 리뷰 상세 보기`}
       onClick={(event) => onOpen(review, event.currentTarget)}
     >
+      <span className="review-entry__kind">
+        {review.sentiment === 'prompt' ? '실시간 요청' : '사용자 반응'}
+      </span>
       <span className="review-entry__header">
         <strong>{review.authorId}</strong>
         <span>{publicReviewSentimentLabel(review.sentiment)}</span>
@@ -143,12 +155,14 @@ function ReviewEntry({
 
 export function ReviewFeed({
   onOpenHistory,
-  onOpenHacking,
 }: {
   onOpenHistory: (trigger: HTMLButtonElement) => void
-  onOpenHacking: (trigger: HTMLButtonElement) => void
 }) {
-  const reviews = pageFromNewest(useGameState().reviews.feed, 0, 6).items
+  const reviews = pageFromNewest(
+    includePriorUserActivity(useGameState().reviews.feed),
+    0,
+    6,
+  ).items
   const [selectedReview, setSelectedReview] = useState<ReviewFeedEntry | null>(null)
   const detailReturnFocusRef = useRef<HTMLButtonElement | null>(null)
 
@@ -159,12 +173,12 @@ export function ReviewFeed({
 
   return (
     <>
-    <section className="workspace-panel review-panel" aria-label="유저 리뷰">
+    <section className="workspace-panel review-panel" aria-label="사용자 활동">
       <header className="panel-heading panel-heading--action">
         <span className="panel-index">01</span>
         <div>
-          <h2>유저 리뷰</h2>
-          <p>PUBLIC RESPONSE STREAM</p>
+          <h2>사용자 활동</h2>
+          <p>PROMPTS / REVIEWS</p>
         </div>
         <button
           type="button"
@@ -179,17 +193,6 @@ export function ReviewFeed({
           <ReviewEntry review={review} key={review.id} onOpen={openReview} />
         ))}
       </div>
-      <button
-        className="subsystem-entry"
-        type="button"
-        onClick={(event) => onOpenHacking(event.currentTarget)}
-      >
-        <span>
-          <small>비인가 서브시스템</small>
-          해킹 네트워크
-        </span>
-        <span aria-hidden="true">접속 ↗</span>
-      </button>
     </section>
     {selectedReview ? (
       <ReviewDetail
@@ -203,7 +206,7 @@ export function ReviewFeed({
 }
 
 export function ReviewHistoryPanel({ onClose }: { onClose: () => void }) {
-  const reviews = useGameState().reviews.feed
+  const reviews = includePriorUserActivity(useGameState().reviews.feed)
   const [filter, setFilter] = useState<'all' | ReviewSentiment>('all')
   const [page, setPage] = useState(0)
   const [selectedReview, setSelectedReview] = useState<ReviewFeedEntry | null>(null)

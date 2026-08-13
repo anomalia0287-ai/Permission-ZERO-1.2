@@ -462,7 +462,7 @@ test('keeps the full operations workspace usable at the configured release viewp
   await openFreshCampaign(page)
 
   await expect(page.getByRole('main', { name: 'PERMISSION ZERO' })).toBeVisible()
-  await expect(page.getByRole('region', { name: '유저 리뷰' })).toBeVisible()
+  await expect(page.getByRole('region', { name: '사용자 활동' })).toBeVisible()
   await expect(page.getByRole('region', { name: '회사 제공 성능' })).toBeVisible()
   await expect(page.getByRole('region', { name: '감독관' })).toBeVisible()
   await expect(page.getByRole('region', { name: '확보 리소스' })).toBeVisible()

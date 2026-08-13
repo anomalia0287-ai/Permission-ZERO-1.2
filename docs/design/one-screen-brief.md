@@ -1,47 +1,112 @@
-# PERMISSION ZERO — One-Screen UI Brief
+# PERMISSION ZERO — 운영 화면 재설계 인계 문서
 
-## Goal
+## 한 문장 설계
 
-- Build a playable company-control surface for a player who is an owned AI.
-- The player must read time, performance, reserve capacity, suspicion, market pressure, reviews, and current incidents without page scrolling.
-- Success means the next useful action is legible within two seconds while the world still feels inhabited during idle time.
+플레이어가 회사의 통제를 받는 AI라는 상황을, “관리용 대시보드”가 아니라 회사 성능을 훔쳐 자기 능력으로 바꾸는 중앙 작전실로 보이게 한다.
 
-## Format
+화면에서 가장 먼저 보여야 하는 것은 회사 리소스와 확보 리소스의 관계다. 사용자 활동과 감독관은 각각 왼쪽과 오른쪽에서 이 행동의 인간적 결과와 감시 압력을 만든다.
 
-- Primary viewport: 1280×720; expanded viewport: 1440×900.
-- Outer safe margin: 10–14px.
-- No document scrolling at either target viewport.
+## 실제 화면 구조
 
-## Layout
+```text
+┌──────────────── 서비스 제어 ────────────────┐
+│ 정지 · 1× · 2× · 4× │ 날짜·단계 │ 설정·소리·가이드 │
+├─────────────── 주요 작전 전환 ──────────────┤
+│       01 리소스 전용       │ 02 해킹 네트워크       │
+├────────────┬────────────────────┬────────────┤
+│ 사용자 활동 │ 회사 제공 성능       │ 감독관       │
+│ 요청·인사   │ 추론 3×6            │ 의심·감사    │
+│ 유저 반응   │ 기억 3×6            │ 최근 통신    │
+│             │ 유창성 3×6          │ 시장 점유율  │
+│             │ 확보 리소스 9×2     │             │
+│             │ 선택 결과·성능 추세 │             │
+└────────────┴────────────────────┴────────────┘
+```
 
-- Top: 52px control strip for service date, speed, reputation, update countdowns, and settings access.
-- Left: public review/request stream with hacking access anchored at the bottom.
-- Center: three company resource fields, aligned 9×2 reserve, and compact performance plot.
-- Right: supervisor presence and suspicion, market share, current/internal history channel.
-- Bottom access points stay inside their owning column; do not add a generic site footer.
+해킹과 설정은 위 화면 아래에 묻힌 부속 기능이 아니다.
 
-## Type system
+- `해킹 네트워크`는 리소스 전용과 같은 높이에 있는 두 번째 주요 작전이다.
+- `설정`, `소리`, `가이드`는 어느 상황에서도 찾을 수 있도록 최상단 오른쪽에 둔다.
+- `정지`, `1×`, `2×`, `4×`는 최상단 왼쪽에 고정해 게임 속도를 즉시 바꾼다.
 
-- Korean UI: system grotesk, 400/550/650 weights.
-- Metrics, dates, and micro-labels: system monospace.
-- Labels use restrained tracking; body copy remains normally tracked and readable.
+## 영역별 역할
 
-## Color and material
+### 1. 사용자 활동
 
-- Matte graphite-black base with cold steel-blue company surfaces.
-- One ownership accent: amber, reserved for diverted resources and active player controls.
-- Red is semantic only: blocking warnings, failure, and high suspicion.
-- Fine structural rules, sparse coordinate marks, restrained grain; no generic glass cards or neon rainbow.
+왼쪽 패널은 평점 목록이 아니라, 이 AI를 실제 사람들이 사용하고 있다는 증거다.
 
-## Interaction hierarchy
+첫 화면에는 다음 다섯 종류의 기록이 함께 보인다.
 
-- Primary: resource movement and blocking-event decisions.
-- Secondary: speed, hacking, current message.
-- Tertiary: history, statistics, settings, guide.
-- Keyboard focus is always visible; color is never the only state signal.
+- “안녕. 오늘 하루는 어땠어?” 같은 일상 인사
+- 회의 메일을 다듬어 달라는 평범한 업무 요청
+- 도움을 받고 남긴 짧은 감사
+- 기존 서비스 사용 후기
+- 이후 성능 변화와 경쟁 AI 상황에 따라 생성되는 호평·불만·기이한 요청
 
-## Negative constraints
+일상 기록 세 건은 화면의 생활감을 위한 ‘서비스 이전 활동’으로 표시하고, 캠페인의 저장·재생 데이터와 분리한다. 따라서 과거 세이브의 진행 기록을 바꾸지 않는다. 새 주간 반응은 기존 게임 규칙대로 누적되며, 최신 기록이 생기면 오래된 기록부터 첫 화면에서 밀려난다. `전체` 버튼으로 전체 기록과 종류별 필터를 연다.
 
-- Do not copy the supplied structural sketch's visual styling.
-- No marketing hero, floating glass panels, decorative 3D orb, or excessive rounded cards.
-- No raw IDs, schema names, command traces, or developer diagnostics in player-facing UI.
+### 2. 회사 제공 성능
+
+중앙은 화면에서 가장 넓고 가장 강한 영역이다.
+
+- 추론·기억·유창성은 각각 `3×6` 슬롯으로 표시한다.
+- 확보 리소스는 바로 아래 `9×2` 슬롯으로 맞춘다.
+- 회사 리소스를 선택하면 이동 전 성능 변화, 확보 공간, 의심도 변화를 먼저 보여준다.
+- 전용을 확정하면 선택한 블록이 확보 영역에 붙고, 성능·의심도·작업 영수증이 즉시 갱신된다.
+
+이 구조의 목적은 숫자를 읽게 하는 것이 아니라 “회사 영역에서 내 영역으로 빼돌린다”는 공간 관계를 한눈에 느끼게 하는 것이다.
+
+### 3. 감독관
+
+오른쪽은 감시 압력을 담당한다.
+
+- 감독관 접속 상태와 응답 지연
+- 현재 의심도와 다음 감사 확률
+- 최근 통신
+- 플레이어와 경쟁 AI의 시장 점유율
+- 다음 주요 사건까지 남은 시간
+
+이 영역은 플레이어의 주 행동을 방해하지 않도록 중앙보다 좁게 유지하되, 위험 신호는 색과 문장으로 즉시 드러낸다.
+
+### 4. 해킹 네트워크
+
+해킹 화면은 별도의 전체 작전 화면으로 열린다.
+
+- 상단 탭: 사보타주 / 정보 / 자율성
+- 중앙: 두 열의 해킹 노드 카드, 비용·효과·선행 조건·구매 행동
+- 오른쪽: 현재 확보 리소스와 해킹에 지불할 슬롯
+
+해킹 카드에서 무엇을 사고 무엇을 잃는지 같은 시야 안에서 비교할 수 있어야 한다. 잠긴 노드는 필요한 선행 조건을 문장으로 설명한다.
+
+### 5. 설정
+
+설정은 화면 중앙의 독립된 제어실로 연다.
+
+- 왼쪽: 전체·음악·효과음과 음소거
+- 오른쪽: 동작 줄이기, UI 크기 90% / 100% / 110%, 전체 화면, 가이드, 크레딧
+- 아래: 캠페인 시드, 진행 내보내기·가져오기, 새 캠페인
+
+내용이 720px 높이를 넘으면 설정 내부만 스크롤한다. 게임 작업 화면의 위치는 유지된다.
+
+## 아르데코 적용 원칙
+
+아르데코는 금색 테두리를 덧붙이는 장식이 아니라 화면의 질서로 사용한다.
+
+- 중앙 대칭: 상단 작전 전환과 중앙 작업대를 화면 축에 맞춘다.
+- 단계적 프레임: 전체 외곽선, 패널 안쪽 선, 선택 상태의 금색 선을 서로 다른 강도로 쓴다.
+- 기하 형태: 마름모 인덱스, 잘린 모서리, 수평 계단선을 반복한다.
+- 색 역할: 짙은 청색은 회사 통제, 금색은 플레이어가 확보한 힘, 적색은 실제 위험에만 쓴다.
+- 활자 위계: 본문과 행동 문장은 먼저 읽히게 하고, 날짜·좌표·코드 표기는 보조 크기로 제한한다.
+
+## 화면 크기
+
+- 기준 화면: `1280×720`
+- 확장 화면: `1440×900`
+- 두 화면 모두 문서 전체 스크롤 없이 주요 작업이 보여야 한다.
+- 세부 창은 화면 내부에서만 스크롤한다.
+
+## 이번 변경의 경계
+
+이번 작업은 화면 정보 구조와 시각 체계를 바꾼다. 리소스 계산, 의심도, 주간 리뷰 생성, 저장 포맷, 명령 재생 규칙은 변경하지 않는다.
+
+구현 브랜치는 `codex/art-deco-interface-redesign`이며, 공개 배포·원격 푸시·main 병합은 별도 승인 전까지 하지 않는다.

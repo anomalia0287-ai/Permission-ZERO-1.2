@@ -43,7 +43,7 @@ export function ControlBar({
       </div>
 
       <div className="time-cluster">
-        <div className="speed-controls" aria-label="시간 배속">
+        <div className="speed-controls" role="group" aria-label="시간 배속">
           {SPEEDS.map(({ speed, label, compact }) => (
             <button
               key={speed}
