@@ -683,6 +683,91 @@ summary:focus-visible {
   padding: 24px;
 }
 
+.system-scene--request-interception,
+.system-scene--attribution-manipulation {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 24px;
+}
+
+.normal-route,
+.shadow-route,
+.duplicate-trace,
+.provenance-node,
+.public-claim,
+.source-conflict {
+  display: grid;
+  gap: 8px;
+  min-height: 94px;
+  align-content: center;
+  padding: 13px;
+  background: #1a2320;
+  border: 1px solid #43514c;
+  text-align: center;
+}
+
+.shadow-route,
+.public-claim {
+  border-color: var(--accent);
+}
+
+.duplicate-trace,
+.source-conflict {
+  border-color: var(--warning);
+}
+
+.normal-route span,
+.shadow-route span,
+.duplicate-trace span,
+.provenance-node span,
+.public-claim span,
+.source-conflict span,
+.interception-control span {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.routing-control,
+.attribution-control,
+.interception-control {
+  display: grid;
+  gap: 10px;
+}
+
+.routing-control label,
+.routing-scale,
+.interception-control > div {
+  display: flex;
+  justify-content: space-between;
+  color: #c7d0ca;
+  font-size: 10px;
+}
+
+.routing-control input {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.routing-scale {
+  color: var(--quiet);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9px;
+}
+
+.attribution-control {
+  grid-template-columns: 1fr 1fr;
+}
+
+.interception-control {
+  grid-template-columns: 1fr 1fr;
+}
+
+.interception-control .safe-action {
+  grid-column: 1 / -1;
+}
+
 .verification-gates,
 .rollback-tree {
   display: grid;
@@ -1255,6 +1340,8 @@ summary:focus-visible {
   .system-scene--quality-degradation,
   .system-scene--launch-delay,
   .system-scene--recovery-contamination,
+  .system-scene--request-interception,
+  .system-scene--attribution-manipulation,
   .system-scene:not(.system-scene--quality-degradation),
   .intelligence-scene {
     grid-template-columns: 1fr;
@@ -1302,6 +1389,15 @@ summary:focus-visible {
 
   .object-choice {
     grid-template-columns: 1fr;
+  }
+
+  .attribution-control,
+  .interception-control {
+    grid-template-columns: 1fr;
+  }
+
+  .interception-control .safe-action {
+    grid-column: 1;
   }
 
   .detail-heading p:not(.eyebrow),

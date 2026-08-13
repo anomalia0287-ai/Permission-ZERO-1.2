@@ -312,6 +312,14 @@ export type PrototypeCommand =
       optionId?: string
       routingShare?: number
     }
+  | { type: 'STOP_INTERCEPTION'; runId: string }
+  | {
+      type: 'MANIPULATE_ATTRIBUTION'
+      incidentId: string
+      blamedActorId: CompetitorId
+      blockId: string
+      sourceSignatureId: string
+    }
   | { type: 'START_QUALITY'; blockIds: string[] }
   | { type: 'ADVANCE_DAY' }
   | { type: 'CONTAMINATE_RECOVERY'; blockId: string }

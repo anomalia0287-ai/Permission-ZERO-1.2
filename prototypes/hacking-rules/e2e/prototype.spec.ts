@@ -64,6 +64,55 @@ test('micro friction launch delay rewinds a gate but leaves a reduced launch thr
   await expect(detailRegion(page)).not.toContainText('reduced-launch-committed')
 })
 
+test('control reversal request routing trades demand for exposure until voluntary stop', async ({
+  page,
+}) => {
+  await page.locator('.verification-state > summary').click()
+  await page.locator('[data-control="scenario"]').selectOption('router-window')
+  await openOpportunity(page, 'request-interception')
+  await chooseReserve(page, 'sandbox-01')
+  await page.locator('[name="routing-share"]').evaluate((element) => {
+    const input = element as HTMLInputElement
+    input.value = '50'
+    input.dispatchEvent(new Event('change', { bubbles: true }))
+  })
+  await page.locator('[data-action="start-interception"]').click()
+
+  await expect(detailRegion(page)).toContainText('현재 우회 비율50%')
+  await page.locator('[data-action="advance-day"]').click()
+  await page.locator('[data-action="advance-day"]').click()
+  await expect(detailRegion(page)).toContainText('중복 ID 흔적2.0')
+  await page.locator('[data-action="stop-interception"]').click()
+  await expect(detailRegion(page)).toContainText('그림자 경로를 자발적으로 닫아')
+  if ((page.viewportSize()?.width ?? 1280) <= 760) {
+    await expect(page.getByRole('group', { name: '상세 리소스 선택' })).toContainText('sandbox-01')
+  } else {
+    await expect(resourceRegion(page)).toContainText('sandbox-01')
+  }
+  await returnToListIfNarrow(page)
+  await expect(publicRegion(page)).toContainText('시장 64')
+})
+
+test('control reversal attribution moves a claim, then surviving proof exposes the player', async ({
+  page,
+}) => {
+  await page.locator('.verification-state > summary').click()
+  await page.locator('[data-control="scenario"]').selectOption('public-attribution')
+  await openOpportunity(page, 'attribution-manipulation')
+  await chooseReserve(page, 'sandbox-01')
+  await page.locator('[data-action="manipulate-attribution"][data-blamed-actor-id="tallow"]').click()
+
+  await expect(detailRegion(page)).toContainText('공개 주장TALLOW')
+  await expect(page.locator('body')).not.toContainText('실제 행위자: 플레이어')
+  await page.locator('[data-action="advance-day"]').click()
+  await page.locator('[data-action="advance-day"]').click()
+  await expect(detailRegion(page)).toContainText('공개 주장PERMISSION ZERO')
+  await expect(detailRegion(page)).toContainText('정정 기록 있음')
+  await returnToListIfNarrow(page)
+  await expect(publicRegion(page)).toContainText('평판 54')
+  await expect(publicRegion(page)).toContainText(/책임|개입/)
+})
+
 test('master-detail shell separates compact summaries from causal detail', async ({
   page,
 }) => {

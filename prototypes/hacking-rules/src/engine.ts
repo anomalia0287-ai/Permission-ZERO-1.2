@@ -20,7 +20,9 @@ import {
 } from './publicWorld'
 import {
   advanceSabotageDay,
+  manipulateAttribution,
   startSabotage,
+  stopInterception,
 } from './sabotage'
 
 const DAILY_SUSPICION_DECAY = 0.037
@@ -759,6 +761,10 @@ export function transition(
       return divertBlock(state, command.category)
     case 'START_SABOTAGE':
       return startSabotage(state, command)
+    case 'STOP_INTERCEPTION':
+      return stopInterception(state, command.runId)
+    case 'MANIPULATE_ATTRIBUTION':
+      return manipulateAttribution(state, command)
     case 'START_QUALITY':
       return startQuality(state, command.blockIds)
     case 'ADVANCE_DAY':

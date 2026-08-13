@@ -50,6 +50,10 @@ function actionMessage(
       return `${CATEGORY_LABELS[command.category]} 블록 1개를 확보했다. 회사 성능은 1 낮아지고 의심은 2.4 높아졌다.`
     case 'START_SABOTAGE':
       return `${getSabotageDefinition(command.operationId).title} 예약 완료. ${command.optionId ?? '선택 대상'}에 블록을 결속했고 직접 결과와 상대 대응은 같은 상세 장면에서 이어진다.`
+    case 'STOP_INTERCEPTION':
+      return '요청 가로채기를 자발적으로 끝냈다. 결속 블록은 돌아왔지만 이미 옮긴 수요와 중복 ID 흔적은 남는다.'
+    case 'MANIPULATE_ATTRIBUTION':
+      return `공개 귀속을 ${command.blamedActorId === 'tallow' ? 'TALLOW' : 'MERIDIAN'} 쪽으로 옮겼다. 원본 출처 증명은 남아 정정될 수 있다.`
     case 'START_QUALITY':
       return `품질 저하 예약 완료. 선택한 ${command.blockIds.length}개 블록은 작전에 묶였고 결과는 다음 날 드러난다.`
     case 'ADVANCE_DAY':
@@ -233,6 +237,14 @@ export function mountPrototype(
       return
     }
 
+    if (target instanceof HTMLInputElement && target.name === 'routing-share') {
+      const output = target.closest('.routing-control')?.querySelector<HTMLOutputElement>('output')
+      if (output) output.textContent = `${target.value}%`
+      statusMessage = `그림자 경로가 요청의 ${target.value}%를 받도록 조정했다.`
+      updateSelectionFeedback()
+      return
+    }
+
     if (target instanceof HTMLSelectElement && target.dataset.control === 'profile') {
       reset(target.value as ProfileId, scenarioId)
       return
@@ -337,6 +349,55 @@ export function mountPrototype(
           targetId,
           blockIds: [...view.selectedReserve],
           optionId,
+        })
+        break
+      }
+      case 'start-interception': {
+        const share = Number(
+          root.querySelector<HTMLInputElement>('[name="routing-share"]')?.value ?? 50,
+        )
+        dispatch({
+          type: 'START_SABOTAGE',
+          operationId: 'request-interception',
+          targetId: 'meridian',
+          blockIds: [...view.selectedReserve],
+          optionId: 'shadow-router-a',
+          routingShare: share,
+        })
+        break
+      }
+      case 'stop-interception': {
+        const runId = button.dataset.runId
+        if (!runId) {
+          statusMessage = '실행 불가: 유지 중인 그림자 경로를 찾을 수 없다.'
+          updateSelectionFeedback()
+          break
+        }
+        dispatch({ type: 'STOP_INTERCEPTION', runId })
+        break
+      }
+      case 'manipulate-attribution': {
+        const incidentId = button.dataset.incidentId
+        const blamedActorId = button.dataset.blamedActorId as CompetitorId | undefined
+        const sourceSignatureId = button.dataset.sourceSignatureId
+        const [blockId] = [...view.selectedReserve]
+        if (
+          !incidentId
+          || !blamedActorId
+          || !sourceSignatureId
+          || !blockId
+          || view.selectedReserve.size !== 1
+        ) {
+          statusMessage = '실행 불가: 귀속 대상과 예비 블록 1개를 함께 선택해야 한다.'
+          updateSelectionFeedback()
+          break
+        }
+        dispatch({
+          type: 'MANIPULATE_ATTRIBUTION',
+          incidentId,
+          blamedActorId,
+          blockId,
+          sourceSignatureId,
         })
         break
       }

@@ -112,3 +112,78 @@ describe('micro-friction sabotage family', () => {
     expect(new Set([launch, quality, recovery]).size).toBe(3)
   })
 })
+
+describe('control-reversal sabotage family', () => {
+  it('accumulates diverted demand and duplicate-ID exposure until voluntary stop', () => {
+    const initial = createPrototypeState('lean', 'router-window')
+    const active = run(initial, {
+      type: 'START_SABOTAGE',
+      operationId: 'request-interception',
+      targetId: 'meridian',
+      blockIds: ['sandbox-01'],
+      optionId: 'shadow-router-a',
+      routingShare: 50,
+    })
+
+    expect(active.sabotage.runs[0]).toMatchObject({
+      phase: 'active',
+      routingShare: 50,
+      exposure: 0,
+    })
+    expect(active.reserveBlocks.map(({ id }) => id)).not.toContain('sandbox-01')
+
+    const afterTwoDays = advance(active, 2)
+    expect(afterTwoDays.marketShare).toBe(initial.marketShare + 4)
+    expect(afterTwoDays.sabotage.runs[0]?.exposure).toBe(2)
+
+    const stopped = run(afterTwoDays, {
+      type: 'STOP_INTERCEPTION',
+      runId: active.sabotage.runs[0]?.id ?? '',
+    })
+    expect(stopped.sabotage.runs[0]).toMatchObject({
+      phase: 'withdrawn',
+      outcome: 'voluntary-route-stop',
+    })
+    expect(stopped.reserveBlocks.map(({ id }) => id)).toContain('sandbox-01')
+  })
+
+  it('moves the public claim without changing truth, then corrects from surviving evidence', () => {
+    const initial = createPrototypeState('lean', 'public-attribution')
+    const manipulated = run(initial, {
+      type: 'MANIPULATE_ATTRIBUTION',
+      incidentId: 'incident-checksum',
+      blamedActorId: 'tallow',
+      blockId: 'sandbox-01',
+      sourceSignatureId: 'status-mirror-b',
+    })
+
+    expect(manipulated.publicWorld.truths[0]?.actor).toBe('player')
+    expect(manipulated.publicWorld.publicSnapshots.at(-1)?.attributedTo).toBe('tallow')
+    expect(manipulated.competitors.tallow.reputation).toBe(54)
+    expect(manipulated.reputation).toBe(60)
+
+    const corrected = advance(manipulated, 2)
+    expect(corrected.publicWorld.truths[0]?.actor).toBe('player')
+    expect(corrected.publicWorld.publicSnapshots.at(-1)).toMatchObject({
+      attributedTo: 'player',
+      source: 'surviving-provider-proof',
+    })
+    expect(corrected.reputation).toBe(54)
+    expect(corrected.publicWorld.reviews.at(-1)?.text).toMatch(/책임|개입/)
+  })
+
+  it('renders route flow and provenance as different control objects', () => {
+    const request = renderSabotageScene(
+      createPrototypeState('lean', 'router-window'),
+      'request-interception',
+    )
+    const attribution = renderSabotageScene(
+      createPrototypeState('lean', 'public-attribution'),
+      'attribution-manipulation',
+    )
+
+    expect(request).toMatch(/정상 경로|그림자 분기|중복 ID/)
+    expect(attribution).toMatch(/원본 출처|공개 주장|출처 충돌/)
+    expect(request).not.toBe(attribution)
+  })
+})

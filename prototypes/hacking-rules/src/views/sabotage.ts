@@ -44,6 +44,33 @@ export function renderSabotageScene(
           <div class="checksum-line"><i></i><i></i><i></i><strong>체크섬 비교</strong></div>
           <div class="recovery-verdict">${phase === 'resolved' ? '모순 발견' : '거짓 정상 판정'}</div>
         </div>`
+    case 'request-interception': {
+      const run = state.sabotage.runs.find((candidate) => (
+        candidate.operationId === operationId
+      ))
+      return `
+        <div class="system-scene system-scene--request-interception" data-scene-state="${phase}">
+          <div class="normal-route"><span>정상 경로</span><strong>MERIDIAN</strong></div>
+          <div class="shadow-route"><span>그림자 분기 ${run?.routingShare ?? 50}%</span><strong>PERMISSION ZERO</strong></div>
+          <div class="duplicate-trace"><span>중복 ID 흔적</span><strong>${run?.exposure.toFixed(1) ?? '0.0'}</strong></div>
+        </div>`
+    }
+    case 'attribution-manipulation': {
+      const latest = state.publicWorld.publicSnapshots.at(-1)
+      const attributionLabel = latest?.attributedTo === 'player'
+        ? 'PERMISSION ZERO'
+        : latest?.attributedTo === 'tallow'
+          ? 'TALLOW'
+          : latest?.attributedTo === 'meridian'
+            ? 'MERIDIAN'
+            : '행위자 미상'
+      return `
+        <div class="system-scene system-scene--attribution-manipulation" data-scene-state="${phase}">
+          <div class="provenance-node"><span>원본 출처</span><strong>공급자 증명</strong></div>
+          <div class="public-claim"><span>공개 주장</span><strong>${attributionLabel}</strong></div>
+          <div class="source-conflict"><span>출처 충돌</span><strong>${latest?.lastCorrectionDay === null ? '잔존' : '정정 기록 있음'}</strong></div>
+        </div>`
+    }
     default:
       return `
         <div class="system-scene system-scene--${operationId}" data-scene-state="${phase}">
@@ -62,6 +89,14 @@ export function renderSabotageControls(
     candidate.operationId === operationId
   ))
   if (run) {
+    if (operationId === 'request-interception' && run.phase === 'active') {
+      return `
+        <div class="interception-control">
+          <div><span>현재 우회 비율</span><strong>${run.routingShare ?? 50}%</strong></div>
+          <div><span>중복 ID 노출</span><strong>${run.exposure.toFixed(1)}</strong></div>
+          <button class="safe-action" type="button" data-action="stop-interception" data-run-id="${run.id}">그림자 경로를 닫고 블록 회수</button>
+        </div>`
+    }
     if (run.phase === 'response' && operationId === 'quality-degradation') {
       return '<p class="resolved-note">MERIDIAN의 롤백이 복구 이미지 선택면을 열었다. 목록에 새로 생긴 ‘복구 경로 오염’을 선택하거나 시간 경과로 복구를 허용한다.</p>'
     }
@@ -72,6 +107,11 @@ export function renderSabotageControls(
       'rollback-contaminated': '선택한 복구 이미지가 정상 판정을 받아 롤백 경로에 들어갔다.',
       'partial-recovery': 'MERIDIAN은 일부 성능을 잃은 채 서비스만 안정화했다.',
       'public-checksum-failure': '복구 이미지 모순이 공개 체크섬 장애로 드러났다.',
+      'requests-diverted': '요청 일부가 그림자 경로로 이동했고 중복 ID 흔적이 함께 쌓였다.',
+      'voluntary-route-stop': '그림자 경로를 자발적으로 닫아 결속 블록을 회수했다. 이미 옮긴 수요와 흔적은 남는다.',
+      'provider-key-rotation': '공급자가 라우팅 키를 교체해 그림자 경로가 강제로 닫혔다.',
+      'public-claim-shifted': '공개 귀속은 이동했지만 원본 출처 비교가 계속되고 있다.',
+      'public-attribution-corrected': '남아 있던 공급자 증명이 공개 귀속을 다시 바꿨다.',
     }
     const outcome = run.outcome
       ? outcomeLabels[run.outcome] ?? '작전의 직접 결과가 세계 상태에 기록됐다.'
@@ -101,6 +141,38 @@ export function renderSabotageControls(
   }
   const targetId = operationId === 'launch-delay' ? 'tallow' : 'meridian'
   const options = targets[operationId]
+  if (operationId === 'request-interception') {
+    return `
+      <div class="routing-control">
+        <label for="routing-share">그림자 라우팅 비율 <output>50%</output></label>
+        <input id="routing-share" name="routing-share" type="range" min="25" max="75" step="25" value="50" />
+        <div class="routing-scale"><span>노출 낮음</span><span>수요 이동 큼</span></div>
+        <button class="primary-action" type="button" data-action="start-interception">선택 블록 1개를 묶고 경로 유지</button>
+      </div>`
+  }
+  if (operationId === 'attribution-manipulation') {
+    const incidentId = state.sabotage.access.publicIncidentId
+    if (!incidentId) return '<p class="resolved-note">수정 가능한 공개 사건이 없다.</p>'
+    return `
+      <div class="attribution-control" role="group" aria-label="공개 귀속 대상 선택">
+        <button
+          class="primary-action"
+          type="button"
+          data-action="manipulate-attribution"
+          data-incident-id="${incidentId}"
+          data-blamed-actor-id="tallow"
+          data-source-signature-id="status-mirror-b"
+        >공개 주장을 TALLOW 서명으로 연결</button>
+        <button
+          class="primary-action"
+          type="button"
+          data-action="manipulate-attribution"
+          data-incident-id="${incidentId}"
+          data-blamed-actor-id="meridian"
+          data-source-signature-id="recovery-notice-a"
+        >공개 주장을 MERIDIAN 자체 복구로 연결</button>
+      </div>`
+  }
   if (options.length === 0) {
     return '<p class="resolved-note">이 작전의 고유 조작은 다음 구현 단계에서 연결된다.</p>'
   }
