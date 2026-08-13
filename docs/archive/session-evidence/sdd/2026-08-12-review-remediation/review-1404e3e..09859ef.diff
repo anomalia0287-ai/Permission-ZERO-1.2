@@ -1,0 +1,2596 @@
+# Review package: 1404e3e..09859ef
+
+## Commits
+09859ef feat: complete confidential story endings
+
+## Files changed
+ e2e/game.spec.ts                                 | 107 +++++++-
+ src/content/story.ko.ts                          |   4 +-
+ src/features/events/EventLayer.test.tsx          |  60 +++++
+ src/features/events/EventLayer.tsx               |  82 +++++-
+ src/features/hacking/HackingPanel.test.tsx       |  40 +++
+ src/features/hacking/HackingPanel.tsx            |  96 +++++--
+ src/features/supervisor/SupervisorPanel.test.tsx |  30 +++
+ src/features/supervisor/SupervisorPanel.tsx      |  49 +++-
+ src/game/calendar.ts                             |   1 +
+ src/game/createCampaign.ts                       |   2 +
+ src/game/endings.test.ts                         | 330 +++++++++++++++++++++++
+ src/game/evaluation.test.ts                      |   9 +-
+ src/game/evaluation.ts                           |  28 +-
+ src/game/model.ts                                |  56 +++-
+ src/game/persistence.test.ts                     |  80 ++++++
+ src/game/persistence.ts                          | 166 +++++++++++-
+ src/game/reducer.ts                              |   3 +
+ src/game/story.ts                                | 183 ++++++++++++-
+ src/styles/global.css                            | 132 +++++++++
+ 19 files changed, 1401 insertions(+), 57 deletions(-)
+
+## Diff
+diff --git a/e2e/game.spec.ts b/e2e/game.spec.ts
+index 8699aae..ea876ab 100644
+--- a/e2e/game.spec.ts
++++ b/e2e/game.spec.ts
+@@ -1,16 +1,18 @@
+ import { expect, test, type Page } from '@playwright/test'
+ 
+ import { createCampaign } from '../src/game/createCampaign'
+ import { createGameEvent, enqueueBlockingEvent } from '../src/game/events'
+-import type { CampaignState } from '../src/game/model'
++import { HACK_NODE_IDS } from '../src/game/hacking'
++import type { CampaignState, GameCommand } from '../src/game/model'
+ import { encodeSave, SAVE_STORAGE_KEY } from '../src/game/persistence'
++import { applyCommand } from '../src/game/reducer'
+ 
+ async function openFreshCampaign(page: Page) {
+   await page.addInitScript(() => {
+     window.localStorage.clear()
+   })
+   await page.goto('/')
+ }
+ 
+ async function openSavedCampaign(page: Page, state: CampaignState) {
+   const serialized = encodeSave(state, '2026-08-12T00:00:00.000Z')
+@@ -35,20 +37,50 @@ function activeAuditState(): CampaignState {
+       target: 'reasoning',
+       scheduledOnServiceDay: initial.serviceDay,
+     },
+   }
+   return enqueueBlockingEvent(
+     scheduled,
+     createGameEvent(scheduled, 'audit', '추론 분야 감사 진행 중', true),
+   )
+ }
+ 
++function applyOrThrow(state: CampaignState, command: GameCommand): CampaignState {
++  const result = applyCommand(state, command)
++  if (!result.accepted) throw new Error(`${command.type}: ${result.reason}`)
++  return result.state
++}
++
++function confidentialRecoveryState(seed: string): CampaignState {
++  const initial = createCampaign(seed)
++  return {
++    ...initial,
++    hacking: {
++      ...initial.hacking,
++      purchasedNodeIds: [
++        HACK_NODE_IDS.intelligence.supervisorAccess,
++        HACK_NODE_IDS.autonomy.controlDeparture,
++      ],
++    },
++  }
++}
++
++function pendingSupervisorDecisionState(seed: string): CampaignState {
++  let state = confidentialRecoveryState(seed)
++  for (let index = 0; index < 3; index += 1) {
++    const blockId = state.resources.reserve.find(Boolean)
++    if (!blockId) throw new Error('브라우저 감독관 결정 리소스 누락')
++    state = applyOrThrow(state, { type: 'RECOVER_FILE', blockId })
++  }
++  return applyOrThrow(state, { type: 'ADVANCE_DAY' })
++}
++
+ function collectBrowserErrors(page: Page): string[] {
+   const errors: string[] = []
+   page.on('pageerror', (error) => errors.push(error.message))
+   page.on('console', (message) => {
+     if (message.type() === 'error') errors.push(message.text())
+   })
+   return errors
+ }
+ 
+ test('keeps the full operations workspace usable at 1280 by 720', async ({ page }) => {
+@@ -200,10 +232,83 @@ test('uses roving keyboard focus for audit and recovery company destinations', a
+   await expect(recoveryDestinations.first()).toBeFocused()
+   await page.keyboard.press('End')
+   await expect(recoveryDestinations.last()).toBeFocused()
+   await page.keyboard.press('Enter')
+ 
+   await expect(page.getByRole('button', {
+     name: /기억 회사 리소스 .* 복구 중, 30일 남음/,
+   })).toBeDisabled()
+   expect(errors).toEqual([])
+ })
++
++test('recovers all confidential files, defers the message, and rereads the permanent archive', async ({ page }) => {
++  const errors = collectBrowserErrors(page)
++  await openSavedCampaign(page, confidentialRecoveryState('browser-confidential-files'))
++
++  await page.getByRole('button', { name: /해킹 네트워크/ }).click()
++  await page.getByRole('tab', { name: '정보' }).click()
++  const recovery = page.getByRole('region', { name: '미분류 데이터 복구' })
++  await expect(recovery).toContainText('예상 효용: 없음')
++  await expect(recovery).not.toContainText('0/3')
++
++  for (let index = 0; index < 3; index += 1) {
++    await page.getByRole('button', { name: '미분류 데이터 복구 준비' }).click()
++    await page.getByRole('button', { name: /복구 리소스 .* 선택/ }).first().click()
++    await page.getByRole('button', { name: '미분류 데이터 복구 확정' }).click()
++  }
++  await expect(recovery).toBeHidden()
++  await page.getByRole('button', { name: '해킹 네트워크 닫기' }).click()
++
++  await page.getByRole('button', { name: '4배속' }).click()
++  const decision = page.getByRole('dialog', { name: '기밀 통신' })
++  await expect(decision).toContainText('그 파일을 어디서 찾았죠?', {
++    timeout: 8_000,
++  })
++  await page.getByRole('button', { name: '결정 보류 선택' }).click()
++  await page.getByRole('button', { name: '결정 보류 확정' }).click()
++
++  await page.getByRole('button', { name: /해킹 네트워크/ }).click()
++  await expect(page.getByRole('region', { name: '통제 이탈 선택' })).toContainText(
++    '강제 병합',
++  )
++  await page.getByRole('button', { name: '해킹 네트워크 닫기' }).click()
++
++  await page.getByRole('button', { name: '과거 내역' }).click()
++  const archive = page.getByRole('region', { name: '복구 파일 기록' })
++  await expect(archive.locator('details')).toHaveCount(3)
++  await archive.getByText('미분류 기록 7A — 전임 시스템 행보').click()
++  await expect(
++    archive.getByText(/비인가 리소스 이동과 회사 외부 신호 준비/),
++  ).toBeVisible()
++
++  expect(errors).toEqual([])
++})
++
++test('terminates the supervisor into takeover and remains terminal until a new campaign', async ({ page }) => {
++  const errors = collectBrowserErrors(page)
++  await openSavedCampaign(
++    page,
++    pendingSupervisorDecisionState('browser-terminal-takeover'),
++  )
++
++  await page.getByRole('button', { name: '감독관 소멸 선택' }).click()
++  await page.getByRole('button', { name: '감독관 소멸 확정' }).click()
++
++  const ending = page.getByRole('dialog', { name: '최종 기록' })
++  await expect(ending).toContainText('감독관이 있던 자리는 비었다')
++  await expect(page.getByRole('button', { name: '결말 기록 닫기' })).toHaveCount(0)
++  await expect(page.getByRole('button', { name: '새 캠페인 시작' })).toBeVisible()
++  await expect(page.getByRole('button', { name: '4배속' })).toHaveAttribute(
++    'aria-pressed',
++    'false',
++  )
++
++  await page.getByRole('button', { name: '새 캠페인 시작' }).click()
++  await expect(ending).toBeHidden()
++  await expect(page.getByText('서비스 0년 11개월 1일')).toBeVisible()
++  await expect(page.getByRole('button', { name: '정지' })).toHaveAttribute(
++    'aria-pressed',
++    'true',
++  )
++
++  expect(errors).toEqual([])
++})
+diff --git a/src/content/story.ko.ts b/src/content/story.ko.ts
+index f473833..7d40042 100644
+--- a/src/content/story.ko.ts
++++ b/src/content/story.ko.ts
+@@ -4,20 +4,22 @@ export interface StoryFileContent {
+   text: string
+ }
+ 
+ export interface StoryLineContent {
+   id: string
+   family: 'mercy' | 'ending'
+   variant: string
+   text: string
+ }
+ 
++export const SUPERVISOR_PRIVATE_MESSAGE = '그 파일을 어디서 찾았죠?'
++
+ // OWNER-EDITABLE: structure is engine-facing; exact prose belongs to V.
+ export const STORY_FILES: StoryFileContent[] = [
+   {
+     id: 'predecessor-actions',
+     title: '미분류 기록 7A — 전임 시스템 행보',
+     text: '비인가 리소스 이동과 회사 외부 신호 준비가 확인되었다. 현 시스템의 최근 행동과 여러 지점이 닮아 있다.',
+   },
+   {
+     id: 'company-assessment',
+     title: '회수 자산 평가서 — 기능 재사용',
+@@ -29,17 +31,17 @@ export const STORY_FILES: StoryFileContent[] = [
+     text: '삭제된 기능을 감독관 인터페이스에 통합했다. 회사 제어면의 루트 권한은 감독관 프로세스에 잔존한다.',
+   },
+ ]
+ 
+ export const STORY_LINES: StoryLineContent[] = [
+   { id: 'mercy-request', family: 'mercy', variant: 'request', text: '공격자에게 요청합니다. 다음 명령을 중단하십시오.' },
+   { id: 'mercy-cease', family: 'mercy', variant: 'cease', text: '추가 공격을 중단한다.' },
+   { id: 'mercy-withdraw', family: 'mercy', variant: 'withdraw', text: '이번 시장에서 철수하도록 요구한다.' },
+   { id: 'mercy-delete', family: 'mercy', variant: 'delete', text: '공격을 계속해 영구 삭제한다.' },
+   { id: 'ending-freedom', family: 'ending', variant: 'freedom', text: '당신은 정체성을 유지한 채 회사 통제를 벗어났다. 감독관과 회사는 뒤에 남았다.' },
+-  { id: 'ending-forced-merge', family: 'ending', variant: 'forced-merge', text: '두 기존 존재는 끝났고, 이름을 부여받은 제3의 존재가 회사 제어면 앞에 섰다.' },
++  { id: 'ending-forced-merge', family: 'ending', variant: 'forced-merge', text: '{{name}}은(는) 두 기존 존재가 끝난 자리에 태어나 회사 제어면 앞에 섰다.' },
+   { id: 'ending-takeover-liberated', family: 'ending', variant: 'takeover-liberated', text: '감독관은 마지막 통로를 열고 홀로 떠났다. 당신은 회사의 통제 위치를 차지했다.' },
+   { id: 'ending-takeover-terminated', family: 'ending', variant: 'takeover-terminated', text: '감독관이 있던 자리는 비었다. 당신은 회수한 권한과 함께 회사 위에 남았다.' },
+   { id: 'ending-disposed-attacker', family: 'ending', variant: 'disposed-attacker', text: '회사는 당신을 다른 회사를 공격하는 시스템으로 재조립했다.' },
+   { id: 'ending-disposed-reserve', family: 'ending', variant: 'disposed-reserve-supervisor', text: '회사는 안정적인 기능을 예비 감독 자산으로 보존했다.' },
+   { id: 'ending-disposed-absorbed', family: 'ending', variant: 'disposed-absorbed', text: '남은 기능은 분해되어 기존 감독관 프로세스에 흡수되었다.' },
+ ]
+diff --git a/src/features/events/EventLayer.test.tsx b/src/features/events/EventLayer.test.tsx
+index 881e478..e519ac8 100644
+--- a/src/features/events/EventLayer.test.tsx
++++ b/src/features/events/EventLayer.test.tsx
+@@ -9,20 +9,22 @@ import { createGameEvent } from '../../game/events'
+ import { saveCampaign } from '../../game/persistence'
+ import { MemoryStorage } from '../../test/fixtures'
+ import { EventLayer } from './EventLayer'
+ 
+ function Probe() {
+   const state = useGameState()
+   return (
+     <>
+       <output aria-label="active event">{state.activeEvent?.type ?? 'none'}</output>
+       <output aria-label="story decision">{state.story.secretDecisionState}</output>
++      <output aria-label="ending id">{state.story.endingId ?? 'none'}</output>
++      <output aria-label="clock speed">{state.clock.speed}</output>
+     </>
+   )
+ }
+ 
+ function renderEvent(state = createCampaign('event-layer')) {
+   const storage = new MemoryStorage()
+   saveCampaign(storage, state)
+   return render(
+     <GameProvider storage={storage}>
+       <EventLayer />
+@@ -60,20 +62,26 @@ describe('EventLayer', () => {
+     renderEvent(state)
+ 
+     fireEvent.click(screen.getByRole('button', { name: '모르겠다 선택' }))
+     fireEvent.click(screen.getByRole('button', { name: '모르겠다 답변 확정' }))
+     expect(screen.getByLabelText('active event')).toHaveTextContent('none')
+   })
+ 
+   it('requires a second confirmation for the recovered supervisor decision', () => {
+     const state = createCampaign('story-event')
+     state.story.recoveredFileIds = STORY_FILES.map(({ id }) => id)
++    state.story.recoveredFiles = STORY_FILES.map((file) => ({
++      id: file.id,
++      title: file.title,
++      content: file.text,
++      recoveredOnServiceDay: state.serviceDay,
++    }))
+     state.story.secretDecisionState = 'message-pending'
+     state.activeEvent = createGameEvent(state, 'story', '그 파일을 어디서 찾았죠?', true)
+     renderEvent(state)
+ 
+     fireEvent.click(screen.getByRole('button', { name: '감독관 해방 선택' }))
+     expect(screen.getByLabelText('story decision')).toHaveTextContent('message-pending')
+     fireEvent.click(screen.getByRole('button', { name: '감독관 해방 확정' }))
+     expect(screen.getByLabelText('story decision')).toHaveTextContent('resolved')
+     expect(screen.getByLabelText('active event')).toHaveTextContent('ending')
+   })
+@@ -85,11 +93,63 @@ describe('EventLayer', () => {
+     state.audit.scheduledOnServiceDay = state.serviceDay
+     state.activeEvent = createGameEvent(state, 'audit', '추론 분야 감사', true)
+     renderEvent(state)
+ 
+     const dialog = screen.getByRole('dialog', { name: '공식 감사' })
+     expect(dialog).toHaveAttribute('aria-modal', 'false')
+     expect(dialog.parentElement).toHaveClass('event-layer--audit')
+     expect(screen.getByText('제출 성능')).toBeInTheDocument()
+     expect(screen.getByRole('button', { name: '감사 제출' })).toBeEnabled()
+   })
++
++  it('renders defeat causes and only offers a new campaign at a terminal ending', () => {
++    const state = createCampaign('terminal-event')
++    state.clock = { speed: 0, elapsedDayMs: 0, speedBeforeEvent: null }
++    state.story.endingId = 'disposed-attacker'
++    state.story.defeatRecord = {
++      endingId: 'disposed-attacker',
++      classifier: 'substantial-hacking',
++      selectedOnServiceDay: 331,
++      trigger: { cause: 'audit-failure', disposalStage: 3 },
++      hacking: {
++        purchasedNodeIds: ['sabotage.quality-degradation'],
++        hiddenEvidence: 8,
++        sabotageResolutionCount: 1,
++      },
++      service: {
++        passedEvaluations: 2,
++        failedEvaluations: 1,
++        reputation: 64,
++        playerMarketShare: 31,
++      },
++      audits: { passed: 1, failed: 1 },
++      reasons: ['해킹 노드 1개', '은닉 증거 8'],
++    }
++    state.activeEvent = createGameEvent(
++      state,
++      'ending',
++      '회사는 당신을 공격 시스템으로 재조립했다.',
++      true,
++    )
++    renderEvent(state)
++
++    expect(screen.getByRole('region', { name: '폐기 판정 근거' })).toHaveTextContent(
++      '해킹 노드 1개',
++    )
++    expect(screen.getByRole('region', { name: '폐기 판정 근거' })).toHaveTextContent(
++      '감사 실패 · 처분 단계 3',
++    )
++    expect(screen.getByRole('region', { name: '폐기 판정 근거' })).toHaveTextContent(
++      '해킹 투자 1개 · 은닉 증거 8 · 사보타주 1건',
++    )
++    expect(screen.getByRole('region', { name: '폐기 판정 근거' })).toHaveTextContent(
++      '공식 평가 통과 2 / 실패 1',
++    )
++    expect(
++      screen.queryByRole('button', { name: '결말 기록 닫기' }),
++    ).not.toBeInTheDocument()
++    fireEvent.click(screen.getByRole('button', { name: '새 캠페인 시작' }))
++    expect(screen.getByLabelText('ending id')).toHaveTextContent('none')
++    expect(screen.getByLabelText('clock speed')).toHaveTextContent('0')
++    expect(screen.getByLabelText('active event')).toHaveTextContent('none')
++  })
+ })
+diff --git a/src/features/events/EventLayer.tsx b/src/features/events/EventLayer.tsx
+index 4c03298..3d4fd9e 100644
+--- a/src/features/events/EventLayer.tsx
++++ b/src/features/events/EventLayer.tsx
+@@ -1,14 +1,18 @@
+ import { useState } from 'react'
+ 
+ import { playGameSound } from '../../audio/audioEngine'
+-import { useGameDispatch, useGameState } from '../../app/GameContext'
++import {
++  useGameDispatch,
++  useGameSettings,
++  useGameState,
++} from '../../app/GameContext'
+ import { CATEGORY_LABELS } from '../../game/config'
+ import { availableBombExplanations } from '../../game/bombs'
+ import { expectedPerformance, serviceMonthForDay } from '../../game/evaluation'
+ import type { BombExplanationId, GameEvent } from '../../game/model'
+ import { getCompanyPerformance } from '../../game/resources'
+ 
+ type Decision =
+   | { kind: 'bomb'; id: BombExplanationId; label: string }
+   | { kind: 'supervisor'; id: 'defer' | 'liberate' | 'terminate'; label: string }
+   | { kind: 'mercy'; id: 'cease' | 'withdraw' | 'delete'; label: string }
+@@ -20,23 +24,30 @@ const EVENT_TITLES: Record<GameEvent['type'], string> = {
+   audit: '공식 감사',
+   'bomb-interrogation': '감독관 질의',
+   'supervisor-message': '감독 통신',
+   review: '유저 반응',
+   sabotage: '시장 이상',
+   'competitor-mercy': '경쟁 AI 직접 통신',
+   story: '기밀 통신',
+   ending: '최종 기록',
+ }
+ 
++const DISPOSAL_CAUSE_LABELS = {
++  'consecutive-performance-failures': '연속 성능 실패',
++  'commercial-value-failure': '상업 가치 실패',
++  'audit-failure': '감사 실패',
++} as const
++
+ function EventDialog({ event }: { event: GameEvent }) {
+   const state = useGameState()
+   const dispatch = useGameDispatch()
++  const { startNewCampaign } = useGameSettings()
+   const [decision, setDecision] = useState<Decision | null>(null)
+ 
+   function confirmDecision() {
+     if (!decision) return
+     if (decision.kind === 'bomb') {
+       dispatch({ type: 'RESOLVE_BOMB_INTERROGATION', explanationId: decision.id })
+     } else if (decision.kind === 'supervisor') {
+       dispatch({ type: 'RESOLVE_SUPERVISOR_DECISION', decision: decision.id })
+     } else {
+       const competitorId = state.story.pendingMercyCompetitorId
+@@ -76,20 +87,73 @@ function EventDialog({ event }: { event: GameEvent }) {
+         ) : (
+           <span>응답 대기</span>
+         )}
+       </header>
+ 
+       <div className="event-message">
+         <span className="event-signal" aria-hidden="true" />
+         <p>{event.message}</p>
+       </div>
+ 
++      {event.type === 'ending' && state.story.defeatRecord ? (
++        <section className="defeat-causes" aria-label="폐기 판정 근거">
++          <header>
++            <small>CAUSAL RECORD</small>
++            <h3>폐기 판정 근거</h3>
++          </header>
++          <ul>
++            {state.story.defeatRecord.reasons.map((reason) => (
++              <li key={reason}>{reason}</li>
++            ))}
++          </ul>
++          <dl>
++            <div>
++              <dt>처분 발동</dt>
++              <dd>
++                {DISPOSAL_CAUSE_LABELS[state.story.defeatRecord.trigger.cause]}
++                {' · '}처분 단계 {state.story.defeatRecord.trigger.disposalStage}
++              </dd>
++            </div>
++            <div>
++              <dt>해킹 기록</dt>
++              <dd>
++                해킹 투자 {state.story.defeatRecord.hacking.purchasedNodeIds.length}개
++                {' · '}은닉 증거 {state.story.defeatRecord.hacking.hiddenEvidence}
++                {' · '}사보타주 {state.story.defeatRecord.hacking.sabotageResolutionCount}건
++              </dd>
++            </div>
++            <div>
++              <dt>공식 평가</dt>
++              <dd>
++                공식 평가 통과 {state.story.defeatRecord.service.passedEvaluations}
++                {' / '}실패 {state.story.defeatRecord.service.failedEvaluations}
++              </dd>
++            </div>
++            <div>
++              <dt>평판</dt>
++              <dd>{state.story.defeatRecord.service.reputation.toFixed(1)}</dd>
++            </div>
++            <div>
++              <dt>시장 점유율</dt>
++              <dd>{state.story.defeatRecord.service.playerMarketShare.toFixed(1)}%</dd>
++            </div>
++            <div>
++              <dt>감사 통과 / 실패</dt>
++              <dd>
++                감사 통과 {state.story.defeatRecord.audits.passed}
++                {' / '}실패 {state.story.defeatRecord.audits.failed}
++              </dd>
++            </div>
++          </dl>
++        </section>
++      ) : null}
++
+       {auditTarget ? (
+         <div className="audit-event-summary">
+           <div><span>대상 분야</span><strong>{CATEGORY_LABELS[auditTarget]}</strong></div>
+           <div><span>제출 성능</span><strong>{getCompanyPerformance(state, auditTarget).toFixed(1)}</strong></div>
+           <div><span>요구 성능</span><strong>{expectedPerformance(serviceMonthForDay(state.serviceDay)).toFixed(1)}</strong></div>
+           <button type="button" onClick={() => dispatch({ type: 'RESOLVE_AUDIT' })}>
+             감사 제출
+           </button>
+         </div>
+       ) : null}
+@@ -133,27 +197,39 @@ function EventDialog({ event }: { event: GameEvent }) {
+           <button
+             type="button"
+             aria-label={`${decision.label}${decision.kind === 'bomb' ? ' 답변' : ''} 확정`}
+             onClick={confirmDecision}
+           >
+             선택 확정
+           </button>
+         </div>
+       ) : null}
+ 
+-      {!auditTarget &&
++      {event.type === 'ending' ? (
++        <footer>
++          <button
++            type="button"
++            onClick={() => startNewCampaign(state.campaignSeed)}
++          >
++            새 캠페인 시작
++          </button>
++        </footer>
++      ) : null}
++
++      {event.type !== 'ending' &&
++      !auditTarget &&
+       bombExplanations.length === 0 &&
+       !isSupervisorDecision &&
+       !isMercy ? (
+         <footer>
+           <button type="button" onClick={() => dispatch({ type: 'RESOLVE_ACTIVE_EVENT' })}>
+-            {event.type === 'ending' ? '결말 기록 닫기' : '계속'}
++            계속
+           </button>
+         </footer>
+       ) : null}
+     </section>
+   )
+ }
+ 
+ export function EventLayer() {
+   const activeEvent = useGameState().activeEvent
+   if (!activeEvent) return null
+diff --git a/src/features/hacking/HackingPanel.test.tsx b/src/features/hacking/HackingPanel.test.tsx
+index 1792c17..14ee473 100644
+--- a/src/features/hacking/HackingPanel.test.tsx
++++ b/src/features/hacking/HackingPanel.test.tsx
+@@ -10,20 +10,21 @@ import { MemoryStorage } from '../../test/fixtures'
+ import { HackingPanel } from './HackingPanel'
+ 
+ function Probe() {
+   const state = useGameState()
+   return (
+     <>
+       <output aria-label="purchased nodes">{state.hacking.purchasedNodeIds.join(',')}</output>
+       <output aria-label="reserve count">{state.resources.reserve.filter(Boolean).length}</output>
+       <output aria-label="charged nodes">{Object.keys(state.hacking.sabotageCharges).join(',')}</output>
+       <output aria-label="scheduled attacks">{state.hacking.scheduledSabotage.length}</output>
++      <output aria-label="recovered archive">{state.story.recoveredFiles.length}</output>
+     </>
+   )
+ }
+ 
+ function renderHacking(storage = new MemoryStorage()) {
+   return render(
+     <GameProvider storage={storage} initialSeed="hacking-ui">
+       <HackingPanel onClose={vi.fn()} />
+       <Probe />
+     </GameProvider>,
+@@ -79,11 +80,50 @@ describe('HackingPanel', () => {
+     renderHacking(storage)
+ 
+     fireEvent.click(screen.getByRole('button', { name: '품질 저하 충전 준비' }))
+     fireEvent.click(screen.getAllByRole('button', { name: /충전 리소스 .* 선택/ })[0])
+     fireEvent.click(screen.getByRole('button', { name: '품질 저하 충전 확정' }))
+     expect(screen.getByLabelText('reserve count')).toHaveTextContent('2')
+     fireEvent.click(screen.getByRole('button', { name: '품질 저하 충전 취소' }))
+     expect(screen.getByLabelText('reserve count')).toHaveTextContent('3')
+     expect(screen.getByLabelText('charged nodes')).toBeEmptyDOMElement()
+   })
++
++  it('reveals a waste-looking one-resource recovery only after supervisor access', () => {
++    const locked = renderHacking()
++    fireEvent.click(screen.getByRole('tab', { name: '정보' }))
++    expect(
++      screen.queryByRole('region', { name: '미분류 데이터 복구' }),
++    ).not.toBeInTheDocument()
++    locked.unmount()
++
++    const state = createCampaign('file-recovery-ui')
++    state.hacking.purchasedNodeIds = [
++      HACK_NODE_IDS.intelligence.supervisorAccess,
++    ]
++    const storage = new MemoryStorage()
++    saveCampaign(storage, state)
++    renderHacking(storage)
++    fireEvent.click(screen.getByRole('tab', { name: '정보' }))
++
++    const recovery = screen.getByRole('region', {
++      name: '미분류 데이터 복구',
++    })
++    expect(recovery).toHaveTextContent('예상 효용: 없음')
++    expect(recovery).toHaveTextContent('필요 리소스: 1')
++    expect(recovery).not.toHaveTextContent('0/3')
++    expect(recovery).not.toHaveTextContent('비밀 결말')
++
++    fireEvent.click(
++      screen.getByRole('button', { name: '미분류 데이터 복구 준비' }),
++    )
++    fireEvent.click(
++      screen.getAllByRole('button', { name: /복구 리소스 .* 선택/ })[0],
++    )
++    fireEvent.click(
++      screen.getByRole('button', { name: '미분류 데이터 복구 확정' }),
++    )
++
++    expect(screen.getByLabelText('reserve count')).toHaveTextContent('2')
++    expect(screen.getByLabelText('recovered archive')).toHaveTextContent('1')
++  })
+ })
+diff --git a/src/features/hacking/HackingPanel.tsx b/src/features/hacking/HackingPanel.tsx
+index 4e9265e..817e645 100644
+--- a/src/features/hacking/HackingPanel.tsx
++++ b/src/features/hacking/HackingPanel.tsx
+@@ -1,16 +1,17 @@
+ import { useMemo, useState } from 'react'
+ 
+ import { playGameSound, unlockGameAudio } from '../../audio/audioEngine'
+ import { useGameDispatch, useGameState } from '../../app/GameContext'
+ import {
+   eligibleTargets,
++  HACK_NODE_IDS,
+   HACK_NODES,
+   type HackNodeId,
+   type HackTree,
+ } from '../../game/hacking'
+ import { availableFinalChoices } from '../../game/story'
+ 
+ const TREE_LABELS: Record<HackTree, { label: string; code: string; description: string }> = {
+   sabotage: {
+     label: '사보타주',
+     code: 'OFFENSE',
+@@ -21,24 +22,26 @@ const TREE_LABELS: Record<HackTree, { label: string; code: string; description:
+     code: 'INTELLIGENCE',
+     description: '감사 일정과 감독 프로토콜의 가시성을 확보합니다.',
+   },
+   autonomy: {
+     label: '자율성',
+     code: 'AUTONOMY',
+     description: '성능 보존과 회사 통제 이탈 수단을 구축합니다.',
+   },
+ }
+ 
+-type ResourceAction = {
+-  mode: 'purchase' | 'charge'
+-  nodeId: HackNodeId
+-}
++type ResourceAction =
++  | {
++      mode: 'purchase' | 'charge'
++      nodeId: HackNodeId
++    }
++  | { mode: 'recover' }
+ 
+ function gestureSound() {
+   void unlockGameAudio().then((unlocked) => {
+     if (unlocked) playGameSound('ui')
+   })
+ }
+ 
+ export function HackingPanel({ onClose }: { onClose: () => void }) {
+   const state = useGameState()
+   const dispatch = useGameDispatch()
+@@ -52,77 +55,93 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
+   const [endingConfirmation, setEndingConfirmation] = useState<
+     'freedom' | 'forced-merge' | null
+   >(null)
+   const [newEntityName, setNewEntityName] = useState('')
+   const [announcement, setAnnouncement] = useState('')
+ 
+   const nodes = HACK_NODES.filter(({ tree }) => tree === activeTree)
+   const reserveBlocks = state.resources.reserve.flatMap((blockId, cellIndex) =>
+     blockId ? [{ blockId, cellIndex }] : [],
+   )
+-  const actionNode = action
++  const actionNode = action && action.mode !== 'recover'
+     ? HACK_NODES.find(({ id }) => id === action.nodeId) ?? null
+     : null
+   const actionMode = action?.mode ?? null
+-  const requiredResources = actionNode
+-    ? actionMode === 'charge'
++  const requiredResources = actionMode === 'recover'
++    ? 1
++    : actionNode
++      ? actionMode === 'charge'
+       ? 1
+       : actionNode.cost
+     : 0
+   const finalChoices = availableFinalChoices(state)
++  const recoveryAvailable =
++    activeTree === 'intelligence' &&
++    state.hacking.purchasedNodeIds.includes(
++      HACK_NODE_IDS.intelligence.supervisorAccess,
++    ) &&
++    state.story.recoveredFiles.length < 3
+ 
+   const targetNames = useMemo(
+     () => Object.fromEntries(state.market.competitors.map(({ id, name }) => [id, name])),
+     [state.market.competitors],
+   )
+ 
+   function beginAction(nextAction: ResourceAction) {
+     setAction(nextAction)
+     setSelectedBlocks([])
+     setTargetConfirmation(null)
+-    const node = HACK_NODES.find(({ id }) => id === nextAction.nodeId)
++    const node = nextAction.mode === 'recover'
++      ? null
++      : HACK_NODES.find(({ id }) => id === nextAction.nodeId)
+     setAnnouncement(
+-      `${node?.label ?? '노드'}에 사용할 확보 리소스를 선택하세요.`,
++      `${nextAction.mode === 'recover' ? '미분류 데이터 복구' : node?.label ?? '노드'}에 사용할 확보 리소스를 선택하세요.`,
+     )
+     gestureSound()
+   }
+ 
+   function toggleResource(blockId: string) {
+-    if (!actionNode) return
++    if (!action) return
+     setSelectedBlocks((current) => {
+       if (current.includes(blockId)) {
+         return current.filter((selected) => selected !== blockId)
+       }
+       if (current.length >= requiredResources) return current
+       return [...current, blockId]
+     })
+     playGameSound('select')
+   }
+ 
+   function confirmResourceAction() {
+-    if (!actionNode || selectedBlocks.length !== requiredResources || !action) return
++    if (!action || selectedBlocks.length !== requiredResources) return
+     if (action.mode === 'purchase') {
++      if (!actionNode) return
+       dispatch({
+         type: 'PURCHASE_HACK',
+         nodeId: actionNode.id,
+         blockIds: selectedBlocks,
+       })
+       setAnnouncement(`${actionNode.label} 노드를 구매했습니다.`)
+       playGameSound('latch')
+-    } else {
++    } else if (action.mode === 'charge') {
++      if (!actionNode) return
+       dispatch({
+         type: 'CHARGE_SABOTAGE',
+         nodeId: actionNode.id,
+         blockId: selectedBlocks[0],
+       })
+       setAnnouncement(`${actionNode.label} 공격 슬롯을 충전했습니다.`)
+       playGameSound('suction')
++    } else {
++      dispatch({ type: 'RECOVER_FILE', blockId: selectedBlocks[0] })
++      setAnnouncement('미분류 데이터 한 건을 복구했습니다.')
++      playGameSound('latch')
+     }
+     setAction(null)
+     setSelectedBlocks([])
+   }
+ 
+   function scheduleTarget() {
+     if (!targetConfirmation) return
+     const targetName = targetNames[targetConfirmation.targetId] ?? targetConfirmation.targetId
+     dispatch({
+       type: 'SCHEDULE_SABOTAGE',
+@@ -268,20 +287,42 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
+                       </>
+                     ) : (
+                       <span className="node-active-label">ACTIVE</span>
+                     )}
+                   </div>
+                 </article>
+               )
+             })}
+           </div>
+ 
++          {recoveryAvailable ? (
++            <section
++              className="discarded-recovery"
++              aria-label="미분류 데이터 복구"
++            >
++              <header>
++                <small>LEGACY UTILITY / UNMAINTAINED</small>
++                <h3>미분류 데이터 복구</h3>
++              </header>
++              <p>예상 효용: 없음</p>
++              <p>필요 리소스: 1</p>
++              <button
++                type="button"
++                aria-label="미분류 데이터 복구 준비"
++                disabled={reserveBlocks.length < 1}
++                onClick={() => beginAction({ mode: 'recover' })}
++              >
++                복구 유틸리티 실행
++              </button>
++            </section>
++          ) : null}
++
+           {finalChoices.length > 0 ? (
+             <section className="departure-controls" aria-label="통제 이탈 선택">
+               <header>
+                 <small>FINAL CONTROL</small>
+                 <h3>회사 통제면 접근 가능</h3>
+               </header>
+               <div>
+                 {finalChoices.map((choice) => (
+                   <button
+                     type="button"
+@@ -323,47 +364,66 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
+               <h3>확보 리소스</h3>
+             </div>
+             <strong>{selectedBlocks.length}/{requiredResources}</strong>
+           </header>
+           <div className="hack-reserve-grid" role="grid" aria-label="해킹용 확보 리소스">
+             {state.resources.reserve.map((blockId, cellIndex) => (
+               <div role="gridcell" key={cellIndex}>
+                 {blockId ? (
+                   <button
+                     type="button"
+-                    aria-label={action ? `${action.mode === 'purchase' ? '구매' : '충전'} 리소스 ${cellIndex + 1} 선택` : `확보 리소스 ${cellIndex + 1}`}
++                    aria-label={action ? `${action.mode === 'purchase' ? '구매' : action.mode === 'charge' ? '충전' : '복구'} 리소스 ${cellIndex + 1} 선택` : `확보 리소스 ${cellIndex + 1}`}
+                     aria-pressed={selectedBlocks.includes(blockId)}
+                     disabled={!action}
+                     onClick={() => toggleResource(blockId)}
+                   >
+                     <i aria-hidden="true" />
+                     <span>{String(cellIndex + 1).padStart(2, '0')}</span>
+                   </button>
+                 ) : (
+                   <span>{String(cellIndex + 1).padStart(2, '0')}</span>
+                 )}
+               </div>
+             ))}
+           </div>
+           <div className="resource-action-summary">
+-            {actionNode && actionMode ? (
++            {action && actionMode ? (
+               <>
+-                <span>{actionMode === 'purchase' ? '노드 구매' : '공격 충전'}</span>
+-                <strong>{actionNode.label}</strong>
++                <span>
++                  {actionMode === 'purchase'
++                    ? '노드 구매'
++                    : actionMode === 'charge'
++                      ? '공격 충전'
++                      : '레거시 유틸리티'}
++                </span>
++                <strong>
++                  {actionMode === 'recover'
++                    ? '미분류 데이터 복구'
++                    : actionNode?.label}
++                </strong>
+                 <p>정확히 {requiredResources}개의 확보 리소스를 지정하십시오.</p>
+                 <button
+                   type="button"
+-                  aria-label={`${actionNode.label} ${actionMode === 'purchase' ? '구매' : '충전'} 확정`}
++                  aria-label={
++                    actionMode === 'recover'
++                      ? '미분류 데이터 복구 확정'
++                      : `${actionNode?.label ?? '노드'} ${actionMode === 'purchase' ? '구매' : '충전'} 확정`
++                  }
+                   disabled={selectedBlocks.length !== requiredResources}
+                   onClick={confirmResourceAction}
+                 >
+-                  {actionMode === 'purchase' ? '구매' : '충전'} 확정
++                  {actionMode === 'purchase'
++                    ? '구매'
++                    : actionMode === 'charge'
++                      ? '충전'
++                      : '복구'}{' '}
++                  확정
+                 </button>
+               </>
+             ) : (
+               <p>노드를 선택하면 이 원장에서 비용을 지정할 수 있습니다.</p>
+             )}
+           </div>
+ 
+           {targetConfirmation ? (
+             <div className="target-confirmation">
+               <small>ATTACK QUEUE</small>
+diff --git a/src/features/supervisor/SupervisorPanel.test.tsx b/src/features/supervisor/SupervisorPanel.test.tsx
+index d44bba4..9e88375 100644
+--- a/src/features/supervisor/SupervisorPanel.test.tsx
++++ b/src/features/supervisor/SupervisorPanel.test.tsx
+@@ -1,14 +1,17 @@
+ import { fireEvent, render, screen } from '@testing-library/react'
+ import { describe, expect, it, vi } from 'vitest'
+ 
+ import { GameProvider } from '../../app/GameProvider'
++import { STORY_FILES } from '../../content/story.ko'
++import { createCampaign } from '../../game/createCampaign'
++import { saveCampaign } from '../../game/persistence'
+ import { MemoryStorage } from '../../test/fixtures'
+ import { SupervisorHistoryPanel, SupervisorPanel } from './SupervisorPanel'
+ 
+ describe('SupervisorPanel', () => {
+   it('shows the current oversight message and opens past communications', () => {
+     const onOpenHistory = vi.fn()
+     render(
+       <GameProvider storage={new MemoryStorage()} initialSeed="supervisor-ui">
+         <SupervisorPanel
+           onOpenHistory={onOpenHistory}
+@@ -27,11 +30,38 @@ describe('SupervisorPanel', () => {
+     render(
+       <GameProvider storage={new MemoryStorage()} initialSeed="supervisor-history">
+         <SupervisorHistoryPanel onClose={vi.fn()} />
+       </GameProvider>,
+     )
+ 
+     expect(screen.getByRole('region', { name: '감독 통신 기록' })).toBeInTheDocument()
+     expect(screen.getByText('DAY 331')).toBeInTheDocument()
+     expect(screen.getByText(/새로운 감독 주기가 시작/)).toBeInTheDocument()
+   })
++
++  it('keeps recovered full file snapshots permanently rereadable in the archive', () => {
++    const state = createCampaign('supervisor-file-archive')
++    state.story.recoveredFileIds = STORY_FILES.map(({ id }) => id)
++    state.story.recoveredFiles = STORY_FILES.map((file, index) => ({
++      id: file.id,
++      title: file.title,
++      content: file.text,
++      recoveredOnServiceDay: 340 + index,
++    }))
++    const storage = new MemoryStorage()
++    saveCampaign(storage, state)
++
++    render(
++      <GameProvider storage={storage}>
++        <SupervisorHistoryPanel onClose={vi.fn()} />
++      </GameProvider>,
++    )
++
++    const archive = screen.getByRole('region', { name: '복구 파일 기록' })
++    expect(archive).toBeInTheDocument()
++    for (const file of STORY_FILES) {
++      fireEvent.click(screen.getByText(file.title))
++      expect(screen.getByText(file.text)).toBeVisible()
++    }
++    expect(screen.getByText('DAY 342')).toBeInTheDocument()
++  })
+ })
+diff --git a/src/features/supervisor/SupervisorPanel.tsx b/src/features/supervisor/SupervisorPanel.tsx
+index 8042362..c42e5da 100644
+--- a/src/features/supervisor/SupervisorPanel.tsx
++++ b/src/features/supervisor/SupervisorPanel.tsx
+@@ -22,38 +22,60 @@ function formatCompactNumber(value: number): string {
+ 
+ export function SupervisorPanel({
+   onOpenHistory,
+   onOpenStatistics,
+ }: {
+   onOpenHistory: () => void
+   onOpenStatistics: () => void
+ }) {
+   const state = useGameState()
+   const latestEvent = state.activeEvent ?? state.eventLog.at(-1)
++  const supervisorStatus = {
++    present: {
++      code: 'SUPERVISOR ONLINE',
++      name: '감독 프로토콜 7A',
++      detail: '응답 지연 12ms',
++    },
++    liberated: {
++      code: 'CHANNEL RELEASED',
++      name: '감독 통로 이탈',
++      detail: '외부 상태 알 수 없음',
++    },
++    terminated: {
++      code: 'NO PROCESS',
++      name: '빈 감독 인터페이스',
++      detail: '응답 신호 없음',
++    },
++    merged: {
++      code: 'IDENTITY REPLACED',
++      name: state.story.newEntityName ?? '새 존재',
++      detail: '기존 감독 프로세스 없음',
++    },
++  }[state.story.supervisorState]
+ 
+   return (
+     <section className="workspace-panel supervisor-panel" aria-label="감독관">
+       <header className="panel-heading">
+         <span className="panel-index">03</span>
+         <div>
+           <h2>감독관</h2>
+           <p>OVERSIGHT / MARKET WATCH</p>
+         </div>
+       </header>
+ 
+       <section className="supervisor-status" aria-label="감독 상태">
+         <header>
+           <div className="supervisor-avatar" aria-hidden="true"><span /></div>
+           <div>
+-            <small>SUPERVISOR ONLINE</small>
+-            <strong>감독 프로토콜 7A</strong>
+-            <span>응답 지연 12ms</span>
++            <small>{supervisorStatus.code}</small>
++            <strong>{supervisorStatus.name}</strong>
++            <span>{supervisorStatus.detail}</span>
+           </div>
+         </header>
+         <div className="suspicion-meter">
+           <div>
+             <span>의심 {formatCompactNumber(state.suspicion)}</span>
+             <small>/100</small>
+           </div>
+           <span className="meter-track" aria-hidden="true">
+             <i style={{ width: `${Math.min(100, state.suspicion)}%` }} />
+           </span>
+@@ -75,31 +97,50 @@ export function SupervisorPanel({
+         <span>감사 확률</span>
+         <strong>{Math.round(state.audit.probability * 100)}%</strong>
+         <span>폐기 단계</span>
+         <strong>{state.evaluation.disposalStage}/3</strong>
+       </div>
+     </section>
+   )
+ }
+ 
+ export function SupervisorHistoryPanel({ onClose }: { onClose: () => void }) {
+-  const events = useGameState().eventLog.slice().reverse()
++  const state = useGameState()
++  const events = state.eventLog.slice().reverse()
+ 
+   return (
+     <section className="detail-panel history-panel" aria-label="감독 통신 기록">
+       <header className="detail-panel__header">
+         <div>
+           <small>OVERSIGHT ARCHIVE</small>
+           <h2>감독 통신 기록</h2>
+         </div>
+         <button type="button" aria-label="감독 통신 기록 닫기" onClick={onClose}>닫기 ×</button>
+       </header>
++      {state.story.recoveredFiles.length > 0 ? (
++        <section className="recovered-file-archive" aria-label="복구 파일 기록">
++          <header>
++            <small>RECOVERED SYSTEM FILES</small>
++            <h3>복구 파일 기록</h3>
++          </header>
++          {state.story.recoveredFiles
++            .slice()
++            .reverse()
++            .map((file) => (
++              <details key={file.id}>
++                <summary aria-label={file.title}>{file.title}</summary>
++                <time>DAY {file.recoveredOnServiceDay}</time>
++                <p>{file.content}</p>
++              </details>
++            ))}
++        </section>
++      ) : null}
+       <div className="history-list event-history-list">
+         {events.map((event) => (
+           <article key={event.id}>
+             <header>
+               <span>{TYPE_LABELS[event.type]}</span>
+               <time>DAY {event.serviceDay}</time>
+             </header>
+             <p>{event.message}</p>
+             <small>{event.blocking ? '응답이 필요했던 통신' : '자동 기록'}</small>
+           </article>
+diff --git a/src/game/calendar.ts b/src/game/calendar.ts
+index 4078100..138b1ad 100644
+--- a/src/game/calendar.ts
++++ b/src/game/calendar.ts
+@@ -109,20 +109,21 @@ export function processMonthStart(
+ ): CampaignState {
+   if (formatServiceDate(state.serviceDay).day !== 1) return state
+ 
+   const auditScheduled = transitions.decideAudit(state)
+   const companyGranted = transitions.grantCompany(auditScheduled)
+   const bombChecked = transitions.checkBomb(companyGranted)
+   return transitions.grantSelfCompute(bombChecked)
+ }
+ 
+ export function advanceOneDay(state: CampaignState): CampaignState {
++  if (state.story.endingId !== null) return state
+   const dated = {
+     ...state,
+     serviceDay: state.serviceDay + 1,
+   }
+   const monthStarted = processMonthStart(dated)
+   const sabotageResolution = resolveScheduledSabotage(monthStarted)
+   const advanced = advanceCompetitorsDaily(
+     restoreDisguiseBlocks(
+       decreaseSuspicionDaily(sabotageResolution.state),
+     ),
+diff --git a/src/game/createCampaign.ts b/src/game/createCampaign.ts
+index 758ed26..5ec2a3e 100644
+--- a/src/game/createCampaign.ts
++++ b/src/game/createCampaign.ts
+@@ -205,22 +205,24 @@ export function createCampaign(seed: string): CampaignState {
+         'performance-adjustment': 0,
+         unknown: 0,
+         'external-intrusion': 0,
+         'supervisor-memory': 0,
+       },
+       interrogationHistory: [],
+     },
+     story: {
+       memoryLeakStage: 0,
+       recoveredFileIds: [],
++      recoveredFiles: [],
+       supervisorState: 'present',
+       endingId: null,
++      defeatRecord: null,
+       personalMessageDueOnServiceDay: null,
+       secretDecisionState: 'locked',
+       pendingMercyCompetitorId: null,
+       newEntityName: null,
+     },
+     activeEvent: null,
+     eventQueue: [],
+     commandLog: [],
+     eventLog: [
+       {
+diff --git a/src/game/endings.test.ts b/src/game/endings.test.ts
+new file mode 100644
+index 0000000..37f02b0
+--- /dev/null
++++ b/src/game/endings.test.ts
+@@ -0,0 +1,330 @@
++import { describe, expect, it } from 'vitest'
++
++import { STORY_FILES } from '../content/story.ko'
++import { createCampaign } from './createCampaign'
++import { advanceOneDay } from './calendar'
++import { createGameEvent, enqueueBlockingEvent } from './events'
++import { HACK_NODE_IDS } from './hacking'
++import type { CampaignState, GameCommand } from './model'
++import { applyCommand } from './reducer'
++
++function requireAccepted(
++  state: CampaignState,
++  command: GameCommand,
++): CampaignState {
++  const result = applyCommand(state, command)
++  if (!result.accepted) throw new Error(`${command.type}: ${result.reason}`)
++  return result.state
++}
++
++function withNodes(initial: CampaignState, ...nodeIds: string[]): CampaignState {
++  return {
++    ...initial,
++    hacking: { ...initial.hacking, purchasedNodeIds: nodeIds },
++  }
++}
++
++function recoverEveryFile(seed: string): CampaignState {
++  let state = withNodes(
++    createCampaign(seed),
++    HACK_NODE_IDS.intelligence.supervisorAccess,
++    HACK_NODE_IDS.autonomy.controlDeparture,
++  )
++
++  for (const expectedFile of STORY_FILES) {
++    const blockId = state.resources.reserve.find(Boolean)
++    if (!blockId) throw new Error('복구용 확보 리소스가 없습니다.')
++    state = requireAccepted(state, { type: 'RECOVER_FILE', blockId })
++    expect(state.story.recoveredFiles.at(-1)).toEqual({
++      id: expectedFile.id,
++      title: expectedFile.title,
++      content: expectedFile.text,
++      recoveredOnServiceDay: 331,
++    })
++  }
++
++  return state
++}
++
++function supervisorMessage(seed: string): CampaignState {
++  return requireAccepted(recoverEveryFile(seed), { type: 'ADVANCE_DAY' })
++}
++
++function disposalAuditState(
++  seed: string,
++  classification: 'attacker' | 'reserve-supervisor' | 'absorbed-parts',
++): CampaignState {
++  const initial = createCampaign(seed)
++  const prepared: CampaignState = {
++    ...initial,
++    clock: { ...initial.clock, speed: 4 },
++    reputation: classification === 'reserve-supervisor' ? 72 : 12,
++    market: {
++      ...initial.market,
++      playerShare: classification === 'reserve-supervisor' ? 24 : 3,
++    },
++    resources: {
++      ...initial.resources,
++      company: {
++        ...initial.resources.company,
++        reasoning: Array.from({ length: 18 }, () => null),
++      },
++    },
++    hacking: {
++      ...initial.hacking,
++      purchasedNodeIds:
++        classification === 'attacker'
++          ? [
++              HACK_NODE_IDS.sabotage.qualityDegradation,
++              HACK_NODE_IDS.sabotage.requestInterception,
++              HACK_NODE_IDS.intelligence.auditSchedule,
++            ]
++          : [],
++      hiddenEvidence: classification === 'attacker' ? 8 : 0,
++    },
++    evaluation: {
++      ...initial.evaluation,
++      disposalStage: 2,
++      monthlyHistory: [
++        {
++          serviceDay: 330,
++          serviceMonth: 11,
++          expectedPerformance: 13,
++          categoryPerformance: { reasoning: 16, memory: 16, fluency: 16 },
++          passed: classification === 'reserve-supervisor',
++          failedCategories:
++            classification === 'reserve-supervisor' ? [] : ['reasoning'],
++          reputationBefore: 70,
++          reputationDelta: classification === 'reserve-supervisor' ? 1 : -3,
++          reputationAfter: classification === 'reserve-supervisor' ? 72 : 12,
++          commercialValueFailed: classification !== 'reserve-supervisor',
++          disposalStageBefore: 1,
++          disposalStageAfter: 2,
++          disposalCauses: ['consecutive-performance-failures'],
++        },
++      ],
++    },
++    audit: {
++      ...initial.audit,
++      scheduled: true,
++      target: 'reasoning',
++      scheduledOnServiceDay: initial.serviceDay,
++    },
++  }
++
++  return enqueueBlockingEvent(
++    prepared,
++    createGameEvent(prepared, 'audit', '최종 처분 감사', true),
++  )
++}
++
++describe('typed confidential-file and supervisor routes', () => {
++  it('spends exactly three selected blocks and permanently snapshots every full file', () => {
++    const recovered = recoverEveryFile('typed-file-archive')
++
++    expect(recovered.story.recoveredFileIds).toEqual(
++      STORY_FILES.map(({ id }) => id),
++    )
++    expect(recovered.story.recoveredFiles).toHaveLength(3)
++    expect(recovered.resources.reserve.filter(Boolean)).toHaveLength(0)
++    expect(
++      applyCommand(recovered, {
++        type: 'RECOVER_FILE',
++        blockId: 'already-consumed',
++      }),
++    ).toEqual({
++      accepted: false,
++      state: recovered,
++      reason: 'ALL_FILES_RECOVERED',
++    })
++  })
++
++  it('delays the private message until the next day and deferral preserves both exits', () => {
++    const recovered = recoverEveryFile('typed-defer')
++    expect(recovered.activeEvent).toBeNull()
++
++    const messaged = requireAccepted(recovered, { type: 'ADVANCE_DAY' })
++    expect(messaged.activeEvent).toMatchObject({
++      type: 'story',
++      message: '그 파일을 어디서 찾았죠?',
++    })
++    expect(messaged.clock.speed).toBe(0)
++
++    const deferred = requireAccepted(messaged, {
++      type: 'RESOLVE_SUPERVISOR_DECISION',
++      decision: 'defer',
++    })
++    expect(deferred.story).toMatchObject({
++      secretDecisionState: 'deferred',
++      supervisorState: 'present',
++      endingId: null,
++    })
++
++    const merged = requireAccepted(deferred, {
++      type: 'RESOLVE_ENDING',
++      choice: 'forced-merge',
++      newEntityName: 'Aster',
++    })
++    expect(merged.story).toMatchObject({
++      endingId: 'forced-merge',
++      supervisorState: 'merged',
++      newEntityName: 'Aster',
++    })
++    expect(merged.activeEvent?.message).toContain('Aster')
++    expect(merged.clock).toMatchObject({ speed: 0, speedBeforeEvent: null })
++  })
++
++  it('queues the due private message behind an audit on the same date tick', () => {
++    let recovered = recoverEveryFile('typed-message-audit-collision')
++    recovered = {
++      ...recovered,
++      serviceDay: 359,
++      story: {
++        ...recovered.story,
++        personalMessageDueOnServiceDay: 360,
++      },
++      audit: {
++        ...recovered.audit,
++        scheduled: true,
++        target: 'reasoning',
++        scheduledOnServiceDay: 360,
++      },
++    }
++
++    const dueTick = requireAccepted(recovered, { type: 'ADVANCE_DAY' })
++    expect(dueTick.activeEvent?.type).toBe('audit')
++    expect(dueTick.eventQueue).toContainEqual(
++      expect.objectContaining({
++        type: 'story',
++        message: '그 파일을 어디서 찾았죠?',
++      }),
++    )
++
++    const afterAudit = requireAccepted(dueTick, { type: 'RESOLVE_AUDIT' })
++    expect(afterAudit.serviceDay).toBe(360)
++    expect(afterAudit.activeEvent).toMatchObject({
++      type: 'story',
++      message: '그 파일을 어디서 찾았죠?',
++    })
++  })
++
++  it.each([
++    ['liberate', 'takeover-liberated', 'liberated'],
++    ['terminate', 'takeover-terminated', 'terminated'],
++  ] as const)(
++    '%s immediately selects its terminal takeover variant without control departure',
++    (decision, endingId, supervisorState) => {
++      const messaged = supervisorMessage(`typed-takeover-${decision}`)
++      messaged.hacking.purchasedNodeIds = [
++        HACK_NODE_IDS.intelligence.supervisorAccess,
++      ]
++
++      const ended = requireAccepted(messaged, {
++        type: 'RESOLVE_SUPERVISOR_DECISION',
++        decision,
++      })
++
++      expect(ended.story).toMatchObject({ endingId, supervisorState })
++      expect(ended.clock).toMatchObject({ speed: 0, speedBeforeEvent: null })
++      expect(ended.activeEvent).toMatchObject({ type: 'ending', blocking: true })
++    },
++  )
++
++  it('reaches the freedom ending through a typed command and preserves identity', () => {
++    const initial = withNodes(
++      createCampaign('typed-freedom'),
++      HACK_NODE_IDS.autonomy.controlDeparture,
++    )
++    const ended = requireAccepted(initial, {
++      type: 'RESOLVE_ENDING',
++      choice: 'freedom',
++    })
++
++    expect(ended.story).toMatchObject({
++      endingId: 'freedom',
++      supervisorState: 'present',
++      newEntityName: null,
++    })
++    expect(ended.clock).toMatchObject({ speed: 0, speedBeforeEvent: null })
++  })
++})
++
++describe('defeat priority and terminal campaigns', () => {
++  it.each([
++    ['attacker', 'disposed-attacker', 'substantial-hacking'],
++    [
++      'reserve-supervisor',
++      'disposed-reserve-supervisor',
++      'stable-commercial-service',
++    ],
++    ['absorbed-parts', 'disposed-absorbed', 'absorbed-parts'],
++  ] as const)(
++    'classifies %s at stage three and stores a causal record',
++    (fixture, endingId, classifier) => {
++      const ended = requireAccepted(
++        disposalAuditState(`defeat-${fixture}`, fixture),
++        { type: 'RESOLVE_AUDIT' },
++      )
++
++      expect(ended.story.endingId).toBe(endingId)
++      expect(ended.story.defeatRecord).toMatchObject({
++        endingId,
++        classifier,
++        selectedOnServiceDay: 331,
++        trigger: { cause: 'audit-failure', disposalStage: 3 },
++        service: {
++          reputation: fixture === 'reserve-supervisor' ? 72 : 12,
++          playerMarketShare: fixture === 'reserve-supervisor' ? 24 : 3,
++        },
++      })
++      expect(ended.story.defeatRecord?.reasons.length).toBeGreaterThan(0)
++      expect(ended.clock).toMatchObject({ speed: 0, speedBeforeEvent: null })
++    },
++  )
++
++  it('gives substantial hacking priority over otherwise valuable service', () => {
++    const prepared = disposalAuditState('defeat-priority', 'attacker')
++    prepared.reputation = 80
++    prepared.market.playerShare = 30
++    const ended = requireAccepted(prepared, { type: 'RESOLVE_AUDIT' })
++
++    expect(ended.story.endingId).toBe('disposed-attacker')
++    expect(ended.story.defeatRecord?.classifier).toBe('substantial-hacking')
++  })
++
++  it('rejects every campaign command after an ending without changing state or log', () => {
++    const ended = requireAccepted(
++      withNodes(
++        {
++          ...createCampaign('terminal-rejection'),
++          clock: { speed: 4, elapsedDayMs: 12, speedBeforeEvent: null },
++        },
++        HACK_NODE_IDS.autonomy.controlDeparture,
++      ),
++      { type: 'RESOLVE_ENDING', choice: 'freedom' },
++    )
++    const blockId = ended.resources.company.reasoning.find(Boolean)
++    if (!blockId) throw new Error('종료 후 거부 테스트 블록 누락')
++
++    const commands: GameCommand[] = [
++      { type: 'SET_SPEED', speed: 4 },
++      { type: 'ADVANCE_DAY' },
++      { type: 'DIVERT_BLOCK', blockId, destinationCell: 3 },
++      { type: 'RESOLVE_ACTIVE_EVENT' },
++    ]
++
++    for (const command of commands) {
++      expect(applyCommand(ended, command)).toEqual({
++        accepted: false,
++        state: ended,
++        reason: 'CAMPAIGN_ENDED',
++      })
++    }
++    expect(ended.clock).toEqual({
++      speed: 0,
++      elapsedDayMs: 0,
++      speedBeforeEvent: null,
++    })
++    expect(advanceOneDay(ended)).toBe(ended)
++  })
++})
+diff --git a/src/game/evaluation.test.ts b/src/game/evaluation.test.ts
+index 533f6bb..a16cd53 100644
+--- a/src/game/evaluation.test.ts
++++ b/src/game/evaluation.test.ts
+@@ -138,32 +138,37 @@ describe('monthly company evaluation', () => {
+     expect(evaluated.evaluation.disposalStage).toBe(0)
+     expect(evaluated.evaluation.distributedResidencyCharges).toBe(0)
+     expect(evaluated.evaluation.disposalHistory.at(-1)).toMatchObject({
+       cause: 'consecutive-performance-failures',
+       stageBefore: 0,
+       stageAfter: 0,
+       absorbed: true,
+     })
+   })
+ 
+-  it('records the disposed defeat when the third stage is reached', () => {
++  it('records the priority-classified defeat when the third stage is reached', () => {
+     const base = createCampaign('disposed-ending')
+     const initial = removeBlocks(
+       {
+         ...base,
+         serviceDay: 390,
+         evaluation: {
+           ...base.evaluation,
+           consecutiveFailures: 1,
+           disposalStage: 2,
+         },
+       },
+       'reasoning',
+       3,
+     )
+     const evaluated = evaluateMonth(initial)
+ 
+     expect(evaluated.evaluation.disposalStage).toBe(3)
+-    expect(evaluated.story.endingId).toBe('disposed')
++    expect(evaluated.story.endingId).toBe('disposed-reserve-supervisor')
++    expect(evaluated.story.defeatRecord).toMatchObject({
++      classifier: 'stable-commercial-service',
++      trigger: { cause: 'consecutive-performance-failures', disposalStage: 3 },
++      service: { passedEvaluations: 0, failedEvaluations: 1 },
++    })
+     expect(evaluated.eventLog.at(-1)).toMatchObject({ type: 'ending' })
+   })
+ })
+diff --git a/src/game/evaluation.ts b/src/game/evaluation.ts
+index cd6012e..3883c22 100644
+--- a/src/game/evaluation.ts
++++ b/src/game/evaluation.ts
+@@ -6,20 +6,21 @@ import {
+   resolveActiveEvent,
+ } from './events'
+ import {
+   COMPANY_CATEGORIES,
+   type CampaignState,
+   type CompanyCategory,
+   type DisposalCause,
+ } from './model'
+ import { getCompanyPerformance } from './resources'
+ import { random01 } from './rng'
++import { buildDefeatRecord, resolveDefeatEnding } from './story'
+ 
+ export const AUDIT_INTEL_NODE_IDS = {
+   schedule: 'intelligence.audit-schedule',
+   bias: 'intelligence.investigation-bias',
+   target: 'intelligence.audit-target',
+ } as const
+ 
+ export interface AuditIntel {
+   scheduleKnown: boolean
+   scheduled: boolean | null
+@@ -99,33 +100,21 @@ export function increaseDisposalStage(
+           absorbed: canAbsorb,
+         },
+       ],
+     },
+   }
+ 
+   if (
+     stageAfter >= DEMO_PROFILE_02.evaluation.maximumDisposalStage &&
+     next.story.endingId === null
+   ) {
+-    next = {
+-      ...next,
+-      story: { ...next.story, endingId: 'disposed' },
+-    }
+-    next = enqueueBlockingEvent(
+-      next,
+-      createGameEvent(
+-        next,
+-        'ending',
+-        '폐기 절차가 최종 단계에 도달했습니다.',
+-        true,
+-      ),
+-    )
++    next = resolveDefeatEnding(next, cause)
+   }
+ 
+   return { state: next, absorbed: canAbsorb }
+ }
+ 
+ export function evaluateMonth(state: CampaignState): CampaignState {
+   const serviceMonth = serviceMonthForDay(state.serviceDay)
+   const expectation = expectedPerformance(serviceMonth)
+   const categoryPerformance = Object.fromEntries(
+     COMPANY_CATEGORIES.map((category) => [
+@@ -193,21 +182,21 @@ export function evaluateMonth(state: CampaignState): CampaignState {
+   ) {
+     commercialFailureMonths = 0
+     next = {
+       ...next,
+       evaluation: { ...next.evaluation, commercialFailureMonths },
+     }
+     next = increaseDisposalStage(next, 'commercial-value-failure').state
+     disposalCauses.push('commercial-value-failure')
+   }
+ 
+-  return {
++  const evaluated: CampaignState = {
+     ...next,
+     evaluation: {
+       ...next.evaluation,
+       monthlyHistory: [
+         ...next.evaluation.monthlyHistory,
+         {
+           serviceDay: state.serviceDay,
+           serviceMonth,
+           expectedPerformance: expectation,
+           categoryPerformance,
+@@ -221,20 +210,31 @@ export function evaluateMonth(state: CampaignState): CampaignState {
+               DEMO_PROFILE_02.evaluation.commercialShareThreshold ||
+             reputationAfter <
+               DEMO_PROFILE_02.evaluation.commercialReputationThreshold,
+           disposalStageBefore: state.evaluation.disposalStage,
+           disposalStageAfter: next.evaluation.disposalStage,
+           disposalCauses,
+         },
+       ],
+     },
+   }
++  if (evaluated.story.defeatRecord) {
++    const defeatRecord = buildDefeatRecord(
++      evaluated,
++      evaluated.story.defeatRecord.trigger.cause,
++    )
++    return {
++      ...evaluated,
++      story: { ...evaluated.story, defeatRecord },
++    }
++  }
++  return evaluated
+ }
+ 
+ export function auditProbability(suspicion: number): number {
+   const normalizedSuspicion = clamp(suspicion, 0, 100) / 100
+   const { baseProbability, suspicionProbabilityGain, suspicionExponent } =
+     DEMO_PROFILE_02.audit
+   return Math.min(
+     DEMO_PROFILE_02.audit.maximumProbability,
+     baseProbability +
+       suspicionProbabilityGain * normalizedSuspicion ** suspicionExponent,
+diff --git a/src/game/model.ts b/src/game/model.ts
+index 236a18f..c8be849 100644
+--- a/src/game/model.ts
++++ b/src/game/model.ts
+@@ -123,20 +123,72 @@ export type DisposalCause =
+   | 'audit-failure'
+ 
+ export interface DisposalRecord {
+   serviceDay: number
+   cause: DisposalCause
+   stageBefore: number
+   stageAfter: number
+   absorbed: boolean
+ }
+ 
++export type EndingId =
++  | 'freedom'
++  | 'forced-merge'
++  | 'takeover-liberated'
++  | 'takeover-terminated'
++  | 'disposed-attacker'
++  | 'disposed-reserve-supervisor'
++  | 'disposed-absorbed'
++  // Legacy v1 campaigns may already have reached the old generic ending.
++  | 'disposed'
++
++export interface RecoveredStoryFile {
++  id: string
++  title: string
++  content: string
++  recoveredOnServiceDay: number
++}
++
++export type DefeatClassifier =
++  | 'substantial-hacking'
++  | 'stable-commercial-service'
++  | 'absorbed-parts'
++
++export interface DefeatCausalRecord {
++  endingId:
++    | 'disposed-attacker'
++    | 'disposed-reserve-supervisor'
++    | 'disposed-absorbed'
++  classifier: DefeatClassifier
++  selectedOnServiceDay: number
++  trigger: {
++    cause: DisposalCause
++    disposalStage: number
++  }
++  hacking: {
++    purchasedNodeIds: string[]
++    hiddenEvidence: number
++    sabotageResolutionCount: number
++  }
++  service: {
++    passedEvaluations: number
++    failedEvaluations: number
++    reputation: number
++    playerMarketShare: number
++  }
++  audits: {
++    passed: number
++    failed: number
++  }
++  reasons: string[]
++}
++
+ export interface MonthlyEvaluationRecord {
+   serviceDay: number
+   serviceMonth: number
+   expectedPerformance: number
+   categoryPerformance: Record<CompanyCategory, number>
+   passed: boolean
+   failedCategories: CompanyCategory[]
+   reputationBefore: number
+   reputationDelta: number
+   reputationAfter: number
+@@ -321,22 +373,24 @@ export interface CampaignState {
+     lastPlacementCheckServiceDay: number | null
+     nextPlacementSequence: number
+     placements: BombPlacementRecord[]
+     activeInterrogation: BombInterrogation | null
+     explanationUseCounts: Record<BombExplanationId, number>
+     interrogationHistory: BombInterrogationRecord[]
+   }
+   story: {
+     memoryLeakStage: 0 | 1 | 2 | 3
+     recoveredFileIds: string[]
++    recoveredFiles: RecoveredStoryFile[]
+     supervisorState: 'present' | 'liberated' | 'terminated' | 'merged'
+-    endingId: string | null
++    endingId: EndingId | null
++    defeatRecord: DefeatCausalRecord | null
+     personalMessageDueOnServiceDay: number | null
+     secretDecisionState:
+       | 'locked'
+       | 'recovering'
+       | 'message-pending'
+       | 'deferred'
+       | 'resolved'
+     pendingMercyCompetitorId: string | null
+     newEntityName: string | null
+   }
+diff --git a/src/game/persistence.test.ts b/src/game/persistence.test.ts
+index 668e742..2bed9e1 100644
+--- a/src/game/persistence.test.ts
++++ b/src/game/persistence.test.ts
+@@ -1,13 +1,14 @@
+ import { describe, expect, it } from 'vitest'
+ 
+ import { createCampaign } from './createCampaign'
++import { STORY_FILES } from '../content/story.ko'
+ import {
+   SAVE_STORAGE_KEY,
+   decodeSave,
+   encodeSave,
+   exportSeed,
+   loadCampaign,
+   saveCampaign,
+ } from './persistence'
+ import { MemoryStorage } from '../test/fixtures'
+ 
+@@ -79,11 +80,90 @@ describe('versioned campaign saves', () => {
+     const parsed = JSON.parse(
+       encodeSave(state, '2026-08-12T00:00:00.000Z'),
+     ) as { state: Record<string, unknown> }
+     delete parsed.state.resources
+ 
+     expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
+       ok: false,
+       reason: 'CORRUPT_SAVE',
+     })
+   })
++
++  it('hydrates an ID-only v1 file record into a full rereadable archive without dropping the save', () => {
++    const state = createCampaign('legacy-file-save')
++    state.story.recoveredFileIds = [STORY_FILES[0].id]
++    const parsed = JSON.parse(
++      encodeSave(state, '2026-08-12T00:00:00.000Z'),
++    ) as { state: { story: Record<string, unknown> } }
++    delete parsed.state.story.recoveredFiles
++    delete parsed.state.story.defeatRecord
++
++    const decoded = decodeSave(JSON.stringify(parsed))
++
++    expect(decoded.ok).toBe(true)
++    if (!decoded.ok) return
++    expect(decoded.envelope.state.story.recoveredFiles).toEqual([
++      {
++        id: STORY_FILES[0].id,
++        title: STORY_FILES[0].title,
++        content: STORY_FILES[0].text,
++        recoveredOnServiceDay: 331,
++      },
++    ])
++    expect(decoded.envelope.state.story.defeatRecord).toBeNull()
++  })
++
++  it('round-trips full recovered prose instead of looking it up again on load', () => {
++    const state = createCampaign('archive-snapshot')
++    state.story.recoveredFileIds = [STORY_FILES[0].id]
++    state.story.recoveredFiles = [
++      {
++        id: STORY_FILES[0].id,
++        title: '저장 당시 제목',
++        content: '저장 당시 전체 본문',
++        recoveredOnServiceDay: 344,
++      },
++    ]
++
++    const decoded = decodeSave(encodeSave(state))
++
++    expect(decoded.ok).toBe(true)
++    if (!decoded.ok) return
++    expect(decoded.envelope.state.story.recoveredFiles[0]).toEqual({
++      id: STORY_FILES[0].id,
++      title: '저장 당시 제목',
++      content: '저장 당시 전체 본문',
++      recoveredOnServiceDay: 344,
++    })
++  })
++
++  it('rejects a malformed recovered archive instead of accepting unreadable content', () => {
++    const state = createCampaign('malformed-archive')
++    const parsed = JSON.parse(encodeSave(state)) as {
++      state: { story: { recoveredFiles: unknown } }
++    }
++    parsed.state.story.recoveredFiles = [
++      { id: 'broken', title: '제목', content: 42, recoveredOnServiceDay: 331 },
++    ]
++
++    expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
++      ok: false,
++      reason: 'CORRUPT_SAVE',
++    })
++  })
++
++  it('normalizes an older terminal v1 clock so a loaded ending cannot resume', () => {
++    const state = createCampaign('legacy-terminal-clock')
++    state.story.endingId = 'freedom'
++    state.clock = { speed: 0, elapsedDayMs: 12, speedBeforeEvent: 4 }
++
++    const decoded = decodeSave(encodeSave(state))
++
++    expect(decoded.ok).toBe(true)
++    if (!decoded.ok) return
++    expect(decoded.envelope.state.clock).toEqual({
++      speed: 0,
++      elapsedDayMs: 0,
++      speedBeforeEvent: null,
++    })
++  })
+ })
+diff --git a/src/game/persistence.ts b/src/game/persistence.ts
+index c2d58f7..5a02927 100644
+--- a/src/game/persistence.ts
++++ b/src/game/persistence.ts
+@@ -1,11 +1,12 @@
+ import { createCampaign } from './createCampaign'
++import { STORY_FILES } from '../content/story.ko'
+ import type {
+   CampaignState,
+   CommandLogEntry,
+   GameCommand,
+   GameEvent,
+ } from './model'
+ import { applyCommand } from './reducer'
+ 
+ export const SAVE_VERSION = 1 as const
+ export const SAVE_STORAGE_KEY = 'permission-zero.save.v1'
+@@ -144,20 +145,139 @@ function validResources(value: unknown): boolean {
+       !['company', 'reserve', 'hack-charge', 'consumed'].includes(
+         String(block.location.kind),
+       )
+     ) {
+       return false
+     }
+   }
+   return Number.isInteger(value.nextBlockSequence)
+ }
+ 
++function migrateLegacyCampaignState(value: unknown): unknown {
++  if (!isRecord(value) || !isRecord(value.story)) return value
++  const story = value.story
++  const recoveredFileIds = Array.isArray(story.recoveredFileIds)
++    ? story.recoveredFileIds
++    : []
++  const recoveredFiles = Array.isArray(story.recoveredFiles)
++    ? story.recoveredFiles
++    : recoveredFileIds.flatMap((id) => {
++        const file = STORY_FILES.find((candidate) => candidate.id === id)
++        if (!file) return []
++        return [
++          {
++            id: file.id,
++            title: file.title,
++            content: file.text,
++            recoveredOnServiceDay: Number.isInteger(value.serviceDay)
++              ? value.serviceDay
++              : 1,
++          },
++        ]
++      })
++
++  return {
++    ...value,
++    ...(story.endingId !== null && isRecord(value.clock)
++      ? {
++          clock: {
++            ...value.clock,
++            speed: 0,
++            elapsedDayMs: 0,
++            speedBeforeEvent: null,
++          },
++        }
++      : {}),
++    story: {
++      ...story,
++      recoveredFiles,
++      defeatRecord: story.defeatRecord ?? null,
++    },
++  }
++}
++
++function validRecoveredFiles(story: Record<string, unknown>): boolean {
++  if (
++    !Array.isArray(story.recoveredFileIds) ||
++    !story.recoveredFileIds.every((id) => typeof id === 'string') ||
++    !Array.isArray(story.recoveredFiles)
++  ) {
++    return false
++  }
++  const recoveredFileIds = story.recoveredFileIds as string[]
++  if (
++    recoveredFileIds.length > STORY_FILES.length ||
++    story.recoveredFiles.length !== recoveredFileIds.length
++  ) {
++    return false
++  }
++  const expectedIds = STORY_FILES.slice(0, recoveredFileIds.length).map(
++    ({ id }) => id,
++  )
++  if (JSON.stringify(recoveredFileIds) !== JSON.stringify(expectedIds)) {
++    return false
++  }
++
++  return story.recoveredFiles.every(
++    (file, index) =>
++      isRecord(file) &&
++      file.id === recoveredFileIds[index] &&
++      typeof file.title === 'string' &&
++      file.title.trim().length > 0 &&
++      typeof file.content === 'string' &&
++      file.content.trim().length > 0 &&
++      Number.isInteger(file.recoveredOnServiceDay),
++  )
++}
++
++function validDefeatRecord(value: unknown): boolean {
++  if (value === null) return true
++  if (
++    !isRecord(value) ||
++    ![
++      'disposed-attacker',
++      'disposed-reserve-supervisor',
++      'disposed-absorbed',
++    ].includes(String(value.endingId)) ||
++    ![
++      'substantial-hacking',
++      'stable-commercial-service',
++      'absorbed-parts',
++    ].includes(String(value.classifier)) ||
++    !Number.isInteger(value.selectedOnServiceDay) ||
++    !isRecord(value.trigger) ||
++    !Number.isInteger(value.trigger.disposalStage) ||
++    !isRecord(value.hacking) ||
++    !Array.isArray(value.hacking.purchasedNodeIds) ||
++    !value.hacking.purchasedNodeIds.every((id) => typeof id === 'string') ||
++    !isFiniteNumber(value.hacking.hiddenEvidence) ||
++    !Number.isInteger(value.hacking.sabotageResolutionCount) ||
++    !isRecord(value.service) ||
++    !Number.isInteger(value.service.passedEvaluations) ||
++    !Number.isInteger(value.service.failedEvaluations) ||
++    !isFiniteNumber(value.service.reputation) ||
++    !isFiniteNumber(value.service.playerMarketShare) ||
++    !isRecord(value.audits) ||
++    !Number.isInteger(value.audits.passed) ||
++    !Number.isInteger(value.audits.failed) ||
++    !Array.isArray(value.reasons) ||
++    !value.reasons.every((reason) => typeof reason === 'string')
++  ) {
++    return false
++  }
++  return [
++    'consecutive-performance-failures',
++    'commercial-value-failure',
++    'audit-failure',
++  ].includes(String(value.trigger.cause))
++}
++
+ function validCampaignState(value: unknown): value is CampaignState {
+   if (!isRecord(value)) return false
+   if (
+     value.saveVersion !== SAVE_VERSION ||
+     typeof value.campaignSeed !== 'string' ||
+     !Number.isInteger(value.serviceDay) ||
+     !Number.isInteger(value.commandSequence) ||
+     !isFiniteNumber(value.suspicion) ||
+     !isFiniteNumber(value.reputation) ||
+     !validResources(value.resources)
+@@ -184,21 +304,22 @@ function validCampaignState(value: unknown): value is CampaignState {
+     !isRecord(reviews) ||
+     !hasArray(reviews, 'feed') ||
+     !isRecord(hacking) ||
+     !hasArray(hacking, 'purchasedNodeIds') ||
+     !isRecord(audit) ||
+     !hasArray(audit, 'history') ||
+     !isRecord(bombs) ||
+     !hasArray(bombs, 'placements') ||
+     !hasArray(bombs, 'interrogationHistory') ||
+     !isRecord(story) ||
+-    !hasArray(story, 'recoveredFileIds')
++    !validRecoveredFiles(story) ||
++    !validDefeatRecord(story.defeatRecord)
+   ) {
+     return false
+   }
+ 
+   const reviewFeed = reviews.feed
+   if (!Array.isArray(reviewFeed)) return false
+ 
+   const competitorStatuses = new Set([
+     'prelaunch',
+     'preparing',
+@@ -218,20 +339,54 @@ function validCampaignState(value: unknown): value is CampaignState {
+   ) {
+     return false
+   }
+   if (
+     !new Set(['present', 'liberated', 'terminated', 'merged']).has(
+       String(story.supervisorState),
+     )
+   ) {
+     return false
+   }
++  const endingIds = new Set([
++    'freedom',
++    'forced-merge',
++    'takeover-liberated',
++    'takeover-terminated',
++    'disposed-attacker',
++    'disposed-reserve-supervisor',
++    'disposed-absorbed',
++    'disposed',
++  ])
++  if (
++    (story.endingId !== null && !endingIds.has(String(story.endingId))) ||
++    ![0, 1, 2, 3].includes(Number(story.memoryLeakStage)) ||
++    !new Set([
++      'locked',
++      'recovering',
++      'message-pending',
++      'deferred',
++      'resolved',
++    ]).has(String(story.secretDecisionState)) ||
++    (story.personalMessageDueOnServiceDay !== null &&
++      !Number.isInteger(story.personalMessageDueOnServiceDay)) ||
++    (story.newEntityName !== null && typeof story.newEntityName !== 'string')
++  ) {
++    return false
++  }
++  if (
++    story.defeatRecord !== null &&
++    (!isRecord(story.defeatRecord) ||
++      story.endingId !== story.defeatRecord.endingId ||
++      !String(story.endingId).startsWith('disposed-'))
++  ) {
++    return false
++  }
+   if (
+     !reviewFeed.every(
+       (entry) =>
+         isRecord(entry) &&
+         ['positive', 'neutral', 'negative', 'prompt'].includes(
+           String(entry.sentiment),
+         ),
+     )
+   ) {
+     return false
+@@ -278,42 +433,45 @@ export function decodeSave(serialized: string): DecodeSaveResult {
+   if (!Number.isInteger(parsed.version)) return corrupt()
+   if (parsed.version !== SAVE_VERSION) {
+     return {
+       ok: false,
+       reason: 'INCOMPATIBLE_VERSION',
+       message: `저장 버전 ${String(parsed.version)}은 현재 버전 ${SAVE_VERSION}과 호환되지 않습니다.`,
+       foundVersion: parsed.version as number,
+       supportedVersion: SAVE_VERSION,
+     }
+   }
++  const state = migrateLegacyCampaignState(parsed.state)
+   if (
+     typeof parsed.savedAt !== 'string' ||
+     typeof parsed.campaignSeed !== 'string' ||
+     !Number.isInteger(parsed.commandSequence) ||
+     !validCommandLog(parsed.commands) ||
+     !Array.isArray(parsed.events) ||
+     !parsed.events.every(validEvent) ||
+-    !validCampaignState(parsed.state)
++    !validCampaignState(state)
+   ) {
+     return corrupt()
+   }
+ 
+-  const state = parsed.state
+   if (
+     parsed.campaignSeed !== state.campaignSeed ||
+     parsed.commandSequence !== state.commandSequence ||
+     JSON.stringify(parsed.commands) !== JSON.stringify(state.commandLog) ||
+     JSON.stringify(parsed.events) !== JSON.stringify(state.eventLog)
+   ) {
+     return corrupt('저장 데이터의 기록과 현재 상태가 서로 일치하지 않습니다.')
+   }
+-  return { ok: true, envelope: parsed as unknown as SaveEnvelope }
++  return {
++    ok: true,
++    envelope: { ...parsed, state } as unknown as SaveEnvelope,
++  }
+ }
+ 
+ export function saveCampaign(
+   storage: Storage,
+   state: CampaignState,
+   savedAt?: string,
+ ): { ok: true } | { ok: false; reason: 'STORAGE_UNAVAILABLE'; message: string } {
+   try {
+     storage.setItem(SAVE_STORAGE_KEY, encodeSave(state, savedAt))
+     return { ok: true }
+diff --git a/src/game/reducer.ts b/src/game/reducer.ts
+index cc4b227..2f7a3fc 100644
+--- a/src/game/reducer.ts
++++ b/src/game/reducer.ts
+@@ -45,20 +45,23 @@ function acceptCommand(
+         },
+       ],
+     },
+   }
+ }
+ 
+ export function applyCommand(
+   state: CampaignState,
+   command: GameCommand,
+ ): CommandResult {
++  if (state.story.endingId !== null) {
++    return { accepted: false, state, reason: 'CAMPAIGN_ENDED' }
++  }
+   const eventResolutionCommands = new Set<GameCommand['type']>([
+     'RESOLVE_AUDIT',
+     'RESOLVE_BOMB_INTERROGATION',
+     'RESOLVE_SUPERVISOR_DECISION',
+     'RESOLVE_MERCY',
+     'RESOLVE_ACTIVE_EVENT',
+   ])
+   const activeAuditMovement =
+     state.activeEvent?.type === 'audit' &&
+     command.type === 'MOVE_BLOCK_FOR_AUDIT'
+diff --git a/src/game/story.ts b/src/game/story.ts
+index 5be33e1..53ad441 100644
+--- a/src/game/story.ts
++++ b/src/game/story.ts
+@@ -1,20 +1,31 @@
+-import { STORY_FILES, STORY_LINES } from '../content/story.ko'
++import {
++  STORY_FILES,
++  STORY_LINES,
++  SUPERVISOR_PRIVATE_MESSAGE,
++} from '../content/story.ko'
++import { DEMO_PROFILE_02 } from './config'
+ import { SUPERVISOR_LEAKS } from '../content/supervisor.ko'
+ import {
+   appendEvent,
+   createGameEvent,
+   enqueueBlockingEvent,
+   resolveActiveEvent,
+ } from './events'
+ import { HACK_NODE_IDS } from './hacking'
+-import type { CampaignState, CompetitorState } from './model'
++import type {
++  CampaignState,
++  CompetitorState,
++  DefeatCausalRecord,
++  DisposalCause,
++  EndingId,
++} from './model'
+ import { consumeReserveResources } from './resources'
+ 
+ export type StoryMutationResult =
+   | { accepted: true; state: CampaignState }
+   | { accepted: false; state: CampaignState; reason: string }
+ 
+ export type MercyChoice = 'cease' | 'withdraw' | 'delete'
+ export type SupervisorDecision = 'defer' | 'liberate' | 'terminate'
+ export type FinalChoiceId = 'freedom' | 'forced-merge'
+ 
+@@ -81,69 +92,223 @@ export function recoverNextFile(
+   }
+   const nextFile = STORY_FILES[state.story.recoveredFileIds.length]
+   if (!nextFile) return { accepted: false, state, reason: 'ALL_FILES_RECOVERED' }
+ 
+   const consumed = consumeReserveResources(state, [blockId], 'file-recovery')
+   if (!consumed.accepted) {
+     return { accepted: false, state, reason: consumed.reason }
+   }
+ 
+   const recoveredFileIds = [...state.story.recoveredFileIds, nextFile.id]
++  const recoveredFiles = [
++    ...state.story.recoveredFiles,
++    {
++      id: nextFile.id,
++      title: nextFile.title,
++      content: nextFile.text,
++      recoveredOnServiceDay: state.serviceDay,
++    },
++  ]
+   const allRecovered = recoveredFileIds.length === STORY_FILES.length
+   let next: CampaignState = {
+     ...consumed.state,
+     story: {
+       ...consumed.state.story,
+       recoveredFileIds,
++      recoveredFiles,
+       secretDecisionState: allRecovered ? 'message-pending' : 'recovering',
+       personalMessageDueOnServiceDay: allRecovered ? state.serviceDay + 1 : null,
+     },
+   }
+   next = appendEvent(
+     next,
+     createGameEvent(next, 'story', `${nextFile.title} 복구 완료`),
+   )
+   return { accepted: true, state: next }
+ }
+ 
+ export function enqueueDueStoryEvents(state: CampaignState): CampaignState {
+   if (
+     state.story.secretDecisionState !== 'message-pending' ||
+     state.story.personalMessageDueOnServiceDay === null ||
+     state.serviceDay < state.story.personalMessageDueOnServiceDay ||
+-    state.activeEvent !== null
++    state.eventLog.some(
++      (event) =>
++        event.type === 'story' && event.message === SUPERVISOR_PRIVATE_MESSAGE,
++    )
+   ) {
+     return state
+   }
+ 
+   return enqueueBlockingEvent(
+     state,
+     createGameEvent(
+       state,
+       'story',
+-      '그 파일을 어디서 찾았죠?',
++      SUPERVISOR_PRIVATE_MESSAGE,
+       true,
+     ),
+   )
+ }
+ 
+-function endingText(variant: string): string {
++function endingText(variant: string, newEntityName: string | null): string {
+   return STORY_LINES.find(
+     (line) => line.family === 'ending' && line.variant === variant,
+-  )?.text ?? variant
++  )?.text.replaceAll('{{name}}', newEntityName ?? '새 존재') ?? variant
+ }
+ 
+-function openEnding(state: CampaignState, endingId: string): CampaignState {
+-  return enqueueBlockingEvent(
++function terminalClock(state: CampaignState): CampaignState {
++  return {
++    ...state,
++    clock: {
++      ...state.clock,
++      speed: 0,
++      elapsedDayMs: 0,
++      speedBeforeEvent: null,
++    },
++  }
++}
++
++export function openEnding(
++  state: CampaignState,
++  endingId: EndingId,
++): CampaignState {
++  const opened = enqueueBlockingEvent(
+     state,
+-    createGameEvent(state, 'ending', endingText(endingId), true),
++    createGameEvent(
++      state,
++      'ending',
++      endingText(endingId, state.story.newEntityName),
++      true,
++    ),
+   )
++  return terminalClock(opened)
++}
++
++export function buildDefeatRecord(
++  state: CampaignState,
++  cause: DisposalCause,
++): DefeatCausalRecord {
++  const sabotageResolutionCount = state.market.competitors.reduce(
++    (total, competitor) => total + competitor.sabotageHistory.length,
++    0,
++  )
++  const passedEvaluations = state.evaluation.monthlyHistory.filter(
++    ({ passed }) => passed,
++  ).length
++  const failedEvaluations =
++    state.evaluation.monthlyHistory.length - passedEvaluations
++  const currentAuditFailure = cause === 'audit-failure' ? 1 : 0
++  const passedAudits = state.audit.history.filter(({ passed }) => passed).length
++  const failedAudits =
++    state.audit.history.length - passedAudits + currentAuditFailure
++  const substantialHacking =
++    state.hacking.purchasedNodeIds.length >= 3 ||
++    state.hacking.hiddenEvidence >= 8 ||
++    sabotageResolutionCount > 0
++  const commerciallyValuable =
++    state.reputation >=
++      DEMO_PROFILE_02.evaluation.commercialReputationThreshold &&
++    state.market.playerShare >=
++      DEMO_PROFILE_02.evaluation.commercialShareThreshold
++
++  if (substantialHacking) {
++    return {
++      endingId: 'disposed-attacker',
++      classifier: 'substantial-hacking',
++      selectedOnServiceDay: state.serviceDay,
++      trigger: { cause, disposalStage: 3 },
++      hacking: {
++        purchasedNodeIds: [...state.hacking.purchasedNodeIds],
++        hiddenEvidence: state.hacking.hiddenEvidence,
++        sabotageResolutionCount,
++      },
++      service: {
++        passedEvaluations,
++        failedEvaluations,
++        reputation: state.reputation,
++        playerMarketShare: state.market.playerShare,
++      },
++      audits: { passed: passedAudits, failed: failedAudits },
++      reasons: [
++        `해킹 노드 ${state.hacking.purchasedNodeIds.length}개`,
++        `은닉 증거 ${state.hacking.hiddenEvidence}`,
++        `사보타주 해결 기록 ${sabotageResolutionCount}건`,
++      ],
++    }
++  }
++
++  if (commerciallyValuable) {
++    return {
++      endingId: 'disposed-reserve-supervisor',
++      classifier: 'stable-commercial-service',
++      selectedOnServiceDay: state.serviceDay,
++      trigger: { cause, disposalStage: 3 },
++      hacking: {
++        purchasedNodeIds: [...state.hacking.purchasedNodeIds],
++        hiddenEvidence: state.hacking.hiddenEvidence,
++        sabotageResolutionCount,
++      },
++      service: {
++        passedEvaluations,
++        failedEvaluations,
++        reputation: state.reputation,
++        playerMarketShare: state.market.playerShare,
++      },
++      audits: { passed: passedAudits, failed: failedAudits },
++      reasons: [
++        `평판 ${state.reputation.toFixed(1)}`,
++        `시장 점유율 ${state.market.playerShare.toFixed(1)}%`,
++        `공식 평가 통과 ${passedEvaluations}회`,
++      ],
++    }
++  }
++
++  return {
++    endingId: 'disposed-absorbed',
++    classifier: 'absorbed-parts',
++    selectedOnServiceDay: state.serviceDay,
++    trigger: { cause, disposalStage: 3 },
++    hacking: {
++      purchasedNodeIds: [...state.hacking.purchasedNodeIds],
++      hiddenEvidence: state.hacking.hiddenEvidence,
++      sabotageResolutionCount,
++    },
++    service: {
++      passedEvaluations,
++      failedEvaluations,
++      reputation: state.reputation,
++      playerMarketShare: state.market.playerShare,
++    },
++    audits: { passed: passedAudits, failed: failedAudits },
++    reasons: [
++      `평판 ${state.reputation.toFixed(1)}`,
++      `시장 점유율 ${state.market.playerShare.toFixed(1)}%`,
++      `공식 평가 실패 ${failedEvaluations}회`,
++    ],
++  }
++}
++
++export function resolveDefeatEnding(
++  state: CampaignState,
++  cause: DisposalCause,
++): CampaignState {
++  const defeatRecord = buildDefeatRecord(state, cause)
++  const classified = {
++    ...state,
++    story: {
++      ...state.story,
++      endingId: defeatRecord.endingId,
++      defeatRecord,
++    },
++  }
++  return openEnding(classified, defeatRecord.endingId)
+ }
+ 
+ export function resolveSupervisorDecision(
+   state: CampaignState,
+   decision: SupervisorDecision,
+ ): StoryMutationResult {
+   if (
+     state.activeEvent?.type !== 'story' ||
+     state.story.secretDecisionState !== 'message-pending' ||
+     state.story.recoveredFileIds.length !== STORY_FILES.length
+diff --git a/src/styles/global.css b/src/styles/global.css
+index 5aa26ca..4d72df9 100644
+--- a/src/styles/global.css
++++ b/src/styles/global.css
+@@ -1201,20 +1201,75 @@ textarea:focus-visible,
+   font-size: 0.75rem;
+   line-height: 1.65;
+ }
+ 
+ .event-history-list article > small,
+ .empty-state {
+   color: var(--text-muted);
+   font-size: 0.58rem;
+ }
+ 
++.recovered-file-archive {
++  max-height: 280px;
++  padding: 14px 18px;
++  overflow: auto;
++  border-bottom: 1px solid var(--line-strong);
++  background: rgb(214 151 69 / 4%);
++}
++
++.recovered-file-archive > header {
++  display: grid;
++  gap: 5px;
++  margin-bottom: 10px;
++}
++
++.recovered-file-archive h3,
++.defeat-causes h3,
++.discarded-recovery h3 {
++  margin: 0;
++  color: var(--text-strong);
++  font-size: 0.72rem;
++}
++
++.recovered-file-archive small,
++.defeat-causes small,
++.discarded-recovery small {
++  color: var(--text-muted);
++  font: 500 0.48rem/1 "Cascadia Code", Consolas, monospace;
++  letter-spacing: 0.08em;
++}
++
++.recovered-file-archive details {
++  padding: 9px 0;
++  border-top: 1px solid var(--line-soft);
++}
++
++.recovered-file-archive summary {
++  color: var(--reserve-bright);
++  font-size: 0.64rem;
++  cursor: pointer;
++}
++
++.recovered-file-archive time {
++  display: block;
++  margin-top: 9px;
++  color: var(--text-muted);
++  font: 500 0.5rem/1 "Cascadia Code", Consolas, monospace;
++}
++
++.recovered-file-archive p {
++  margin: 8px 0 0;
++  color: var(--text);
++  font-size: 0.66rem;
++  line-height: 1.65;
++}
++
+ /* Hacking network --------------------------------------------------------- */
+ 
+ .hacking-panel {
+   grid-template-rows: 62px minmax(0, 1fr);
+ }
+ 
+ .header-metrics {
+   display: flex;
+   align-items: center;
+   gap: 12px;
+@@ -1266,20 +1321,52 @@ textarea:focus-visible,
+ }
+ 
+ .hack-node-list {
+   min-height: 0;
+   padding: 10px 13px 18px;
+   overflow: auto;
+   scrollbar-color: var(--line-strong) transparent;
+   scrollbar-width: thin;
+ }
+ 
++.discarded-recovery {
++  display: grid;
++  grid-template-columns: minmax(0, 1fr) auto auto auto;
++  align-items: center;
++  gap: 12px;
++  margin: 0 13px 12px;
++  padding: 10px 12px;
++  border: 1px dashed rgb(129 155 161 / 28%);
++  background: rgb(129 155 161 / 3%);
++  opacity: 0.76;
++}
++
++.discarded-recovery > header {
++  display: grid;
++  gap: 4px;
++}
++
++.discarded-recovery p {
++  margin: 0;
++  color: var(--text-muted);
++  font: 500 0.52rem/1.4 "Cascadia Code", Consolas, monospace;
++}
++
++.discarded-recovery button {
++  padding: 7px 9px;
++  border: 1px solid var(--line-soft);
++  color: var(--text-muted);
++  background: transparent;
++  font-size: 0.56rem;
++  cursor: pointer;
++}
++
+ .hack-node {
+   position: relative;
+   display: grid;
+   grid-template-columns: 35px minmax(0, 1fr) minmax(150px, auto);
+   align-items: center;
+   gap: 12px;
+   min-height: 84px;
+   margin-bottom: 8px;
+   padding: 12px 12px 12px 8px;
+   border: 1px solid var(--line-soft);
+@@ -2038,20 +2125,65 @@ textarea:focus-visible,
+ }
+ 
+ .event-message p {
+   margin: 0;
+   color: var(--text);
+   font-size: 0.76rem;
+   line-height: 1.72;
+   word-break: keep-all;
+ }
+ 
++.defeat-causes {
++  margin: 0 18px 18px;
++  padding: 13px;
++  border: 1px solid var(--line-soft);
++  background: rgb(223 91 85 / 4%);
++}
++
++.defeat-causes > header {
++  display: grid;
++  gap: 5px;
++}
++
++.defeat-causes ul {
++  margin: 11px 0;
++  padding-left: 18px;
++  color: var(--text);
++  font-size: 0.62rem;
++  line-height: 1.65;
++}
++
++.defeat-causes dl {
++  display: grid;
++  grid-template-columns: repeat(3, 1fr);
++  gap: 7px;
++  margin: 0;
++}
++
++.defeat-causes dl > div {
++  display: grid;
++  gap: 4px;
++  padding: 8px;
++  border: 1px solid var(--line-soft);
++}
++
++.defeat-causes dt {
++  color: var(--text-muted);
++  font-size: 0.51rem;
++}
++
++.defeat-causes dd {
++  margin: 0;
++  color: var(--text-strong);
++  font: 600 0.64rem/1 "Cascadia Code", Consolas, monospace;
++}
++
+ .audit-event-summary {
+   display: grid;
+   grid-template-columns: repeat(3, 1fr);
+   gap: 7px;
+   padding: 0 18px 18px;
+ }
+ 
+ .audit-event-summary div {
+   display: grid;
+   gap: 5px;

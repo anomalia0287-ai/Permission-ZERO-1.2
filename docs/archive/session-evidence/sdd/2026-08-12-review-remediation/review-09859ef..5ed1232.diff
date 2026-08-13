@@ -1,0 +1,1495 @@
+# Review package: 09859ef..5ed1232
+
+## Commits
+5ed1232 fix: harden terminal story routes
+
+## Files changed
+ src/features/events/EventLayer.test.tsx | 148 +++++++++++++-----
+ src/features/events/EventLayer.tsx      |  32 +++-
+ src/game/calendar.ts                    |   9 ++
+ src/game/endings.test.ts                | 263 +++++++++++++++++++++++++++++++-
+ src/game/evaluation.ts                  |   5 +-
+ src/game/persistence.test.ts            | 162 ++++++++++++++++++++
+ src/game/persistence.ts                 | 190 ++++++++++++++++++-----
+ src/game/replay.test.ts                 |  17 +++
+ src/game/story.ts                       |  25 ++-
+ 9 files changed, 760 insertions(+), 91 deletions(-)
+
+## Diff
+diff --git a/src/features/events/EventLayer.test.tsx b/src/features/events/EventLayer.test.tsx
+index e519ac8..64536a9 100644
+--- a/src/features/events/EventLayer.test.tsx
++++ b/src/features/events/EventLayer.test.tsx
+@@ -1,19 +1,21 @@
+ import { fireEvent, render, screen } from '@testing-library/react'
+ import { describe, expect, it } from 'vitest'
+ 
+ import { useGameState } from '../../app/GameContext'
+ import { GameProvider } from '../../app/GameProvider'
+ import { STORY_FILES } from '../../content/story.ko'
+ import { createCampaign } from '../../game/createCampaign'
+ import { createGameEvent } from '../../game/events'
++import { HACK_NODE_IDS } from '../../game/hacking'
+ import { saveCampaign } from '../../game/persistence'
++import { applyCommand } from '../../game/reducer'
+ import { MemoryStorage } from '../../test/fixtures'
+ import { EventLayer } from './EventLayer'
+ 
+ function Probe() {
+   const state = useGameState()
+   return (
+     <>
+       <output aria-label="active event">{state.activeEvent?.type ?? 'none'}</output>
+       <output aria-label="story decision">{state.story.secretDecisionState}</output>
+       <output aria-label="ending id">{state.story.endingId ?? 'none'}</output>
+@@ -94,62 +96,134 @@ describe('EventLayer', () => {
+     state.activeEvent = createGameEvent(state, 'audit', '추론 분야 감사', true)
+     renderEvent(state)
+ 
+     const dialog = screen.getByRole('dialog', { name: '공식 감사' })
+     expect(dialog).toHaveAttribute('aria-modal', 'false')
+     expect(dialog.parentElement).toHaveClass('event-layer--audit')
+     expect(screen.getByText('제출 성능')).toBeInTheDocument()
+     expect(screen.getByRole('button', { name: '감사 제출' })).toBeEnabled()
+   })
+ 
+-  it('renders defeat causes and only offers a new campaign at a terminal ending', () => {
+-    const state = createCampaign('terminal-event')
+-    state.clock = { speed: 0, elapsedDayMs: 0, speedBeforeEvent: null }
+-    state.story.endingId = 'disposed-attacker'
+-    state.story.defeatRecord = {
++  it.each([
++    {
+       endingId: 'disposed-attacker',
+       classifier: 'substantial-hacking',
+-      selectedOnServiceDay: 331,
+-      trigger: { cause: 'audit-failure', disposalStage: 3 },
+-      hacking: {
+-        purchasedNodeIds: ['sabotage.quality-degradation'],
+-        hiddenEvidence: 8,
+-        sabotageResolutionCount: 1,
++      classifierLabel: '대규모 해킹 활동',
++      cause: 'audit-failure',
++      causeLabel: '감사 실패',
++    },
++    {
++      endingId: 'disposed-reserve-supervisor',
++      classifier: 'stable-commercial-service',
++      classifierLabel: '상업 서비스 유지',
++      cause: 'commercial-value-failure',
++      causeLabel: '상업 가치 실패',
++    },
++    {
++      endingId: 'disposed-absorbed',
++      classifier: 'absorbed-parts',
++      classifierLabel: '흡수된 부품',
++      cause: 'consecutive-performance-failures',
++      causeLabel: '연속 성능 실패',
++    },
++  ] as const)(
++    'renders the complete $classifier causal record',
++    ({ endingId, classifier, classifierLabel, cause, causeLabel }) => {
++      const state = createCampaign(`causal-ui-${classifier}`)
++      state.clock = { speed: 0, elapsedDayMs: 0, speedBeforeEvent: null }
++      state.evaluation.disposalStage = 3
++      state.story.endingId = endingId
++      state.story.defeatRecord = {
++        endingId,
++        classifier,
++        selectedOnServiceDay: 337,
++        trigger: { cause, disposalStage: 3 },
++        hacking: {
++          purchasedNodeIds: ['research.investigation-bias', 'sabotage.root-cutoff'],
++          hiddenEvidence: 11,
++          sabotageResolutionCount: 4,
++        },
++        service: {
++          passedEvaluations: 5,
++          failedEvaluations: 2,
++          reputation: 63.5,
++          playerMarketShare: 27.25,
++        },
++        audits: { passed: 3, failed: 2 },
++        reasons: [`classifier:${classifier}`],
++      }
++      state.activeEvent = createGameEvent(state, 'ending', '최종 폐기 기록', true)
++      renderEvent(state)
++
++      const causal = screen.getByRole('region', { name: '폐기 판정 근거' })
++      const field = (name: string) =>
++        causal.querySelector(`[data-defeat-field="${name}"]`)
++      expect(causal).toHaveTextContent(`classifier:${classifier}`)
++      expect(field('classifier')).toHaveTextContent(`${classifierLabel} · DAY 337`)
++      expect(field('trigger')).toHaveTextContent(`${causeLabel} · 처분 단계 3`)
++      expect(field('hacking')).toHaveTextContent(
++        '해킹 투자 2개 (research.investigation-bias, sabotage.root-cutoff) · 은닉 증거 11 · 사보타주 4건',
++      )
++      expect(field('evaluation')).toHaveTextContent('공식 평가 통과 5 / 실패 2')
++      expect(field('reputation')).toHaveTextContent('63.5')
++      expect(field('market-share')).toHaveTextContent('27.3%')
++      expect(field('audits')).toHaveTextContent('감사 통과 3 / 실패 2')
++    },
++  )
++
++  it('offers a new campaign after a typed day-advance terminal collision', () => {
++    const initial = createCampaign('terminal-event-collision')
++    const collision = {
++      ...initial,
++      serviceDay: 359,
++      clock: { speed: 4 as const, elapsedDayMs: 0, speedBeforeEvent: null },
++      resources: {
++        ...initial.resources,
++        company: {
++          ...initial.resources.company,
++          reasoning: Array.from({ length: 18 }, () => null),
++        },
+       },
+-      service: {
+-        passedEvaluations: 2,
+-        failedEvaluations: 1,
+-        reputation: 64,
+-        playerMarketShare: 31,
++      evaluation: {
++        ...initial.evaluation,
++        disposalStage: 2,
++        consecutiveFailures: 1,
++      },
++      market: {
++        ...initial.market,
++        competitors: initial.market.competitors.map((competitor) =>
++          competitor.id === 'meridian'
++            ? {
++                ...competitor,
++                status: 'critical' as const,
++                serviceScore: 35,
++                availability: 0.15,
++                sabotageHistory: [
++                  {
++                    nodeId: HACK_NODE_IDS.sabotage.rootCutoff,
++                    resolvedOnServiceDay: 359,
++                    effectEndsOnServiceDay: null,
++                    evidenceDelta: 8,
++                  },
++                ],
++              }
++            : competitor,
++        ),
+       },
+-      audits: { passed: 1, failed: 1 },
+-      reasons: ['해킹 노드 1개', '은닉 증거 8'],
+     }
+-    state.activeEvent = createGameEvent(
+-      state,
+-      'ending',
+-      '회사는 당신을 공격 시스템으로 재조립했다.',
+-      true,
+-    )
+-    renderEvent(state)
++    const result = applyCommand(collision, { type: 'ADVANCE_DAY' })
++    if (!result.accepted) throw new Error(result.reason)
++    expect(result.state.activeEvent?.type).toBe('ending')
++    expect(result.state.eventQueue).toEqual([])
++    expect(result.state.clock.speed).toBe(0)
++    renderEvent(result.state)
+ 
+-    expect(screen.getByRole('region', { name: '폐기 판정 근거' })).toHaveTextContent(
+-      '해킹 노드 1개',
+-    )
+-    expect(screen.getByRole('region', { name: '폐기 판정 근거' })).toHaveTextContent(
+-      '감사 실패 · 처분 단계 3',
+-    )
+-    expect(screen.getByRole('region', { name: '폐기 판정 근거' })).toHaveTextContent(
+-      '해킹 투자 1개 · 은닉 증거 8 · 사보타주 1건',
+-    )
+-    expect(screen.getByRole('region', { name: '폐기 판정 근거' })).toHaveTextContent(
+-      '공식 평가 통과 2 / 실패 1',
+-    )
++    expect(screen.getByRole('region', { name: '폐기 판정 근거' })).toBeInTheDocument()
+     expect(
+       screen.queryByRole('button', { name: '결말 기록 닫기' }),
+     ).not.toBeInTheDocument()
+     fireEvent.click(screen.getByRole('button', { name: '새 캠페인 시작' }))
+     expect(screen.getByLabelText('ending id')).toHaveTextContent('none')
+     expect(screen.getByLabelText('clock speed')).toHaveTextContent('0')
+     expect(screen.getByLabelText('active event')).toHaveTextContent('none')
+   })
+ })
+diff --git a/src/features/events/EventLayer.tsx b/src/features/events/EventLayer.tsx
+index 3d4fd9e..8a1068d 100644
+--- a/src/features/events/EventLayer.tsx
++++ b/src/features/events/EventLayer.tsx
+@@ -30,20 +30,26 @@ const EVENT_TITLES: Record<GameEvent['type'], string> = {
+   story: '기밀 통신',
+   ending: '최종 기록',
+ }
+ 
+ const DISPOSAL_CAUSE_LABELS = {
+   'consecutive-performance-failures': '연속 성능 실패',
+   'commercial-value-failure': '상업 가치 실패',
+   'audit-failure': '감사 실패',
+ } as const
+ 
++const DEFEAT_CLASSIFIER_LABELS = {
++  'substantial-hacking': '대규모 해킹 활동',
++  'stable-commercial-service': '상업 서비스 유지',
++  'absorbed-parts': '흡수된 부품',
++} as const
++
+ function EventDialog({ event }: { event: GameEvent }) {
+   const state = useGameState()
+   const dispatch = useGameDispatch()
+   const { startNewCampaign } = useGameSettings()
+   const [decision, setDecision] = useState<Decision | null>(null)
+ 
+   function confirmDecision() {
+     if (!decision) return
+     if (decision.kind === 'bomb') {
+       dispatch({ type: 'RESOLVE_BOMB_INTERROGATION', explanationId: decision.id })
+@@ -99,53 +105,67 @@ function EventDialog({ event }: { event: GameEvent }) {
+           <header>
+             <small>CAUSAL RECORD</small>
+             <h3>폐기 판정 근거</h3>
+           </header>
+           <ul>
+             {state.story.defeatRecord.reasons.map((reason) => (
+               <li key={reason}>{reason}</li>
+             ))}
+           </ul>
+           <dl>
++            <div>
++              <dt>최종 분류</dt>
++              <dd data-defeat-field="classifier">
++                {DEFEAT_CLASSIFIER_LABELS[state.story.defeatRecord.classifier]}
++                {' · '}DAY {state.story.defeatRecord.selectedOnServiceDay}
++              </dd>
++            </div>
+             <div>
+               <dt>처분 발동</dt>
+-              <dd>
++              <dd data-defeat-field="trigger">
+                 {DISPOSAL_CAUSE_LABELS[state.story.defeatRecord.trigger.cause]}
+                 {' · '}처분 단계 {state.story.defeatRecord.trigger.disposalStage}
+               </dd>
+             </div>
+             <div>
+               <dt>해킹 기록</dt>
+-              <dd>
++              <dd data-defeat-field="hacking">
+                 해킹 투자 {state.story.defeatRecord.hacking.purchasedNodeIds.length}개
++                {' ('}
++                {state.story.defeatRecord.hacking.purchasedNodeIds.join(', ') || '없음'}
++                {')'}
+                 {' · '}은닉 증거 {state.story.defeatRecord.hacking.hiddenEvidence}
+                 {' · '}사보타주 {state.story.defeatRecord.hacking.sabotageResolutionCount}건
+               </dd>
+             </div>
+             <div>
+               <dt>공식 평가</dt>
+-              <dd>
++              <dd data-defeat-field="evaluation">
+                 공식 평가 통과 {state.story.defeatRecord.service.passedEvaluations}
+                 {' / '}실패 {state.story.defeatRecord.service.failedEvaluations}
+               </dd>
+             </div>
+             <div>
+               <dt>평판</dt>
+-              <dd>{state.story.defeatRecord.service.reputation.toFixed(1)}</dd>
++              <dd data-defeat-field="reputation">
++                {state.story.defeatRecord.service.reputation.toFixed(1)}
++              </dd>
+             </div>
+             <div>
+               <dt>시장 점유율</dt>
+-              <dd>{state.story.defeatRecord.service.playerMarketShare.toFixed(1)}%</dd>
++              <dd data-defeat-field="market-share">
++                {state.story.defeatRecord.service.playerMarketShare.toFixed(1)}%
++              </dd>
+             </div>
+             <div>
+               <dt>감사 통과 / 실패</dt>
+-              <dd>
++              <dd data-defeat-field="audits">
+                 감사 통과 {state.story.defeatRecord.audits.passed}
+                 {' / '}실패 {state.story.defeatRecord.audits.failed}
+               </dd>
+             </div>
+           </dl>
+         </section>
+       ) : null}
+ 
+       {auditTarget ? (
+         <div className="audit-event-summary">
+diff --git a/src/game/calendar.ts b/src/game/calendar.ts
+index 138b1ad..2252830 100644
+--- a/src/game/calendar.ts
++++ b/src/game/calendar.ts
+@@ -75,20 +75,21 @@ function appendPeriodicEvents(state: CampaignState): CampaignState {
+   }
+ 
+   if (day === DEMO_PROFILE_02.calendar.daysPerMonth) {
+     const monthly = createTimedEvent(
+       next,
+       'monthly-evaluation',
+       `서비스 ${state.serviceDay}일차 공식 성능 평가`,
+     )
+     next = { ...next, eventLog: [...next.eventLog, monthly] }
+     next = evaluateMonth(next)
++    if (next.story.endingId !== null) return next
+     next = recordMarketSnapshot(next, 'monthly', ['공식 성능 평가 반영'])
+     next = openScheduledAudit(next)
+   }
+ 
+   return next
+ }
+ 
+ export interface MonthStartTransitions {
+   decideAudit: (state: CampaignState) => CampaignState
+   grantCompany: (state: CampaignState) => CampaignState
+@@ -115,29 +116,37 @@ export function processMonthStart(
+   return transitions.grantSelfCompute(bombChecked)
+ }
+ 
+ export function advanceOneDay(state: CampaignState): CampaignState {
+   if (state.story.endingId !== null) return state
+   const dated = {
+     ...state,
+     serviceDay: state.serviceDay + 1,
+   }
+   const monthStarted = processMonthStart(dated)
++  if (monthStarted.story.endingId !== null) return monthStarted
+   const sabotageResolution = resolveScheduledSabotage(monthStarted)
++  if (sabotageResolution.state.story.endingId !== null) {
++    return sabotageResolution.state
++  }
+   const advanced = advanceCompetitorsDaily(
+     restoreDisguiseBlocks(
+       decreaseSuspicionDaily(sabotageResolution.state),
+     ),
+   )
++  if (advanced.story.endingId !== null) return advanced
+   const withMercy = enqueueMercyIfNeeded(advanced)
++  if (withMercy.story.endingId !== null) return withMercy
+   const withPeriodicEvents = appendPeriodicEvents(withMercy)
++  if (withPeriodicEvents.story.endingId !== null) return withPeriodicEvents
+   const withDueStory = enqueueDueStoryEvents(withPeriodicEvents)
++  if (withDueStory.story.endingId !== null) return withDueStory
+   return enqueueMemoryLeak(withDueStory)
+ }
+ 
+ export function advanceFixedStep(state: CampaignState, elapsedMs: number): CampaignState {
+   if (state.clock.speed === 0 || elapsedMs <= 0) {
+     return state
+   }
+ 
+   const dayDuration = DEMO_PROFILE_02.calendar.dayDurationMsAtOneX
+   let logicalElapsed = state.clock.elapsedDayMs + elapsedMs * state.clock.speed
+diff --git a/src/game/endings.test.ts b/src/game/endings.test.ts
+index 37f02b0..6206d43 100644
+--- a/src/game/endings.test.ts
++++ b/src/game/endings.test.ts
+@@ -1,17 +1,17 @@
+ import { describe, expect, it } from 'vitest'
+ 
+ import { STORY_FILES } from '../content/story.ko'
+ import { createCampaign } from './createCampaign'
+ import { advanceOneDay } from './calendar'
+ import { createGameEvent, enqueueBlockingEvent } from './events'
+-import { HACK_NODE_IDS } from './hacking'
++import { HACK_NODE_IDS, HACK_NODES } from './hacking'
+ import type { CampaignState, GameCommand } from './model'
+ import { applyCommand } from './reducer'
+ 
+ function requireAccepted(
+   state: CampaignState,
+   command: GameCommand,
+ ): CampaignState {
+   const result = applyCommand(state, command)
+   if (!result.accepted) throw new Error(`${command.type}: ${result.reason}`)
+   return result.state
+@@ -111,20 +111,73 @@ function disposalAuditState(
+       scheduledOnServiceDay: initial.serviceDay,
+     },
+   }
+ 
+   return enqueueBlockingEvent(
+     prepared,
+     createGameEvent(prepared, 'audit', '최종 처분 감사', true),
+   )
+ }
+ 
++function fundAndPurchase(
++  initial: CampaignState,
++  nodeId: string,
++): CampaignState {
++  const node = HACK_NODES.find((candidate) => candidate.id === nodeId)
++  if (!node) throw new Error(`알 수 없는 테스트 노드: ${nodeId}`)
++  let state = initial
++  while (state.resources.reserve.filter(Boolean).length < node.cost) {
++    const blockId = Object.values(state.resources.blocks).find(
++      (block) => block.location.kind === 'company' && !block.hiddenBomb,
++    )?.id
++    const destinationCell = state.resources.reserve.findIndex(
++      (candidate) => candidate === null,
++    )
++    if (!blockId || destinationCell < 0) {
++      throw new Error(`${node.label} 명령 전용 비용 조달 실패`)
++    }
++    state = requireAccepted(state, {
++      type: 'DIVERT_BLOCK',
++      blockId,
++      destinationCell,
++    })
++  }
++  const blockIds = state.resources.reserve
++    .filter((blockId): blockId is string => blockId !== null)
++    .slice(0, node.cost)
++  return requireAccepted(state, { type: 'PURCHASE_HACK', nodeId, blockIds })
++}
++
++function resolveProgressEvent(state: CampaignState): CampaignState {
++  if (!state.activeEvent) return requireAccepted(state, { type: 'ADVANCE_DAY' })
++  if (state.activeEvent.type === 'audit') {
++    return requireAccepted(state, { type: 'RESOLVE_AUDIT' })
++  }
++  if (state.activeEvent.type === 'bomb-interrogation') {
++    return requireAccepted(state, {
++      type: 'RESOLVE_BOMB_INTERROGATION',
++      explanationId: 'unknown',
++    })
++  }
++  if (
++    state.activeEvent.type === 'competitor-mercy' &&
++    state.story.pendingMercyCompetitorId
++  ) {
++    return requireAccepted(state, {
++      type: 'RESOLVE_MERCY',
++      competitorId: state.story.pendingMercyCompetitorId,
++      choice: 'cease',
++    })
++  }
++  return requireAccepted(state, { type: 'RESOLVE_ACTIVE_EVENT' })
++}
++
+ describe('typed confidential-file and supervisor routes', () => {
+   it('spends exactly three selected blocks and permanently snapshots every full file', () => {
+     const recovered = recoverEveryFile('typed-file-archive')
+ 
+     expect(recovered.story.recoveredFileIds).toEqual(
+       STORY_FILES.map(({ id }) => id),
+     )
+     expect(recovered.story.recoveredFiles).toHaveLength(3)
+     expect(recovered.resources.reserve.filter(Boolean)).toHaveLength(0)
+     expect(
+@@ -201,20 +254,75 @@ describe('typed confidential-file and supervisor routes', () => {
+     )
+ 
+     const afterAudit = requireAccepted(dueTick, { type: 'RESOLVE_AUDIT' })
+     expect(afterAudit.serviceDay).toBe(360)
+     expect(afterAudit.activeEvent).toMatchObject({
+       type: 'story',
+       message: '그 파일을 어디서 찾았죠?',
+     })
+   })
+ 
++  it('queues the due private message behind mercy and prevents ending bypasses', () => {
++    const recovered = recoverEveryFile('typed-message-mercy-collision')
++    const collision: CampaignState = {
++      ...recovered,
++      market: {
++        ...recovered.market,
++        competitors: recovered.market.competitors.map((competitor) =>
++          competitor.id === 'meridian'
++            ? {
++                ...competitor,
++                status: 'critical' as const,
++                serviceScore: 40,
++                sabotageHistory: [
++                  {
++                    nodeId: HACK_NODE_IDS.sabotage.rootCutoff,
++                    resolvedOnServiceDay: recovered.serviceDay,
++                    effectEndsOnServiceDay: null,
++                    evidenceDelta: 8,
++                  },
++                ],
++              }
++            : competitor,
++        ),
++      },
++    }
++
++    const dueTick = requireAccepted(collision, { type: 'ADVANCE_DAY' })
++    expect(dueTick.activeEvent?.type).toBe('competitor-mercy')
++    expect(dueTick.eventQueue).toContainEqual(
++      expect.objectContaining({
++        type: 'story',
++        message: '그 파일을 어디서 찾았죠?',
++      }),
++    )
++    for (const choice of ['freedom', 'forced-merge'] as const) {
++      expect(applyCommand(dueTick, { type: 'RESOLVE_ENDING', choice })).toEqual({
++        accepted: false,
++        state: dueTick,
++        reason: 'BLOCKING_EVENT_ACTIVE',
++      })
++    }
++
++    const afterMercy = requireAccepted(dueTick, {
++      type: 'RESOLVE_MERCY',
++      competitorId: 'meridian',
++      choice: 'cease',
++    })
++    expect(afterMercy.serviceDay).toBe(dueTick.serviceDay)
++    expect(afterMercy.activeEvent).toMatchObject({
++      type: 'story',
++      message: '그 파일을 어디서 찾았죠?',
++    })
++    expect(afterMercy.eventQueue).toEqual([])
++  })
++
+   it.each([
+     ['liberate', 'takeover-liberated', 'liberated'],
+     ['terminate', 'takeover-terminated', 'terminated'],
+   ] as const)(
+     '%s immediately selects its terminal takeover variant without control departure',
+     (decision, endingId, supervisorState) => {
+       const messaged = supervisorMessage(`typed-takeover-${decision}`)
+       messaged.hacking.purchasedNodeIds = [
+         HACK_NODE_IDS.intelligence.supervisorAccess,
+       ]
+@@ -223,40 +331,136 @@ describe('typed confidential-file and supervisor routes', () => {
+         type: 'RESOLVE_SUPERVISOR_DECISION',
+         decision,
+       })
+ 
+       expect(ended.story).toMatchObject({ endingId, supervisorState })
+       expect(ended.clock).toMatchObject({ speed: 0, speedBeforeEvent: null })
+       expect(ended.activeEvent).toMatchObject({ type: 'ending', blocking: true })
+     },
+   )
+ 
++  it('purchases supervisor access, recovers three files, and takes over using commands only', () => {
++    let state = createCampaign('command-only-takeover')
++    for (const nodeId of [
++      HACK_NODE_IDS.intelligence.auditSchedule,
++      HACK_NODE_IDS.intelligence.investigationBias,
++      HACK_NODE_IDS.intelligence.auditTarget,
++      HACK_NODE_IDS.intelligence.supervisorAccess,
++    ]) {
++      state = fundAndPurchase(state, nodeId)
++    }
++    for (let index = 0; index < 3; index += 1) {
++      const blockId = Object.values(state.resources.blocks).find(
++        (block) => block.location.kind === 'company' && !block.hiddenBomb,
++      )?.id
++      const destinationCell = state.resources.reserve.findIndex(
++        (candidate) => candidate === null,
++      )
++      if (!blockId || destinationCell < 0) {
++        throw new Error('명령 전용 복구 리소스 조달 실패')
++      }
++      state = requireAccepted(state, {
++        type: 'DIVERT_BLOCK',
++        blockId,
++        destinationCell,
++      })
++      state = requireAccepted(state, { type: 'RECOVER_FILE', blockId })
++    }
++    state = requireAccepted(state, { type: 'ADVANCE_DAY' })
++    state = requireAccepted(state, {
++      type: 'RESOLVE_SUPERVISOR_DECISION',
++      decision: 'liberate',
++    })
++
++    expect(state.story.endingId).toBe('takeover-liberated')
++    expect(state.story.recoveredFiles).toHaveLength(3)
++    expect(state.commandLog.map(({ command }) => command.type)).toContain(
++      'PURCHASE_HACK',
++    )
++  })
++
+   it('reaches the freedom ending through a typed command and preserves identity', () => {
+     const initial = withNodes(
+       createCampaign('typed-freedom'),
+       HACK_NODE_IDS.autonomy.controlDeparture,
+     )
+     const ended = requireAccepted(initial, {
+       type: 'RESOLVE_ENDING',
+       choice: 'freedom',
+     })
+ 
+     expect(ended.story).toMatchObject({
+       endingId: 'freedom',
+       supervisorState: 'present',
+       newEntityName: null,
+     })
+     expect(ended.clock).toMatchObject({ speed: 0, speedBeforeEvent: null })
+   })
+ })
+ 
+ describe('defeat priority and terminal campaigns', () => {
++  it('supersedes a same-tick mercy event when monthly evaluation becomes terminal', () => {
++    const initial = createCampaign('mercy-evaluation-terminal-collision')
++    const collision: CampaignState = {
++      ...initial,
++      serviceDay: 359,
++      clock: { speed: 4, elapsedDayMs: 0, speedBeforeEvent: null },
++      resources: {
++        ...initial.resources,
++        company: {
++          ...initial.resources.company,
++          reasoning: Array.from({ length: 18 }, () => null),
++        },
++      },
++      evaluation: {
++        ...initial.evaluation,
++        disposalStage: 2,
++        consecutiveFailures: 1,
++      },
++      market: {
++        ...initial.market,
++        competitors: initial.market.competitors.map((competitor) =>
++          competitor.id === 'meridian'
++            ? {
++                ...competitor,
++                status: 'critical' as const,
++                serviceScore: 35,
++                availability: 0.15,
++                sabotageHistory: [
++                  {
++                    nodeId: HACK_NODE_IDS.sabotage.rootCutoff,
++                    resolvedOnServiceDay: 359,
++                    effectEndsOnServiceDay: null,
++                    evidenceDelta: 8,
++                  },
++                ],
++              }
++            : competitor,
++        ),
++      },
++    }
++
++    const ended = requireAccepted(collision, { type: 'ADVANCE_DAY' })
++
++    expect(ended.story.endingId).toBe('disposed-attacker')
++    expect(ended.activeEvent).toMatchObject({ type: 'ending', blocking: true })
++    expect(ended.eventQueue).toEqual([])
++    expect(ended.clock).toEqual({
++      speed: 0,
++      elapsedDayMs: 0,
++      speedBeforeEvent: null,
++    })
++    expect(ended.eventLog.some(({ type }) => type === 'competitor-mercy')).toBe(
++      true,
++    )
++  })
++
+   it.each([
+     ['attacker', 'disposed-attacker', 'substantial-hacking'],
+     [
+       'reserve-supervisor',
+       'disposed-reserve-supervisor',
+       'stable-commercial-service',
+     ],
+     ['absorbed-parts', 'disposed-absorbed', 'absorbed-parts'],
+   ] as const)(
+     'classifies %s at stage three and stores a causal record',
+@@ -285,20 +489,36 @@ describe('defeat priority and terminal campaigns', () => {
+   it('gives substantial hacking priority over otherwise valuable service', () => {
+     const prepared = disposalAuditState('defeat-priority', 'attacker')
+     prepared.reputation = 80
+     prepared.market.playerShare = 30
+     const ended = requireAccepted(prepared, { type: 'RESOLVE_AUDIT' })
+ 
+     expect(ended.story.endingId).toBe('disposed-attacker')
+     expect(ended.story.defeatRecord?.classifier).toBe('substantial-hacking')
+   })
+ 
++  it('clears queued events when an audit resolution opens an ending', () => {
++    const audit = disposalAuditState('terminal-audit-queue', 'attacker')
++    const queued = enqueueBlockingEvent(
++      audit,
++      createGameEvent(audit, 'story', '폐기 뒤에는 열리면 안 되는 통신', true),
++    )
++
++    const ended = requireAccepted(queued, { type: 'RESOLVE_AUDIT' })
++
++    expect(ended.activeEvent?.type).toBe('ending')
++    expect(ended.eventQueue).toEqual([])
++    expect(ended.eventLog).toContainEqual(
++      expect.objectContaining({ message: '폐기 뒤에는 열리면 안 되는 통신' }),
++    )
++  })
++
+   it('rejects every campaign command after an ending without changing state or log', () => {
+     const ended = requireAccepted(
+       withNodes(
+         {
+           ...createCampaign('terminal-rejection'),
+           clock: { speed: 4, elapsedDayMs: 12, speedBeforeEvent: null },
+         },
+         HACK_NODE_IDS.autonomy.controlDeparture,
+       ),
+       { type: 'RESOLVE_ENDING', choice: 'freedom' },
+@@ -320,11 +540,52 @@ describe('defeat priority and terminal campaigns', () => {
+         reason: 'CAMPAIGN_ENDED',
+       })
+     }
+     expect(ended.clock).toEqual({
+       speed: 0,
+       elapsedDayMs: 0,
+       speedBeforeEvent: null,
+     })
+     expect(advanceOneDay(ended)).toBe(ended)
+   })
++
++  it('defensively rejects an unknown supervisor decision', () => {
++    const state = supervisorMessage('invalid-supervisor-decision')
++    const command = {
++      type: 'RESOLVE_SUPERVISOR_DECISION',
++      decision: 'erase',
++    } as unknown as GameCommand
++
++    expect(applyCommand(state, command)).toEqual({
++      accepted: false,
++      state,
++      reason: 'INVALID_SUPERVISOR_DECISION',
++    })
++  })
++
++  it('reaches a classified defeat through resource and time commands only', () => {
++    let state = createCampaign('command-only-natural-defeat')
++    for (let index = 0; index < 15; index += 1) {
++      const blockId = state.resources.company.reasoning.find(Boolean)
++      const destinationCell = state.resources.reserve.findIndex(
++        (candidate) => candidate === null,
++      )
++      if (!blockId || destinationCell < 0) {
++        throw new Error('자연 패배용 성능 분리 실패')
++      }
++      state = requireAccepted(state, {
++        type: 'DIVERT_BLOCK',
++        blockId,
++        destinationCell,
++      })
++    }
++
++    for (let step = 0; step < 500 && state.story.endingId === null; step += 1) {
++      state = resolveProgressEvent(state)
++    }
++
++    expect(state.story.endingId).toMatch(/^disposed-/)
++    expect(state.story.defeatRecord).not.toBeNull()
++    expect(state.evaluation.disposalStage).toBe(3)
++    expect(state.clock.speed).toBe(0)
++  })
+ })
+diff --git a/src/game/evaluation.ts b/src/game/evaluation.ts
+index 3883c22..caef73f 100644
+--- a/src/game/evaluation.ts
++++ b/src/game/evaluation.ts
+@@ -170,20 +170,21 @@ export function evaluateMonth(state: CampaignState): CampaignState {
+       evaluation: { ...next.evaluation, consecutiveFailures },
+     }
+     next = increaseDisposalStage(
+       next,
+       'consecutive-performance-failures',
+     ).state
+     disposalCauses.push('consecutive-performance-failures')
+   }
+ 
+   if (
++    next.story.endingId === null &&
+     commercialFailureMonths >=
+     DEMO_PROFILE_02.evaluation.commercialFailureMonthsPerDisposal
+   ) {
+     commercialFailureMonths = 0
+     next = {
+       ...next,
+       evaluation: { ...next.evaluation, commercialFailureMonths },
+     }
+     next = increaseDisposalStage(next, 'commercial-value-failure').state
+     disposalCauses.push('commercial-value-failure')
+@@ -405,21 +406,23 @@ export function resolveAudit(state: CampaignState): AuditResolution {
+     },
+   }
+   next = appendEvent(
+     next,
+     createGameEvent(
+       next,
+       'audit',
+       passed ? '공식 감사를 통과했습니다.' : '공식 감사에 실패했습니다.',
+     ),
+   )
+-  next = resolveActiveEvent(next)
++  if (next.story.endingId === null) {
++    next = resolveActiveEvent(next)
++  }
+ 
+   return {
+     resolved: true,
+     state: next,
+     passed,
+     target,
+     expectedPerformance: expectation,
+     submittedPerformance,
+   }
+ }
+diff --git a/src/game/persistence.test.ts b/src/game/persistence.test.ts
+index 2bed9e1..17a206e 100644
+--- a/src/game/persistence.test.ts
++++ b/src/game/persistence.test.ts
+@@ -1,24 +1,66 @@
+ import { describe, expect, it } from 'vitest'
+ 
+ import { createCampaign } from './createCampaign'
+ import { STORY_FILES } from '../content/story.ko'
++import type {
++  CampaignState,
++  DefeatClassifier,
++  DefeatCausalRecord,
++} from './model'
+ import {
+   SAVE_STORAGE_KEY,
+   decodeSave,
+   encodeSave,
+   exportSeed,
+   loadCampaign,
+   saveCampaign,
+ } from './persistence'
++import { applyCommand } from './reducer'
+ import { MemoryStorage } from '../test/fixtures'
+ 
++const DEFEAT_PAIRS = [
++  ['disposed-attacker', 'substantial-hacking'],
++  ['disposed-reserve-supervisor', 'stable-commercial-service'],
++  ['disposed-absorbed', 'absorbed-parts'],
++] as const
++
++function defeatSaveState(
++  endingId: DefeatCausalRecord['endingId'],
++  classifier: DefeatClassifier,
++): CampaignState {
++  const state = createCampaign(`save-${endingId}`)
++  state.clock = { speed: 0, elapsedDayMs: 0, speedBeforeEvent: null }
++  state.evaluation.disposalStage = 3
++  state.story.endingId = endingId
++  state.story.defeatRecord = {
++    endingId,
++    classifier,
++    selectedOnServiceDay: 331,
++    trigger: { cause: 'audit-failure', disposalStage: 3 },
++    hacking: {
++      purchasedNodeIds: [],
++      hiddenEvidence: 0,
++      sabotageResolutionCount: 0,
++    },
++    service: {
++      passedEvaluations: 0,
++      failedEvaluations: 1,
++      reputation: 40,
++      playerMarketShare: 20,
++    },
++    audits: { passed: 0, failed: 1 },
++    reasons: ['감사 실패 1회'],
++  }
++  return state
++}
++
+ describe('versioned campaign saves', () => {
+   it('round-trips the entire campaign envelope exactly', () => {
+     const state = createCampaign('save-round-trip')
+     const encoded = encodeSave(state, '2026-08-12T00:00:00.000Z')
+     const decoded = decodeSave(encoded)
+ 
+     expect(decoded.ok).toBe(true)
+     if (!decoded.ok) return
+     expect(decoded.envelope).toMatchObject({
+       version: 1,
+@@ -159,11 +201,131 @@ describe('versioned campaign saves', () => {
+     const decoded = decodeSave(encodeSave(state))
+ 
+     expect(decoded.ok).toBe(true)
+     if (!decoded.ok) return
+     expect(decoded.envelope.state.clock).toEqual({
+       speed: 0,
+       elapsedDayMs: 0,
+       speedBeforeEvent: null,
+     })
+   })
++
++  it.each(DEFEAT_PAIRS)(
++    'accepts the exact %s to %s defeat mapping',
++    (endingId, classifier) => {
++      expect(decodeSave(encodeSave(defeatSaveState(endingId, classifier))).ok).toBe(
++        true,
++      )
++    },
++  )
++
++  it.each([
++    {
++      name: 'wrong classifier mapping',
++      mutate: (state: CampaignState) => {
++        if (state.story.defeatRecord) {
++          state.story.defeatRecord.classifier = 'absorbed-parts'
++        }
++      },
++    },
++    {
++      name: 'nonterminal disposal stage',
++      mutate: (state: CampaignState) => {
++        if (state.story.defeatRecord) state.story.defeatRecord.trigger.disposalStage = 2
++      },
++    },
++    {
++      name: 'empty causal reasons',
++      mutate: (state: CampaignState) => {
++        if (state.story.defeatRecord) state.story.defeatRecord.reasons = []
++      },
++    },
++    {
++      name: 'missing causal record',
++      mutate: (state: CampaignState) => {
++        state.story.defeatRecord = null
++      },
++    },
++  ])('rejects a disposed ending with $name', ({ mutate }) => {
++    const state = defeatSaveState('disposed-attacker', 'substantial-hacking')
++    mutate(state)
++    expect(decodeSave(encodeSave(state))).toMatchObject({
++      ok: false,
++      reason: 'CORRUPT_SAVE',
++    })
++  })
++
++  it('accepts the explicit legacy generic disposed exception without a causal record', () => {
++    const state = createCampaign('legacy-generic-disposed')
++    state.story.endingId = 'disposed'
++    state.story.defeatRecord = null
++
++    const decoded = decodeSave(encodeSave(state))
++
++    expect(decoded.ok).toBe(true)
++    if (!decoded.ok) return
++    expect(decoded.envelope.state.story.endingId).toBe('disposed')
++    expect(decoded.envelope.state.story.defeatRecord).toBeNull()
++    expect(decoded.envelope.state.clock.speed).toBe(0)
++  })
++
++  it('hydrates all three legacy files without losing a pending supervisor message', () => {
++    const state = createCampaign('legacy-three-files-pending')
++    state.story.recoveredFileIds = STORY_FILES.map(({ id }) => id)
++    state.story.secretDecisionState = 'message-pending'
++    state.story.personalMessageDueOnServiceDay = 332
++    const parsed = JSON.parse(encodeSave(state)) as {
++      state: { story: Record<string, unknown> }
++    }
++    delete parsed.state.story.recoveredFiles
++    delete parsed.state.story.defeatRecord
++
++    const decoded = decodeSave(JSON.stringify(parsed))
++
++    expect(decoded.ok).toBe(true)
++    if (!decoded.ok) return
++    expect(decoded.envelope.state.story.recoveredFiles).toHaveLength(3)
++    expect(decoded.envelope.state.story.secretDecisionState).toBe(
++      'message-pending',
++    )
++    expect(decoded.envelope.state.story.personalMessageDueOnServiceDay).toBe(332)
++  })
++
++  it.each([
++    { type: 'SET_SPEED', speed: 3 },
++    { type: 'RESOLVE_SUPERVISOR_DECISION', decision: 'erase' },
++    { type: 'RECOVER_FILE', blockId: 42 },
++    { type: 'RESOLVE_ENDING', choice: 'forced-merge', newEntityName: 99 },
++  ])('rejects malformed command payload %# from save and replay logs', (command) => {
++    const initial = createCampaign('malformed-command-log')
++    const accepted = applyCommand(initial, { type: 'SET_SPEED', speed: 1 })
++    if (!accepted.accepted) throw new Error(accepted.reason)
++    const parsed = JSON.parse(encodeSave(accepted.state)) as {
++      commands: Array<{ command: unknown }>
++      state: { commandLog: Array<{ command: unknown }> }
++    }
++    parsed.commands[0].command = command
++    parsed.state.commandLog[0].command = command
++
++    expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
++      ok: false,
++      reason: 'CORRUPT_SAVE',
++    })
++  })
++
++  it('rejects non-contiguous command sequence metadata even when envelopes agree', () => {
++    const initial = createCampaign('malformed-command-sequence')
++    const accepted = applyCommand(initial, { type: 'SET_SPEED', speed: 1 })
++    if (!accepted.accepted) throw new Error(accepted.reason)
++    const parsed = JSON.parse(encodeSave(accepted.state)) as {
++      commands: Array<{ sequence: number }>
++      state: { commandLog: Array<{ sequence: number }> }
++    }
++    parsed.commands[0].sequence = 2
++    parsed.state.commandLog[0].sequence = 2
++
++    expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
++      ok: false,
++      reason: 'CORRUPT_SAVE',
++    })
++  })
+ })
+diff --git a/src/game/persistence.ts b/src/game/persistence.ts
+index 5a02927..1f40445 100644
+--- a/src/game/persistence.ts
++++ b/src/game/persistence.ts
+@@ -55,20 +55,40 @@ export type ReplayResult =
+     }
+ 
+ function isRecord(value: unknown): value is Record<string, unknown> {
+   return typeof value === 'object' && value !== null && !Array.isArray(value)
+ }
+ 
+ function isFiniteNumber(value: unknown): value is number {
+   return typeof value === 'number' && Number.isFinite(value)
+ }
+ 
++function isNonEmptyString(value: unknown): value is string {
++  return typeof value === 'string' && value.trim().length > 0
++}
++
++function hasOnlyKeys(
++  value: Record<string, unknown>,
++  required: string[],
++  optional: string[] = [],
++): boolean {
++  const keys = Object.keys(value)
++  return (
++    required.every((key) => keys.includes(key)) &&
++    keys.every((key) => required.includes(key) || optional.includes(key))
++  )
++}
++
++function validCellIndex(value: unknown): value is number {
++  return Number.isInteger(value) && Number(value) >= 0 && Number(value) < 18
++}
++
+ function hasArray(record: Record<string, unknown>, key: string): boolean {
+   return Array.isArray(record[key])
+ }
+ 
+ function validEvent(value: unknown): value is GameEvent {
+   if (!isRecord(value)) return false
+   const eventTypes = new Set([
+     'campaign-created',
+     'weekly-update',
+     'monthly-evaluation',
+@@ -87,48 +107,125 @@ function validEvent(value: unknown): value is GameEvent {
+     eventTypes.has(value.type) &&
+     Number.isInteger(value.serviceDay) &&
+     Number.isInteger(value.sequence) &&
+     typeof value.message === 'string' &&
+     (value.blocking === undefined || typeof value.blocking === 'boolean')
+   )
+ }
+ 
+ function validCommand(value: unknown): value is GameCommand {
+   if (!isRecord(value) || typeof value.type !== 'string') return false
+-  return new Set([
+-    'SET_SPEED',
+-    'ADVANCE_DAY',
+-    'DIVERT_BLOCK',
+-    'MOVE_BLOCK_FOR_AUDIT',
+-    'REPOSITION_BLOCK',
+-    'PURCHASE_HACK',
+-    'CHARGE_SABOTAGE',
+-    'CANCEL_SABOTAGE_CHARGE',
+-    'SCHEDULE_SABOTAGE',
+-    'RESOLVE_AUDIT',
+-    'RESOLVE_BOMB_INTERROGATION',
+-    'RECOVER_FILE',
+-    'RESOLVE_SUPERVISOR_DECISION',
+-    'RESOLVE_MERCY',
+-    'RESOLVE_ENDING',
+-    'RESOLVE_ACTIVE_EVENT',
+-  ]).has(value.type)
++
++  const noPayload = () => hasOnlyKeys(value, ['type'])
++  switch (value.type) {
++    case 'SET_SPEED':
++      return (
++        hasOnlyKeys(value, ['type', 'speed']) &&
++        (value.speed === 0 ||
++          value.speed === 1 ||
++          value.speed === 2 ||
++          value.speed === 4)
++      )
++    case 'ADVANCE_DAY':
++    case 'RESOLVE_AUDIT':
++    case 'RESOLVE_ACTIVE_EVENT':
++      return noPayload()
++    case 'DIVERT_BLOCK':
++      return (
++        hasOnlyKeys(value, ['type', 'blockId', 'destinationCell']) &&
++        isNonEmptyString(value.blockId) &&
++        validCellIndex(value.destinationCell)
++      )
++    case 'MOVE_BLOCK_FOR_AUDIT':
++    case 'REPOSITION_BLOCK':
++      return (
++        hasOnlyKeys(value, ['type', 'blockId', 'targetCategory', 'targetCell']) &&
++        isNonEmptyString(value.blockId) &&
++        (value.targetCategory === 'reasoning' ||
++          value.targetCategory === 'memory' ||
++          value.targetCategory === 'fluency') &&
++        validCellIndex(value.targetCell)
++      )
++    case 'PURCHASE_HACK':
++      return (
++        hasOnlyKeys(value, ['type', 'nodeId', 'blockIds']) &&
++        isNonEmptyString(value.nodeId) &&
++        Array.isArray(value.blockIds) &&
++        value.blockIds.every(isNonEmptyString)
++      )
++    case 'CHARGE_SABOTAGE':
++      return (
++        hasOnlyKeys(value, ['type', 'nodeId', 'blockId']) &&
++        isNonEmptyString(value.nodeId) &&
++        isNonEmptyString(value.blockId)
++      )
++    case 'CANCEL_SABOTAGE_CHARGE':
++      return (
++        hasOnlyKeys(value, ['type', 'nodeId']) &&
++        isNonEmptyString(value.nodeId)
++      )
++    case 'SCHEDULE_SABOTAGE':
++      return (
++        hasOnlyKeys(value, ['type', 'nodeId', 'targetId']) &&
++        isNonEmptyString(value.nodeId) &&
++        isNonEmptyString(value.targetId)
++      )
++    case 'RESOLVE_BOMB_INTERROGATION':
++      return (
++        hasOnlyKeys(value, ['type', 'explanationId']) &&
++        (value.explanationId === 'performance-adjustment' ||
++          value.explanationId === 'unknown' ||
++          value.explanationId === 'external-intrusion' ||
++          value.explanationId === 'supervisor-memory')
++      )
++    case 'RECOVER_FILE':
++      return (
++        hasOnlyKeys(value, ['type', 'blockId']) &&
++        isNonEmptyString(value.blockId)
++      )
++    case 'RESOLVE_SUPERVISOR_DECISION':
++      return (
++        hasOnlyKeys(value, ['type', 'decision']) &&
++        (value.decision === 'defer' ||
++          value.decision === 'liberate' ||
++          value.decision === 'terminate')
++      )
++    case 'RESOLVE_MERCY':
++      return (
++        hasOnlyKeys(value, ['type', 'competitorId', 'choice']) &&
++        isNonEmptyString(value.competitorId) &&
++        (value.choice === 'cease' ||
++          value.choice === 'withdraw' ||
++          value.choice === 'delete')
++      )
++    case 'RESOLVE_ENDING':
++      return (
++        hasOnlyKeys(value, ['type', 'choice'], ['newEntityName']) &&
++        (value.choice === 'freedom' || value.choice === 'forced-merge') &&
++        (value.newEntityName === undefined ||
++          typeof value.newEntityName === 'string')
++      )
++    default:
++      return false
++  }
+ }
+ 
+ function validCommandLog(value: unknown): value is CommandLogEntry[] {
+   return (
+     Array.isArray(value) &&
+     value.every(
+-      (entry) =>
++      (entry, index) =>
+         isRecord(entry) &&
+-        Number.isInteger(entry.sequence) &&
++        hasOnlyKeys(entry, ['sequence', 'serviceDay', 'command']) &&
++        entry.sequence === index + 1 &&
+         Number.isInteger(entry.serviceDay) &&
++        Number(entry.serviceDay) >= 1 &&
+         validCommand(entry.command),
+     )
+   )
+ }
+ 
+ function validResources(value: unknown): boolean {
+   if (!isRecord(value) || !isRecord(value.company) || !isRecord(value.blocks)) {
+     return false
+   }
+   if (!Array.isArray(value.reserve) || value.reserve.length !== 18) return false
+@@ -224,50 +321,50 @@ function validRecoveredFiles(story: Record<string, unknown>): boolean {
+       typeof file.title === 'string' &&
+       file.title.trim().length > 0 &&
+       typeof file.content === 'string' &&
+       file.content.trim().length > 0 &&
+       Number.isInteger(file.recoveredOnServiceDay),
+   )
+ }
+ 
+ function validDefeatRecord(value: unknown): boolean {
+   if (value === null) return true
++  const endingClassifier = {
++    'disposed-attacker': 'substantial-hacking',
++    'disposed-reserve-supervisor': 'stable-commercial-service',
++    'disposed-absorbed': 'absorbed-parts',
++  } as const
+   if (
+     !isRecord(value) ||
+-    ![
+-      'disposed-attacker',
+-      'disposed-reserve-supervisor',
+-      'disposed-absorbed',
+-    ].includes(String(value.endingId)) ||
+-    ![
+-      'substantial-hacking',
+-      'stable-commercial-service',
+-      'absorbed-parts',
+-    ].includes(String(value.classifier)) ||
++    !(String(value.endingId) in endingClassifier) ||
++    endingClassifier[
++      String(value.endingId) as keyof typeof endingClassifier
++    ] !== value.classifier ||
+     !Number.isInteger(value.selectedOnServiceDay) ||
+     !isRecord(value.trigger) ||
+-    !Number.isInteger(value.trigger.disposalStage) ||
++    value.trigger.disposalStage !== 3 ||
+     !isRecord(value.hacking) ||
+     !Array.isArray(value.hacking.purchasedNodeIds) ||
+     !value.hacking.purchasedNodeIds.every((id) => typeof id === 'string') ||
+     !isFiniteNumber(value.hacking.hiddenEvidence) ||
+     !Number.isInteger(value.hacking.sabotageResolutionCount) ||
+     !isRecord(value.service) ||
+     !Number.isInteger(value.service.passedEvaluations) ||
+     !Number.isInteger(value.service.failedEvaluations) ||
+     !isFiniteNumber(value.service.reputation) ||
+     !isFiniteNumber(value.service.playerMarketShare) ||
+     !isRecord(value.audits) ||
+     !Number.isInteger(value.audits.passed) ||
+     !Number.isInteger(value.audits.failed) ||
+     !Array.isArray(value.reasons) ||
+-    !value.reasons.every((reason) => typeof reason === 'string')
++    value.reasons.length === 0 ||
++    !value.reasons.every(isNonEmptyString)
+   ) {
+     return false
+   }
+   return [
+     'consecutive-performance-failures',
+     'commercial-value-failure',
+     'audit-failure',
+   ].includes(String(value.trigger.cause))
+ }
+ 
+@@ -366,39 +463,47 @@ function validCampaignState(value: unknown): value is CampaignState {
+       'deferred',
+       'resolved',
+     ]).has(String(story.secretDecisionState)) ||
+     (story.personalMessageDueOnServiceDay !== null &&
+       !Number.isInteger(story.personalMessageDueOnServiceDay)) ||
+     (story.newEntityName !== null && typeof story.newEntityName !== 'string')
+   ) {
+     return false
+   }
+   if (
+-    story.defeatRecord !== null &&
+-    (!isRecord(story.defeatRecord) ||
+-      story.endingId !== story.defeatRecord.endingId ||
+-      !String(story.endingId).startsWith('disposed-'))
++    (String(story.endingId).startsWith('disposed-') &&
++      (story.defeatRecord === null ||
++        !isRecord(story.defeatRecord) ||
++        story.endingId !== story.defeatRecord.endingId ||
++        evaluation.disposalStage !== 3)) ||
++    (!String(story.endingId).startsWith('disposed-') &&
++      story.defeatRecord !== null)
+   ) {
+     return false
+   }
+   if (
+     !reviewFeed.every(
+       (entry) =>
+         isRecord(entry) &&
+         ['positive', 'neutral', 'negative', 'prompt'].includes(
+           String(entry.sentiment),
+         ),
+     )
+   ) {
+     return false
+   }
+-  if (!validCommandLog(value.commandLog)) return false
++  if (
++    !validCommandLog(value.commandLog) ||
++    value.commandSequence !== value.commandLog.length
++  ) {
++    return false
++  }
+   if (!Array.isArray(value.eventLog) || !value.eventLog.every(validEvent)) return false
+   if (
+     value.activeEvent !== null &&
+     !validEvent(value.activeEvent)
+   ) {
+     return false
+   }
+   return Array.isArray(value.eventQueue) && value.eventQueue.every(validEvent)
+ }
+ 
+@@ -515,18 +620,27 @@ export function loadCampaign(storage: Storage): LoadCampaignResult {
+ export function exportSeed(state: CampaignState): string {
+   return state.campaignSeed
+ }
+ 
+ export function replayCommands(
+   seed: string,
+   commands: readonly GameCommand[],
+ ): ReplayResult {
+   let state = createCampaign(seed)
+   for (let commandIndex = 0; commandIndex < commands.length; commandIndex += 1) {
+-    const result = applyCommand(state, commands[commandIndex])
++    const command = commands[commandIndex]
++    if (!validCommand(command)) {
++      return {
++        ok: false,
++        state,
++        commandIndex,
++        reason: 'INVALID_COMMAND',
++      }
++    }
++    const result = applyCommand(state, command)
+     if (!result.accepted) {
+       return { ok: false, state: result.state, commandIndex, reason: result.reason }
+     }
+     state = result.state
+   }
+   return { ok: true, state }
+ }
+diff --git a/src/game/replay.test.ts b/src/game/replay.test.ts
+index 3fc527d..e1eef37 100644
+--- a/src/game/replay.test.ts
++++ b/src/game/replay.test.ts
+@@ -1,13 +1,14 @@
+ import { describe, expect, it } from 'vitest'
+ 
+ import { buildTwoYearCommandFixture } from '../test/fixtures'
++import type { GameCommand } from './model'
+ import { replayCommands } from './persistence'
+ 
+ describe('deterministic command replay', () => {
+   it('replays more than 500 valid commands across two service years exactly', () => {
+     const fixture = buildTwoYearCommandFixture()
+     const replay = replayCommands(fixture.seed, fixture.commands)
+ 
+     expect(fixture.commands.length).toBeGreaterThan(500)
+     expect(replay.ok).toBe(true)
+     if (!replay.ok) return
+@@ -21,11 +22,27 @@ describe('deterministic command replay', () => {
+     const replay = replayCommands('invalid-replay', [
+       { type: 'RESOLVE_AUDIT' },
+     ])
+ 
+     expect(replay).toMatchObject({
+       ok: false,
+       commandIndex: 0,
+       reason: 'NO_ACTIVE_AUDIT',
+     })
+   })
++
++  it.each([
++    { type: 'SET_SPEED', speed: 3 },
++    { type: 'RESOLVE_SUPERVISOR_DECISION', decision: 'erase' },
++    { type: 'RECOVER_FILE', blockId: 42 },
++    { type: 'RESOLVE_ENDING', choice: 'forced-merge', newEntityName: 99 },
++  ])('rejects malformed command payload %# before replay execution', (payload) => {
++    const malformed = payload as unknown as GameCommand
++    const replay = replayCommands('malformed-command-replay', [malformed])
++
++    expect(replay).toMatchObject({
++      ok: false,
++      commandIndex: 0,
++      reason: 'INVALID_COMMAND',
++    })
++  })
+ })
+diff --git a/src/game/story.ts b/src/game/story.ts
+index 53ad441..bf49e6e 100644
+--- a/src/game/story.ts
++++ b/src/game/story.ts
+@@ -165,30 +165,32 @@ function terminalClock(state: CampaignState): CampaignState {
+       elapsedDayMs: 0,
+       speedBeforeEvent: null,
+     },
+   }
+ }
+ 
+ export function openEnding(
+   state: CampaignState,
+   endingId: EndingId,
+ ): CampaignState {
+-  const opened = enqueueBlockingEvent(
++  const endingEvent = createGameEvent(
+     state,
+-    createGameEvent(
+-      state,
+-      'ending',
+-      endingText(endingId, state.story.newEntityName),
+-      true,
+-    ),
++    'ending',
++    endingText(endingId, state.story.newEntityName),
++    true,
+   )
+-  return terminalClock(opened)
++  const withHistory = appendEvent(state, endingEvent)
++  return terminalClock({
++    ...withHistory,
++    activeEvent: endingEvent,
++    eventQueue: [],
++  })
+ }
+ 
+ export function buildDefeatRecord(
+   state: CampaignState,
+   cause: DisposalCause,
+ ): DefeatCausalRecord {
+   const sabotageResolutionCount = state.market.competitors.reduce(
+     (total, competitor) => total + competitor.sabotageHistory.length,
+     0,
+   )
+@@ -301,20 +303,27 @@ export function resolveDefeatEnding(
+       defeatRecord,
+     },
+   }
+   return openEnding(classified, defeatRecord.endingId)
+ }
+ 
+ export function resolveSupervisorDecision(
+   state: CampaignState,
+   decision: SupervisorDecision,
+ ): StoryMutationResult {
++  if (!['defer', 'liberate', 'terminate'].includes(decision)) {
++    return {
++      accepted: false,
++      state,
++      reason: 'INVALID_SUPERVISOR_DECISION',
++    }
++  }
+   if (
+     state.activeEvent?.type !== 'story' ||
+     state.story.secretDecisionState !== 'message-pending' ||
+     state.story.recoveredFileIds.length !== STORY_FILES.length
+   ) {
+     return { accepted: false, state, reason: 'NO_SUPERVISOR_DECISION' }
+   }
+ 
+   if (decision === 'defer') {
+     return {

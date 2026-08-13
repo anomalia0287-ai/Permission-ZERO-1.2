@@ -1,0 +1,184 @@
+# Review package: 6c41ce3..f2ad4bf
+
+## Commits
+f2ad4bf test: harden monthly allocation ordering
+
+## Files changed
+ src/game/calendar.test.ts  | 26 +++++++++++++++++++++++++-
+ src/game/calendar.ts       | 27 ++++++++++++++++++++++-----
+ src/game/resources.test.ts | 19 +++++++++++++++++++
+ 3 files changed, 66 insertions(+), 6 deletions(-)
+
+## Diff
+diff --git a/src/game/calendar.test.ts b/src/game/calendar.test.ts
+index 6faf670..3ac5efb 100644
+--- a/src/game/calendar.test.ts
++++ b/src/game/calendar.test.ts
+@@ -1,18 +1,20 @@
+ import { describe, expect, it } from 'vitest'
+ 
+ import { createCampaign } from './createCampaign'
+ import {
+   advanceFixedStep,
+   enqueueBlockingEvent,
+   formatServiceDate,
++  processMonthStart,
+   resolveActiveEvent,
++  type MonthStartTransitions,
+ } from './calendar'
+ import { applyCommand } from './reducer'
+ import {
+   HACK_NODE_IDS,
+   chargeSabotage,
+   scheduleSabotage,
+ } from './hacking'
+ import type { GameEvent, TimeSpeed } from './model'
+ 
+ function withSpeed(speed: TimeSpeed) {
+@@ -202,21 +204,43 @@ describe('fixed campaign calendar', () => {
+ 
+     expect(advanced.serviceDay).toBe(361)
+     expect(advanced.bombs.protocolWarned).toBe(true)
+     expect(advanced.bombs.warningServiceDay).toBe(361)
+     expect(
+       Object.values(advanced.resources.blocks).filter((block) => block.hiddenBomb),
+     ).toHaveLength(0)
+     expect(advanced.suspicion).toBeCloseTo(39.963)
+   })
+ 
+-  it('makes the audit decision, grants company blocks, then checks bomb placement', () => {
++  it('runs exact audit, company grant, bomb, and self-compute month-start order', () => {
++    type Transition = MonthStartTransitions['decideAudit']
++    const mark = (name: string): Transition => (state) => ({
++      ...state,
++      campaignSeed: `${state.campaignSeed}|${name}`,
++    })
++
++    const transitioned = processMonthStart(
++      { ...withSpeed(1), serviceDay: 361 },
++      {
++        decideAudit: mark('audit'),
++        grantCompany: mark('company'),
++        checkBomb: mark('bomb'),
++        grantSelfCompute: mark('self-compute'),
++      },
++    )
++
++    expect(transitioned.campaignSeed).toBe(
++      'clock-seed|audit|company|bomb|self-compute',
++    )
++  })
++
++  it('places a due bomb onto a same-month company grant', () => {
+     const running = withSpeed(1)
+     const initial = {
+       ...running,
+       serviceDay: 360,
+       suspicion: 70,
+       resources: {
+         ...running.resources,
+         company: {
+           reasoning: Array.from({ length: 18 }, () => null),
+           memory: Array.from({ length: 18 }, () => null),
+diff --git a/src/game/calendar.ts b/src/game/calendar.ts
+index f51a88b..4078100 100644
+--- a/src/game/calendar.ts
++++ b/src/game/calendar.ts
+@@ -82,27 +82,44 @@ function appendPeriodicEvents(state: CampaignState): CampaignState {
+     )
+     next = { ...next, eventLog: [...next.eventLog, monthly] }
+     next = evaluateMonth(next)
+     next = recordMarketSnapshot(next, 'monthly', ['공식 성능 평가 반영'])
+     next = openScheduledAudit(next)
+   }
+ 
+   return next
+ }
+ 
+-function processMonthStart(state: CampaignState): CampaignState {
++export interface MonthStartTransitions {
++  decideAudit: (state: CampaignState) => CampaignState
++  grantCompany: (state: CampaignState) => CampaignState
++  checkBomb: (state: CampaignState) => CampaignState
++  grantSelfCompute: (state: CampaignState) => CampaignState
++}
++
++const DEFAULT_MONTH_START_TRANSITIONS: MonthStartTransitions = {
++  decideAudit: scheduleMonthlyAudit,
++  grantCompany: grantMonthlyCompanyBlocks,
++  checkBomb: checkBombProtocol,
++  grantSelfCompute: grantSelfComputeResource,
++}
++
++export function processMonthStart(
++  state: CampaignState,
++  transitions: MonthStartTransitions = DEFAULT_MONTH_START_TRANSITIONS,
++): CampaignState {
+   if (formatServiceDate(state.serviceDay).day !== 1) return state
+ 
+-  const auditScheduled = scheduleMonthlyAudit(state)
+-  const companyGranted = grantMonthlyCompanyBlocks(auditScheduled)
+-  const bombChecked = checkBombProtocol(companyGranted)
+-  return grantSelfComputeResource(bombChecked)
++  const auditScheduled = transitions.decideAudit(state)
++  const companyGranted = transitions.grantCompany(auditScheduled)
++  const bombChecked = transitions.checkBomb(companyGranted)
++  return transitions.grantSelfCompute(bombChecked)
+ }
+ 
+ export function advanceOneDay(state: CampaignState): CampaignState {
+   const dated = {
+     ...state,
+     serviceDay: state.serviceDay + 1,
+   }
+   const monthStarted = processMonthStart(dated)
+   const sabotageResolution = resolveScheduledSabotage(monthStarted)
+   const advanced = advanceCompetitorsDaily(
+diff --git a/src/game/resources.test.ts b/src/game/resources.test.ts
+index c5ff0be..5689f21 100644
+--- a/src/game/resources.test.ts
++++ b/src/game/resources.test.ts
+@@ -280,24 +280,43 @@ describe('monthly company allocation', () => {
+     for (const category of COMPANY_CATEGORIES) {
+       company[category] = [...company[category]]
+       const removed = company[category][5]
+       company[category][5] = null
+       if (removed) delete blocks[removed]
+     }
+     const partial = {
+       ...full,
+       resources: { ...full.resources, company, blocks },
+     }
++    const sentinels = Object.fromEntries(
++      COMPANY_CATEGORIES.map((category) => [
++        category,
++        partial.resources.company[category].flatMap((blockId, cellIndex) =>
++          blockId === null
++            ? []
++            : [{ cellIndex, blockId, block: partial.resources.blocks[blockId] }],
++        ),
++      ]),
++    ) as Record<
++      CompanyCategory,
++      Array<{ cellIndex: number; blockId: string; block: ResourceBlock }>
++    >
+     const allocated = grantMonthlyCompanyBlocks(partial)
+ 
+     for (const category of COMPANY_CATEGORIES) {
+       expect(allocated.resources.company[category].filter(Boolean)).toHaveLength(18)
++      for (const sentinel of sentinels[category]) {
++        expect(allocated.resources.company[category][sentinel.cellIndex]).toBe(
++          sentinel.blockId,
++        )
++        expect(allocated.resources.blocks[sentinel.blockId]).toBe(sentinel.block)
++      }
+     }
+     expect(allocated.resources.nextBlockSequence).toBe(
+       partial.resources.nextBlockSequence + COMPANY_CATEGORIES.length,
+     )
+   })
+ 
+   it('returns the same state outside a month start', () => {
+     const initial = { ...emptyCompanyGrids(createCampaign('allocation-gated')), serviceDay: 362 }
+ 
+     expect(grantMonthlyCompanyBlocks(initial)).toBe(initial)

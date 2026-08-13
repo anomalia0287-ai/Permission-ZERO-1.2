@@ -1,0 +1,22 @@
+# SDD ledger — plan: docs/superpowers/plans/2026-08-12-review-remediation.md
+
+Base: 429da13
+Task 1: fix round 1/5 (2 addressed, 0 open; commits 6c41ce3..f2ad4bf)
+Task 1: complete (commits 429da13..f2ad4bf, review clean)
+Task 2: fix round 1/5 (4 addressed, 0 open; commits 82eae7d..1404e3e)
+Task 2: complete (commits f2ad4bf..1404e3e, review clean)
+Task 3: fix round 1/5 (7 findings addressed, 2 important findings open; commits 09859ef..5ed1232)
+Task 3: fix round 2/5 (2 important findings addressed, 0 open; commits 5ed1232..a2f3d0b)
+Task 3: complete (commits 1404e3e..a2f3d0b, review clean)
+Task 4: fix round 1/5 (legacy v1 replay addressed; continuation boundary remained open; commits 2eafa99..84aab22)
+Task 4: fix round 2/5 (legacy-to-v2 continuation boundary addressed, 0 open; commits 84aab22..77799b3)
+Task 4: complete (commits a2f3d0b..77799b3, review clean)
+Task 5: fix round 1/5 (5 important findings addressed; 1 important + 1 minor open; commits b9561a5..9fcf9de)
+Task 5: fix round 2/5 (detail focus and import input bound addressed; encoder symmetry remained open; commits 9fcf9de..5fd932b)
+Task 5: fix round 3/5 (export/import cap symmetry and raw input gate addressed, 0 open; commits 5fd932b..3f82a89)
+Task 5: complete (commits 77799b3..3f82a89, review clean)
+Task 6: fix round 1/5 (4 important and 2 minor findings addressed; Pages build permission open; commits cf780c6..cb5d362)
+Task 6: fix round 2/5 (Pages metadata permission addressed; action test completeness open; commits cb5d362..e5ca8f1)
+Task 6: fix round 3/5 (step actions exhaustive; job-level reusable workflow open; commits e5ca8f1..7ef5cbf)
+Task 6: fix round 4/5 (job-level reusable workflows covered, 0 local findings; commits 7ef5cbf..92e655f)
+Task 6: complete locally (commits 3f82a89..92e655f, review clean; remote Actions evidence pending publication)

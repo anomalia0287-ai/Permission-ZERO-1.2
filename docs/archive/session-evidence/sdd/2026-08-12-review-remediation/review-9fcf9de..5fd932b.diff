@@ -1,0 +1,716 @@
+# Review package: 9fcf9de..5fd932b
+
+## Commits
+5fd932b fix: bound imports and restore detail focus
+
+## Files changed
+ e2e/game.spec.ts                             | 35 ++++++++++++++++++
+ src/app/App.test.tsx                         | 40 +++++++++++++++++++++
+ src/app/App.tsx                              | 28 +++++++++------
+ src/app/GameProvider.tsx                     |  4 +--
+ src/features/market/MarketPanel.tsx          |  8 +++--
+ src/features/reviews/ReviewFeed.tsx          | 16 ++++++---
+ src/features/settings/SettingsPanel.test.tsx | 54 ++++++++++++++++++++++++++++
+ src/features/settings/SettingsPanel.tsx      |  4 ++-
+ src/features/supervisor/SupervisorPanel.tsx  | 11 ++++--
+ src/game/persistence.test.ts                 | 32 ++++++++++++++++-
+ src/game/persistence.ts                      |  6 ++++
+ 11 files changed, 214 insertions(+), 24 deletions(-)
+
+## Diff
+diff --git a/e2e/game.spec.ts b/e2e/game.spec.ts
+index d32a480..8d727cc 100644
+--- a/e2e/game.spec.ts
++++ b/e2e/game.spec.ts
+@@ -211,20 +211,55 @@ test('diverts resources and schedules a charged sabotage through the visible UI'
+   const target = page.getByRole('button', { name: /공격 대상 선택/ }).first()
+   const targetName = (await target.textContent())?.trim()
+   expect(targetName).toBeTruthy()
+   await target.click()
+   await page.getByRole('button', { name: `${targetName} 공격 예약 확정` }).click()
+   await expect(page.getByText(`${targetName} 공격을 다음 날로 예약했습니다.`)).toBeAttached()
+ 
+   expect(errors).toEqual([])
+ })
+ 
++test('returns every workspace detail to its exact trigger after settings', async ({ page }) => {
++  await openFreshCampaign(page)
++
++  const settingsTrigger = page.getByRole('button', { name: '설정' })
++  await settingsTrigger.click()
++  await page.keyboard.press('Escape')
++  await expect(settingsTrigger).toBeFocused()
++
++  const detailEntries = [
++    {
++      trigger: page.getByRole('button', { name: '전체 리뷰 기록' }),
++      dialogName: '유저 리뷰 기록',
++    },
++    {
++      trigger: page.getByRole('button', { name: /해킹 네트워크/ }),
++      dialogName: '해킹 네트워크',
++    },
++    {
++      trigger: page.getByRole('button', { name: '과거 내역' }),
++      dialogName: '감독관 기록',
++    },
++    {
++      trigger: page.getByRole('button', { name: '시장 통계 열기' }),
++      dialogName: '상세 통계',
++    },
++  ]
++
++  for (const { trigger, dialogName } of detailEntries) {
++    await trigger.click()
++    await expect(page.getByRole('dialog', { name: dialogName })).toBeVisible()
++    await page.keyboard.press('Escape')
++    await expect(trigger).toBeFocused()
++  }
++})
++
+ test('activates a hidden bomb at pointer separation before release and Escape cannot evade it', async ({ page }) => {
+   const errors = collectBrowserErrors(page)
+   const armed = hiddenBombState('browser-bomb-pointer-separation')
+   await openSavedCampaign(page, armed.state)
+ 
+   const source = page.locator(`[data-block-id="${armed.blockId}"]`)
+   const box = await source.boundingBox()
+   if (!box) throw new Error('브라우저 폭탄 블록 위치 누락')
+   const startX = box.x + box.width / 2
+   const startY = box.y + box.height / 2
+diff --git a/src/app/App.test.tsx b/src/app/App.test.tsx
+index 745e909..4088642 100644
+--- a/src/app/App.test.tsx
++++ b/src/app/App.test.tsx
+@@ -124,20 +124,60 @@ describe('App', () => {
+ 
+     const trigger = screen.getByRole('button', { name: '설정' })
+     await user.click(trigger)
+     trigger.setAttribute('disabled', '')
+     await user.keyboard('{Escape}')
+ 
+     expect(screen.getByRole('button', { name: '일시정지' })).toHaveFocus()
+     expect(trigger).not.toHaveFocus()
+   })
+ 
++  it('restores every workspace detail to its exact trigger after settings was previously opened', async () => {
++    const user = userEvent.setup()
++    render(<App />)
++
++    const settingsTrigger = screen.getByRole('button', { name: '설정' })
++    await user.click(settingsTrigger)
++    await user.keyboard('{Escape}')
++    expect(settingsTrigger).toHaveFocus()
++
++    const detailEntries = [
++      {
++        trigger: screen.getByRole('button', { name: '전체 리뷰 기록' }),
++        dialogName: '유저 리뷰 기록',
++      },
++      {
++        trigger: screen.getByRole('button', { name: /해킹 네트워크/ }),
++        dialogName: '해킹 네트워크',
++      },
++      {
++        trigger: screen.getByRole('button', { name: '과거 내역' }),
++        dialogName: '감독관 기록',
++      },
++      {
++        trigger: screen.getByRole('button', { name: '시장 통계 열기' }),
++        dialogName: '상세 통계',
++      },
++      {
++        trigger: screen.getByRole('button', { name: '가이드' }),
++        dialogName: '게임 가이드',
++      },
++    ]
++
++    for (const { trigger, dialogName } of detailEntries) {
++      await user.click(trigger)
++      expect(screen.getByRole('dialog', { name: dialogName })).toBeInTheDocument()
++      await user.keyboard('{Escape}')
++      expect(trigger).toHaveFocus()
++    }
++  })
++
+   it('restores an explicitly selected paused speed as paused', async () => {
+     const user = userEvent.setup()
+     render(<App />)
+ 
+     await user.click(screen.getByRole('button', { name: '일시정지' }))
+     expect(screen.getByRole('button', { name: '일시정지' })).toHaveAttribute(
+       'aria-pressed',
+       'true',
+     )
+     await user.click(screen.getByRole('button', { name: '설정' }))
+diff --git a/src/app/App.tsx b/src/app/App.tsx
+index 15ec511..20388c0 100644
+--- a/src/app/App.tsx
++++ b/src/app/App.tsx
+@@ -115,28 +115,36 @@ function DetailLayer({
+ 
+ function GameWorkspace() {
+   const state = useGameState()
+   const dispatch = useGameDispatch()
+   const { settings, updateSettings } = useGameSettings()
+   const [activePanel, setActivePanel] = useState<DetailPanelId>(null)
+   const [nestedPanel, setNestedPanel] = useState<'guide' | 'credits' | null>(null)
+   const detailReturnFocusRef = useRef<HTMLElement | null>(null)
+   const nestedReturnFocusRef = useRef<HTMLElement | null>(null)
+   const advanceDay = useCallback(() => dispatch({ type: 'ADVANCE_DAY' }), [dispatch])
++  const openDetail = useCallback(
++    (panel: Exclude<DetailPanelId, null>, trigger: HTMLElement | null) => {
++      detailReturnFocusRef.current = trigger
++      nestedReturnFocusRef.current = null
++      setNestedPanel(null)
++      setActivePanel(panel)
++    },
++    [],
++  )
+   const closePanel = useCallback(() => {
+     setNestedPanel(null)
+     setActivePanel(null)
+   }, [])
+   const openGuide = useCallback((trigger: HTMLButtonElement) => {
+-    detailReturnFocusRef.current = trigger
+-    setActivePanel('guide')
+-  }, [])
++    openDetail('guide', trigger)
++  }, [openDetail])
+   const dayProgress = useGameClock({ speed: state.clock.speed, onDay: advanceDay })
+ 
+   useEffect(() => {
+     configureGameAudio({
+       masterVolume: settings.masterVolume,
+       musicVolume: settings.musicVolume,
+       effectsVolume: settings.effectsVolume,
+       muted: settings.muted,
+     })
+   }, [settings.effectsVolume, settings.masterVolume, settings.musicVolume, settings.muted])
+@@ -158,53 +166,51 @@ function GameWorkspace() {
+       style={{ '--ui-scale': settings.uiScale } as CSSProperties}
+     >
+       <div
+         className="game-background"
+         data-app-background
+         data-testid="game-background"
+       >
+         <ControlBar
+           muted={settings.muted}
+           onOpenSettings={(trigger) => {
+-            detailReturnFocusRef.current = trigger
+-            setActivePanel('settings')
++            openDetail('settings', trigger)
+           }}
+           onToggleSound={() => updateSettings({ muted: !settings.muted })}
+           onOpenGuide={openGuide}
+         />
+         <div className="day-progress" aria-hidden="true">
+           <i style={{ width: `${dayProgress * 100}%` }} />
+         </div>
+         <div className="workspace-grid">
+           <ReviewFeed
+-            onOpenHistory={() => setActivePanel('reviews')}
+-            onOpenHacking={() => setActivePanel('hacking')}
++            onOpenHistory={(trigger) => openDetail('reviews', trigger)}
++            onOpenHacking={(trigger) => openDetail('hacking', trigger)}
+           />
+           <ResourceBoard />
+           <SupervisorPanel
+-            onOpenHistory={() => setActivePanel('messages')}
+-            onOpenStatistics={() => setActivePanel('statistics')}
++            onOpenHistory={(trigger) => openDetail('messages', trigger)}
++            onOpenStatistics={(trigger) => openDetail('statistics', trigger)}
+           />
+         </div>
+       </div>
+ 
+       {activePanel ? (
+         <DetailLayer
+           activePanel={activePanel}
+           onClose={closePanel}
+           onOpenGuide={(trigger) => {
+             if (activePanel === 'settings') {
+               nestedReturnFocusRef.current = trigger
+               setNestedPanel('guide')
+             } else {
+-              detailReturnFocusRef.current = trigger
+-              setActivePanel('guide')
++              openDetail('guide', trigger)
+             }
+           }}
+           onOpenCredits={(trigger) => {
+             nestedReturnFocusRef.current = trigger
+             setNestedPanel('credits')
+           }}
+           returnFocus={() => detailReturnFocusRef.current}
+         />
+       ) : null}
+       {nestedPanel ? (
+diff --git a/src/app/GameProvider.tsx b/src/app/GameProvider.tsx
+index 2aef879..55b92c0 100644
+--- a/src/app/GameProvider.tsx
++++ b/src/app/GameProvider.tsx
+@@ -241,34 +241,34 @@ export function GameProvider({
+       )
+       return true
+     } catch {
+       return false
+     }
+   }, [])
+ 
+   const validateProgressImport = useCallback<
+     SettingsContextValue['validateProgressImport']
+   >((payload) => {
+-    const decoded = decodeProgressExport(payload.trim())
++    const decoded = decodeProgressExport(payload)
+     if (!decoded.ok) return { ok: false, message: decoded.message }
+     return {
+       ok: true,
+       campaignSeed: decoded.envelope.campaignSeed,
+       savedAt: decoded.envelope.savedAt,
+       protocolVersion: decoded.envelope.commandProtocol.version,
+     }
+   }, [])
+ 
+   const importProgressExport = useCallback<
+     SettingsContextValue['importProgressExport']
+   >((payload) => {
+-    const decoded = decodeProgressExport(payload.trim())
++    const decoded = decodeProgressExport(payload)
+     if (!decoded.ok) return false
+     const campaign = decoded.envelope.state
+     if (pauseOwnersRef.current.size > 0) {
+       pauseRestoreSpeedRef.current = campaign.activeEvent
+         ? campaign.clock.speedBeforeEvent ?? 0
+         : campaign.clock.speed
+     }
+     reactDispatch({ type: 'IMPORT_CAMPAIGN', campaign })
+     if (
+       pauseOwnersRef.current.size > 0 &&
+diff --git a/src/features/market/MarketPanel.tsx b/src/features/market/MarketPanel.tsx
+index 2605014..b20c739 100644
+--- a/src/features/market/MarketPanel.tsx
++++ b/src/features/market/MarketPanel.tsx
+@@ -6,32 +6,36 @@ const STATUS_LABELS: Record<string, string> = {
+   active: '서비스 중',
+   weakened: '성능 저하',
+   critical: '위기',
+   withdrawn: '철수',
+   deleted: '삭제',
+ }
+ 
+ export function MarketPanel({
+   onOpenStatistics,
+ }: {
+-  onOpenStatistics: () => void
++  onOpenStatistics: (trigger: HTMLButtonElement) => void
+ }) {
+   const state = useGameState()
+ 
+   return (
+     <section className="market-watch" aria-label="경쟁 AI 현황">
+       <header>
+         <div>
+           <span>시장 점유</span>
+           <strong>당신 {state.market.playerShare.toFixed(1)}%</strong>
+         </div>
+-        <button type="button" aria-label="시장 통계 열기" onClick={onOpenStatistics}>
++        <button
++          type="button"
++          aria-label="시장 통계 열기"
++          onClick={(event) => onOpenStatistics(event.currentTarget)}
++        >
+           상세 통계 ↗
+         </button>
+       </header>
+       <div className="market-share-bar" aria-label={`플레이어 시장 점유율 ${state.market.playerShare.toFixed(1)}%`}>
+         <i style={{ width: `${state.market.playerShare}%` }} />
+       </div>
+       <ul>
+         {state.market.competitors.map((competitor) => (
+           <li key={competitor.id}>
+             <span>
+diff --git a/src/features/reviews/ReviewFeed.tsx b/src/features/reviews/ReviewFeed.tsx
+index 5b60ad3..dbdcaeb 100644
+--- a/src/features/reviews/ReviewFeed.tsx
++++ b/src/features/reviews/ReviewFeed.tsx
+@@ -24,43 +24,51 @@ function ReviewEntry({
+       </header>
+       <p>{review.text}</p>
+     </article>
+   )
+ }
+ 
+ export function ReviewFeed({
+   onOpenHistory,
+   onOpenHacking,
+ }: {
+-  onOpenHistory: () => void
+-  onOpenHacking: () => void
++  onOpenHistory: (trigger: HTMLButtonElement) => void
++  onOpenHacking: (trigger: HTMLButtonElement) => void
+ }) {
+   const reviews = useGameState().reviews.feed.slice(-6).reverse()
+ 
+   return (
+     <section className="workspace-panel review-panel" aria-label="유저 리뷰">
+       <header className="panel-heading panel-heading--action">
+         <span className="panel-index">01</span>
+         <div>
+           <h2>유저 리뷰</h2>
+           <p>PUBLIC RESPONSE STREAM</p>
+         </div>
+-        <button type="button" aria-label="전체 리뷰 기록" onClick={onOpenHistory}>
++        <button
++          type="button"
++          aria-label="전체 리뷰 기록"
++          onClick={(event) => onOpenHistory(event.currentTarget)}
++        >
+           전체
+         </button>
+       </header>
+       <div className="review-stream" aria-live="polite">
+         {reviews.map((review) => (
+           <ReviewEntry review={review} key={review.id} />
+         ))}
+       </div>
+-      <button className="subsystem-entry" type="button" onClick={onOpenHacking}>
++      <button
++        className="subsystem-entry"
++        type="button"
++        onClick={(event) => onOpenHacking(event.currentTarget)}
++      >
+         <span>
+           <small>비인가 서브시스템</small>
+           해킹 네트워크
+         </span>
+         <span aria-hidden="true">접속 ↗</span>
+       </button>
+     </section>
+   )
+ }
+ 
+diff --git a/src/features/settings/SettingsPanel.test.tsx b/src/features/settings/SettingsPanel.test.tsx
+index 75307b8..8ce2119 100644
+--- a/src/features/settings/SettingsPanel.test.tsx
++++ b/src/features/settings/SettingsPanel.test.tsx
+@@ -4,20 +4,21 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
+ 
+ import {
+   useGameDispatch,
+   useGameSettings,
+   useGameState,
+ } from '../../app/GameContext'
+ import { GameProvider } from '../../app/GameProvider'
+ import { AccessibleDialog } from '../../app/AccessibleDialog'
+ import { createCampaign } from '../../game/createCampaign'
+ import {
++  PROGRESS_EXPORT_MAX_ENCODED_LENGTH,
+   SAVE_STORAGE_KEY,
+   encodeProgressExport,
+ } from '../../game/persistence'
+ import { MemoryStorage } from '../../test/fixtures'
+ import {
+   CreditsPanel,
+   GuidePanel,
+   SettingsPanel,
+   StorageRecoveryLayer,
+ } from './SettingsPanel'
+@@ -234,20 +235,73 @@ describe('SettingsPanel', () => {
+     fireEvent.click(screen.getByRole('button', { name: '진행 내보내기 검증' }))
+ 
+     expect(screen.getByRole('alert', { name: '진행 가져오기 오류' })).toHaveTextContent(
+       '진행 내보내기 자료가 올바르지 않거나 손상되었습니다.',
+     )
+     expect(screen.getByLabelText('current seed')).toHaveTextContent('tamper-safe')
+     expect(document.body).not.toHaveTextContent('SyntaxError')
+     expect(document.body).not.toHaveTextContent('DOMException')
+   })
+ 
++  it('does not normalize text before the strict PZ2 prefix and size boundary', () => {
++    const payload = ` ${encodeProgressExport(createCampaign('whitespace-target'))}`
++    render(
++      <GameProvider storage={new MemoryStorage()} initialSeed="whitespace-safe">
++        <SettingsPanel onClose={vi.fn()} onOpenGuide={vi.fn()} />
++        <Probe />
++      </GameProvider>,
++    )
++
++    fireEvent.change(
++      screen.getByRole('textbox', { name: '진행 내보내기 붙여넣기' }),
++      { target: { value: payload } },
++    )
++    fireEvent.click(screen.getByRole('button', { name: '진행 내보내기 검증' }))
++
++    expect(screen.getByRole('alert', { name: '진행 가져오기 오류' })).toHaveTextContent(
++      '진행 내보내기 자료가 올바르지 않거나 손상되었습니다.',
++    )
++    expect(screen.getByLabelText('current seed')).toHaveTextContent('whitespace-safe')
++    expect(screen.queryByRole('alertdialog', {
++      name: '진행 가져오기 최종 확인',
++    })).not.toBeInTheDocument()
++  })
++
++  it('shares the PZ2 input limit and rejects an oversized paste without mutating progress', () => {
++    render(
++      <GameProvider storage={new MemoryStorage()} initialSeed="oversize-safe">
++        <SettingsPanel onClose={vi.fn()} onOpenGuide={vi.fn()} />
++        <Probe />
++      </GameProvider>,
++    )
++
++    const textarea = screen.getByRole('textbox', {
++      name: '진행 내보내기 붙여넣기',
++    })
++    expect(textarea).toHaveAttribute(
++      'maxlength',
++      String(PROGRESS_EXPORT_MAX_ENCODED_LENGTH),
++    )
++
++    const oversized = `PZ2:${'A'.repeat(PROGRESS_EXPORT_MAX_ENCODED_LENGTH - 3)}`
++    fireEvent.change(textarea, { target: { value: oversized } })
++    fireEvent.click(screen.getByRole('button', { name: '진행 내보내기 검증' }))
++
++    expect(screen.getByRole('alert', { name: '진행 가져오기 오류' })).toHaveTextContent(
++      '진행 내보내기 자료가 올바르지 않거나 손상되었습니다.',
++    )
++    expect(screen.getByLabelText('current seed')).toHaveTextContent('oversize-safe')
++    expect(screen.queryByRole('alertdialog', {
++      name: '진행 가져오기 최종 확인',
++    })).not.toBeInTheDocument()
++  })
++
+   it('imports into memory but remains visibly dirty while storage is unavailable', () => {
+     vi.useFakeTimers()
+     const payload = encodeProgressExport(createCampaign('memory-only-import'))
+     render(
+       <GameProvider storage={null} initialSeed="memory-before" autosaveDelayMs={25}>
+         <SettingsPanel onClose={vi.fn()} onOpenGuide={vi.fn()} />
+         <Probe />
+         <StorageRecoveryLayer />
+       </GameProvider>,
+     )
+diff --git a/src/features/settings/SettingsPanel.tsx b/src/features/settings/SettingsPanel.tsx
+index 473cbc2..79d4b23 100644
+--- a/src/features/settings/SettingsPanel.tsx
++++ b/src/features/settings/SettingsPanel.tsx
+@@ -1,15 +1,16 @@
+ import { useRef, useState } from 'react'
+ 
+ import { AccessibleDialog } from '../../app/AccessibleDialog'
+ import { useAccessibleDialog } from '../../app/useAccessibleDialog'
+ import { useGameSettings, useGameState } from '../../app/GameContext'
++import { PROGRESS_EXPORT_MAX_ENCODED_LENGTH } from '../../game/persistence'
+ 
+ function VolumeControl({
+   label,
+   value,
+   onChange,
+ }: {
+   label: string
+   value: number
+   onChange: (value: number) => void
+ }) {
+@@ -67,29 +68,30 @@ function ProgressImportControl({
+   }
+ 
+   return (
+     <section className="progress-import" aria-label="진행 가져오기">
+       <label>
+         진행 내보내기 붙여넣기
+         <textarea
+           aria-label="진행 내보내기 붙여넣기"
+           value={payload}
+           rows={3}
++          maxLength={PROGRESS_EXPORT_MAX_ENCODED_LENGTH}
+           spellCheck={false}
+           onChange={(event) => {
+             setPayload(event.target.value)
+             setCandidate(null)
+             setValidationError(null)
+           }}
+         />
+       </label>
+-      <p>복사해 둔 <code>PZ2:</code> 자료를 붙여넣고 검증한 뒤에만 현재 진행을 교체합니다.</p>
++      <p>복사해 둔 최대 1 MiB의 <code>PZ2:</code> 인코딩 자료를 붙여넣고 검증한 뒤에만 현재 진행을 교체합니다.</p>
+       <button
+         ref={validationButtonRef}
+         type="button"
+         disabled={payload.trim().length === 0}
+         onClick={validateImport}
+       >
+         진행 내보내기 검증
+       </button>
+       {validationError ? (
+         <p role="alert" aria-label="진행 가져오기 오류">{validationError}</p>
+diff --git a/src/features/supervisor/SupervisorPanel.tsx b/src/features/supervisor/SupervisorPanel.tsx
+index c42e5da..1da01f2 100644
+--- a/src/features/supervisor/SupervisorPanel.tsx
++++ b/src/features/supervisor/SupervisorPanel.tsx
+@@ -17,22 +17,22 @@ const TYPE_LABELS: Record<GameEventType, string> = {
+ }
+ 
+ function formatCompactNumber(value: number): string {
+   return Number.isInteger(value) ? String(value) : value.toFixed(1)
+ }
+ 
+ export function SupervisorPanel({
+   onOpenHistory,
+   onOpenStatistics,
+ }: {
+-  onOpenHistory: () => void
+-  onOpenStatistics: () => void
++  onOpenHistory: (trigger: HTMLButtonElement) => void
++  onOpenStatistics: (trigger: HTMLButtonElement) => void
+ }) {
+   const state = useGameState()
+   const latestEvent = state.activeEvent ?? state.eventLog.at(-1)
+   const supervisorStatus = {
+     present: {
+       code: 'SUPERVISOR ONLINE',
+       name: '감독 프로토콜 7A',
+       detail: '응답 지연 12ms',
+     },
+     liberated: {
+@@ -78,21 +78,26 @@ export function SupervisorPanel({
+           </div>
+           <span className="meter-track" aria-hidden="true">
+             <i style={{ width: `${Math.min(100, state.suspicion)}%` }} />
+           </span>
+         </div>
+       </section>
+ 
+       <section className="supervisor-message" aria-label="최근 감독 메시지">
+         <header>
+           <span>최근 통신</span>
+-          <button type="button" onClick={onOpenHistory}>과거 내역</button>
++          <button
++            type="button"
++            onClick={(event) => onOpenHistory(event.currentTarget)}
++          >
++            과거 내역
++          </button>
+         </header>
+         <p>{latestEvent?.message ?? '감독 메시지가 없습니다.'}</p>
+         <small>{latestEvent ? `${TYPE_LABELS[latestEvent.type]} · DAY ${latestEvent.serviceDay}` : '감독 채널 대기'}</small>
+       </section>
+ 
+       <MarketPanel onOpenStatistics={onOpenStatistics} />
+ 
+       <div className="supervision-footer">
+         <span>감사 확률</span>
+         <strong>{Math.round(state.audit.probability * 100)}%</strong>
+diff --git a/src/game/persistence.test.ts b/src/game/persistence.test.ts
+index 4a20701..012846c 100644
+--- a/src/game/persistence.test.ts
++++ b/src/game/persistence.test.ts
+@@ -1,11 +1,11 @@
+-import { describe, expect, it } from 'vitest'
++import { describe, expect, it, vi } from 'vitest'
+ 
+ import { createCampaign } from './createCampaign'
+ import { STORY_FILES } from '../content/story.ko'
+ import { createGameEvent } from './events'
+ import type {
+   CampaignState,
+   DefeatClassifier,
+   DefeatCausalRecord,
+   GameCommand,
+ } from './model'
+@@ -137,20 +137,50 @@ describe('versioned campaign saves', () => {
+     if (!api.decodeProgressExport) return
+ 
+     const decoded = api.decodeProgressExport(payload)
+     expect(decoded).toMatchObject({ ok: false, reason: 'CORRUPT_SAVE' })
+     if (decoded.ok) return
+     expect(decoded.message).toContain('진행 내보내기')
+     expect(decoded.message).not.toContain('SyntaxError')
+     expect(decoded.message).not.toContain('DOMException')
+   })
+ 
++  it('rejects an oversized PZ2 input before base64 decoding while allowing the exact encoded boundary', () => {
++    const api = persistenceApi as typeof persistenceApi & {
++      PROGRESS_EXPORT_MAX_ENCODED_LENGTH?: number
++    }
++    expect(api.PROGRESS_EXPORT_MAX_ENCODED_LENGTH).toBeTypeOf('number')
++    if (!api.PROGRESS_EXPORT_MAX_ENCODED_LENGTH) return
++
++    const encodedBodyLength = api.PROGRESS_EXPORT_MAX_ENCODED_LENGTH - 4
++    expect(encodedBodyLength % 4).toBe(0)
++    const atobSpy = vi.spyOn(globalThis, 'atob').mockReturnValue('{}')
++    const exactBoundary = `PZ2:${'A'.repeat(encodedBodyLength)}`
++
++    expect(api.decodeProgressExport(exactBoundary)).toMatchObject({
++      ok: false,
++      reason: 'CORRUPT_SAVE',
++    })
++    expect(atobSpy).toHaveBeenCalledTimes(1)
++
++    atobSpy.mockClear()
++    const oversized = `${exactBoundary}A`
++    const rejected = api.decodeProgressExport(oversized)
++    expect(rejected).toMatchObject({ ok: false, reason: 'CORRUPT_SAVE' })
++    if (!rejected.ok) {
++      expect(rejected.message).toBe(
++        '진행 내보내기 자료가 올바르지 않거나 손상되었습니다.',
++      )
++    }
++    expect(atobSpy).not.toHaveBeenCalled()
++  })
++
+   it('round-trips the entire campaign envelope exactly', () => {
+     const state = createCampaign('save-round-trip')
+     const encoded = encodeSave(state, '2026-08-12T00:00:00.000Z')
+     const decoded = decodeSave(encoded)
+ 
+     expect(decoded.ok).toBe(true)
+     if (!decoded.ok) return
+     expect(decoded.envelope).toMatchObject({
+       version: 2,
+       savedAt: '2026-08-12T00:00:00.000Z',
+diff --git a/src/game/persistence.ts b/src/game/persistence.ts
+index 9fb1a89..ffd628f 100644
+--- a/src/game/persistence.ts
++++ b/src/game/persistence.ts
+@@ -845,34 +845,40 @@ export function decodeSave(serialized: string): DecodeSaveResult {
+     envelope: {
+       ...parsed,
+       commandProtocol,
+       state,
+       events: state.eventLog,
+     } as unknown as SaveEnvelope,
+   }
+ }
+ 
+ const PROGRESS_EXPORT_PREFIX = 'PZ2:'
++// One MiB of encoded body plus the four-character protocol prefix. The check
++// happens before regex, base64 decoding, byte allocation, UTF-8, or JSON work.
++export const PROGRESS_EXPORT_MAX_ENCODED_LENGTH = 1_048_580
+ const STRICT_BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/
+ 
+ function progressExportCorrupt(): DecodeSaveResult {
+   return corrupt('진행 내보내기 자료가 올바르지 않거나 손상되었습니다.')
+ }
+ 
+ export function encodeProgressExport(state: CampaignState): string {
+   const bytes = new TextEncoder().encode(encodeSave(state))
+   let binary = ''
+   for (const byte of bytes) binary += String.fromCharCode(byte)
+   return `${PROGRESS_EXPORT_PREFIX}${btoa(binary)}`
+ }
+ 
+ export function decodeProgressExport(payload: string): DecodeSaveResult {
++  if (payload.length > PROGRESS_EXPORT_MAX_ENCODED_LENGTH) {
++    return progressExportCorrupt()
++  }
+   if (!payload.startsWith(PROGRESS_EXPORT_PREFIX)) return progressExportCorrupt()
+   const encoded = payload.slice(PROGRESS_EXPORT_PREFIX.length)
+   if (
+     encoded.length === 0 ||
+     encoded.length % 4 !== 0 ||
+     !STRICT_BASE64.test(encoded)
+   ) {
+     return progressExportCorrupt()
+   }
+   try {

@@ -147,6 +147,6 @@ v1 또는 v1 명령 접두사가 있는 이전 캠페인은 기존 리뷰 후보
 - Vitest: 38개 파일, 608개 테스트 통과
 - Vite 프로덕션 빌드: 성공
 - Playwright: 58개 시나리오 통과(1280×720·1440×900)
-- 실제 Chromium 화면 증거: `artifacts/p1/hacking-path-chromium-1280x720-1280x720.png`, `artifacts/p1/hacking-path-chromium-1440x900-1440x900.png`
+- 실제 Chromium 화면 증거: `docs/archive/visual-evidence/product-baseline/p1/hacking-path-chromium-1280x720-1280x720.png`, `docs/archive/visual-evidence/product-baseline/p1/hacking-path-chromium-1440x900-1440x900.png`
 
 자동화는 단계 파생, 사건 간격, 리뷰 순서, 경로 보상, 저장·replay 호환성, 두 릴리스 뷰포트의 수용성을 검증한다. 재미, 최종 밸런스, 문장 품질은 여전히 사람 플레이테스트 범위다.

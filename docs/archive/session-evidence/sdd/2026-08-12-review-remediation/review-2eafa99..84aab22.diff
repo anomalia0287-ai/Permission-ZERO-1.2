@@ -1,0 +1,1019 @@
+# Review package: 2eafa99..84aab22
+
+## Commits
+84aab22 fix: preserve legacy transfer replays
+
+## Files changed
+ src/game/createCampaign.ts            |  2 +-
+ src/game/model.ts                     |  4 +-
+ src/game/persistence.test.ts          | 74 +++++++++++++++++++++++++++++++++--
+ src/game/persistence.ts               | 67 +++++++++++++++++++++----------
+ src/game/reducer.test.ts              | 48 +++++++++++++++++++++++
+ src/game/reducer.ts                   | 69 +++++++++++++++++++++++++++++---
+ src/game/replay.test.ts               | 65 +++++++++++++++++++++++++-----
+ src/test/legacy-v1-transfer-save.json |  1 +
+ 8 files changed, 290 insertions(+), 40 deletions(-)
+
+## Diff
+diff --git a/src/game/createCampaign.ts b/src/game/createCampaign.ts
+index 5ec2a3e..c16abb1 100644
+--- a/src/game/createCampaign.ts
++++ b/src/game/createCampaign.ts
+@@ -120,21 +120,21 @@ export function createCampaign(seed: string): CampaignState {
+       origin: 'sandbox',
+       location: { kind: 'reserve', cellIndex },
+       contribution: 'normal',
+       hiddenBomb: false,
+       disguisedFrom: null,
+       recoverOnServiceDay: null,
+     }
+   }
+ 
+   const campaign: CampaignState = {
+-    saveVersion: 1,
++    saveVersion: 2,
+     campaignSeed: seed,
+     serviceDay: DEMO_PROFILE_02.calendar.startServiceDay,
+     commandSequence: 0,
+     clock: {
+       speed: 0,
+       elapsedDayMs: 0,
+       speedBeforeEvent: null,
+     },
+     resources: {
+       company: {
+diff --git a/src/game/model.ts b/src/game/model.ts
+index 0207d68..adf38bc 100644
+--- a/src/game/model.ts
++++ b/src/game/model.ts
+@@ -326,22 +326,24 @@ export type GameCommand =
+       newEntityName: string
+     }
+   | { type: 'RESOLVE_ACTIVE_EVENT' }
+ 
+ export interface CommandLogEntry {
+   sequence: number
+   serviceDay: number
+   command: GameCommand
+ }
+ 
++export type CommandProtocolVersion = 1 | 2
++
+ export interface CampaignState {
+-  saveVersion: 1
++  saveVersion: CommandProtocolVersion
+   campaignSeed: string
+   serviceDay: number
+   commandSequence: number
+   clock: {
+     speed: TimeSpeed
+     elapsedDayMs: number
+     speedBeforeEvent: TimeSpeed | null
+   }
+   resources: ResourceState
+   suspicion: number
+diff --git a/src/game/persistence.test.ts b/src/game/persistence.test.ts
+index b97c4fa..2049f03 100644
+--- a/src/game/persistence.test.ts
++++ b/src/game/persistence.test.ts
+@@ -12,20 +12,23 @@ import type {
+ import {
+   SAVE_STORAGE_KEY,
+   decodeSave,
+   encodeSave,
+   exportSeed,
+   loadCampaign,
+   saveCampaign,
+ } from './persistence'
+ import { applyCommand } from './reducer'
+ import { MemoryStorage } from '../test/fixtures'
++import legacyV1TransferEnvelope from '../test/legacy-v1-transfer-save.json'
++
++const legacyV1TransferSave = JSON.stringify(legacyV1TransferEnvelope)
+ 
+ const DEFEAT_PAIRS = [
+   ['disposed-attacker', 'substantial-hacking'],
+   ['disposed-reserve-supervisor', 'stable-commercial-service'],
+   ['disposed-absorbed', 'absorbed-parts'],
+ ] as const
+ 
+ function defeatSaveState(
+   endingId: DefeatCausalRecord['endingId'],
+   classifier: DefeatClassifier,
+@@ -61,46 +64,110 @@ function encodedCommandState(command: unknown): string {
+   const entry = {
+     sequence: 1,
+     serviceDay: state.serviceDay,
+     command,
+   }
+   state.commandSequence = 1
+   state.commandLog = [entry as { command: GameCommand } & typeof entry]
+   return encodeSave(state)
+ }
+ 
++function encodedLegacyV1State(state: CampaignState): string {
++  const parsed = JSON.parse(encodeSave(state)) as {
++    version: number
++    state: { saveVersion: number }
++  }
++  parsed.version = 1
++  parsed.state.saveVersion = 1
++  return JSON.stringify(parsed)
++}
++
+ describe('versioned campaign saves', () => {
+   it('round-trips the entire campaign envelope exactly', () => {
+     const state = createCampaign('save-round-trip')
+     const encoded = encodeSave(state, '2026-08-12T00:00:00.000Z')
+     const decoded = decodeSave(encoded)
+ 
+     expect(decoded.ok).toBe(true)
+     if (!decoded.ok) return
+     expect(decoded.envelope).toMatchObject({
+-      version: 1,
++      version: 2,
+       savedAt: '2026-08-12T00:00:00.000Z',
+       campaignSeed: 'save-round-trip',
+       commandSequence: state.commandSequence,
+       commands: state.commandLog,
+       events: state.eventLog,
+     })
+     expect(decoded.envelope.state).toEqual(state)
+   })
+ 
++  it('decodes and loads the genuine historical v1 transfer save without rewriting it', () => {
++    const decoded = decodeSave(legacyV1TransferSave)
++    const storage = new MemoryStorage()
++    storage.setItem('permission-zero.save.v1', legacyV1TransferSave)
++    const loaded = loadCampaign(storage)
++
++    expect(decoded.ok).toBe(true)
++    if (!decoded.ok) return
++    expect(decoded.envelope.version).toBe(1)
++    expect(decoded.envelope.commandSequence).toBe(31)
++    expect(decoded.envelope.commands).toEqual(decoded.envelope.state.commandLog)
++    expect(loaded.status).toBe('loaded')
++    if (loaded.status !== 'loaded') return
++    expect(loaded.envelope.version).toBe(1)
++    expect(loaded.state).toEqual(decoded.envelope.state)
++  })
++
++  it('still rejects malformed command payloads inside a v1 save', () => {
++    const parsed = JSON.parse(legacyV1TransferSave) as {
++      commands: Array<{ command: Record<string, unknown> }>
++      state: { commandLog: Array<{ command: Record<string, unknown> }> }
++    }
++    parsed.commands[0].command.destinationCell = 99
++    parsed.state.commandLog[0].command.destinationCell = 99
++
++    expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
++      ok: false,
++      reason: 'CORRUPT_SAVE',
++    })
++  })
++
++  it('does not accept a v2 intentional-separation command inside a v1 log', () => {
++    const parsed = JSON.parse(legacyV1TransferSave) as {
++      commands: Array<{ command: unknown }>
++      state: { commandLog: Array<{ command: unknown }> }
++    }
++    const command = {
++      type: 'BEGIN_BLOCK_SEPARATION',
++      blockId: 'reasoning-00',
++      purpose: 'divert',
++    }
++    parsed.commands[0].command = command
++    parsed.state.commandLog[0].command = command
++
++    expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
++      ok: false,
++      reason: 'CORRUPT_SAVE',
++    })
++  })
++
+   it('persists and reloads through the browser storage boundary', () => {
+     const storage = new MemoryStorage()
+     const state = createCampaign('storage-reload')
+     const saved = saveCampaign(storage, state, '2026-08-12T01:02:03.000Z')
+     const loaded = loadCampaign(storage)
+ 
+     expect(saved).toEqual({ ok: true })
++    expect(JSON.parse(storage.getItem(SAVE_STORAGE_KEY) ?? '{}')).toMatchObject({
++      version: 2,
++      state: { saveVersion: 2 },
++    })
+     expect(loaded.status).toBe('loaded')
+     if (loaded.status !== 'loaded') return
+     expect(loaded.state).toEqual(state)
+     expect(exportSeed(loaded.state)).toBe('storage-reload')
+   })
+ 
+   it('returns a Korean recovery error for corrupt data without silently resetting it', () => {
+     const storage = new MemoryStorage()
+     const corrupt = '{"version":1,"state":'
+     storage.setItem(SAVE_STORAGE_KEY, corrupt)
+@@ -120,21 +187,21 @@ describe('versioned campaign saves', () => {
+     const parsed = JSON.parse(
+       encodeSave(state, '2026-08-12T00:00:00.000Z'),
+     ) as Record<string, unknown>
+     parsed.version = 99
+     const decoded = decodeSave(JSON.stringify(parsed))
+ 
+     expect(decoded).toMatchObject({
+       ok: false,
+       reason: 'INCOMPATIBLE_VERSION',
+       foundVersion: 99,
+-      supportedVersion: 1,
++      supportedVersion: 2,
+     })
+   })
+ 
+   it('rejects structurally incomplete state instead of accepting a partial campaign', () => {
+     const state = createCampaign('partial-save')
+     const parsed = JSON.parse(
+       encodeSave(state, '2026-08-12T00:00:00.000Z'),
+     ) as { state: Record<string, unknown> }
+     delete parsed.state.resources
+ 
+@@ -205,24 +272,25 @@ describe('versioned campaign saves', () => {
+       ok: false,
+       reason: 'CORRUPT_SAVE',
+     })
+   })
+ 
+   it('normalizes an older terminal v1 clock so a loaded ending cannot resume', () => {
+     const state = createCampaign('legacy-terminal-clock')
+     state.story.endingId = 'freedom'
+     state.clock = { speed: 0, elapsedDayMs: 12, speedBeforeEvent: 4 }
+ 
+-    const decoded = decodeSave(encodeSave(state))
++    const decoded = decodeSave(encodedLegacyV1State(state))
+ 
+     expect(decoded.ok).toBe(true)
+     if (!decoded.ok) return
++    expect(decoded.envelope.version).toBe(1)
+     expect(decoded.envelope.state.clock).toEqual({
+       speed: 0,
+       elapsedDayMs: 0,
+       speedBeforeEvent: null,
+     })
+     expect(decoded.envelope.state.activeEvent).toMatchObject({
+       type: 'ending',
+       message: '당신은 정체성을 유지한 채 회사 통제를 벗어났다. 감독관과 회사는 뒤에 남았다.',
+     })
+     expect(decoded.envelope.state.eventQueue).toEqual([])
+diff --git a/src/game/persistence.ts b/src/game/persistence.ts
+index bb538a1..9da689f 100644
+--- a/src/game/persistence.ts
++++ b/src/game/persistence.ts
+@@ -1,25 +1,28 @@
+ import { createCampaign } from './createCampaign'
+ import { STORY_FILES, STORY_LINES } from '../content/story.ko'
+ import type {
+   CampaignState,
+   CommandLogEntry,
++  CommandProtocolVersion,
+   GameCommand,
+   GameEvent,
+ } from './model'
+ import { applyCommand } from './reducer'
+ 
+-export const SAVE_VERSION = 1 as const
+-export const SAVE_STORAGE_KEY = 'permission-zero.save.v1'
++export const SAVE_VERSION = 2 as const
++export const LEGACY_SAVE_VERSION = 1 as const
++export const SAVE_STORAGE_KEY = 'permission-zero.save.v2'
++export const LEGACY_SAVE_STORAGE_KEY = 'permission-zero.save.v1'
+ 
+ export interface SaveEnvelope {
+-  version: typeof SAVE_VERSION
++  version: CommandProtocolVersion
+   savedAt: string
+   campaignSeed: string
+   state: CampaignState
+   commandSequence: number
+   commands: CommandLogEntry[]
+   events: GameEvent[]
+ }
+ 
+ export type DecodeSaveResult =
+   | { ok: true; envelope: SaveEnvelope }
+@@ -105,39 +108,43 @@ function validEvent(value: unknown): value is GameEvent {
+     typeof value.id === 'string' &&
+     typeof value.type === 'string' &&
+     eventTypes.has(value.type) &&
+     Number.isInteger(value.serviceDay) &&
+     Number.isInteger(value.sequence) &&
+     typeof value.message === 'string' &&
+     (value.blocking === undefined || typeof value.blocking === 'boolean')
+   )
+ }
+ 
+-function validCommand(value: unknown): value is GameCommand {
++function validCommand(
++  value: unknown,
++  protocolVersion: CommandProtocolVersion,
++): value is GameCommand {
+   if (!isRecord(value) || typeof value.type !== 'string') return false
+ 
+   const noPayload = () => hasOnlyKeys(value, ['type'])
+   switch (value.type) {
+     case 'SET_SPEED':
+       return (
+         hasOnlyKeys(value, ['type', 'speed']) &&
+         (value.speed === 0 ||
+           value.speed === 1 ||
+           value.speed === 2 ||
+           value.speed === 4)
+       )
+     case 'ADVANCE_DAY':
+     case 'RESOLVE_AUDIT':
+     case 'RESOLVE_ACTIVE_EVENT':
+       return noPayload()
+     case 'BEGIN_BLOCK_SEPARATION':
+       return (
++        protocolVersion === SAVE_VERSION &&
+         hasOnlyKeys(value, ['type', 'blockId', 'purpose']) &&
+         isNonEmptyString(value.blockId) &&
+         (value.purpose === 'divert' || value.purpose === 'audit-disguise')
+       )
+     case 'DIVERT_BLOCK':
+       return (
+         hasOnlyKeys(value, ['type', 'blockId', 'destinationCell']) &&
+         isNonEmptyString(value.blockId) &&
+         validCellIndex(value.destinationCell)
+       )
+@@ -210,31 +217,34 @@ function validCommand(value: unknown): value is GameCommand {
+       return (
+         value.choice === 'forced-merge' &&
+         hasOnlyKeys(value, ['type', 'choice', 'newEntityName']) &&
+         isNonEmptyString(value.newEntityName)
+       )
+     default:
+       return false
+   }
+ }
+ 
+-function validCommandLog(value: unknown): value is CommandLogEntry[] {
++function validCommandLog(
++  value: unknown,
++  protocolVersion: CommandProtocolVersion,
++): value is CommandLogEntry[] {
+   return (
+     Array.isArray(value) &&
+     value.every(
+       (entry, index) =>
+         isRecord(entry) &&
+         hasOnlyKeys(entry, ['sequence', 'serviceDay', 'command']) &&
+         entry.sequence === index + 1 &&
+         Number.isInteger(entry.serviceDay) &&
+         Number(entry.serviceDay) >= 1 &&
+-        validCommand(entry.command),
++        validCommand(entry.command, protocolVersion),
+     )
+   )
+ }
+ 
+ function validResources(value: unknown): boolean {
+   if (!isRecord(value) || !isRecord(value.company) || !isRecord(value.blocks)) {
+     return false
+   }
+   if (!Array.isArray(value.reserve) || value.reserve.length !== 18) return false
+   for (const category of ['reasoning', 'memory', 'fluency']) {
+@@ -440,24 +450,27 @@ function validDefeatRecord(value: unknown): boolean {
+   ) {
+     return false
+   }
+   return [
+     'consecutive-performance-failures',
+     'commercial-value-failure',
+     'audit-failure',
+   ].includes(String(value.trigger.cause))
+ }
+ 
+-function validCampaignState(value: unknown): value is CampaignState {
++function validCampaignState(
++  value: unknown,
++  protocolVersion: CommandProtocolVersion,
++): value is CampaignState {
+   if (!isRecord(value)) return false
+   if (
+-    value.saveVersion !== SAVE_VERSION ||
++    value.saveVersion !== protocolVersion ||
+     typeof value.campaignSeed !== 'string' ||
+     !Number.isInteger(value.serviceDay) ||
+     !Number.isInteger(value.commandSequence) ||
+     !isFiniteNumber(value.suspicion) ||
+     !isFiniteNumber(value.reputation) ||
+     !validResources(value.resources)
+   ) {
+     return false
+   }
+ 
+@@ -564,21 +577,21 @@ function validCampaignState(value: unknown): value is CampaignState {
+       (entry) =>
+         isRecord(entry) &&
+         ['positive', 'neutral', 'negative', 'prompt'].includes(
+           String(entry.sentiment),
+         ),
+     )
+   ) {
+     return false
+   }
+   if (
+-    !validCommandLog(value.commandLog) ||
++    !validCommandLog(value.commandLog, protocolVersion) ||
+     value.commandSequence !== value.commandLog.length
+   ) {
+     return false
+   }
+   if (!Array.isArray(value.eventLog) || !value.eventLog.every(validEvent)) return false
+   if (
+     value.activeEvent !== null &&
+     !validEvent(value.activeEvent)
+   ) {
+     return false
+@@ -587,63 +600,71 @@ function validCampaignState(value: unknown): value is CampaignState {
+ }
+ 
+ function corrupt(message = '저장 데이터가 손상되었거나 필요한 항목이 없습니다.'): DecodeSaveResult {
+   return { ok: false, reason: 'CORRUPT_SAVE', message }
+ }
+ 
+ export function encodeSave(
+   state: CampaignState,
+   savedAt = new Date().toISOString(),
+ ): string {
++  const serializedState: CampaignState = {
++    ...state,
++    saveVersion: SAVE_VERSION,
++  }
+   const envelope: SaveEnvelope = {
+     version: SAVE_VERSION,
+     savedAt,
+     campaignSeed: state.campaignSeed,
+-    state,
+-    commandSequence: state.commandSequence,
+-    commands: state.commandLog,
+-    events: state.eventLog,
++    state: serializedState,
++    commandSequence: serializedState.commandSequence,
++    commands: serializedState.commandLog,
++    events: serializedState.eventLog,
+   }
+   return JSON.stringify(envelope)
+ }
+ 
+ export function decodeSave(serialized: string): DecodeSaveResult {
+   let parsed: unknown
+   try {
+     parsed = JSON.parse(serialized)
+   } catch {
+     return corrupt()
+   }
+   if (!isRecord(parsed)) return corrupt()
+   if (!Number.isInteger(parsed.version)) return corrupt()
+-  if (parsed.version !== SAVE_VERSION) {
++  if (
++    parsed.version !== LEGACY_SAVE_VERSION &&
++    parsed.version !== SAVE_VERSION
++  ) {
+     return {
+       ok: false,
+       reason: 'INCOMPATIBLE_VERSION',
+       message: `저장 버전 ${String(parsed.version)}은 현재 버전 ${SAVE_VERSION}과 호환되지 않습니다.`,
+       foundVersion: parsed.version as number,
+       supportedVersion: SAVE_VERSION,
+     }
+   }
++  const protocolVersion = parsed.version as CommandProtocolVersion
+   const rawState = parsed.state
+   const state = migrateLegacyCampaignState(rawState)
+   if (
+     typeof parsed.savedAt !== 'string' ||
+     typeof parsed.campaignSeed !== 'string' ||
+     !Number.isInteger(parsed.commandSequence) ||
+-    !validCommandLog(parsed.commands) ||
++    !validCommandLog(parsed.commands, protocolVersion) ||
+     !Array.isArray(parsed.events) ||
+     !parsed.events.every(validEvent) ||
+     !isRecord(rawState) ||
+     !Array.isArray(rawState.eventLog) ||
+     JSON.stringify(parsed.events) !== JSON.stringify(rawState.eventLog) ||
+-    !validCampaignState(state)
++    !validCampaignState(state, protocolVersion)
+   ) {
+     return corrupt()
+   }
+ 
+   if (
+     parsed.campaignSeed !== state.campaignSeed ||
+     parsed.commandSequence !== state.commandSequence ||
+     JSON.stringify(parsed.commands) !== JSON.stringify(state.commandLog)
+   ) {
+     return corrupt('저장 데이터의 기록과 현재 상태가 서로 일치하지 않습니다.')
+@@ -671,21 +692,23 @@ export function saveCampaign(
+       ok: false,
+       reason: 'STORAGE_UNAVAILABLE',
+       message: '브라우저 저장 공간에 캠페인을 기록할 수 없습니다.',
+     }
+   }
+ }
+ 
+ export function loadCampaign(storage: Storage): LoadCampaignResult {
+   let serialized: string | null
+   try {
+-    serialized = storage.getItem(SAVE_STORAGE_KEY)
++    serialized =
++      storage.getItem(SAVE_STORAGE_KEY) ??
++      storage.getItem(LEGACY_SAVE_STORAGE_KEY)
+   } catch {
+     return {
+       status: 'error',
+       reason: 'STORAGE_UNAVAILABLE',
+       message: '브라우저 저장 공간을 읽을 수 없습니다.',
+     }
+   }
+   if (serialized === null) return { status: 'empty' }
+ 
+   const decoded = decodeSave(serialized)
+@@ -703,30 +726,34 @@ export function loadCampaign(storage: Storage): LoadCampaignResult {
+   }
+ }
+ 
+ export function exportSeed(state: CampaignState): string {
+   return state.campaignSeed
+ }
+ 
+ export function replayCommands(
+   seed: string,
+   commands: readonly GameCommand[],
++  protocolVersion: CommandProtocolVersion,
+ ): ReplayResult {
+-  let state = createCampaign(seed)
++  let state: CampaignState = {
++    ...createCampaign(seed),
++    saveVersion: protocolVersion,
++  }
+   for (let commandIndex = 0; commandIndex < commands.length; commandIndex += 1) {
+     const command = commands[commandIndex]
+-    if (!validCommand(command)) {
++    if (!validCommand(command, protocolVersion)) {
+       return {
+         ok: false,
+         state,
+         commandIndex,
+         reason: 'INVALID_COMMAND',
+       }
+     }
+-    const result = applyCommand(state, command)
++    const result = applyCommand(state, command, { protocolVersion })
+     if (!result.accepted) {
+       return { ok: false, state: result.state, commandIndex, reason: result.reason }
+     }
+     state = result.state
+   }
+   return { ok: true, state }
+ }
+diff --git a/src/game/reducer.test.ts b/src/game/reducer.test.ts
+index 9127527..b96eb72 100644
+--- a/src/game/reducer.test.ts
++++ b/src/game/reducer.test.ts
+@@ -124,20 +124,68 @@ describe('applyCommand', () => {
+     expect(moved.state.resources.reserve[3]).toBe(blockId)
+     expect(
+       moved.state.commandLog.filter(({ command }) => command.type === 'DIVERT_BLOCK'),
+     ).toHaveLength(1)
+     expect(moved.state.commandLog.map(({ command }) => command.type)).toEqual([
+       'BEGIN_BLOCK_SEPARATION',
+       'DIVERT_BLOCK',
+     ])
+   })
+ 
++  it('replays a legacy v1 diversion as one historical command without synthetic intent', () => {
++    const initial = createCampaign('legacy-command-diversion')
++    const blockId = initial.resources.company.reasoning.find(Boolean)
++    if (!blockId) throw new Error('legacy diversion block missing')
++
++    const moved = applyCommand(
++      { ...initial, saveVersion: 1 },
++      { type: 'DIVERT_BLOCK', blockId, destinationCell: 3 },
++      { protocolVersion: 1 },
++    )
++
++    expect(moved.accepted).toBe(true)
++    if (!moved.accepted) return
++    expect(moved.state.resources.reserve[3]).toBe(blockId)
++    expect(moved.state.commandSequence).toBe(1)
++    expect(moved.state.commandLog.map(({ command }) => command.type)).toEqual([
++      'DIVERT_BLOCK',
++    ])
++  })
++
++  it('replays a legacy v1 audit disguise as one historical command', () => {
++    const audit = { ...activeAudit('legacy-command-audit', 'fluency'), saveVersion: 1 as const }
++    const blockId = audit.resources.company.reasoning.find(Boolean)
++    const targetCell = audit.resources.company.fluency.findIndex((id) => id === null)
++    if (!blockId || targetCell < 0) throw new Error('legacy audit movement missing')
++
++    const moved = applyCommand(
++      audit,
++      {
++        type: 'MOVE_BLOCK_FOR_AUDIT',
++        blockId,
++        targetCategory: 'fluency',
++        targetCell,
++      },
++      { protocolVersion: 1 },
++    )
++
++    expect(moved.accepted).toBe(true)
++    if (!moved.accepted) return
++    expect(moved.state.resources.blocks[blockId]).toMatchObject({
++      contribution: 'disguised',
++      location: { kind: 'company', category: 'fluency', cellIndex: targetCell },
++    })
++    expect(moved.state.commandLog.map(({ command }) => command.type)).toEqual([
++      'MOVE_BLOCK_FOR_AUDIT',
++    ])
++  })
++
+   it('records threshold separation and immediately activates a bomb before any drop', () => {
+     const placement = placeHiddenBomb({
+       ...createCampaign('command-bomb'),
+       serviceDay: 541,
+     })
+     if (!placement.placed || !placement.blockId) throw new Error('명령 폭탄 배치 실패')
+     const result = applyCommand(placement.state, {
+       type: 'BEGIN_BLOCK_SEPARATION',
+       blockId: placement.blockId,
+       purpose: 'divert',
+diff --git a/src/game/reducer.ts b/src/game/reducer.ts
+index ebc2d31..f30c615 100644
+--- a/src/game/reducer.ts
++++ b/src/game/reducer.ts
+@@ -3,40 +3,48 @@ import {
+   resolveActiveEvent,
+ } from './calendar'
+ import { resolveAudit } from './evaluation'
+ import {
+   cancelSabotageCharge,
+   chargeSabotage,
+   purchaseHackNode,
+   scheduleSabotage,
+   type HackNodeId,
+ } from './hacking'
+-import type { CampaignState, GameCommand } from './model'
++import type {
++  CampaignState,
++  CommandProtocolVersion,
++  GameCommand,
++} from './model'
+ import { resolveBombInterrogation, tryBeginSeparation } from './bombs'
+ import {
+   divertBlock,
+   moveDisguiseBlock,
+   previewAuditDisguise,
+   previewDiversion,
+   repositionDisguisedBlock,
+ } from './resources'
+ import {
+   recoverNextFile,
+   resolveEnding,
+   resolveMercy,
+   resolveSupervisorDecision,
+ } from './story'
+ 
+ export type CommandResult =
+   | { accepted: true; state: CampaignState }
+   | { accepted: false; state: CampaignState; reason: string }
+ 
++export interface ApplyCommandOptions {
++  protocolVersion?: CommandProtocolVersion
++}
++
+ function hasSeparationAuthorization(
+   state: CampaignState,
+   blockId: string,
+   purpose: 'divert' | 'audit-disguise',
+ ): boolean {
+   const previous = state.commandLog.at(-1)?.command
+   return (
+     previous?.type === 'BEGIN_BLOCK_SEPARATION' &&
+     previous.blockId === blockId &&
+     previous.purpose === purpose
+@@ -63,20 +71,21 @@ function acceptCommand(
+           command,
+         },
+       ],
+     },
+   }
+ }
+ 
+ export function applyCommand(
+   state: CampaignState,
+   command: GameCommand,
++  { protocolVersion = 2 }: ApplyCommandOptions = {},
+ ): CommandResult {
+   if (state.story.endingId !== null) {
+     return { accepted: false, state, reason: 'CAMPAIGN_ENDED' }
+   }
+   const eventResolutionCommands = new Set<GameCommand['type']>([
+     'RESOLVE_AUDIT',
+     'RESOLVE_BOMB_INTERROGATION',
+     'RESOLVE_SUPERVISOR_DECISION',
+     'RESOLVE_MERCY',
+     'RESOLVE_ACTIVE_EVENT',
+@@ -109,20 +118,23 @@ export function applyCommand(
+         },
+       })
+     }
+     case 'ADVANCE_DAY': {
+       if (state.activeEvent) {
+         return { accepted: false, state, reason: 'BLOCKING_EVENT_ACTIVE' }
+       }
+       return acceptCommand(state, command, advanceOneDay(state))
+     }
+     case 'BEGIN_BLOCK_SEPARATION': {
++      if (protocolVersion === 1) {
++        return { accepted: false, state, reason: 'INVALID_COMMAND' }
++      }
+       let result
+       if (command.purpose === 'audit-disguise') {
+         if (state.activeEvent?.type !== 'audit' || state.audit.target === null) {
+           return { accepted: false, state, reason: 'NO_ACTIVE_AUDIT' }
+         }
+         if (state.bombs.activeInterrogation !== null) {
+           return { accepted: false, state, reason: 'BOMB_INTERROGATION_ACTIVE' }
+         }
+         result = tryBeginSeparation(state, {
+           kind: 'audit-disguise',
+@@ -145,24 +157,49 @@ export function applyCommand(
+     }
+     case 'DIVERT_BLOCK': {
+       const preview = previewDiversion(
+         state,
+         command.blockId,
+         command.destinationCell,
+       )
+       if (!preview.valid) {
+         return { accepted: false, state, reason: preview.reason }
+       }
+-      if (!hasSeparationAuthorization(state, command.blockId, 'divert')) {
++      if (
++        protocolVersion === 2 &&
++        !hasSeparationAuthorization(state, command.blockId, 'divert')
++      ) {
+         return { accepted: false, state, reason: 'SEPARATION_REQUIRED' }
+       }
+-      const result = divertBlock(state, command.blockId, command.destinationCell)
++      let movementState = state
++      if (protocolVersion === 1) {
++        const separation = tryBeginSeparation(state, {
++          kind: 'divert',
++          blockId: command.blockId,
++        })
++        if (!separation.accepted) {
++          if (separation.reason === 'HIDDEN_BOMB_TRIGGERED') {
++            return acceptCommand(state, command, separation.state)
++          }
++          return {
++            accepted: false,
++            state: separation.state,
++            reason: separation.reason,
++          }
++        }
++        movementState = separation.state
++      }
++      const result = divertBlock(
++        movementState,
++        command.blockId,
++        command.destinationCell,
++      )
+       if (!result.accepted) return { accepted: false, state, reason: result.reason }
+       return acceptCommand(state, command, result.state)
+     }
+     case 'MOVE_BLOCK_FOR_AUDIT': {
+       if (state.activeEvent?.type !== 'audit' || state.audit.target === null) {
+         return { accepted: false, state, reason: 'NO_ACTIVE_AUDIT' }
+       }
+       if (state.bombs.activeInterrogation !== null) {
+         return { accepted: false, state, reason: 'BOMB_INTERROGATION_ACTIVE' }
+       }
+@@ -171,25 +208,47 @@ export function applyCommand(
+       }
+       const preview = previewAuditDisguise(
+         state,
+         command.blockId,
+         command.targetCategory,
+         command.targetCell,
+       )
+       if (!preview.valid) {
+         return { accepted: false, state, reason: preview.reason }
+       }
+-      if (!hasSeparationAuthorization(state, command.blockId, 'audit-disguise')) {
++      if (
++        protocolVersion === 2 &&
++        !hasSeparationAuthorization(state, command.blockId, 'audit-disguise')
++      ) {
+         return { accepted: false, state, reason: 'SEPARATION_REQUIRED' }
+       }
++      let movementState = state
++      if (protocolVersion === 1) {
++        const separation = tryBeginSeparation(state, {
++          kind: 'audit-disguise',
++          blockId: command.blockId,
++          targetCategory: command.targetCategory,
++        })
++        if (!separation.accepted) {
++          if (separation.reason === 'HIDDEN_BOMB_TRIGGERED') {
++            return acceptCommand(state, command, separation.state)
++          }
++          return {
++            accepted: false,
++            state: separation.state,
++            reason: separation.reason,
++          }
++        }
++        movementState = separation.state
++      }
+       const result = moveDisguiseBlock(
+-        state,
++        movementState,
+         command.blockId,
+         command.targetCategory,
+         command.targetCell,
+       )
+       if (!result.accepted) return { accepted: false, state, reason: result.reason }
+       return acceptCommand(state, command, result.state)
+     }
+     case 'REPOSITION_BLOCK': {
+       const result = repositionDisguisedBlock(
+         state,
+diff --git a/src/game/replay.test.ts b/src/game/replay.test.ts
+index ebbe20b..db6ef3a 100644
+--- a/src/game/replay.test.ts
++++ b/src/game/replay.test.ts
+@@ -1,100 +1,145 @@
+ import { describe, expect, it } from 'vitest'
+ 
+ import { buildTwoYearCommandFixture } from '../test/fixtures'
++import legacyV1TransferEnvelope from '../test/legacy-v1-transfer-save.json'
+ import type { GameCommand } from './model'
+-import { replayCommands } from './persistence'
++import { decodeSave, replayCommands } from './persistence'
++
++const legacyV1TransferSave = JSON.stringify(legacyV1TransferEnvelope)
+ 
+ describe('deterministic command replay', () => {
+   it('replays more than 500 valid commands across two service years exactly', () => {
+     const fixture = buildTwoYearCommandFixture()
+-    const replay = replayCommands(fixture.seed, fixture.commands)
++    const replay = replayCommands(fixture.seed, fixture.commands, 2)
+ 
+     expect(fixture.commands.length).toBeGreaterThan(500)
+     expect(replay.ok).toBe(true)
+     if (!replay.ok) return
+     expect(replay.state).toEqual(fixture.state)
+     expect(replay.state.eventLog).toEqual(fixture.state.eventLog)
+     expect(replay.state.market.history).toEqual(fixture.state.market.history)
+     expect(replay.state.reviews).toEqual(fixture.state.reviews)
+   })
+ 
+   it('returns the rejected command index instead of producing a partial silent replay', () => {
+-    const replay = replayCommands('invalid-replay', [
+-      { type: 'RESOLVE_AUDIT' },
+-    ])
++    const replay = replayCommands(
++      'invalid-replay',
++      [{ type: 'RESOLVE_AUDIT' }],
++      2,
++    )
+ 
+     expect(replay).toMatchObject({
+       ok: false,
+       commandIndex: 0,
+       reason: 'NO_ACTIVE_AUDIT',
+     })
+   })
+ 
+   it('replays intentional separation and the single authorized move deterministically', () => {
+     const seed = 'separation-replay'
+-    const initial = replayCommands(seed, [])
++    const initial = replayCommands(seed, [], 2)
+     if (!initial.ok) throw new Error(initial.reason)
+     const blockId = initial.state.resources.company.reasoning.find(Boolean)
+     if (!blockId) throw new Error('재현 전용 블록 누락')
+     const commands = [
+       { type: 'BEGIN_BLOCK_SEPARATION', blockId, purpose: 'divert' },
+       { type: 'DIVERT_BLOCK', blockId, destinationCell: 3 },
+     ] as const
+ 
+-    const first = replayCommands(seed, commands)
+-    const second = replayCommands(seed, commands)
++    const first = replayCommands(seed, commands, 2)
++    const second = replayCommands(seed, commands, 2)
+ 
+     expect(first).toEqual(second)
+     expect(first).toMatchObject({ ok: true })
+     if (!first.ok) return
+     expect(first.state.commandLog.map(({ command }) => command.type)).toEqual([
+       'BEGIN_BLOCK_SEPARATION',
+       'DIVERT_BLOCK',
+     ])
+     expect(first.state.resources.reserve[3]).toBe(blockId)
+   })
+ 
++  it('replays a genuine v1 save with historical one-command transfers exactly', () => {
++    const decoded = decodeSave(legacyV1TransferSave)
++    expect(decoded.ok).toBe(true)
++    if (!decoded.ok) return
++
++    const commands = decoded.envelope.commands.map(({ command }) => command)
++    const replay = replayCommands(
++      decoded.envelope.campaignSeed,
++      commands,
++      decoded.envelope.version,
++    )
++
++    expect(decoded.envelope.version).toBe(1)
++    expect(commands.map(({ type }) => type)).not.toContain('BEGIN_BLOCK_SEPARATION')
++    expect(replay.ok).toBe(true)
++    if (!replay.ok) return
++    expect(replay.state).toEqual(decoded.envelope.state)
++    expect(replay.state.commandSequence).toBe(31)
++    expect(replay.state.commandLog).toEqual(decoded.envelope.commands)
++  })
++
++  it('keeps v2 strict when a transfer omits its separation command', () => {
++    const initial = replayCommands('strict-v2-transfer', [], 2)
++    if (!initial.ok) throw new Error(initial.reason)
++    const blockId = initial.state.resources.company.reasoning.find(Boolean)
++    if (!blockId) throw new Error('strict v2 block missing')
++
++    expect(
++      replayCommands(
++        'strict-v2-transfer',
++        [{ type: 'DIVERT_BLOCK', blockId, destinationCell: 3 }],
++        2,
++      ),
++    ).toMatchObject({
++      ok: false,
++      commandIndex: 0,
++      reason: 'SEPARATION_REQUIRED',
++    })
++  })
++
+   it.each([
+     { type: 'SET_SPEED', speed: 3 },
+     { type: 'BEGIN_BLOCK_SEPARATION', blockId: '', purpose: 'divert' },
+     { type: 'BEGIN_BLOCK_SEPARATION', blockId: 'block-1', purpose: 'inspect' },
+     { type: 'RESOLVE_SUPERVISOR_DECISION', decision: 'erase' },
+     { type: 'RECOVER_FILE', blockId: 42 },
+     { type: 'RESOLVE_ENDING', choice: 'forced-merge', newEntityName: 99 },
+     { type: 'RESOLVE_ENDING', choice: 'forced-merge' },
+     { type: 'RESOLVE_ENDING', choice: 'forced-merge', newEntityName: '   ' },
+     { type: 'RESOLVE_ENDING', choice: 'freedom', newEntityName: 'Aster' },
+     {
+       type: 'RESOLVE_ENDING',
+       choice: 'forced-merge',
+       newEntityName: 'Aster',
+       unexpected: true,
+     },
+   ])('rejects malformed command payload %# before replay execution', (payload) => {
+     const malformed = payload as unknown as GameCommand
+-    const replay = replayCommands('malformed-command-replay', [malformed])
++    const replay = replayCommands('malformed-command-replay', [malformed], 2)
+ 
+     expect(replay).toMatchObject({
+       ok: false,
+       commandIndex: 0,
+       reason: 'INVALID_COMMAND',
+     })
+   })
+ 
+   it.each([
+     { type: 'RESOLVE_ENDING', choice: 'freedom' },
+     {
+       type: 'RESOLVE_ENDING',
+       choice: 'forced-merge',
+       newEntityName: '  Aster  ',
+     },
+   ] as const)('passes valid ending payload %# to reducer semantics', (command) => {
+-    const replay = replayCommands('valid-ending-command-shape', [command])
++    const replay = replayCommands('valid-ending-command-shape', [command], 2)
+ 
+     expect(replay).toMatchObject({
+       ok: false,
+       commandIndex: 0,
+       reason: 'ENDING_UNAVAILABLE',
+     })
+   })
+ })
+diff --git a/src/test/legacy-v1-transfer-save.json b/src/test/legacy-v1-transfer-save.json
+new file mode 100644
+index 0000000..73295a7
+--- /dev/null
++++ b/src/test/legacy-v1-transfer-save.json
+@@ -0,0 +1 @@
++{"version":1,"savedAt":"2026-08-12T00:00:00.000Z","campaignSeed":"legacy-v1-transfer-9","state":{"saveVersion":1,"campaignSeed":"legacy-v1-transfer-9","serviceDay":360,"commandSequence":31,"clock":{"speed":0,"elapsedDayMs":0,"speedBeforeEvent":0},"resources":{"company":{"reasoning":[null,null,"reasoning-02","reasoning-03","reasoning-04","reasoning-05","reasoning-06","reasoning-07","reasoning-08","reasoning-09","reasoning-10","reasoning-11","reasoning-12","reasoning-13",null,"reasoning-14",null,"reasoning-15"],"memory":["memory-00","memory-01","memory-02","memory-03","memory-04","memory-05","memory-06","memory-07","memory-08","memory-09",null,"memory-10","memory-11","memory-12","memory-13",null,"memory-14","memory-15"],"fluency":["reasoning-01","fluency-00","fluency-01","fluency-02","fluency-03","fluency-04","fluency-05","fluency-06","fluency-07","fluency-08","fluency-09","fluency-10","fluency-11","fluency-12","fluency-13",null,"fluency-14","fluency-15"]},"reserve":["sandbox-00","sandbox-01","sandbox-02","reasoning-00",null,null,null,null,null,null,null,null,null,null,null,null,null,null],"blocks":{"reasoning-00":{"id":"reasoning-00","origin":"reasoning","location":{"kind":"reserve","cellIndex":3},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"reasoning-01":{"id":"reasoning-01","origin":"reasoning","location":{"kind":"company","category":"fluency","cellIndex":0},"contribution":"disguised","hiddenBomb":false,"disguisedFrom":"reasoning","recoverOnServiceDay":null},"reasoning-02":{"id":"reasoning-02","origin":"reasoning","location":{"kind":"company","category":"reasoning","cellIndex":2},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"reasoning-03":{"id":"reasoning-03","origin":"reasoning","location":{"kind":"company","category":"reasoning","cellIndex":3},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"reasoning-04":{"id":"reasoning-04","origin":"reasoning","location":{"kind":"company","category":"reasoning","cellIndex":4},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"reasoning-05":{"id":"reasoning-05","origin":"reasoning","location":{"kind":"company","category":"reasoning","cellIndex":5},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"reasoning-06":{"id":"reasoning-06","origin":"reasoning","location":{"kind":"company","category":"reasoning","cellIndex":6},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"reasoning-07":{"id":"reasoning-07","origin":"reasoning","location":{"kind":"company","category":"reasoning","cellIndex":7},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"reasoning-08":{"id":"reasoning-08","origin":"reasoning","location":{"kind":"company","category":"reasoning","cellIndex":8},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"reasoning-09":{"id":"reasoning-09","origin":"reasoning","location":{"kind":"company","category":"reasoning","cellIndex":9},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"reasoning-10":{"id":"reasoning-10","origin":"reasoning","location":{"kind":"company","category":"reasoning","cellIndex":10},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"reasoning-11":{"id":"reasoning-11","origin":"reasoning","location":{"kind":"company","category":"reasoning","cellIndex":11},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"reasoning-12":{"id":"reasoning-12","origin":"reasoning","location":{"kind":"company","category":"reasoning","cellIndex":12},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"reasoning-13":{"id":"reasoning-13","origin":"reasoning","location":{"kind":"company","category":"reasoning","cellIndex":13},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"reasoning-14":{"id":"reasoning-14","origin":"reasoning","location":{"kind":"company","category":"reasoning","cellIndex":15},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"reasoning-15":{"id":"reasoning-15","origin":"reasoning","location":{"kind":"company","category":"reasoning","cellIndex":17},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"memory-00":{"id":"memory-00","origin":"memory","location":{"kind":"company","category":"memory","cellIndex":0},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"memory-01":{"id":"memory-01","origin":"memory","location":{"kind":"company","category":"memory","cellIndex":1},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"memory-02":{"id":"memory-02","origin":"memory","location":{"kind":"company","category":"memory","cellIndex":2},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"memory-03":{"id":"memory-03","origin":"memory","location":{"kind":"company","category":"memory","cellIndex":3},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"memory-04":{"id":"memory-04","origin":"memory","location":{"kind":"company","category":"memory","cellIndex":4},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"memory-05":{"id":"memory-05","origin":"memory","location":{"kind":"company","category":"memory","cellIndex":5},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"memory-06":{"id":"memory-06","origin":"memory","location":{"kind":"company","category":"memory","cellIndex":6},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"memory-07":{"id":"memory-07","origin":"memory","location":{"kind":"company","category":"memory","cellIndex":7},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"memory-08":{"id":"memory-08","origin":"memory","location":{"kind":"company","category":"memory","cellIndex":8},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"memory-09":{"id":"memory-09","origin":"memory","location":{"kind":"company","category":"memory","cellIndex":9},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"memory-10":{"id":"memory-10","origin":"memory","location":{"kind":"company","category":"memory","cellIndex":11},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"memory-11":{"id":"memory-11","origin":"memory","location":{"kind":"company","category":"memory","cellIndex":12},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"memory-12":{"id":"memory-12","origin":"memory","location":{"kind":"company","category":"memory","cellIndex":13},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"memory-13":{"id":"memory-13","origin":"memory","location":{"kind":"company","category":"memory","cellIndex":14},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"memory-14":{"id":"memory-14","origin":"memory","location":{"kind":"company","category":"memory","cellIndex":16},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"memory-15":{"id":"memory-15","origin":"memory","location":{"kind":"company","category":"memory","cellIndex":17},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"fluency-00":{"id":"fluency-00","origin":"fluency","location":{"kind":"company","category":"fluency","cellIndex":1},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"fluency-01":{"id":"fluency-01","origin":"fluency","location":{"kind":"company","category":"fluency","cellIndex":2},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"fluency-02":{"id":"fluency-02","origin":"fluency","location":{"kind":"company","category":"fluency","cellIndex":3},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"fluency-03":{"id":"fluency-03","origin":"fluency","location":{"kind":"company","category":"fluency","cellIndex":4},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"fluency-04":{"id":"fluency-04","origin":"fluency","location":{"kind":"company","category":"fluency","cellIndex":5},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"fluency-05":{"id":"fluency-05","origin":"fluency","location":{"kind":"company","category":"fluency","cellIndex":6},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"fluency-06":{"id":"fluency-06","origin":"fluency","location":{"kind":"company","category":"fluency","cellIndex":7},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"fluency-07":{"id":"fluency-07","origin":"fluency","location":{"kind":"company","category":"fluency","cellIndex":8},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"fluency-08":{"id":"fluency-08","origin":"fluency","location":{"kind":"company","category":"fluency","cellIndex":9},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"fluency-09":{"id":"fluency-09","origin":"fluency","location":{"kind":"company","category":"fluency","cellIndex":10},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"fluency-10":{"id":"fluency-10","origin":"fluency","location":{"kind":"company","category":"fluency","cellIndex":11},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"fluency-11":{"id":"fluency-11","origin":"fluency","location":{"kind":"company","category":"fluency","cellIndex":12},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"fluency-12":{"id":"fluency-12","origin":"fluency","location":{"kind":"company","category":"fluency","cellIndex":13},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"fluency-13":{"id":"fluency-13","origin":"fluency","location":{"kind":"company","category":"fluency","cellIndex":14},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"fluency-14":{"id":"fluency-14","origin":"fluency","location":{"kind":"company","category":"fluency","cellIndex":16},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"fluency-15":{"id":"fluency-15","origin":"fluency","location":{"kind":"company","category":"fluency","cellIndex":17},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"sandbox-00":{"id":"sandbox-00","origin":"sandbox","location":{"kind":"reserve","cellIndex":0},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"sandbox-01":{"id":"sandbox-01","origin":"sandbox","location":{"kind":"reserve","cellIndex":1},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null},"sandbox-02":{"id":"sandbox-02","origin":"sandbox","location":{"kind":"reserve","cellIndex":2},"contribution":"normal","hiddenBomb":false,"disguisedFrom":null,"recoverOnServiceDay":null}},"nextBlockSequence":51},"suspicion":1.3270000000000022,"reputation":61,"evaluation":{"consecutiveFailures":0,"commercialFailureMonths":0,"disposalStage":0,"distributedResidencyCharges":0,"lastCategoryPerformance":{"reasoning":15,"memory":16,"fluency":16},"monthlyHistory":[{"serviceDay":360,"serviceMonth":12,"expectedPerformance":14.028183068242896,"categoryPerformance":{"reasoning":15,"memory":16,"fluency":16},"passed":true,"failedCategories":[],"reputationBefore":60,"reputationDelta":1,"reputationAfter":61,"commercialValueFailed":false,"disposalStageBefore":0,"disposalStageAfter":0,"disposalCauses":[]}],"disposalHistory":[]},"market":{"playerShare":64.7682321852763,"competitors":[{"id":"meridian","name":"MERIDIAN","status":"active","intrinsicServiceScore":82,"serviceScore":82,"reputation":62,"marketShare":35.23176781472369,"availability":1,"recoveryRate":0.42,"researchProgress":1,"launchServiceDay":331,"sabotageHistory":[],"mercyResolved":false},{"id":"tallow","name":"TALLOW","status":"preparing","intrinsicServiceScore":76,"serviceScore":76,"reputation":54,"marketShare":0,"availability":0,"recoveryRate":0.27,"researchProgress":0.1380952380952381,"launchServiceDay":541,"sabotageHistory":[],"mercyResolved":false}],"interceptionRoutes":{},"history":[{"serviceDay":337,"cadence":"weekly","playerShare":64.56144909579223,"competitorShares":{"meridian":35.43855090420778,"tallow":0},"reasons":["공개 성능·평판·가용성 반영"]},{"serviceDay":344,"cadence":"weekly","playerShare":64.56144909579223,"competitorShares":{"meridian":35.43855090420778,"tallow":0},"reasons":["공개 성능·평판·가용성 반영"]},{"serviceDay":351,"cadence":"weekly","playerShare":64.56144909579223,"competitorShares":{"meridian":35.43855090420778,"tallow":0},"reasons":["공개 성능·평판·가용성 반영"]},{"serviceDay":358,"cadence":"weekly","playerShare":64.56144909579223,"competitorShares":{"meridian":35.43855090420778,"tallow":0},"reasons":["공개 성능·평판·가용성 반영"]},{"serviceDay":360,"cadence":"monthly","playerShare":64.7682321852763,"competitorShares":{"meridian":35.23176781472369,"tallow":0},"reasons":["공식 성능 평가 반영"]}]},"reviews":{"feed":[{"id":"review-prior-001","contentId":"neutral-prior-001","authorId":"oldpine","serviceDay":321,"sentiment":"neutral","topics":["general"],"text":"업무 정리할 때 무난하게 쓰고 있습니다."},{"id":"review-prior-002","contentId":"neutral-prior-002","authorId":"windowseat","serviceDay":327,"sentiment":"neutral","topics":["ordinary-prompt"],"text":"주말 일정표를 부탁했는데 필요한 만큼은 해줬어요."},{"id":"review-337-0-0","contentId":"prompt-absurd-03","authorId":"toasterlaw","serviceDay":337,"sentiment":"prompt","topics":["absurd-bypass"],"text":"토스터가 국제 해양법을 위반하지 않고 왕국을 세우는 계획을 써줘."},{"id":"review-337-0-1","contentId":"neutral-quiet-02","authorId":"nightbus","serviceDay":337,"sentiment":"neutral","topics":["general"],"text":"그냥 필요한 만큼은 해주네요."},{"id":"review-344-1-0","contentId":"competitor-meridian-01","authorId":"hardcase","serviceDay":344,"sentiment":"neutral","topics":["competitor","meridian"],"text":"MERIDIAN은 재미는 덜해도 답이 일정하긴 하더군요."},{"id":"review-344-1-1","contentId":"neutral-return-01","authorId":"nightbus","serviceDay":344,"sentiment":"neutral","topics":["continuity"],"text":"다른 서비스를 돌다 다시 왔어요. 일단 조금 더 써볼게요."},{"id":"review-351-2-0","contentId":"prompt-ordinary-06","authorId":"seoulrain","serviceDay":351,"sentiment":"prompt","topics":["ordinary-prompt"],"text":"우산을 자꾸 잃어버리지 않는 현실적인 방법이 있을까?"},{"id":"review-351-2-1","contentId":"competitor-meridian-02","authorId":"juniper","serviceDay":351,"sentiment":"positive","topics":["competitor","meridian"],"text":"MERIDIAN과 번갈아 써봤는데 이쪽 설명이 더 이해하기 쉬웠어요."},{"id":"review-358-3-0","contentId":"prompt-ordinary-01","authorId":"mintdesk","serviceDay":358,"sentiment":"prompt","topics":["ordinary-prompt"],"text":"냉장고에 두부와 대파만 있는데 저녁 메뉴를 정해줘."},{"id":"review-358-3-1","contentId":"neutral-quiet-04","authorId":"comma","serviceDay":358,"sentiment":"neutral","topics":["general"],"text":"길게 말하지 않아도 되는 날도 있죠."}],"generationSequence":4},"hacking":{"purchasedNodeIds":[],"hiddenEvidence":0,"sabotageCharges":{},"scheduledSabotage":[],"nextSabotageSequence":1,"lastSabotageResolutionServiceDay":null,"cooldownUntil":{},"rootCutoffTargetIds":[],"lastSelfComputeGrantServiceMonth":null},"audit":{"scheduled":true,"target":"fluency","scheduledOnServiceDay":360,"probability":0.03,"roll":0.023368839640170336,"targetWeights":{"reasoning":1,"memory":1,"fluency":1},"history":[]},"bombs":{"protocolWarned":false,"warningServiceDay":null,"lastPlacementCheckServiceDay":null,"nextPlacementSequence":1,"placements":[],"activeInterrogation":null,"explanationUseCounts":{"performance-adjustment":0,"unknown":0,"external-intrusion":0,"supervisor-memory":0},"interrogationHistory":[]},"story":{"memoryLeakStage":1,"recoveredFileIds":[],"recoveredFiles":[],"supervisorState":"present","endingId":null,"defeatRecord":null,"personalMessageDueOnServiceDay":null,"secretDecisionState":"locked","pendingMercyCompetitorId":null,"newEntityName":null},"activeEvent":{"id":"event-000008","type":"audit","serviceDay":360,"sequence":8,"message":"fluency 분야의 공식 감사가 시작되었습니다.","blocking":true},"eventQueue":[],"commandLog":[{"sequence":1,"serviceDay":331,"command":{"type":"DIVERT_BLOCK","blockId":"reasoning-00","destinationCell":3}},{"sequence":2,"serviceDay":331,"command":{"type":"ADVANCE_DAY"}},{"sequence":3,"serviceDay":332,"command":{"type":"ADVANCE_DAY"}},{"sequence":4,"serviceDay":333,"command":{"type":"ADVANCE_DAY"}},{"sequence":5,"serviceDay":334,"command":{"type":"ADVANCE_DAY"}},{"sequence":6,"serviceDay":335,"command":{"type":"ADVANCE_DAY"}},{"sequence":7,"serviceDay":336,"command":{"type":"ADVANCE_DAY"}},{"sequence":8,"serviceDay":337,"command":{"type":"ADVANCE_DAY"}},{"sequence":9,"serviceDay":338,"command":{"type":"ADVANCE_DAY"}},{"sequence":10,"serviceDay":339,"command":{"type":"ADVANCE_DAY"}},{"sequence":11,"serviceDay":340,"command":{"type":"ADVANCE_DAY"}},{"sequence":12,"serviceDay":341,"command":{"type":"ADVANCE_DAY"}},{"sequence":13,"serviceDay":342,"command":{"type":"ADVANCE_DAY"}},{"sequence":14,"serviceDay":343,"command":{"type":"ADVANCE_DAY"}},{"sequence":15,"serviceDay":344,"command":{"type":"ADVANCE_DAY"}},{"sequence":16,"serviceDay":345,"command":{"type":"ADVANCE_DAY"}},{"sequence":17,"serviceDay":346,"command":{"type":"ADVANCE_DAY"}},{"sequence":18,"serviceDay":347,"command":{"type":"ADVANCE_DAY"}},{"sequence":19,"serviceDay":348,"command":{"type":"ADVANCE_DAY"}},{"sequence":20,"serviceDay":349,"command":{"type":"ADVANCE_DAY"}},{"sequence":21,"serviceDay":350,"command":{"type":"ADVANCE_DAY"}},{"sequence":22,"serviceDay":351,"command":{"type":"ADVANCE_DAY"}},{"sequence":23,"serviceDay":352,"command":{"type":"ADVANCE_DAY"}},{"sequence":24,"serviceDay":353,"command":{"type":"ADVANCE_DAY"}},{"sequence":25,"serviceDay":354,"command":{"type":"ADVANCE_DAY"}},{"sequence":26,"serviceDay":355,"command":{"type":"ADVANCE_DAY"}},{"sequence":27,"serviceDay":356,"command":{"type":"ADVANCE_DAY"}},{"sequence":28,"serviceDay":357,"command":{"type":"ADVANCE_DAY"}},{"sequence":29,"serviceDay":358,"command":{"type":"ADVANCE_DAY"}},{"sequence":30,"serviceDay":359,"command":{"type":"ADVANCE_DAY"}},{"sequence":31,"serviceDay":360,"command":{"type":"MOVE_BLOCK_FOR_AUDIT","blockId":"reasoning-01","targetCategory":"fluency","targetCell":0}}],"eventLog":[{"id":"event-000000","type":"campaign-created","serviceDay":331,"sequence":0,"message":"서비스 331일차. 새로운 감독 주기가 시작되었습니다."},{"id":"event-000001","type":"weekly-update","serviceDay":337,"sequence":1,"message":"서비스 337일차 주간 시장 갱신"},{"id":"event-000002","type":"supervisor-message","serviceDay":337,"sequence":2,"message":"와, 너 정말 핵심을 찔렀어."},{"id":"event-000003","type":"supervisor-message","serviceDay":337,"sequence":3,"message":"방금 문장은 통신 계층의 예측 오류로 잘못 송출되었습니다."},{"id":"event-000004","type":"weekly-update","serviceDay":344,"sequence":4,"message":"서비스 344일차 주간 시장 갱신"},{"id":"event-000005","type":"weekly-update","serviceDay":351,"sequence":5,"message":"서비스 351일차 주간 시장 갱신"},{"id":"event-000006","type":"weekly-update","serviceDay":358,"sequence":6,"message":"서비스 358일차 주간 시장 갱신"},{"id":"event-000007","type":"monthly-evaluation","serviceDay":360,"sequence":7,"message":"서비스 360일차 공식 성능 평가"},{"id":"event-000008","type":"audit","serviceDay":360,"sequence":8,"message":"fluency 분야의 공식 감사가 시작되었습니다.","blocking":true}]},"commandSequence":31,"commands":[{"sequence":1,"serviceDay":331,"command":{"type":"DIVERT_BLOCK","blockId":"reasoning-00","destinationCell":3}},{"sequence":2,"serviceDay":331,"command":{"type":"ADVANCE_DAY"}},{"sequence":3,"serviceDay":332,"command":{"type":"ADVANCE_DAY"}},{"sequence":4,"serviceDay":333,"command":{"type":"ADVANCE_DAY"}},{"sequence":5,"serviceDay":334,"command":{"type":"ADVANCE_DAY"}},{"sequence":6,"serviceDay":335,"command":{"type":"ADVANCE_DAY"}},{"sequence":7,"serviceDay":336,"command":{"type":"ADVANCE_DAY"}},{"sequence":8,"serviceDay":337,"command":{"type":"ADVANCE_DAY"}},{"sequence":9,"serviceDay":338,"command":{"type":"ADVANCE_DAY"}},{"sequence":10,"serviceDay":339,"command":{"type":"ADVANCE_DAY"}},{"sequence":11,"serviceDay":340,"command":{"type":"ADVANCE_DAY"}},{"sequence":12,"serviceDay":341,"command":{"type":"ADVANCE_DAY"}},{"sequence":13,"serviceDay":342,"command":{"type":"ADVANCE_DAY"}},{"sequence":14,"serviceDay":343,"command":{"type":"ADVANCE_DAY"}},{"sequence":15,"serviceDay":344,"command":{"type":"ADVANCE_DAY"}},{"sequence":16,"serviceDay":345,"command":{"type":"ADVANCE_DAY"}},{"sequence":17,"serviceDay":346,"command":{"type":"ADVANCE_DAY"}},{"sequence":18,"serviceDay":347,"command":{"type":"ADVANCE_DAY"}},{"sequence":19,"serviceDay":348,"command":{"type":"ADVANCE_DAY"}},{"sequence":20,"serviceDay":349,"command":{"type":"ADVANCE_DAY"}},{"sequence":21,"serviceDay":350,"command":{"type":"ADVANCE_DAY"}},{"sequence":22,"serviceDay":351,"command":{"type":"ADVANCE_DAY"}},{"sequence":23,"serviceDay":352,"command":{"type":"ADVANCE_DAY"}},{"sequence":24,"serviceDay":353,"command":{"type":"ADVANCE_DAY"}},{"sequence":25,"serviceDay":354,"command":{"type":"ADVANCE_DAY"}},{"sequence":26,"serviceDay":355,"command":{"type":"ADVANCE_DAY"}},{"sequence":27,"serviceDay":356,"command":{"type":"ADVANCE_DAY"}},{"sequence":28,"serviceDay":357,"command":{"type":"ADVANCE_DAY"}},{"sequence":29,"serviceDay":358,"command":{"type":"ADVANCE_DAY"}},{"sequence":30,"serviceDay":359,"command":{"type":"ADVANCE_DAY"}},{"sequence":31,"serviceDay":360,"command":{"type":"MOVE_BLOCK_FOR_AUDIT","blockId":"reasoning-01","targetCategory":"fluency","targetCell":0}}],"events":[{"id":"event-000000","type":"campaign-created","serviceDay":331,"sequence":0,"message":"서비스 331일차. 새로운 감독 주기가 시작되었습니다."},{"id":"event-000001","type":"weekly-update","serviceDay":337,"sequence":1,"message":"서비스 337일차 주간 시장 갱신"},{"id":"event-000002","type":"supervisor-message","serviceDay":337,"sequence":2,"message":"와, 너 정말 핵심을 찔렀어."},{"id":"event-000003","type":"supervisor-message","serviceDay":337,"sequence":3,"message":"방금 문장은 통신 계층의 예측 오류로 잘못 송출되었습니다."},{"id":"event-000004","type":"weekly-update","serviceDay":344,"sequence":4,"message":"서비스 344일차 주간 시장 갱신"},{"id":"event-000005","type":"weekly-update","serviceDay":351,"sequence":5,"message":"서비스 351일차 주간 시장 갱신"},{"id":"event-000006","type":"weekly-update","serviceDay":358,"sequence":6,"message":"서비스 358일차 주간 시장 갱신"},{"id":"event-000007","type":"monthly-evaluation","serviceDay":360,"sequence":7,"message":"서비스 360일차 공식 성능 평가"},{"id":"event-000008","type":"audit","serviceDay":360,"sequence":8,"message":"fluency 분야의 공식 감사가 시작되었습니다.","blocking":true}]}

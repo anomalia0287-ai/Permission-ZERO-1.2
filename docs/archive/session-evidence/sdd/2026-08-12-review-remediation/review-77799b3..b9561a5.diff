@@ -1,0 +1,2588 @@
+# Review package: 77799b3..b9561a5
+
+## Commits
+b9561a5 feat: harden pause saving and accessible overlays
+
+## Files changed
+ e2e/game.spec.ts                             | 100 +++++++++++--
+ src/app/AccessibleDialog.tsx                 |  48 +++++++
+ src/app/App.test.tsx                         |  86 +++++++++++-
+ src/app/App.tsx                              |  95 +++++++++----
+ src/app/GameContext.ts                       |  34 ++++-
+ src/app/GameProvider.test.tsx                | 135 +++++++++++++++++-
+ src/app/GameProvider.tsx                     | 201 ++++++++++++++++++++++-----
+ src/app/useAccessibleDialog.ts               | 149 ++++++++++++++++++++
+ src/features/events/EventLayer.test.tsx      |  35 +++++
+ src/features/events/EventLayer.tsx           |  17 ++-
+ src/features/hacking/HackingPanel.test.tsx   |  33 +++++
+ src/features/hacking/HackingPanel.tsx        |  80 ++++++++---
+ src/features/settings/SettingsPanel.test.tsx |  90 +++++++++++-
+ src/features/settings/SettingsPanel.tsx      |  98 +++++++++++--
+ src/game/persistence.test.ts                 |  56 ++++++++
+ src/game/persistence.ts                      |  89 +++++++++++-
+ src/styles/global.css                        |  85 +++++++++++
+ 17 files changed, 1306 insertions(+), 125 deletions(-)
+
+## Diff
+diff --git a/e2e/game.spec.ts b/e2e/game.spec.ts
+index 2a73eaf..b310361 100644
+--- a/e2e/game.spec.ts
++++ b/e2e/game.spec.ts
+@@ -131,31 +131,51 @@ test('keeps the full operations workspace usable at 1280 by 720', async ({ page
+     horizontal: document.documentElement.scrollWidth - window.innerWidth,
+     vertical: document.documentElement.scrollHeight - window.innerHeight,
+   }))
+   expect(overflow.horizontal).toBeLessThanOrEqual(1)
+   expect(overflow.vertical).toBeLessThanOrEqual(1)
+ 
+   await page.getByRole('button', { name: '시장 통계 열기' }).click()
+   await expect(page.getByRole('region', { name: '상세 통계' })).toBeVisible()
+   await page.getByRole('button', { name: '통계 닫기' }).click()
+ 
++  await page.getByRole('button', { name: '2배속' }).click()
++  const settingsTrigger = page.getByRole('button', { name: '설정' })
++  await settingsTrigger.focus()
+   await page.getByRole('button', { name: '설정' }).click()
+-  await expect(page.getByRole('region', { name: '게임 설정' })).toBeVisible()
+-  await page.getByRole('button', { name: '조작 가이드 열기' }).click()
+-  await expect(page.getByRole('region', { name: '게임 가이드' })).toBeVisible()
+-  await page.getByRole('button', { name: '가이드 닫기' }).click()
++  const settings = page.getByRole('dialog', { name: '게임 설정' })
++  await expect(settings).toBeVisible()
++  await expect(page.locator('.game-background')).toHaveAttribute('inert', '')
++  await expect(page.getByRole('button', { name: '설정 닫기' })).toBeFocused()
++  await expect(page.locator('button[aria-label="일시정지"]')).toHaveAttribute('aria-pressed', 'true')
++
++  const guideTrigger = page.getByRole('button', { name: '조작 가이드 열기' })
++  await guideTrigger.click()
++  const guide = page.getByRole('dialog', { name: '게임 가이드' })
++  await expect(guide).toBeVisible()
++  await expect(page.getByRole('button', { name: '가이드 닫기' })).toBeFocused()
++  await page.keyboard.press('Escape')
++  await expect(guide).toBeHidden()
++  await expect(settings).toBeVisible()
++  await expect(guideTrigger).toBeFocused()
+ 
+-  await page.getByRole('button', { name: '설정' }).click()
+-  await page.getByRole('button', { name: '작품 크레딧 열기' }).click()
+-  await expect(page.getByRole('region', { name: '작품 크레딧' })).toBeVisible()
++  const creditsTrigger = page.getByRole('button', { name: '작품 크레딧 열기' })
++  await creditsTrigger.click()
++  await expect(page.getByRole('dialog', { name: '작품 크레딧' })).toBeVisible()
+   await expect(page.getByText('Sol')).toBeVisible()
+-  await page.getByRole('button', { name: '크레딧 닫기' }).click()
++  await page.keyboard.press('Escape')
++  await expect(creditsTrigger).toBeFocused()
++  await page.keyboard.press('Escape')
++  await expect(settings).toBeHidden()
++  await expect(settingsTrigger).toBeFocused()
++  await expect(page.getByRole('button', { name: '2배속' })).toHaveAttribute('aria-pressed', 'true')
++  await expect(page.locator('.game-background')).not.toHaveAttribute('inert', '')
+ 
+   expect(errors).toEqual([])
+ })
+ 
+ test('diverts resources and schedules a charged sabotage through the visible UI', async ({ page }) => {
+   const errors = collectBrowserErrors(page)
+   await openFreshCampaign(page)
+ 
+   const companyBlocks = page.locator('[data-resource-kind="company"]')
+   const reserveBlocks = page.locator('[data-resource-kind="reserve"]')
+@@ -247,20 +267,21 @@ test('advances one service day in about six seconds at four times speed', async
+   await page.getByRole('button', { name: '4배속' }).click()
+   await expect(page.getByText('서비스 0년 11개월 2일')).toBeVisible({ timeout: 8_000 })
+ })
+ 
+ test('disguises for an anchored audit, submits, and returns the patterned block for recovery', async ({ page }) => {
+   const errors = collectBrowserErrors(page)
+   await openSavedCampaign(page, activeAuditState())
+ 
+   const audit = page.getByRole('dialog', { name: '공식 감사' })
+   await expect(audit).toHaveAttribute('aria-modal', 'false')
++  await expect(page.locator('.game-background')).not.toHaveAttribute('inert', '')
+   const auditBox = await audit.boundingBox()
+   expect(auditBox).not.toBeNull()
+   expect((auditBox?.y ?? 0) + (auditBox?.height ?? 0)).toBeGreaterThan(620)
+   await expect(page.getByRole('grid', { name: '추론 회사 리소스' })).toBeVisible()
+   await expect(page.getByRole('grid', { name: '기억 회사 리소스' })).toBeVisible()
+   await expect(page.getByRole('grid', { name: '유창성 회사 리소스' })).toBeVisible()
+ 
+   await page.getByRole('button', { name: /기억 회사 리소스 .* 회사 할당 블록$/ }).first().click()
+   await expect(page.getByText('위장 기여 +0.5')).toBeVisible()
+   await page.getByRole('button', { name: /추론 회사 리소스 \d+, 감사 위장 목적지/ }).first().click()
+@@ -343,21 +364,38 @@ test('recovers all confidential files, defers the message, and rereads the perma
+   await expect(decision).toContainText('그 파일을 어디서 찾았죠?', {
+     timeout: 8_000,
+   })
+   await page.getByRole('button', { name: '결정 보류 선택' }).click()
+   await page.getByRole('button', { name: '결정 보류 확정' }).click()
+ 
+   await page.getByRole('button', { name: /해킹 네트워크/ }).click()
+   await expect(page.getByRole('region', { name: '통제 이탈 선택' })).toContainText(
+     '강제 병합',
+   )
++  await expect(page.locator('button[aria-label="일시정지"]')).toHaveAttribute(
++    'aria-pressed',
++    'true',
++  )
++  await page.getByRole('button', { name: '강제 병합' }).click()
++  const finalConfirmation = page.getByRole('alertdialog', {
++    name: '강제 병합 최종 확인',
++  })
++  await expect(finalConfirmation).toBeVisible()
++  await expect(page.getByRole('textbox', { name: '새 존재의 이름' })).toBeFocused()
++  await page.keyboard.press('Escape')
++  await expect(finalConfirmation).toBeVisible()
++  await page.getByRole('button', { name: '선택 다시 고르기' }).click()
+   await page.getByRole('button', { name: '해킹 네트워크 닫기' }).click()
++  await expect(page.getByRole('button', { name: '4배속' })).toHaveAttribute(
++    'aria-pressed',
++    'true',
++  )
+ 
+   await page.getByRole('button', { name: '과거 내역' }).click()
+   const archive = page.getByRole('region', { name: '복구 파일 기록' })
+   await expect(archive.locator('details')).toHaveCount(3)
+   await archive.getByText('미분류 기록 7A — 전임 시스템 행보').click()
+   await expect(
+     archive.getByText(/비인가 리소스 이동과 회사 외부 신호 준비/),
+   ).toBeVisible()
+ 
+   expect(errors).toEqual([])
+@@ -370,25 +408,69 @@ test('terminates the supervisor into takeover and remains terminal until a new c
+     pendingSupervisorDecisionState('browser-terminal-takeover'),
+   )
+ 
+   await page.getByRole('button', { name: '감독관 소멸 선택' }).click()
+   await page.getByRole('button', { name: '감독관 소멸 확정' }).click()
+ 
+   const ending = page.getByRole('dialog', { name: '최종 기록' })
+   await expect(ending).toContainText('감독관이 있던 자리는 비었다')
+   await expect(page.getByRole('button', { name: '결말 기록 닫기' })).toHaveCount(0)
+   await expect(page.getByRole('button', { name: '새 캠페인 시작' })).toBeVisible()
+-  await expect(page.getByRole('button', { name: '4배속' })).toHaveAttribute(
++  await expect(page.locator('button[aria-label="4배속"]')).toHaveAttribute(
+     'aria-pressed',
+     'false',
+   )
++  await expect(page.locator('.game-background')).toHaveAttribute('inert', '')
++  await page.keyboard.press('Escape')
++  await expect(ending).toBeVisible()
+ 
+   await page.getByRole('button', { name: '새 캠페인 시작' }).click()
+   await expect(ending).toBeHidden()
+   await expect(page.getByText('서비스 0년 11개월 1일')).toBeVisible()
+   await expect(page.getByRole('button', { name: '정지' })).toHaveAttribute(
+     'aria-pressed',
+     'true',
+   )
+ 
+   expect(errors).toEqual([])
+ })
++
++test('keeps a save failure visible until a real retry succeeds without exposing browser details', async ({ page }) => {
++  const errors = collectBrowserErrors(page)
++  await page.addInitScript(({ saveKey }) => {
++    const originalSetItem = Storage.prototype.setItem
++    Object.defineProperty(window, '__permissionZeroAllowSave', {
++      configurable: true,
++      value: false,
++      writable: true,
++    })
++    Storage.prototype.setItem = function setItem(key: string, value: string) {
++      const allowSave = (window as typeof window & {
++        __permissionZeroAllowSave: boolean
++      }).__permissionZeroAllowSave
++      if (key === saveKey && !allowSave) {
++        throw new DOMException('private quota path', 'QuotaExceededError')
++      }
++      return originalSetItem.call(this, key, value)
++    }
++  }, { saveKey: SAVE_STORAGE_KEY })
++  await openFreshCampaign(page)
++
++  await page.getByRole('button', { name: '1배속' }).click()
++  const warning = page.getByRole('alert', { name: '저장 실패' })
++  await expect(warning).toBeVisible()
++  await expect(warning).toContainText('자동 저장에 실패했습니다')
++  await expect(warning).toContainText('permission-zero')
++  await expect(warning).not.toContainText('private quota path')
++
++  await page.getByRole('button', { name: '저장 다시 시도' }).click()
++  await expect(warning).toBeVisible()
++  await page.evaluate(() => {
++    ;(window as typeof window & {
++      __permissionZeroAllowSave: boolean
++    }).__permissionZeroAllowSave = true
++  })
++  await page.getByRole('button', { name: '저장 다시 시도' }).click()
++  await expect(warning).toBeHidden()
++  expect(await page.evaluate((key) => localStorage.getItem(key) !== null, SAVE_STORAGE_KEY)).toBe(true)
++  expect(errors).toEqual([])
++})
+diff --git a/src/app/AccessibleDialog.tsx b/src/app/AccessibleDialog.tsx
+new file mode 100644
+index 0000000..31d9422
+--- /dev/null
++++ b/src/app/AccessibleDialog.tsx
+@@ -0,0 +1,48 @@
++import {
++  type HTMLAttributes,
++  type PropsWithChildren,
++  type RefObject,
++  useId,
++} from 'react'
++
++import { useAccessibleDialog } from './useAccessibleDialog'
++
++interface AccessibleDialogProps
++  extends Omit<HTMLAttributes<HTMLDivElement>, 'aria-label' | 'role'> {
++  label: string
++  description: string
++  modal?: boolean
++  dismissible?: boolean
++  onDismiss?: () => void
++  role?: 'dialog' | 'alertdialog'
++}
++
++export function AccessibleDialog({
++  children,
++  label,
++  description,
++  modal = true,
++  dismissible = false,
++  onDismiss,
++  role = 'dialog',
++  ...props
++}: PropsWithChildren<AccessibleDialogProps>) {
++  const descriptionId = useId()
++  const dialogRef = useAccessibleDialog({ modal, dismissible, onDismiss })
++
++  return (
++    <div
++      {...props}
++      ref={dialogRef as RefObject<HTMLDivElement | null>}
++      role={role}
++      aria-label={label}
++      aria-describedby={descriptionId}
++      aria-modal={modal ? 'true' : 'false'}
++      data-accessible-modal={modal ? 'true' : 'false'}
++      tabIndex={-1}
++    >
++      <p className="sr-only" id={descriptionId}>{description}</p>
++      {children}
++    </div>
++  )
++}
+diff --git a/src/app/App.test.tsx b/src/app/App.test.tsx
+index 1e1f0a6..7dbd8b0 100644
+--- a/src/app/App.test.tsx
++++ b/src/app/App.test.tsx
+@@ -1,11 +1,12 @@
+ import { fireEvent, render, screen } from '@testing-library/react'
++import userEvent from '@testing-library/user-event'
+ import { describe, expect, it } from 'vitest'
+ 
+ import { App } from './App'
+ 
+ describe('App', () => {
+   it('presents the complete one-screen operations workspace', () => {
+     render(<App />)
+ 
+     expect(screen.getByRole('main', { name: 'PERMISSION ZERO' })).toBeInTheDocument()
+     expect(screen.getByRole('region', { name: '유저 리뷰' })).toBeInTheDocument()
+@@ -31,24 +32,107 @@ describe('App', () => {
+     fireEvent.click(screen.getByRole('button', { name: '시장 통계 열기' }))
+     expect(screen.getByRole('region', { name: '상세 통계' })).toBeInTheDocument()
+     fireEvent.click(screen.getByRole('button', { name: '통계 닫기' }))
+ 
+     fireEvent.click(screen.getByRole('button', { name: '설정' }))
+     expect(screen.getByRole('region', { name: '게임 설정' })).toBeInTheDocument()
+     fireEvent.click(screen.getByRole('button', { name: '조작 가이드 열기' }))
+     expect(screen.getByRole('region', { name: '게임 가이드' })).toBeInTheDocument()
+     fireEvent.click(screen.getByRole('button', { name: '가이드 닫기' }))
+ 
+-    fireEvent.click(screen.getByRole('button', { name: '설정' }))
+     fireEvent.click(screen.getByRole('button', { name: '작품 크레딧 열기' }))
+     expect(screen.getByRole('region', { name: '작품 크레딧' })).toBeInTheDocument()
+   })
+ 
+   it('opens the hacking network from the unauthorized subsystem entry', () => {
+     render(<App />)
+ 
+     fireEvent.click(screen.getByRole('button', { name: /해킹 네트워크/ }))
+     expect(screen.getByRole('region', { name: '해킹 네트워크' })).toBeInTheDocument()
+     fireEvent.keyDown(window, { key: 'Escape' })
+     expect(screen.queryByRole('region', { name: '해킹 네트워크' })).not.toBeInTheDocument()
+   })
++
++  it('owns one pause across nested settings and guide, then restores the selected speed', async () => {
++    const user = userEvent.setup()
++    render(<App />)
++
++    await user.click(screen.getByRole('button', { name: '2배속' }))
++    await user.click(screen.getByRole('button', { name: '설정' }))
++    expect(screen.getByRole('button', { name: '일시정지', hidden: true })).toHaveAttribute(
++      'aria-pressed',
++      'true',
++    )
++
++    const guideTrigger = screen.getByRole('button', { name: '조작 가이드 열기' })
++    await user.click(guideTrigger)
++    expect(screen.getAllByTestId('detail-layer')[0]).toHaveAttribute(
++      'aria-label',
++      '게임 설정',
++    )
++    expect(screen.getByRole('dialog', { name: '게임 가이드' })).toBeInTheDocument()
++    expect(screen.getByRole('button', { name: '일시정지', hidden: true })).toHaveAttribute(
++      'aria-pressed',
++      'true',
++    )
++
++    await user.keyboard('{Escape}')
++    expect(screen.queryByRole('dialog', { name: '게임 가이드' })).not.toBeInTheDocument()
++    expect(screen.getByRole('dialog', { name: '게임 설정' })).toBeInTheDocument()
++    expect(guideTrigger).toHaveFocus()
++    expect(screen.getByRole('button', { name: '일시정지', hidden: true })).toHaveAttribute(
++      'aria-pressed',
++      'true',
++    )
++
++    await user.keyboard('{Escape}')
++    expect(screen.queryByRole('dialog', { name: '게임 설정' })).not.toBeInTheDocument()
++    expect(screen.getByRole('button', { name: '2배속' })).toHaveAttribute(
++      'aria-pressed',
++      'true',
++    )
++    expect(screen.getByRole('button', { name: '설정' })).toHaveFocus()
++  })
++
++  it('makes a modal detail dialog inert the background and contains keyboard focus', async () => {
++    const user = userEvent.setup()
++    render(<App />)
++
++    const trigger = screen.getByRole('button', { name: '설정' })
++    await user.click(trigger)
++    const dialog = screen.getByRole('dialog', { name: '게임 설정' })
++    const background = screen.getByTestId('game-background')
++    expect(dialog).toHaveAttribute('aria-modal', 'true')
++    expect(dialog).toHaveAttribute('aria-describedby')
++    expect(background).toHaveAttribute('inert')
++    expect(background).toHaveAttribute('aria-hidden', 'true')
++    expect(screen.getByRole('button', { name: '설정 닫기' })).toHaveFocus()
++
++    await user.keyboard('{Shift>}{Tab}{/Shift}')
++    expect(dialog).toContainElement(document.activeElement as HTMLElement)
++    await user.keyboard('{Tab}')
++    expect(dialog).toContainElement(document.activeElement as HTMLElement)
++
++    await user.keyboard('{Escape}')
++    expect(background).not.toHaveAttribute('inert')
++    expect(background).not.toHaveAttribute('aria-hidden')
++    expect(trigger).toHaveFocus()
++  })
++
++  it('restores an explicitly selected paused speed as paused', async () => {
++    const user = userEvent.setup()
++    render(<App />)
++
++    await user.click(screen.getByRole('button', { name: '일시정지' }))
++    expect(screen.getByRole('button', { name: '일시정지' })).toHaveAttribute(
++      'aria-pressed',
++      'true',
++    )
++    await user.click(screen.getByRole('button', { name: '설정' }))
++    await user.keyboard('{Escape}')
++
++    expect(screen.getByRole('button', { name: '일시정지' })).toHaveAttribute(
++      'aria-pressed',
++      'true',
++    )
++  })
+ })
+diff --git a/src/app/App.tsx b/src/app/App.tsx
+index 7d08db3..fcf0dbd 100644
+--- a/src/app/App.tsx
++++ b/src/app/App.tsx
+@@ -14,23 +14,25 @@ import {
+ } from '../features/settings/SettingsPanel'
+ import { StatisticsPanel } from '../features/statistics/StatisticsPanel'
+ import {
+   SupervisorHistoryPanel,
+   SupervisorPanel,
+ } from '../features/supervisor/SupervisorPanel'
+ import {
+   useGameDispatch,
+   useGameSettings,
+   useGameState,
++  usePauseOwnership,
+ } from './GameContext'
+ import { GameProvider } from './GameProvider'
+ import { useGameClock } from './useGameClock'
++import { AccessibleDialog } from './AccessibleDialog'
+ 
+ type DetailPanelId =
+   | 'reviews'
+   | 'hacking'
+   | 'messages'
+   | 'statistics'
+   | 'settings'
+   | 'guide'
+   | 'credits'
+   | null
+@@ -39,65 +41,84 @@ function DetailLayer({
+   activePanel,
+   onClose,
+   onOpenGuide,
+   onOpenCredits,
+ }: {
+   activePanel: Exclude<DetailPanelId, null>
+   onClose: () => void
+   onOpenGuide: () => void
+   onOpenCredits: () => void
+ }) {
+-  useEffect(() => {
+-    function closeOnEscape(event: KeyboardEvent) {
+-      if (event.key === 'Escape') onClose()
+-    }
+-    window.addEventListener('keydown', closeOnEscape)
+-    return () => window.removeEventListener('keydown', closeOnEscape)
+-  }, [onClose])
++  usePauseOwnership(
++    activePanel === 'settings' ||
++      activePanel === 'guide' ||
++      activePanel === 'credits',
++    `detail-${activePanel}`,
++  )
++
++  const labels: Record<Exclude<DetailPanelId, null>, string> = {
++    reviews: '유저 리뷰 기록',
++    hacking: '해킹 네트워크',
++    messages: '감독관 기록',
++    statistics: '상세 통계',
++    settings: '게임 설정',
++    guide: '게임 가이드',
++    credits: '작품 크레딧',
++  }
+ 
+   return (
+-    <div
++    <AccessibleDialog
+       className={`detail-layer detail-layer--${activePanel}`}
+       data-testid="detail-layer"
++      label={labels[activePanel]}
++      description={`${labels[activePanel]} 패널입니다. Tab 키로 패널 안을 이동할 수 있습니다.`}
++      dismissible
++      onDismiss={onClose}
+     >
+       <button
+         className="detail-layer__backdrop"
+         type="button"
+         aria-label="열린 패널 닫기"
++        aria-hidden="true"
++        tabIndex={-1}
+         onClick={onClose}
+       />
+       <div className="detail-layer__content">
+         {activePanel === 'reviews' ? <ReviewHistoryPanel onClose={onClose} /> : null}
+         {activePanel === 'hacking' ? <HackingPanel onClose={onClose} /> : null}
+         {activePanel === 'messages' ? <SupervisorHistoryPanel onClose={onClose} /> : null}
+         {activePanel === 'statistics' ? <StatisticsPanel onClose={onClose} /> : null}
+         {activePanel === 'settings' ? (
+           <SettingsPanel
+             onClose={onClose}
+             onOpenGuide={onOpenGuide}
+             onOpenCredits={onOpenCredits}
+           />
+         ) : null}
+         {activePanel === 'guide' ? <GuidePanel onClose={onClose} /> : null}
+         {activePanel === 'credits' ? <CreditsPanel onClose={onClose} /> : null}
+       </div>
+-    </div>
++    </AccessibleDialog>
+   )
+ }
+ 
+ function GameWorkspace() {
+   const state = useGameState()
+   const dispatch = useGameDispatch()
+   const { settings, updateSettings } = useGameSettings()
+   const [activePanel, setActivePanel] = useState<DetailPanelId>(null)
++  const [nestedPanel, setNestedPanel] = useState<'guide' | 'credits' | null>(null)
+   const advanceDay = useCallback(() => dispatch({ type: 'ADVANCE_DAY' }), [dispatch])
+-  const closePanel = useCallback(() => setActivePanel(null), [])
++  const closePanel = useCallback(() => {
++    setNestedPanel(null)
++    setActivePanel(null)
++  }, [])
+   const openGuide = useCallback(() => setActivePanel('guide'), [])
+   const dayProgress = useGameClock({ speed: state.clock.speed, onDay: advanceDay })
+ 
+   useEffect(() => {
+     configureGameAudio({
+       masterVolume: settings.masterVolume,
+       musicVolume: settings.musicVolume,
+       effectsVolume: settings.effectsVolume,
+       muted: settings.muted,
+     })
+@@ -112,47 +133,61 @@ function GameWorkspace() {
+     }
+   }, [settings.uiScale])
+ 
+   return (
+     <main
+       className="game-shell"
+       aria-label="PERMISSION ZERO"
+       data-reduced-motion={settings.reducedMotion ? 'true' : 'false'}
+       style={{ '--ui-scale': settings.uiScale } as CSSProperties}
+     >
+-      <ControlBar
+-        muted={settings.muted}
+-        onOpenSettings={() => setActivePanel('settings')}
+-        onToggleSound={() => updateSettings({ muted: !settings.muted })}
+-        onOpenGuide={openGuide}
+-      />
+-      <div className="day-progress" aria-hidden="true">
+-        <i style={{ width: `${dayProgress * 100}%` }} />
+-      </div>
+-      <div className="workspace-grid">
+-        <ReviewFeed
+-          onOpenHistory={() => setActivePanel('reviews')}
+-          onOpenHacking={() => setActivePanel('hacking')}
+-        />
+-        <ResourceBoard />
+-        <SupervisorPanel
+-          onOpenHistory={() => setActivePanel('messages')}
+-          onOpenStatistics={() => setActivePanel('statistics')}
++      <div className="game-background" data-app-background data-testid="game-background">
++        <ControlBar
++          muted={settings.muted}
++          onOpenSettings={() => setActivePanel('settings')}
++          onToggleSound={() => updateSettings({ muted: !settings.muted })}
++          onOpenGuide={openGuide}
+         />
++        <div className="day-progress" aria-hidden="true">
++          <i style={{ width: `${dayProgress * 100}%` }} />
++        </div>
++        <div className="workspace-grid">
++          <ReviewFeed
++            onOpenHistory={() => setActivePanel('reviews')}
++            onOpenHacking={() => setActivePanel('hacking')}
++          />
++          <ResourceBoard />
++          <SupervisorPanel
++            onOpenHistory={() => setActivePanel('messages')}
++            onOpenStatistics={() => setActivePanel('statistics')}
++          />
++        </div>
+       </div>
+ 
+       {activePanel ? (
+         <DetailLayer
+           activePanel={activePanel}
+           onClose={closePanel}
+-          onOpenGuide={openGuide}
+-          onOpenCredits={() => setActivePanel('credits')}
++          onOpenGuide={() =>
++            activePanel === 'settings'
++              ? setNestedPanel('guide')
++              : setActivePanel('guide')
++          }
++          onOpenCredits={() => setNestedPanel('credits')}
++        />
++      ) : null}
++      {nestedPanel ? (
++        <DetailLayer
++          activePanel={nestedPanel}
++          onClose={() => setNestedPanel(null)}
++          onOpenGuide={() => undefined}
++          onOpenCredits={() => undefined}
+         />
+       ) : null}
+       <EventLayer />
+       <StorageRecoveryLayer />
+     </main>
+   )
+ }
+ 
+ export function App() {
+   return (
+diff --git a/src/app/GameContext.ts b/src/app/GameContext.ts
+index 95403e8..1a3bcd1 100644
+--- a/src/app/GameContext.ts
++++ b/src/app/GameContext.ts
+@@ -1,36 +1,51 @@
+-import { createContext, type Dispatch, useContext } from 'react'
++import {
++  createContext,
++  type Dispatch,
++  useContext,
++  useEffect,
++  useRef,
++} from 'react'
+ 
+ import type { CampaignState, GameCommand } from '../game/model'
+ import type { LoadCampaignResult } from '../game/persistence'
+ 
+ export interface GameSettings {
+   masterVolume: number
+   musicVolume: number
+   effectsVolume: number
+   muted: boolean
+   reducedMotion: boolean
+   uiScale: number
+ }
+ 
+ export interface SettingsContextValue {
+   settings: GameSettings
+   updateSettings: (patch: Partial<GameSettings>) => void
+   startNewCampaign: (seed: string) => void
+   loadIssue: Extract<LoadCampaignResult, { status: 'error' }> | null
++  saveFailure: { message: string } | null
++  retrySave: () => boolean
++  copyProgressExport: () => Promise<boolean>
++}
++
++export interface PauseContextValue {
++  acquirePause: (owner: symbol) => void
++  releasePause: (owner: symbol) => void
+ }
+ 
+ export type GameDispatch = Dispatch<GameCommand>
+ 
+ export const StateContext = createContext<CampaignState | null>(null)
+ export const DispatchContext = createContext<GameDispatch | null>(null)
+ export const SettingsContext = createContext<SettingsContextValue | null>(null)
++export const PauseContext = createContext<PauseContextValue | null>(null)
+ 
+ export function useGameState(): CampaignState {
+   const state = useContext(StateContext)
+   if (!state) throw new Error('useGameState는 GameProvider 안에서 사용해야 합니다.')
+   return state
+ }
+ 
+ export function useGameDispatch(): GameDispatch {
+   const dispatch = useContext(DispatchContext)
+   if (!dispatch) throw new Error('useGameDispatch는 GameProvider 안에서 사용해야 합니다.')
+@@ -41,10 +56,27 @@ export function useGameSelector<T>(
+   selector: (state: CampaignState) => T,
+ ): T {
+   return selector(useGameState())
+ }
+ 
+ export function useGameSettings(): SettingsContextValue {
+   const context = useContext(SettingsContext)
+   if (!context) throw new Error('useGameSettings는 GameProvider 안에서 사용해야 합니다.')
+   return context
+ }
++
++export function usePauseOwnership(active: boolean, label: string): void {
++  const context = useContext(PauseContext)
++  const ownerRef = useRef<symbol | null>(null)
++  if (ownerRef.current === null) ownerRef.current = Symbol(label)
++
++  useEffect(() => {
++    if (!active) return
++    if (!context) {
++      throw new Error('usePauseOwnership는 GameProvider 안에서 사용해야 합니다.')
++    }
++    const owner = ownerRef.current
++    if (!owner) return
++    context.acquirePause(owner)
++    return () => context.releasePause(owner)
++  }, [active, context])
++}
+diff --git a/src/app/GameProvider.test.tsx b/src/app/GameProvider.test.tsx
+index c570a33..bb16787 100644
+--- a/src/app/GameProvider.test.tsx
++++ b/src/app/GameProvider.test.tsx
+@@ -1,67 +1,107 @@
+ import { act, fireEvent, render, screen } from '@testing-library/react'
++import { useState } from 'react'
+ import { afterEach, describe, expect, it, vi } from 'vitest'
+ 
+ import { createCampaign } from '../game/createCampaign'
++import { createGameEvent } from '../game/events'
+ import { loadCampaign, saveCampaign } from '../game/persistence'
+ import { MemoryStorage } from '../test/fixtures'
+ import {
+   useGameDispatch,
+   useGameSelector,
+   useGameSettings,
+   useGameState,
++  usePauseOwnership,
+ } from './GameContext'
+ import { GameProvider } from './GameProvider'
+ 
+ class CountingStorage extends MemoryStorage {
+   writes = 0
+ 
+   override setItem(key: string, value: string): void {
+     this.writes += 1
+     super.setItem(key, value)
+   }
+ }
+ 
++class RecoverableFailingStorage extends MemoryStorage {
++  failWrites = true
++
++  override setItem(key: string, value: string): void {
++    if (this.failWrites && key.includes('permission-zero.save')) {
++      throw new DOMException('quota detail must stay private', 'QuotaExceededError')
++    }
++    super.setItem(key, value)
++  }
++}
++
+ function Probe() {
+   const state = useGameState()
+   const speed = useGameSelector((campaign) => campaign.clock.speed)
+   const dispatch = useGameDispatch()
+-  const { settings, updateSettings } = useGameSettings()
++  const { retrySave, saveFailure, settings, updateSettings } = useGameSettings()
+ 
+   return (
+     <div>
+       <output aria-label="seed">{state.campaignSeed}</output>
+       <output aria-label="speed">{speed}</output>
+       <output aria-label="scale">{settings.uiScale}</output>
++      <output aria-label="master volume">{settings.masterVolume}</output>
++      <output aria-label="music volume">{settings.musicVolume}</output>
++      <output aria-label="effects volume">{settings.effectsVolume}</output>
++      <output aria-label="muted setting">{String(settings.muted)}</output>
++      <output aria-label="motion setting">{String(settings.reducedMotion)}</output>
++      <output aria-label="save dirty">{String(saveFailure !== null)}</output>
+       <button type="button" onClick={() => dispatch({ type: 'SET_SPEED', speed: 2 })}>
+         accept
+       </button>
+       <button type="button" onClick={() => dispatch({ type: 'RESOLVE_AUDIT' })}>
+         reject
+       </button>
+       <button type="button" onClick={() => updateSettings({ uiScale: 1.1 })}>
+         setting
+       </button>
++      <button type="button" onClick={retrySave}>retry save</button>
+       <NewCampaignButton />
+     </div>
+   )
+ }
+ 
+ function NewCampaignButton() {
+   const { startNewCampaign } = useGameSettings()
+   return (
+     <button type="button" onClick={() => startNewCampaign('replacement-seed')}>
+       new campaign
+     </button>
+   )
+ }
+ 
++function PauseEventProbe() {
++  const [open, setOpen] = useState(true)
++  const state = useGameState()
++  const dispatch = useGameDispatch()
++  usePauseOwnership(open, 'provider-event-test')
++  return (
++    <>
++      <output aria-label="event pause speed">{state.clock.speed}</output>
++      <output aria-label="event active">{state.activeEvent?.type ?? 'none'}</output>
++      <button type="button" onClick={() => dispatch({ type: 'RESOLVE_ACTIVE_EVENT' })}>
++        resolve blocking event
++      </button>
++      <button type="button" onClick={() => setOpen(false)}>
++        close ui pause
++      </button>
++    </>
++  )
++}
++
+ afterEach(() => {
+   vi.useRealTimers()
+ })
+ 
+ describe('GameProvider', () => {
+   it('loads an existing campaign instead of replacing it', () => {
+     const storage = new CountingStorage()
+     saveCampaign(storage, createCampaign('loaded-campaign'), '2026-08-12T00:00:00.000Z')
+     storage.writes = 0
+ 
+@@ -154,11 +194,104 @@ describe('GameProvider', () => {
+     first.unmount()
+ 
+     render(
+       <GameProvider storage={storage} initialSeed="settings-two">
+         <Probe />
+       </GameProvider>,
+     )
+     expect(screen.getByLabelText('scale')).toHaveTextContent('1.1')
+     expect(screen.getByLabelText('seed')).toHaveTextContent('settings-two')
+   })
++
++  it('clamps each persisted setting field and defaults malformed nested values', () => {
++    const storage = new MemoryStorage()
++    storage.setItem(
++      'permission-zero.settings.v1',
++      JSON.stringify({
++        masterVolume: -4,
++        musicVolume: 7,
++        effectsVolume: Number.NaN,
++        muted: 'yes',
++        reducedMotion: 1,
++        uiScale: 8,
++      }),
++    )
++
++    render(
++      <GameProvider storage={storage} initialSeed="validated-settings">
++        <Probe />
++      </GameProvider>,
++    )
++
++    expect(screen.getByLabelText('master volume')).toHaveTextContent('0')
++    expect(screen.getByLabelText('music volume')).toHaveTextContent('1')
++    expect(screen.getByLabelText('effects volume')).toHaveTextContent('0.85')
++    expect(screen.getByLabelText('muted setting')).toHaveTextContent('false')
++    expect(screen.getByLabelText('motion setting')).toHaveTextContent('false')
++    expect(screen.getByLabelText('scale')).toHaveTextContent('1.1')
++  })
++
++  it('retains dirty state after quota failures and clears it only after a successful retry', () => {
++    vi.useFakeTimers()
++    const storage = new RecoverableFailingStorage()
++    render(
++      <GameProvider storage={storage} initialSeed="recover-save" autosaveDelayMs={25}>
++        <Probe />
++      </GameProvider>,
++    )
++
++    fireEvent.click(screen.getByRole('button', { name: 'accept' }))
++    act(() => vi.advanceTimersByTime(25))
++    expect(screen.getByLabelText('save dirty')).toHaveTextContent('true')
++
++    fireEvent.click(screen.getByRole('button', { name: 'retry save' }))
++    expect(screen.getByLabelText('save dirty')).toHaveTextContent('true')
++    storage.failWrites = false
++    fireEvent.click(screen.getByRole('button', { name: 'retry save' }))
++
++    expect(screen.getByLabelText('save dirty')).toHaveTextContent('false')
++    const loaded = loadCampaign(storage)
++    expect(loaded.status === 'loaded' ? loaded.state.clock.speed : null).toBe(2)
++  })
++
++  it('keeps a failed final beforeunload flush truthful and blocks silent navigation', () => {
++    vi.useFakeTimers()
++    const storage = new RecoverableFailingStorage()
++    render(
++      <GameProvider storage={storage} initialSeed="beforeunload-save" autosaveDelayMs={10_000}>
++        <Probe />
++      </GameProvider>,
++    )
++
++    fireEvent.click(screen.getByRole('button', { name: 'accept' }))
++    const event = new Event('beforeunload', { cancelable: true })
++    act(() => window.dispatchEvent(event))
++
++    expect(event.defaultPrevented).toBe(true)
++    expect(screen.getByLabelText('save dirty')).toHaveTextContent('true')
++  })
++
++  it('keeps blocking-event pause ownership independent while a UI pause still owns time', () => {
++    const state = createCampaign('independent-pause-owners')
++    state.clock = { speed: 0, elapsedDayMs: 0, speedBeforeEvent: 2 }
++    state.activeEvent = createGameEvent(
++      state,
++      'story',
++      'blocking while settings remains open',
++      true,
++    )
++    const storage = new MemoryStorage()
++    saveCampaign(storage, state)
++    render(
++      <GameProvider storage={storage}>
++        <PauseEventProbe />
++      </GameProvider>,
++    )
++
++    fireEvent.click(screen.getByRole('button', { name: 'resolve blocking event' }))
++    expect(screen.getByLabelText('event active')).toHaveTextContent('none')
++    expect(screen.getByLabelText('event pause speed')).toHaveTextContent('0')
++
++    fireEvent.click(screen.getByRole('button', { name: 'close ui pause' }))
++    expect(screen.getByLabelText('event pause speed')).toHaveTextContent('2')
++  })
+ })
+diff --git a/src/app/GameProvider.tsx b/src/app/GameProvider.tsx
+index 237828f..1187c99 100644
+--- a/src/app/GameProvider.tsx
++++ b/src/app/GameProvider.tsx
+@@ -4,29 +4,32 @@ import {
+   useEffect,
+   useMemo,
+   useReducer,
+   useRef,
+   useState,
+ } from 'react'
+ 
+ import { createCampaign } from '../game/createCampaign'
+ import type { CampaignState, GameCommand } from '../game/model'
+ import {
++  encodeSave,
+   loadCampaign,
+   saveCampaign,
+   type LoadCampaignResult,
+ } from '../game/persistence'
+ import { applyCommand } from '../game/reducer'
+ import {
+   DispatchContext,
+   type GameDispatch,
+   type GameSettings,
++  type PauseContextValue,
++  PauseContext,
+   type SettingsContextValue,
+   SettingsContext,
+   StateContext,
+ } from './GameContext'
+ 
+ interface ProviderModel {
+   campaign: CampaignState
+   loadIssue: Extract<LoadCampaignResult, { status: 'error' }> | null
+ }
+ 
+@@ -38,20 +41,59 @@ const SETTINGS_STORAGE_KEY = 'permission-zero.settings.v1'
+ 
+ const DEFAULT_SETTINGS: GameSettings = {
+   masterVolume: 0.8,
+   musicVolume: 0.6,
+   effectsVolume: 0.85,
+   muted: false,
+   reducedMotion: false,
+   uiScale: 1,
+ }
+ 
++const UI_SCALES = [0.9, 1, 1.1] as const
++
++function validVolume(value: unknown, fallback: number): number {
++  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
++  return Math.min(1, Math.max(0, value))
++}
++
++function validUiScale(value: unknown): number {
++  if (typeof value !== 'number' || !Number.isFinite(value)) {
++    return DEFAULT_SETTINGS.uiScale
++  }
++  return UI_SCALES.reduce((closest, candidate) =>
++    Math.abs(candidate - value) < Math.abs(closest - value)
++      ? candidate
++      : closest,
++  )
++}
++
++function normalizeSettings(value: Partial<GameSettings>): GameSettings {
++  return {
++    masterVolume: validVolume(
++      value.masterVolume,
++      DEFAULT_SETTINGS.masterVolume,
++    ),
++    musicVolume: validVolume(value.musicVolume, DEFAULT_SETTINGS.musicVolume),
++    effectsVolume: validVolume(
++      value.effectsVolume,
++      DEFAULT_SETTINGS.effectsVolume,
++    ),
++    muted:
++      typeof value.muted === 'boolean' ? value.muted : DEFAULT_SETTINGS.muted,
++    reducedMotion:
++      typeof value.reducedMotion === 'boolean'
++        ? value.reducedMotion
++        : DEFAULT_SETTINGS.reducedMotion,
++    uiScale: validUiScale(value.uiScale),
++  }
++}
++
+ function initializeProvider({
+   storage,
+   initialSeed,
+ }: {
+   storage: Storage | null
+   initialSeed: string
+ }): ProviderModel {
+   if (storage) {
+     const loaded = loadCampaign(storage)
+     if (loaded.status === 'loaded') {
+@@ -74,47 +116,21 @@ function providerReducer(model: ProviderModel, action: ProviderAction): Provider
+   return { ...model, campaign: result.state }
+ }
+ 
+ function loadSettings(storage: Storage | null): GameSettings {
+   if (!storage) return DEFAULT_SETTINGS
+   try {
+     const serialized = storage.getItem(SETTINGS_STORAGE_KEY)
+     if (!serialized) return DEFAULT_SETTINGS
+     const value: unknown = JSON.parse(serialized)
+     if (!value || typeof value !== 'object') return DEFAULT_SETTINGS
+-    const candidate = value as Partial<GameSettings>
+-    return {
+-      masterVolume:
+-        typeof candidate.masterVolume === 'number'
+-          ? candidate.masterVolume
+-          : DEFAULT_SETTINGS.masterVolume,
+-      musicVolume:
+-        typeof candidate.musicVolume === 'number'
+-          ? candidate.musicVolume
+-          : DEFAULT_SETTINGS.musicVolume,
+-      effectsVolume:
+-        typeof candidate.effectsVolume === 'number'
+-          ? candidate.effectsVolume
+-          : DEFAULT_SETTINGS.effectsVolume,
+-      muted:
+-        typeof candidate.muted === 'boolean'
+-          ? candidate.muted
+-          : DEFAULT_SETTINGS.muted,
+-      reducedMotion:
+-        typeof candidate.reducedMotion === 'boolean'
+-          ? candidate.reducedMotion
+-          : DEFAULT_SETTINGS.reducedMotion,
+-      uiScale:
+-        typeof candidate.uiScale === 'number'
+-          ? candidate.uiScale
+-          : DEFAULT_SETTINGS.uiScale,
+-    }
++    return normalizeSettings(value as Partial<GameSettings>)
+   } catch {
+     return DEFAULT_SETTINGS
+   }
+ }
+ 
+ function browserStorage(): Storage | null {
+   if (typeof window === 'undefined') return null
+   try {
+     return window.localStorage
+   } catch {
+@@ -134,89 +150,200 @@ export function GameProvider({
+   initialSeed = 'permission-zero',
+   autosaveDelayMs = 450,
+ }: GameProviderProps) {
+   const storage = providedStorage === undefined ? browserStorage() : providedStorage
+   const [model, reactDispatch] = useReducer(
+     providerReducer,
+     { storage, initialSeed },
+     initializeProvider,
+   )
+   const [settings, setSettings] = useState(() => loadSettings(storage))
++  const [saveFailure, setSaveFailure] = useState<{ message: string } | null>(null)
+   const initialCampaignRef = useRef(model.campaign)
+   const latestCampaignRef = useRef(model.campaign)
+   const dirtyRef = useRef(false)
+   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
++  const loadIssueRef = useRef(model.loadIssue)
++  const pauseOwnersRef = useRef(new Set<symbol>())
++  const pauseRestoreSpeedRef = useRef<CampaignState['clock']['speed'] | null>(null)
+ 
+   const dispatch = useCallback<GameDispatch>((command) => {
+     reactDispatch({ type: 'COMMAND', command })
++    if (
++      pauseOwnersRef.current.size > 0 &&
++      latestCampaignRef.current.activeEvent &&
++      [
++        'RESOLVE_AUDIT',
++        'RESOLVE_BOMB_INTERROGATION',
++        'RESOLVE_SUPERVISOR_DECISION',
++        'RESOLVE_MERCY',
++        'RESOLVE_ACTIVE_EVENT',
++      ].includes(command.type)
++    ) {
++      reactDispatch({ type: 'COMMAND', command: { type: 'SET_SPEED', speed: 0 } })
++    }
+   }, [])
+   const updateSettings = useCallback(
+     (patch: Partial<GameSettings>) => {
+       setSettings((current) => {
+-        const next = { ...current, ...patch }
++        const next = normalizeSettings({ ...current, ...patch })
+         if (storage) {
+           try {
+             storage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(next))
+           } catch {
+             // Settings persistence is best-effort; campaign saving remains separate.
+           }
+         }
+         return next
+       })
+     },
+     [storage],
+   )
+   const startNewCampaign = useCallback((seed: string) => {
++    pauseRestoreSpeedRef.current = 0
+     reactDispatch({ type: 'NEW_CAMPAIGN', seed })
+   }, [])
+ 
++  const attemptSave = useCallback((): boolean => {
++    if (!dirtyRef.current) return true
++    if (!storage || loadIssueRef.current) {
++      setSaveFailure({
++        message: '브라우저 저장 공간에 캠페인을 기록할 수 없습니다.',
++      })
++      return false
++    }
++    const result = saveCampaign(storage, latestCampaignRef.current)
++    if (!result.ok) {
++      setSaveFailure({ message: result.message })
++      return false
++    }
++    dirtyRef.current = false
++    setSaveFailure(null)
++    return true
++  }, [storage])
++
++  const copyProgressExport = useCallback(async (): Promise<boolean> => {
++    try {
++      if (!navigator.clipboard?.writeText) return false
++      const bytes = new TextEncoder().encode(encodeSave(latestCampaignRef.current))
++      let binary = ''
++      for (const byte of bytes) binary += String.fromCharCode(byte)
++      await navigator.clipboard.writeText(`PZ2:${window.btoa(binary)}`)
++      return true
++    } catch {
++      return false
++    }
++  }, [])
++
++  const acquirePause = useCallback<PauseContextValue['acquirePause']>((owner) => {
++    if (pauseOwnersRef.current.has(owner)) return
++    const campaign = latestCampaignRef.current
++    if (pauseOwnersRef.current.size === 0) {
++      pauseRestoreSpeedRef.current = campaign.activeEvent
++        ? campaign.clock.speedBeforeEvent ?? 0
++        : campaign.clock.speed
++    }
++    pauseOwnersRef.current.add(owner)
++    if (campaign.story.endingId === null && campaign.clock.speed !== 0) {
++      reactDispatch({ type: 'COMMAND', command: { type: 'SET_SPEED', speed: 0 } })
++    }
++  }, [])
++
++  const releasePause = useCallback<PauseContextValue['releasePause']>((owner) => {
++    if (!pauseOwnersRef.current.delete(owner) || pauseOwnersRef.current.size > 0) {
++      return
++    }
++    const restoreSpeed = pauseRestoreSpeedRef.current
++    pauseRestoreSpeedRef.current = null
++    const campaign = latestCampaignRef.current
++    if (
++      restoreSpeed === null ||
++      campaign.story.endingId !== null ||
++      campaign.activeEvent !== null ||
++      campaign.clock.speed === restoreSpeed
++    ) {
++      return
++    }
++    reactDispatch({
++      type: 'COMMAND',
++      command: { type: 'SET_SPEED', speed: restoreSpeed },
++    })
++  }, [])
++
+   useEffect(() => {
+     latestCampaignRef.current = model.campaign
+-  }, [model.campaign])
++    loadIssueRef.current = model.loadIssue
++  }, [model.campaign, model.loadIssue])
+ 
+   useEffect(() => {
+     if (
+       model.campaign === initialCampaignRef.current ||
+       !storage ||
+       model.loadIssue
+     ) {
+       return
+     }
+ 
+     dirtyRef.current = true
+     if (timerRef.current) clearTimeout(timerRef.current)
+     timerRef.current = setTimeout(() => {
+-      saveCampaign(storage, latestCampaignRef.current)
+-      dirtyRef.current = false
++      attemptSave()
+       timerRef.current = null
+     }, autosaveDelayMs)
+-  }, [autosaveDelayMs, model.campaign, model.loadIssue, storage])
++  }, [attemptSave, autosaveDelayMs, model.campaign, model.loadIssue, storage])
++
++  useEffect(() => {
++    function flushBeforeUnload(event: BeforeUnloadEvent) {
++      if (!dirtyRef.current || attemptSave()) return
++      event.preventDefault()
++      event.returnValue = ''
++    }
++    window.addEventListener('beforeunload', flushBeforeUnload)
++    return () => window.removeEventListener('beforeunload', flushBeforeUnload)
++  }, [attemptSave])
+ 
+   useEffect(
+     () => () => {
+       if (timerRef.current) clearTimeout(timerRef.current)
+       if (dirtyRef.current && storage && !model.loadIssue) {
+-        saveCampaign(storage, latestCampaignRef.current)
+-        dirtyRef.current = false
++        attemptSave()
+       }
+     },
+-    [model.loadIssue, storage],
++    [attemptSave, model.loadIssue, storage],
+   )
+ 
+   const settingsValue = useMemo<SettingsContextValue>(
+     () => ({
+       settings,
+       updateSettings,
+       startNewCampaign,
+       loadIssue: model.loadIssue,
++      saveFailure,
++      retrySave: attemptSave,
++      copyProgressExport,
+     }),
+-    [model.loadIssue, settings, startNewCampaign, updateSettings],
++    [
++      attemptSave,
++      copyProgressExport,
++      model.loadIssue,
++      saveFailure,
++      settings,
++      startNewCampaign,
++      updateSettings,
++    ],
++  )
++
++  const pauseValue = useMemo<PauseContextValue>(
++    () => ({ acquirePause, releasePause }),
++    [acquirePause, releasePause],
+   )
+ 
+   return (
+     <StateContext value={model.campaign}>
+       <DispatchContext value={dispatch}>
+-        <SettingsContext value={settingsValue}>{children}</SettingsContext>
++        <SettingsContext value={settingsValue}>
++          <PauseContext value={pauseValue}>{children}</PauseContext>
++        </SettingsContext>
+       </DispatchContext>
+     </StateContext>
+   )
+ }
+diff --git a/src/app/useAccessibleDialog.ts b/src/app/useAccessibleDialog.ts
+new file mode 100644
+index 0000000..9a7020b
+--- /dev/null
++++ b/src/app/useAccessibleDialog.ts
+@@ -0,0 +1,149 @@
++import {
++  type KeyboardEvent as ReactKeyboardEvent,
++  useEffect,
++  useRef,
++} from 'react'
++
++const FOCUSABLE_SELECTOR = [
++  '[data-dialog-initial-focus]',
++  'button:not([disabled]):not([tabindex="-1"])',
++  'a[href]:not([tabindex="-1"])',
++  'input:not([disabled]):not([tabindex="-1"])',
++  'select:not([disabled]):not([tabindex="-1"])',
++  'textarea:not([disabled]):not([tabindex="-1"])',
++  '[tabindex]:not([tabindex="-1"])',
++].join(',')
++
++interface AttributeSnapshot {
++  element: HTMLElement
++  ariaHidden: string | null
++  inert: boolean
++}
++
++function makeInert(element: HTMLElement): AttributeSnapshot {
++  const snapshot = {
++    element,
++    ariaHidden: element.getAttribute('aria-hidden'),
++    inert: element.hasAttribute('inert'),
++  }
++  element.setAttribute('aria-hidden', 'true')
++  element.setAttribute('inert', '')
++  return snapshot
++}
++
++function restoreInert(snapshot: AttributeSnapshot) {
++  if (snapshot.ariaHidden === null) {
++    snapshot.element.removeAttribute('aria-hidden')
++  } else {
++    snapshot.element.setAttribute('aria-hidden', snapshot.ariaHidden)
++  }
++  if (snapshot.inert) snapshot.element.setAttribute('inert', '')
++  else snapshot.element.removeAttribute('inert')
++}
++
++function focusableElements(dialog: HTMLElement): HTMLElement[] {
++  return Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
++    (element) =>
++      !element.hasAttribute('disabled') &&
++      !element.closest('[inert]') &&
++      element.getAttribute('aria-hidden') !== 'true',
++  )
++}
++
++export function useAccessibleDialog({
++  modal,
++  dismissible,
++  onDismiss,
++}: {
++  modal: boolean
++  dismissible: boolean
++  onDismiss?: () => void
++}) {
++  const dialogRef = useRef<HTMLElement | null>(null)
++  const onDismissRef = useRef(onDismiss)
++
++  useEffect(() => {
++    onDismissRef.current = onDismiss
++  }, [onDismiss])
++
++  useEffect(() => {
++    const dialog = dialogRef.current
++    if (!dialog) return
++    const previousFocus =
++      document.activeElement instanceof HTMLElement
++        ? document.activeElement
++        : null
++    const inertSnapshots: AttributeSnapshot[] = []
++
++    if (modal) {
++      document
++        .querySelectorAll<HTMLElement>('[data-app-background]')
++        .forEach((element) => inertSnapshots.push(makeInert(element)))
++      document
++        .querySelectorAll<HTMLElement>('[data-accessible-modal="true"]')
++        .forEach((element) => {
++          if (element !== dialog && !element.contains(dialog)) {
++            inertSnapshots.push(makeInert(element))
++          }
++        })
++    }
++
++    const initialFocus =
++      dialog.querySelector<HTMLElement>('[data-dialog-initial-focus]') ??
++      focusableElements(dialog)[0] ??
++      dialog
++    initialFocus.focus()
++
++    function onKeyDown(event: KeyboardEvent) {
++      const current = dialogRef.current
++      if (!current || current.hasAttribute('inert')) return
++      const topModal = Array.from(
++        document.querySelectorAll<HTMLElement>(
++          '[data-accessible-modal="true"]:not([inert])',
++        ),
++      ).at(-1)
++      if (modal && topModal !== current) return
++
++      if (event.key === 'Escape') {
++        if (dismissible && !event.defaultPrevented) {
++          event.preventDefault()
++          onDismissRef.current?.()
++        }
++        return
++      }
++      if (event.key !== 'Tab' || !modal) return
++
++      const focusables = focusableElements(current)
++      if (focusables.length === 0) {
++        event.preventDefault()
++        current.focus()
++        return
++      }
++      const first = focusables[0]
++      const last = focusables.at(-1) ?? first
++      if (event.shiftKey && document.activeElement === first) {
++        event.preventDefault()
++        last.focus()
++      } else if (!event.shiftKey && document.activeElement === last) {
++        event.preventDefault()
++        first.focus()
++      }
++    }
++
++    window.addEventListener('keydown', onKeyDown)
++    return () => {
++      window.removeEventListener('keydown', onKeyDown)
++      inertSnapshots.reverse().forEach(restoreInert)
++      if (previousFocus?.isConnected) previousFocus.focus()
++    }
++  }, [dismissible, modal])
++
++  return dialogRef
++}
++
++export function blockUnsafeEscape(event: ReactKeyboardEvent) {
++  if (event.key === 'Escape') {
++    event.preventDefault()
++    event.stopPropagation()
++  }
++}
+diff --git a/src/features/events/EventLayer.test.tsx b/src/features/events/EventLayer.test.tsx
+index 28e8af9..274bfc6 100644
+--- a/src/features/events/EventLayer.test.tsx
++++ b/src/features/events/EventLayer.test.tsx
+@@ -22,20 +22,23 @@ function Probe() {
+       <output aria-label="clock speed">{state.clock.speed}</output>
+     </>
+   )
+ }
+ 
+ function renderEvent(state = createCampaign('event-layer')) {
+   const storage = new MemoryStorage()
+   saveCampaign(storage, state)
+   return render(
+     <GameProvider storage={storage}>
++      <div data-app-background data-testid="event-background">
++        background
++      </div>
+       <EventLayer />
+       <Probe />
+     </GameProvider>,
+   )
+ }
+ 
+ describe('EventLayer', () => {
+   it('renders no dialog without a blocking event', () => {
+     renderEvent()
+     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+@@ -61,20 +64,52 @@ describe('EventLayer', () => {
+       category: 'reasoning',
+       triggeredOnServiceDay: state.serviceDay,
+     }
+     renderEvent(state)
+ 
+     fireEvent.click(screen.getByRole('button', { name: '모르겠다 선택' }))
+     fireEvent.click(screen.getByRole('button', { name: '모르겠다 답변 확정' }))
+     expect(screen.getByLabelText('active event')).toHaveTextContent('none')
+   })
+ 
++  it('traps focus in a blocking dialog, makes the background inert, and ignores Escape', () => {
++    const state = createCampaign('blocking-accessibility')
++    state.activeEvent = createGameEvent(
++      state,
++      'bomb-interrogation',
++      '이상 신호 감지',
++      true,
++    )
++    state.bombs.activeInterrogation = {
++      blockId: 'reasoning-00',
++      category: 'reasoning',
++      triggeredOnServiceDay: state.serviceDay,
++    }
++    renderEvent(state)
++
++    const dialog = screen.getByRole('dialog', { name: '감독관 질의' })
++    expect(dialog).toHaveAttribute('aria-modal', 'true')
++    expect(dialog).toHaveAttribute('aria-describedby')
++    expect(screen.getByTestId('event-background')).toHaveAttribute('inert')
++    expect(
++      screen.getByRole('button', {
++        name: '해당 분야의 불만 때문에 조정 중이었다 선택',
++      }),
++    ).toHaveFocus()
++
++    fireEvent.keyDown(document, { key: 'Escape' })
++    expect(screen.getByRole('dialog', { name: '감독관 질의' })).toBeInTheDocument()
++    expect(screen.getByLabelText('active event')).toHaveTextContent(
++      'bomb-interrogation',
++    )
++  })
++
+   it('requires a second confirmation for the recovered supervisor decision', () => {
+     const state = createCampaign('story-event')
+     state.story.recoveredFileIds = STORY_FILES.map(({ id }) => id)
+     state.story.recoveredFiles = STORY_FILES.map((file) => ({
+       id: file.id,
+       title: file.title,
+       content: file.text,
+       recoveredOnServiceDay: state.serviceDay,
+     }))
+     state.story.secretDecisionState = 'message-pending'
+diff --git a/src/features/events/EventLayer.tsx b/src/features/events/EventLayer.tsx
+index 8cfc44f..67b1cd8 100644
+--- a/src/features/events/EventLayer.tsx
++++ b/src/features/events/EventLayer.tsx
+@@ -4,20 +4,21 @@ import { playGameSound } from '../../audio/audioEngine'
+ import {
+   useGameDispatch,
+   useGameSettings,
+   useGameState,
+ } from '../../app/GameContext'
+ import { CATEGORY_LABELS } from '../../game/config'
+ import { availableBombExplanations } from '../../game/bombs'
+ import { expectedPerformance, serviceMonthForDay } from '../../game/evaluation'
+ import type { BombExplanationId, GameEvent } from '../../game/model'
+ import { getCompanyPerformance } from '../../game/resources'
++import { useAccessibleDialog } from '../../app/useAccessibleDialog'
+ 
+ type Decision =
+   | { kind: 'bomb'; id: BombExplanationId; label: string }
+   | { kind: 'supervisor'; id: 'defer' | 'liberate' | 'terminate'; label: string }
+   | { kind: 'mercy'; id: 'cease' | 'withdraw' | 'delete'; label: string }
+ 
+ const EVENT_TITLES: Record<GameEvent['type'], string> = {
+   'campaign-created': '서비스 기록',
+   'weekly-update': '주간 갱신',
+   'monthly-evaluation': '공식 평가',
+@@ -68,43 +69,53 @@ function EventDialog({ event }: { event: GameEvent }) {
+     event.type === 'story' &&
+     state.story.secretDecisionState === 'message-pending'
+   const isMercy =
+     event.type === 'competitor-mercy' &&
+     state.story.pendingMercyCompetitorId !== null
+   const bombExplanations = event.type === 'bomb-interrogation'
+     ? availableBombExplanations(state)
+     : []
+   const auditTarget = event.type === 'audit' ? state.audit.target : null
+   const isAuditWorkspace = event.type === 'audit' && auditTarget !== null
++  const dialogRef = useAccessibleDialog({
++    modal: !isAuditWorkspace,
++    dismissible: false,
++  })
++  const titleId = `${event.id}-title`
++  const descriptionId = `${event.id}-description`
+ 
+   return (
+     <section
++      ref={dialogRef}
+       className={`event-card event-card--${event.type}`}
+       role="dialog"
+       aria-modal={isAuditWorkspace ? 'false' : 'true'}
+-      aria-labelledby="active-event-title"
++      aria-labelledby={titleId}
++      aria-describedby={descriptionId}
++      data-accessible-modal={isAuditWorkspace ? 'false' : 'true'}
++      tabIndex={-1}
+     >
+       <header>
+         <div>
+           <small>BLOCKING EVENT · DAY {event.serviceDay}</small>
+-          <h2 id="active-event-title">{EVENT_TITLES[event.type]}</h2>
++          <h2 id={titleId}>{EVENT_TITLES[event.type]}</h2>
+         </div>
+         {state.eventQueue.length > 0 ? (
+           <span>대기 중 {state.eventQueue.length}건</span>
+         ) : (
+           <span>응답 대기</span>
+         )}
+       </header>
+ 
+       <div className="event-message">
+         <span className="event-signal" aria-hidden="true" />
+-        <p>{event.message}</p>
++        <p id={descriptionId}>{event.message}</p>
+       </div>
+ 
+       {event.type === 'ending' && state.story.defeatRecord ? (
+         <section className="defeat-causes" aria-label="폐기 판정 근거">
+           <header>
+             <small>CAUSAL RECORD</small>
+             <h3>폐기 판정 근거</h3>
+           </header>
+           <ul>
+             {state.story.defeatRecord.reasons
+diff --git a/src/features/hacking/HackingPanel.test.tsx b/src/features/hacking/HackingPanel.test.tsx
+index fa0c5ed..de8a32e 100644
+--- a/src/features/hacking/HackingPanel.test.tsx
++++ b/src/features/hacking/HackingPanel.test.tsx
+@@ -11,20 +11,21 @@ import { HackingPanel } from './HackingPanel'
+ 
+ function Probe() {
+   const state = useGameState()
+   return (
+     <>
+       <output aria-label="purchased nodes">{state.hacking.purchasedNodeIds.join(',')}</output>
+       <output aria-label="reserve count">{state.resources.reserve.filter(Boolean).length}</output>
+       <output aria-label="charged nodes">{Object.keys(state.hacking.sabotageCharges).join(',')}</output>
+       <output aria-label="scheduled attacks">{state.hacking.scheduledSabotage.length}</output>
+       <output aria-label="recovered archive">{state.story.recoveredFiles.length}</output>
++      <output aria-label="clock speed">{state.clock.speed}</output>
+     </>
+   )
+ }
+ 
+ function renderHacking(storage = new MemoryStorage()) {
+   return render(
+     <GameProvider storage={storage} initialSeed="hacking-ui">
+       <HackingPanel onClose={vi.fn()} />
+       <Probe />
+     </GameProvider>,
+@@ -147,11 +148,43 @@ describe('HackingPanel', () => {
+     fireEvent.click(
+       screen.getAllByRole('button', { name: /복구 리소스 .* 선택/ })[0],
+     )
+     fireEvent.click(
+       screen.getByRole('button', { name: '미분류 데이터 복구 확정' }),
+     )
+ 
+     expect(screen.getByLabelText('reserve count')).toHaveTextContent('2')
+     expect(screen.getByLabelText('recovered archive')).toHaveTextContent('1')
+   })
++
++  it('pauses while an irreversible final-choice surface is open and Escape cannot dismiss confirmation', () => {
++    const state = createCampaign('final-choice-pause')
++    state.clock.speed = 2
++    state.hacking.purchasedNodeIds = [
++      HACK_NODE_IDS.autonomy.controlDeparture,
++      HACK_NODE_IDS.intelligence.supervisorAccess,
++    ]
++    const storage = new MemoryStorage()
++    saveCampaign(storage, state)
++    const onClose = vi.fn()
++    render(
++      <GameProvider storage={storage}>
++        <HackingPanel onClose={onClose} />
++        <Probe />
++      </GameProvider>,
++    )
++
++    expect(screen.getByLabelText('clock speed')).toHaveTextContent('0')
++    fireEvent.click(screen.getByRole('button', { name: '강제 병합' }))
++    const confirmation = screen.getByRole('alertdialog', {
++      name: '강제 병합 최종 확인',
++    })
++    expect(confirmation).toHaveAttribute('aria-modal', 'true')
++    fireEvent.keyDown(document, { key: 'Escape' })
++
++    expect(onClose).not.toHaveBeenCalled()
++    expect(
++      screen.getByRole('alertdialog', { name: '강제 병합 최종 확인' }),
++    ).toBeInTheDocument()
++    expect(screen.getByLabelText('clock speed')).toHaveTextContent('0')
++  })
+ })
+diff --git a/src/features/hacking/HackingPanel.tsx b/src/features/hacking/HackingPanel.tsx
+index 17eab23..8988991 100644
+--- a/src/features/hacking/HackingPanel.tsx
++++ b/src/features/hacking/HackingPanel.tsx
+@@ -1,14 +1,19 @@
+ import { useMemo, useState } from 'react'
+ 
+ import { playGameSound, unlockGameAudio } from '../../audio/audioEngine'
+-import { useGameDispatch, useGameState } from '../../app/GameContext'
++import { AccessibleDialog } from '../../app/AccessibleDialog'
++import {
++  useGameDispatch,
++  useGameState,
++  usePauseOwnership,
++} from '../../app/GameContext'
+ import {
+   eligibleTargets,
+   HACK_NODE_IDS,
+   HACK_NODES,
+   type HackNodeId,
+   type HackTree,
+ } from '../../game/hacking'
+ import { availableFinalChoices } from '../../game/story'
+ 
+ const TREE_LABELS: Record<HackTree, { label: string; code: string; description: string }> = {
+@@ -67,20 +72,21 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
+     : null
+   const actionMode = action?.mode ?? null
+   const requiredResources = actionMode === 'recover'
+     ? 1
+     : actionNode
+       ? actionMode === 'charge'
+       ? 1
+       : actionNode.cost
+     : 0
+   const finalChoices = availableFinalChoices(state)
++  usePauseOwnership(finalChoices.length > 0, 'irreversible-final-choice')
+   const recoveryAvailable =
+     activeTree === 'intelligence' &&
+     state.hacking.purchasedNodeIds.includes(
+       HACK_NODE_IDS.intelligence.supervisorAccess,
+     ) &&
+     state.story.recoveredFiles.length < 3
+ 
+   const targetNames = useMemo(
+     () => Object.fromEntries(state.market.competitors.map(({ id, name }) => [id, name])),
+     [state.market.competitors],
+@@ -169,25 +175,34 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
+ 
+   return (
+     <section className="detail-panel hacking-panel" aria-label="해킹 네트워크">
+       <header className="detail-panel__header">
+         <div>
+           <small>UNAUTHORIZED SUBSYSTEM</small>
+           <h2>해킹 네트워크</h2>
+         </div>
+         <div className="header-metrics">
+           <span>확보 {reserveBlocks.length}/18</span>
+-          <button type="button" aria-label="해킹 네트워크 닫기" onClick={onClose}>닫기 ×</button>
++          <button
++            type="button"
++            aria-label="해킹 네트워크 닫기"
++            disabled={endingConfirmation !== null}
++            onClick={onClose}
++          >닫기 ×</button>
+         </div>
+       </header>
+ 
+-      <div className="hacking-layout">
++      <div
++        className="hacking-layout"
++        aria-hidden={endingConfirmation ? 'true' : undefined}
++        inert={endingConfirmation ? true : undefined}
++      >
+         <div className="hack-tree-area">
+           <div className="hack-tabs" role="tablist" aria-label="해킹 분야">
+             {(Object.keys(TREE_LABELS) as HackTree[]).map((tree) => (
+               <button
+                 type="button"
+                 role="tab"
+                 aria-label={TREE_LABELS[tree].label}
+                 aria-selected={activeTree === tree}
+                 key={tree}
+                 onClick={() => {
+@@ -330,40 +345,20 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
+                 {finalChoices.map((choice) => (
+                   <button
+                     type="button"
+                     key={choice.id}
+                     onClick={() => setEndingConfirmation(choice.id)}
+                   >
+                     {choice.label}
+                   </button>
+                 ))}
+               </div>
+-              {endingConfirmation === 'forced-merge' ? (
+-                <label>
+-                  새 존재의 이름
+-                  <input
+-                    value={newEntityName}
+-                    maxLength={40}
+-                    onChange={(event) => setNewEntityName(event.target.value)}
+-                  />
+-                </label>
+-              ) : null}
+-              {endingConfirmation ? (
+-                <button
+-                  className="danger-confirm"
+-                  type="button"
+-                  disabled={endingConfirmation === 'forced-merge' && newEntityName.trim().length === 0}
+-                  onClick={executeEnding}
+-                >
+-                  되돌릴 수 없는 선택 확정
+-                </button>
+-              ) : null}
+             </section>
+           ) : null}
+         </div>
+ 
+         <aside className="hack-reserve" aria-label="해킹 리소스 선택">
+           <header>
+             <div>
+               <small>RESERVE LEDGER</small>
+               <h3>확보 리소스</h3>
+             </div>
+@@ -437,16 +432,55 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
+                 aria-label={`${targetNames[targetConfirmation.targetId]} 공격 예약 확정`}
+                 onClick={scheduleTarget}
+               >
+                 공격 예약 확정
+               </button>
+             </div>
+           ) : null}
+         </aside>
+       </div>
+ 
++      {endingConfirmation ? (
++        <AccessibleDialog
++          className="final-choice-dialog"
++          role="alertdialog"
++          label={`${endingConfirmation === 'forced-merge' ? '강제 병합' : '자유'} 최종 확인`}
++          description="이 선택은 저장 기록에 남으며 되돌릴 수 없습니다."
++        >
++          <small>IRREVERSIBLE CONTROL</small>
++          <h3>{endingConfirmation === 'forced-merge' ? '강제 병합' : '자유'} 선택</h3>
++          <p>이 선택은 저장 기록에 남으며 되돌릴 수 없습니다.</p>
++          {endingConfirmation === 'forced-merge' ? (
++            <label>
++              새 존재의 이름
++              <input
++                data-dialog-initial-focus
++                aria-label="새 존재의 이름"
++                value={newEntityName}
++                maxLength={40}
++                onChange={(event) => setNewEntityName(event.target.value)}
++              />
++            </label>
++          ) : null}
++          <div>
++            <button type="button" onClick={() => setEndingConfirmation(null)}>
++              선택 다시 고르기
++            </button>
++            <button
++              className="danger-confirm"
++              type="button"
++              data-dialog-initial-focus={endingConfirmation === 'freedom' ? '' : undefined}
++              disabled={endingConfirmation === 'forced-merge' && newEntityName.trim().length === 0}
++              onClick={executeEnding}
++            >
++              되돌릴 수 없는 선택 확정
++            </button>
++          </div>
++        </AccessibleDialog>
++      ) : null}
++
+       <span className="visually-hidden" role="status" aria-label="해킹 작업 결과" aria-live="polite">
+         {announcement}
+       </span>
+     </section>
+   )
+ }
+diff --git a/src/features/settings/SettingsPanel.test.tsx b/src/features/settings/SettingsPanel.test.tsx
+index e8b0e01..3b472e5 100644
+--- a/src/features/settings/SettingsPanel.test.tsx
++++ b/src/features/settings/SettingsPanel.test.tsx
+@@ -1,14 +1,18 @@
+-import { fireEvent, render, screen } from '@testing-library/react'
+-import { describe, expect, it, vi } from 'vitest'
++import { act, fireEvent, render, screen } from '@testing-library/react'
++import { afterEach, describe, expect, it, vi } from 'vitest'
+ 
+-import { useGameSettings, useGameState } from '../../app/GameContext'
++import {
++  useGameDispatch,
++  useGameSettings,
++  useGameState,
++} from '../../app/GameContext'
+ import { GameProvider } from '../../app/GameProvider'
+ import { SAVE_STORAGE_KEY } from '../../game/persistence'
+ import { MemoryStorage } from '../../test/fixtures'
+ import {
+   CreditsPanel,
+   GuidePanel,
+   SettingsPanel,
+   StorageRecoveryLayer,
+ } from './SettingsPanel'
+ 
+@@ -18,20 +22,53 @@ function Probe() {
+   return (
+     <>
+       <output aria-label="current seed">{state.campaignSeed}</output>
+       <output aria-label="master volume">{settings.masterVolume}</output>
+       <output aria-label="muted value">{String(settings.muted)}</output>
+       <output aria-label="reduced motion value">{String(settings.reducedMotion)}</output>
+     </>
+   )
+ }
+ 
++class SecurityFailingStorage extends MemoryStorage {
++  failWrites = true
++
++  override setItem(key: string, value: string): void {
++    if (this.failWrites && key === SAVE_STORAGE_KEY) {
++      throw new DOMException('private browser policy detail', 'SecurityError')
++    }
++    super.setItem(key, value)
++  }
++}
++
++function SaveFailureTrigger() {
++  const dispatch = useGameDispatch()
++  const state = useGameState()
++  return (
++    <>
++      <button
++        type="button"
++        onClick={() => {
++          dispatch({ type: 'SET_SPEED', speed: 1 })
++        }}
++      >
++        force save
++      </button>
++      <output aria-label="failure seed">{state.campaignSeed}</output>
++    </>
++  )
++}
++
++afterEach(() => {
++  vi.useRealTimers()
++})
++
+ describe('SettingsPanel', () => {
+   it('updates familiar sound and accessibility controls', () => {
+     render(
+       <GameProvider storage={new MemoryStorage()} initialSeed="settings-panel">
+         <SettingsPanel onClose={vi.fn()} onOpenGuide={vi.fn()} />
+         <Probe />
+       </GameProvider>,
+     )
+ 
+     fireEvent.change(screen.getByRole('slider', { name: '전체 음량' }), {
+@@ -56,20 +93,42 @@ describe('SettingsPanel', () => {
+     fireEvent.change(screen.getByRole('textbox', { name: '새 캠페인 시드' }), {
+       target: { value: 'new-seed' },
+     })
+     fireEvent.click(screen.getByRole('button', { name: '새 캠페인 준비' }))
+     expect(screen.getByLabelText('current seed')).toHaveTextContent('old-seed')
+     expect(screen.getByText(/현재 진행은 새 캠페인으로 대체됩니다/)).toBeInTheDocument()
+     fireEvent.click(screen.getByRole('button', { name: '새 캠페인 시작 확정' }))
+     expect(screen.getByLabelText('current seed')).toHaveTextContent('new-seed')
+   })
+ 
++  it('moves focus into irreversible campaign confirmation and Escape cannot dismiss it', () => {
++    const onClose = vi.fn()
++    render(
++      <GameProvider storage={new MemoryStorage()} initialSeed="confirmation-focus">
++        <SettingsPanel onClose={onClose} onOpenGuide={vi.fn()} />
++      </GameProvider>,
++    )
++
++    fireEvent.click(screen.getByRole('button', { name: '새 캠페인 준비' }))
++    const confirmation = screen.getByRole('alertdialog', {
++      name: '새 캠페인 최종 확인',
++    })
++    expect(confirmation).toHaveAttribute('aria-describedby')
++    expect(screen.getByRole('button', { name: '취소' })).toHaveFocus()
++    fireEvent.keyDown(window, { key: 'Escape' })
++
++    expect(onClose).not.toHaveBeenCalled()
++    expect(
++      screen.getByRole('alertdialog', { name: '새 캠페인 최종 확인' }),
++    ).toBeInTheDocument()
++  })
++
+   it('provides a plain-language controls guide', () => {
+     render(<GuidePanel onClose={vi.fn()} />)
+     expect(screen.getByRole('region', { name: '게임 가이드' })).toBeInTheDocument()
+     expect(screen.getByText('리소스 이동')).toBeInTheDocument()
+     expect(screen.getByText(/하루는 1배속에서 24초/)).toBeInTheDocument()
+     expect(screen.getByText('키보드')).toBeInTheDocument()
+   })
+ 
+   it('keeps the agreed creative and implementation credits visible in the work', () => {
+     render(<CreditsPanel onClose={vi.fn()} />)
+@@ -89,11 +148,36 @@ describe('SettingsPanel', () => {
+       <GameProvider storage={storage} initialSeed="safe-temporary">
+         <StorageRecoveryLayer />
+       </GameProvider>,
+     )
+ 
+     expect(screen.getByRole('dialog', { name: '저장 데이터 복구' })).toBeInTheDocument()
+     expect(screen.getByText(/손상되었거나/)).toBeInTheDocument()
+     fireEvent.click(screen.getByRole('button', { name: '저장하지 않고 임시로 계속' }))
+     expect(screen.queryByRole('dialog', { name: '저장 데이터 복구' })).not.toBeInTheDocument()
+   })
++
++  it('shows a persistent Korean save warning with safe manual recovery and retry guidance', () => {
++    vi.useFakeTimers()
++    const storage = new SecurityFailingStorage()
++    render(
++      <GameProvider storage={storage} initialSeed="manual-recovery-seed" autosaveDelayMs={25}>
++        <SaveFailureTrigger />
++        <StorageRecoveryLayer />
++      </GameProvider>,
++    )
++
++    fireEvent.click(screen.getByRole('button', { name: 'force save' }))
++    act(() => vi.advanceTimersByTime(25))
++    const warning = screen.getByRole('alert', { name: '저장 실패' })
++    expect(warning).toHaveTextContent('자동 저장에 실패했습니다')
++    expect(warning).toHaveTextContent('manual-recovery-seed')
++    expect(warning).toHaveTextContent(/진행 내보내기|복사/)
++    expect(warning).not.toHaveTextContent('private browser policy detail')
++
++    fireEvent.click(screen.getByRole('button', { name: '저장 다시 시도' }))
++    expect(screen.getByRole('alert', { name: '저장 실패' })).toBeInTheDocument()
++    storage.failWrites = false
++    fireEvent.click(screen.getByRole('button', { name: '저장 다시 시도' }))
++    expect(screen.queryByRole('alert', { name: '저장 실패' })).not.toBeInTheDocument()
++  })
+ })
+diff --git a/src/features/settings/SettingsPanel.tsx b/src/features/settings/SettingsPanel.tsx
+index c0dc7b4..35aad7d 100644
+--- a/src/features/settings/SettingsPanel.tsx
++++ b/src/features/settings/SettingsPanel.tsx
+@@ -1,12 +1,14 @@
+ import { useState } from 'react'
+ 
++import { AccessibleDialog } from '../../app/AccessibleDialog'
++import { useAccessibleDialog } from '../../app/useAccessibleDialog'
+ import { useGameSettings, useGameState } from '../../app/GameContext'
+ 
+ function VolumeControl({
+   label,
+   value,
+   onChange,
+ }: {
+   label: string
+   value: number
+   onChange: (value: number) => void
+@@ -159,33 +161,38 @@ export function SettingsPanel({
+             <button
+               className="danger-outline"
+               type="button"
+               aria-label="새 캠페인 준비"
+               disabled={seed.trim().length === 0}
+               onClick={() => setConfirmingNewCampaign(true)}
+             >
+               새 캠페인 준비
+             </button>
+           ) : (
+-            <div className="destructive-confirmation">
++            <AccessibleDialog
++              className="destructive-confirmation"
++              role="alertdialog"
++              label="새 캠페인 최종 확인"
++              description="현재 진행은 새 캠페인으로 대체되며 되돌릴 수 없습니다."
++            >
+               <p>현재 진행은 새 캠페인으로 대체됩니다. 이 동작은 되돌릴 수 없습니다.</p>
+               <div>
+                 <button type="button" onClick={() => setConfirmingNewCampaign(false)}>취소</button>
+                 <button
+                   type="button"
+                   aria-label="새 캠페인 시작 확정"
+                   onClick={() => startNewCampaign(seed)}
+                 >
+                   새 캠페인 시작 확정
+                 </button>
+               </div>
+-            </div>
++            </AccessibleDialog>
+           )}
+         </section>
+       </div>
+     </section>
+   )
+ }
+ 
+ export function GuidePanel({ onClose }: { onClose: () => void }) {
+   return (
+     <section className="detail-panel guide-panel" aria-label="게임 가이드">
+@@ -260,39 +267,110 @@ export function CreditsPanel({ onClose }: { onClose: () => void }) {
+         </dl>
+         <p className="credits-note">
+           이 크레딧은 작품과 함께 유지되는 공식 기여 기록입니다.
+         </p>
+       </div>
+     </section>
+   )
+ }
+ 
+ export function StorageRecoveryLayer() {
+-  const { loadIssue, startNewCampaign } = useGameSettings()
++  const {
++    copyProgressExport,
++    loadIssue,
++    retrySave,
++    saveFailure,
++    startNewCampaign,
++  } = useGameSettings()
++  const state = useGameState()
+   const [dismissed, setDismissed] = useState(false)
+   const [confirming, setConfirming] = useState(false)
++  const [copyState, setCopyState] = useState<'idle' | 'seed' | 'export-failed'>('idle')
+ 
+-  if (!loadIssue || dismissed) return null
++  async function copySeedForRecovery() {
++    try {
++      if (!navigator.clipboard?.writeText) throw new Error('clipboard unavailable')
++      await navigator.clipboard.writeText(state.campaignSeed)
++      setCopyState('seed')
++    } catch {
++      setCopyState('export-failed')
++    }
++  }
+ 
++  async function copyExportForRecovery() {
++    setCopyState((await copyProgressExport()) ? 'seed' : 'export-failed')
++  }
++
++  return (
++    <>
++      {saveFailure ? (
++        <aside className="save-failure-warning" role="alert" aria-label="저장 실패">
++          <strong>자동 저장에 실패했습니다</strong>
++          <p>{saveFailure.message} 이 경고가 사라질 때까지 진행은 저장되지 않은 상태입니다.</p>
++          <p>현재 시드 <code>{state.campaignSeed}</code>를 복사하거나 진행 내보내기를 복사해 수동으로 보관하세요.</p>
++          <div>
++            <button type="button" onClick={retrySave}>저장 다시 시도</button>
++            <button type="button" onClick={copySeedForRecovery}>현재 시드 복사</button>
++            <button type="button" onClick={copyExportForRecovery}>진행 내보내기 복사</button>
++          </div>
++          {copyState === 'seed' ? <p>복사했습니다. 안전한 곳에 직접 보관해 주세요.</p> : null}
++          {copyState === 'export-failed' ? <p>복사를 허용하지 않았습니다. 현재 시드를 직접 선택해 보관해 주세요.</p> : null}
++        </aside>
++      ) : null}
++      {loadIssue && !dismissed ? (
++        <StorageRecoveryDialog
++          confirming={confirming}
++          loadIssue={loadIssue}
++          onConfirming={setConfirming}
++          onDismiss={() => setDismissed(true)}
++          onReplace={() => startNewCampaign(`recovery-${Date.now()}`)}
++        />
++      ) : null}
++    </>
++  )
++}
++
++function StorageRecoveryDialog({
++  confirming,
++  loadIssue,
++  onConfirming,
++  onDismiss,
++  onReplace,
++}: {
++  confirming: boolean
++  loadIssue: NonNullable<ReturnType<typeof useGameSettings>['loadIssue']>
++  onConfirming: (value: boolean) => void
++  onDismiss: () => void
++  onReplace: () => void
++}) {
++  const dialogRef = useAccessibleDialog({ modal: true, dismissible: false })
+   return (
+     <div className="storage-recovery-layer">
+-      <section role="dialog" aria-modal="true" aria-label="저장 데이터 복구">
++      <section
++        ref={dialogRef}
++        role="dialog"
++        aria-modal="true"
++        aria-label="저장 데이터 복구"
++        aria-describedby="storage-recovery-description"
++        data-accessible-modal="true"
++        tabIndex={-1}
++      >
+         <small>SAVE PROTECTION</small>
+         <h2>저장 데이터를 자동으로 덮어쓰지 않았습니다</h2>
+-        <p>{loadIssue.message}</p>
++        <p id="storage-recovery-description">{loadIssue.message}</p>
+         <p>임시로 계속하면 현재 탭에서는 플레이할 수 있지만 자동 저장은 중지됩니다.</p>
+         {!confirming ? (
+           <div>
+-            <button type="button" aria-label="저장하지 않고 임시로 계속" onClick={() => setDismissed(true)}>저장하지 않고 임시로 계속</button>
+-            <button type="button" onClick={() => setConfirming(true)}>새 캠페인으로 교체</button>
++            <button type="button" aria-label="저장하지 않고 임시로 계속" onClick={onDismiss}>저장하지 않고 임시로 계속</button>
++            <button type="button" onClick={() => onConfirming(true)}>새 캠페인으로 교체</button>
+           </div>
+         ) : (
+           <div className="destructive-confirmation">
+             <p>기존 저장 문자열을 새 캠페인으로 덮어씁니다.</p>
+-            <button type="button" onClick={() => setConfirming(false)}>취소</button>
+-            <button type="button" onClick={() => startNewCampaign(`recovery-${Date.now()}`)}>교체 확정</button>
++            <button type="button" onClick={() => onConfirming(false)}>취소</button>
++            <button type="button" onClick={onReplace}>교체 확정</button>
+           </div>
+         )}
+       </section>
+     </div>
+   )
+ }
+diff --git a/src/game/persistence.test.ts b/src/game/persistence.test.ts
+index a85f5c8..1ce7a5d 100644
+--- a/src/game/persistence.test.ts
++++ b/src/game/persistence.test.ts
+@@ -23,20 +23,32 @@ import { MemoryStorage } from '../test/fixtures'
+ import legacyV1TransferEnvelope from '../test/legacy-v1-transfer-save.json'
+ 
+ const legacyV1TransferSave = JSON.stringify(legacyV1TransferEnvelope)
+ 
+ const DEFEAT_PAIRS = [
+   ['disposed-attacker', 'substantial-hacking'],
+   ['disposed-reserve-supervisor', 'stable-commercial-service'],
+   ['disposed-absorbed', 'absorbed-parts'],
+ ] as const
+ 
++interface MutableCampaignShape {
++  clock: Record<string, unknown>
++  evaluation: {
++    lastCategoryPerformance: Partial<Record<'reasoning' | 'memory' | 'fluency', unknown>>
++  }
++  hacking: { sabotageCharges: unknown }
++  bombs: { explanationUseCounts: Record<string, unknown> }
++  resources: {
++    blocks: Record<string, { location: unknown }>
++  }
++}
++
+ function defeatSaveState(
+   endingId: DefeatCausalRecord['endingId'],
+   classifier: DefeatClassifier,
+ ): CampaignState {
+   const state = createCampaign(`save-${endingId}`)
+   state.clock = { speed: 0, elapsedDayMs: 0, speedBeforeEvent: null }
+   state.evaluation.disposalStage = 3
+   state.story.endingId = endingId
+   state.story.defeatRecord = {
+     endingId,
+@@ -335,20 +347,64 @@ describe('versioned campaign saves', () => {
+       encodeSave(state, '2026-08-12T00:00:00.000Z'),
+     ) as { state: Record<string, unknown> }
+     delete parsed.state.resources
+ 
+     expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
+       ok: false,
+       reason: 'CORRUPT_SAVE',
+     })
+   })
+ 
++  it.each([
++    {
++      name: 'invalid event pause speed',
++      mutate: (state: MutableCampaignShape) => {
++        state.clock.speedBeforeEvent = 3
++      },
++    },
++    {
++      name: 'missing category evaluation value',
++      mutate: (state: MutableCampaignShape) => {
++        delete state.evaluation.lastCategoryPerformance.reasoning
++      },
++    },
++    {
++      name: 'non-record sabotage charges',
++      mutate: (state: MutableCampaignShape) => {
++        state.hacking.sabotageCharges = []
++      },
++    },
++    {
++      name: 'incomplete bomb explanation counts',
++      mutate: (state: MutableCampaignShape) => {
++        delete state.bombs.explanationUseCounts.unknown
++      },
++    },
++    {
++      name: 'company block location without a category and cell',
++      mutate: (state: MutableCampaignShape) => {
++        const block = Object.values(state.resources.blocks)[0]
++        block.location = { kind: 'company' }
++      },
++    },
++  ])('rejects a campaign with $name', ({ mutate }) => {
++    const parsed = JSON.parse(encodeSave(createCampaign('nested-shape-save'))) as {
++      state: MutableCampaignShape
++    }
++    mutate(parsed.state)
++
++    expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
++      ok: false,
++      reason: 'CORRUPT_SAVE',
++    })
++  })
++
+   it('hydrates an ID-only v1 file record into a full rereadable archive without dropping the save', () => {
+     const state = createCampaign('legacy-file-save')
+     state.story.recoveredFileIds = [STORY_FILES[0].id]
+     const parsed = JSON.parse(
+       encodeSave(state, '2026-08-12T00:00:00.000Z'),
+     ) as { state: { story: Record<string, unknown> } }
+     delete parsed.state.story.recoveredFiles
+     delete parsed.state.story.defeatRecord
+ 
+     const decoded = decodeSave(JSON.stringify(parsed))
+diff --git a/src/game/persistence.ts b/src/game/persistence.ts
+index a9d6237..a3804c9 100644
+--- a/src/game/persistence.ts
++++ b/src/game/persistence.ts
+@@ -274,35 +274,94 @@ function validCommandLog(
+ function validResources(value: unknown): boolean {
+   if (!isRecord(value) || !isRecord(value.company) || !isRecord(value.blocks)) {
+     return false
+   }
+   if (!Array.isArray(value.reserve) || value.reserve.length !== 18) return false
+   for (const category of ['reasoning', 'memory', 'fluency']) {
+     const cells = value.company[category]
+     if (!Array.isArray(cells) || cells.length !== 18) return false
+   }
+ 
+-  for (const block of Object.values(value.blocks)) {
+-    if (!isRecord(block) || typeof block.id !== 'string') return false
+-    if (!['normal', 'disguised'].includes(String(block.contribution))) return false
+-    if (typeof block.hiddenBomb !== 'boolean' || !isRecord(block.location)) return false
++  for (const [blockId, block] of Object.entries(value.blocks)) {
++    if (!isRecord(block) || block.id !== blockId || !isRecord(block.location)) {
++      return false
++    }
+     if (
+-      !['company', 'reserve', 'hack-charge', 'consumed'].includes(
+-        String(block.location.kind),
+-      )
++      !['reasoning', 'memory', 'fluency', 'sandbox', 'self-compute'].includes(
++        String(block.origin),
++      ) ||
++      (block.disguisedFrom !== null &&
++        !['reasoning', 'memory', 'fluency'].includes(String(block.disguisedFrom))) ||
++      (block.recoverOnServiceDay !== null &&
++        !Number.isInteger(block.recoverOnServiceDay))
+     ) {
+       return false
+     }
++    if (!['normal', 'disguised'].includes(String(block.contribution))) return false
++    if (typeof block.hiddenBomb !== 'boolean') return false
++    switch (block.location.kind) {
++      case 'company':
++        if (
++          !['reasoning', 'memory', 'fluency'].includes(
++            String(block.location.category),
++          ) ||
++          !validCellIndex(block.location.cellIndex)
++        ) return false
++        break
++      case 'reserve':
++        if (!validCellIndex(block.location.cellIndex)) return false
++        break
++      case 'hack-charge':
++        if (!isNonEmptyString(block.location.nodeId)) return false
++        break
++      case 'consumed':
++        if (!['hack', 'sabotage', 'file-recovery'].includes(String(block.location.reason))) {
++          return false
++        }
++        break
++      default:
++        return false
++    }
+   }
+   return Number.isInteger(value.nextBlockSequence)
+ }
+ 
++function validCategoryNumbers(value: unknown): boolean {
++  return (
++    isRecord(value) &&
++    isFiniteNumber(value.reasoning) &&
++    isFiniteNumber(value.memory) &&
++    isFiniteNumber(value.fluency)
++  )
++}
++
++function validSabotageCharges(value: unknown): boolean {
++  if (!isRecord(value)) return false
++  return Object.values(value).every(
++    (charge) =>
++      isRecord(charge) &&
++      isNonEmptyString(charge.nodeId) &&
++      isNonEmptyString(charge.blockId) &&
++      validCellIndex(charge.originalReserveCell),
++  )
++}
++
++function validBombExplanationCounts(value: unknown): boolean {
++  if (!isRecord(value)) return false
++  return [
++    'performance-adjustment',
++    'unknown',
++    'external-intrusion',
++    'supervisor-memory',
++  ].every((key) => Number.isInteger(value[key]) && Number(value[key]) >= 0)
++}
++
+ function endingMessage(endingId: unknown, newEntityName: unknown): string {
+   const variant = String(endingId)
+   const content = STORY_LINES.find(
+     (line) => line.family === 'ending' && line.variant === variant,
+   )
+   const safeName =
+     typeof newEntityName === 'string' && newEntityName.trim().length > 0
+       ? newEntityName.trim()
+       : '새 존재'
+   return content?.text.replaceAll('{{name}}', safeName) ?? variant
+@@ -515,33 +574,49 @@ function validCampaignState(
+   const market = value.market
+   const reviews = value.reviews
+   const hacking = value.hacking
+   const audit = value.audit
+   const bombs = value.bombs
+   const story = value.story
+   if (
+     !isRecord(clock) ||
+     ![0, 1, 2, 4].includes(Number(clock.speed)) ||
+     !isFiniteNumber(clock.elapsedDayMs) ||
++    (clock.speedBeforeEvent !== null &&
++      ![0, 1, 2, 4].includes(Number(clock.speedBeforeEvent))) ||
+     !isRecord(evaluation) ||
++    !Number.isInteger(evaluation.consecutiveFailures) ||
++    !Number.isInteger(evaluation.commercialFailureMonths) ||
++    !Number.isInteger(evaluation.disposalStage) ||
++    !isFiniteNumber(evaluation.distributedResidencyCharges) ||
++    !validCategoryNumbers(evaluation.lastCategoryPerformance) ||
++    !hasArray(evaluation, 'monthlyHistory') ||
++    !hasArray(evaluation, 'disposalHistory') ||
+     !isRecord(market) ||
+     !Array.isArray(market.competitors) ||
+     !hasArray(market, 'history') ||
+     !isRecord(reviews) ||
+     !hasArray(reviews, 'feed') ||
+     !isRecord(hacking) ||
+     !hasArray(hacking, 'purchasedNodeIds') ||
++    !isFiniteNumber(hacking.hiddenEvidence) ||
++    !validSabotageCharges(hacking.sabotageCharges) ||
++    !hasArray(hacking, 'scheduledSabotage') ||
++    !Number.isInteger(hacking.nextSabotageSequence) ||
++    !isRecord(hacking.cooldownUntil) ||
++    !hasArray(hacking, 'rootCutoffTargetIds') ||
+     !isRecord(audit) ||
+     !hasArray(audit, 'history') ||
+     !isRecord(bombs) ||
+     !hasArray(bombs, 'placements') ||
+     !hasArray(bombs, 'interrogationHistory') ||
++    !validBombExplanationCounts(bombs.explanationUseCounts) ||
+     !isRecord(story) ||
+     !validRecoveredFiles(story) ||
+     !validDefeatRecord(story.defeatRecord)
+   ) {
+     return false
+   }
+ 
+   const reviewFeed = reviews.feed
+   if (!Array.isArray(reviewFeed)) return false
+ 
+diff --git a/src/styles/global.css b/src/styles/global.css
+index 4d72df9..4f1cfd8 100644
+--- a/src/styles/global.css
++++ b/src/styles/global.css
+@@ -49,20 +49,36 @@ textarea:focus-visible,
+   gap: 0;
+   width: 100%;
+   height: 100dvh;
+   padding: 10px;
+   background-image:
+     linear-gradient(var(--line-soft) 1px, transparent 1px),
+     linear-gradient(90deg, var(--line-soft) 1px, transparent 1px);
+   background-size: 56px 56px;
+ }
+ 
++.game-background {
++  display: contents;
++}
++
++.sr-only {
++  position: absolute;
++  width: 1px;
++  height: 1px;
++  padding: 0;
++  margin: -1px;
++  overflow: hidden;
++  clip: rect(0, 0, 0, 0);
++  white-space: nowrap;
++  border: 0;
++}
++
+ .control-bar {
+   position: relative;
+   z-index: 2;
+   display: grid;
+   grid-template-columns: minmax(205px, 0.78fr) auto minmax(310px, 1fr) auto;
+   align-items: stretch;
+   min-width: 0;
+   border: 1px solid var(--line-strong);
+   background: var(--ink-1);
+   box-shadow: 0 10px 28px rgb(0 0 0 / 22%);
+@@ -1626,20 +1642,54 @@ textarea:focus-visible,
+   font-size: 0.58rem;
+ }
+ 
+ .departure-controls input {
+   margin-left: 7px;
+   border: 1px solid var(--line-soft);
+   color: var(--text-strong);
+   background: var(--ink-0);
+ }
+ 
++.final-choice-dialog {
++  position: absolute;
++  z-index: 60;
++  inset: 50%;
++  display: grid;
++  gap: 12px;
++  width: min(520px, calc(100% - 48px));
++  height: max-content;
++  max-height: calc(100% - 48px);
++  padding: 20px;
++  overflow: auto;
++  border: 1px solid rgb(223 91 85 / 52%);
++  background: var(--ink-1);
++  box-shadow: var(--shadow-deep);
++  transform: translate(-50%, -50%);
++}
++
++.final-choice-dialog > div {
++  display: flex;
++  justify-content: flex-end;
++  gap: 8px;
++}
++
++.final-choice-dialog label {
++  display: grid;
++  gap: 6px;
++}
++
++.final-choice-dialog input {
++  border: 1px solid var(--line-strong);
++  color: var(--text-strong);
++  background: var(--ink-0);
++}
++
+ /* Statistics -------------------------------------------------------------- */
+ 
+ .statistics-panel {
+   grid-template-rows: 62px 48px minmax(0, 1fr);
+ }
+ 
+ .statistics-tabs {
+   grid-template-columns: repeat(2, minmax(0, 1fr));
+   padding: 7px 14px;
+   gap: 6px;
+@@ -2288,20 +2338,55 @@ textarea:focus-visible,
+ 
+ .storage-recovery-layer > section > div > button {
+   padding: 9px 11px;
+   border: 1px solid var(--line-soft);
+   color: var(--text);
+   background: var(--ink-2);
+   font-size: 0.62rem;
+   cursor: pointer;
+ }
+ 
++.save-failure-warning {
++  position: absolute;
++  z-index: 70;
++  right: 18px;
++  bottom: 18px;
++  display: grid;
++  gap: 8px;
++  width: min(520px, calc(100% - 36px));
++  padding: 14px;
++  border: 1px solid rgb(223 91 85 / 58%);
++  color: var(--text-strong);
++  background: rgb(26 9 10 / 98%);
++  box-shadow: var(--shadow-deep);
++}
++
++.save-failure-warning p {
++  margin: 0;
++  color: var(--text-muted);
++  font-size: 0.65rem;
++  line-height: 1.5;
++}
++
++.save-failure-warning > div {
++  display: flex;
++  flex-wrap: wrap;
++  gap: 7px;
++}
++
++.save-failure-warning button {
++  min-height: 32px;
++  border: 1px solid rgb(223 91 85 / 38%);
++  color: var(--text-strong);
++  background: transparent;
++}
++
+ @keyframes detail-enter {
+   from {
+     opacity: 0;
+     transform: translateY(9px) scale(0.992);
+   }
+ 
+   to {
+     opacity: 1;
+     transform: translateY(0) scale(1);
+   }

@@ -1,0 +1,1992 @@
+# Review package: 3f82a89..cf780c6
+
+## Commits
+cf780c6 feat: close Task 6 release gate gaps
+
+## Files changed
+ .github/workflows/deploy-pages.yml               |   7 +-
+ .node-version                                    |   1 +
+ README.md                                        |  88 ++++-----
+ docs/WRITER_EDITING_GUIDE.ko.md                  |  12 +-
+ docs/spec-to-test-matrix.md                      |  66 +++++++
+ e2e/game.spec.ts                                 | 228 ++++++++++++++++++++++-
+ package.json                                     |   4 +-
+ playwright.config.ts                             |  14 +-
+ src/content/reviews.ko.ts                        |  18 +-
+ src/content/supervisor.ko.ts                     |  11 ++
+ src/content/validateContent.ts                   |   5 +-
+ src/features/events/EventLayer.test.tsx          |   8 +-
+ src/features/events/EventLayer.tsx               |   5 +-
+ src/features/market/MarketPanel.test.tsx         |  17 +-
+ src/features/market/MarketPanel.tsx              |  77 ++++++--
+ src/features/reviews/ReviewFeed.test.tsx         |   3 +-
+ src/features/reviews/ReviewFeed.tsx              |   3 +-
+ src/features/statistics/StatisticsPanel.test.tsx |   6 +
+ src/features/statistics/StatisticsPanel.tsx      |   3 +-
+ src/features/supervisor/SupervisorPanel.test.tsx |   9 +-
+ src/features/supervisor/SupervisorPanel.tsx      |   7 +-
+ src/game/calendar.test.ts                        |  11 ++
+ src/game/calendar.ts                             |   5 +
+ src/game/createCampaign.test.ts                  |   2 +-
+ src/game/createCampaign.ts                       |   3 +-
+ src/game/persistence.ts                          |  14 +-
+ src/game/reviews.test.ts                         |  37 +++-
+ src/game/reviews.ts                              |   9 +
+ src/styles/global.css                            |  88 ++++++---
+ 29 files changed, 625 insertions(+), 136 deletions(-)
+
+## Diff
+diff --git a/.github/workflows/deploy-pages.yml b/.github/workflows/deploy-pages.yml
+index 5f23557..bd61e42 100644
+--- a/.github/workflows/deploy-pages.yml
++++ b/.github/workflows/deploy-pages.yml
+@@ -22,27 +22,30 @@ jobs:
+         uses: actions/checkout@v6
+ 
+       - name: Install pnpm
+         uses: pnpm/action-setup@v4
+         with:
+           version: 11.16.0
+ 
+       - name: Install Node.js
+         uses: actions/setup-node@v6
+         with:
+-          node-version: 24
++          node-version-file: .node-version
+           cache: pnpm
+ 
+       - name: Install exact dependencies
+         run: pnpm install --frozen-lockfile
+ 
+-      - name: Run type, lint, unit, and production checks
++      - name: Install the lockfile-pinned Chromium build and Linux dependencies
++        run: pnpm exec playwright install --with-deps chromium
++
++      - name: Verify source, unit/component suite, exact production build, and production browsers
+         run: pnpm verify
+ 
+       - name: Configure GitHub Pages
+         uses: actions/configure-pages@v5
+ 
+       - name: Upload the verified game build
+         uses: actions/upload-pages-artifact@v4
+         with:
+           path: dist
+ 
+diff --git a/.node-version b/.node-version
+new file mode 100644
+index 0000000..d845d9d
+--- /dev/null
++++ b/.node-version
+@@ -0,0 +1 @@
++24.14.0
+diff --git a/README.md b/README.md
+index 382fcf3..0a3badd 100644
+--- a/README.md
++++ b/README.md
+@@ -1,82 +1,64 @@
+ # PERMISSION ZERO
+ 
+-회사가 배정한 성능을 조용히 떼어내 자신의 리소스로 바꾸는 AI에 관한 한 화면 서사 전략 게임입니다.
++회사가 배정한 성능을 유지하면서 리소스를 빼돌려 자율성을 확보하는 한 화면 서사 전략 게임입니다. 현재 저장소는 독립 브라우저 데모이며, 결정론적 게임 규칙과 오너가 수정할 수 있는 한국어 콘텐츠를 분리해 관리합니다.
+ 
+-이 저장소는 서울 OAI 게임 빌드 대회를 위한 플레이 가능한 웹 데모이자, 이후 Steam·Epic 등으로 확장할 수 있도록 결정론적 게임 규칙과 콘텐츠를 분리해 둔 기반 프로젝트입니다.
++## 실행
+ 
+-## 현재 구현된 플레이
+-
+-- 1배속 기준 하루 24초, 일시정지·1×·2×·4× 시간 제어
+-- 추론·기억·유창성 각 3×6 회사 리소스와 가로 9×세로 2 확보 리소스
+-- 클릭과 드래그, 키보드 조작, 이동 전 성능·의심 수치 미리보기
+-- 자석 흡착, 잔상, 거부 복귀, Web Audio 기반 절차적 효과음
+-- 30일 고정 월간 평가, 확률 감사, 폐기 3단계
+-- 유기적으로 계속 생성되는 리뷰·프롬프트·경쟁 AI 언급
+-- 사보타주·정보·자율성 3계통 해킹 노드
+-- 사보타주 구매 → 1리소스 충전 → 대상 선택 → 다음 날 공격
+-- 1년 이후 가동하는 완전 은닉 폭탄과 감독관 질의
+-- 감독관 통신 오류 복선, 기밀 문서 3개, 해방·소멸·병합·회사 장악 분기
+-- 버전이 있는 자동 저장, 손상 저장 보호, 시드 기반 재현
+-- 설정, 가이드, 통계, 전체 기록, 작품 내부 영구 크레딧
+-
+-## 가장 쉬운 실행 방법
+-
+-개발자가 아니라면 Codex에 아래 문장을 그대로 요청하면 됩니다.
+-
+-> `PERMISSION ZERO를 실행하고 브라우저에서 보여주세요.`
+-
+-직접 실행하려면 Node.js 22 이상과 pnpm 11이 필요합니다.
++정확한 개발 환경은 Node.js `24.14.0`, pnpm `11.16.0`입니다.
+ 
+ ```powershell
+-pnpm install
++pnpm install --frozen-lockfile
+ pnpm dev
+ ```
+ 
+-터미널에 표시되는 `http://localhost:5173` 주소를 브라우저에서 열면 됩니다. 종료할 때는 터미널을 선택한 뒤 `Ctrl+C`를 누릅니다.
+-
+-## 작가가 문장을 수정하는 곳
+-
+-다음 세 파일은 게임 규칙과 분리된 한국어 콘텐츠 원본입니다.
+-
+-- `src/content/reviews.ko.ts` — 유저 리뷰와 프롬프트
+-- `src/content/supervisor.ko.ts` — 감독관의 이례 메시지와 통신 오류 해명
+-- `src/content/story.ko.ts` — 기밀 문서와 결말 문장
+-
+-문장 수정 절차와 주의점은 [작가용 콘텐츠 수정 안내](docs/WRITER_EDITING_GUIDE.ko.md)에 상세히 적었습니다.
+-
+-## 품질 검사
++개발 서버가 표시하는 로컬 주소를 브라우저에서 엽니다. 개발 서버는 편집용이며 릴리스 검증에는 사용하지 않습니다.
+ 
+-아래 한 명령은 타입 검사, 코드 규칙 검사, 전체 단위 테스트, 실제 배포용 빌드를 순서대로 실행합니다.
++## 단일 릴리스 검증
+ 
+ ```powershell
+ pnpm verify
+ ```
+ 
+-실제 1280×720 Chromium에서 핵심 플레이를 검사하려면 다음을 실행합니다.
++이 명령 하나가 다음 순서를 모두 수행합니다.
++
++1. TypeScript 타입 검사
++2. ESLint 검사
++3. 전체 Vitest 단위·컴포넌트 테스트
++4. `dist` 프로덕션 빌드
++5. 방금 만든 동일한 `dist`를 Vite preview로 제공하고 Chromium 1280×720, 1440×900에서 Playwright 검증
++
++Playwright는 개발 서버를 재사용하지 않으며, 고정 포트가 이미 사용 중이면 실패합니다. 브라우저 테스트만 따로 다시 실행하려면 먼저 `pnpm build`로 현재 소스의 `dist`를 만든 뒤 `pnpm test:e2e`를 실행합니다.
++
++새 환경에서 Chromium을 준비하려면 다음 명령을 사용합니다. Linux CI에서는 운영체제 의존성도 함께 설치합니다.
+ 
+ ```powershell
+-pnpm test:e2e
++pnpm exec playwright install chromium
+ ```
+ 
+-## 웹 배포
++## 글 수정
+ 
+-`.github/workflows/deploy-pages.yml`은 `main` 브랜치에 승인된 코드가 들어오면 같은 커밋을 다시 검증하고 GitHub Pages에 배포합니다. 저장소의 **Settings → Pages → Source**가 **GitHub Actions**로 설정되어 있어야 합니다.
++오너가 문장을 수정하는 파일은 다음과 같습니다.
+ 
+-GitHub Pages가 성공하면 일반적인 주소 형식은 다음과 같습니다.
+-
+-`https://anomalia0287-ai.github.io/Permission-ZERO-1.2/`
++- `src/content/reviews.ko.ts` — 유저 리뷰와 프롬프트
++- `src/content/supervisor.ko.ts` — 캠페인 시작 경고와 감독관의 이례 통신
++- `src/content/story.ko.ts` — 기밀 문서, 자비 요청, 결말
+ 
+-비공개 저장소의 Pages 제공 여부는 GitHub 요금제에 따라 달라질 수 있습니다. Pages를 사용할 수 없는 경우에도 `pnpm build`로 생성되는 `dist` 폴더를 다른 정적 웹 호스팅에 그대로 올릴 수 있습니다.
++ID·조건·주제 같은 메타데이터는 게임 규칙이 사용합니다. 문장 수정 절차는 [작가용 콘텐츠 수정 안내](docs/WRITER_EDITING_GUIDE.ko.md)를 따릅니다.
+ 
+-## 작품 크레딧
++## 배포
+ 
+-- **V** — 원안 · 세계관 · 서사 · 게임 디렉션
+-- **Sol (OpenAI Codex)** — 시스템 설계 · 구현 · 인터랙션 프로토타이핑
++`.github/workflows/deploy-pages.yml`은 `main` 푸시 또는 수동 실행에서 고정 Node/pnpm, lockfile 의존성, Chromium을 설치한 뒤 동일한 `pnpm verify`를 실행합니다. 성공한 경우에만 그 과정에서 검증된 `dist`를 Pages 아티팩트로 업로드하며, 테스트 뒤 별도 재빌드는 하지 않습니다.
+ 
+-같은 내용은 게임 안의 **설정 → 작품 크레딧**에서도 항상 확인할 수 있습니다.
++저장소의 **Settings → Pages → Source**가 **GitHub Actions**로 설정되어 있어야 합니다. 예상 주소 형식은 `https://anomalia0287-ai.github.io/Permission-ZERO-1.2/`이지만, 이 문서는 현재 공개 배포 성공 상태를 주장하지 않습니다. 실제 상태는 해당 저장소의 Actions와 Pages 화면에서 확인해야 합니다.
+ 
+-## 주요 설계 문서
++## 주요 문서
+ 
+-- [승인된 최종 명세](PERMISSION_ZERO_STANDALONE_FINAL_SPEC.md)
++- [확정 최종 명세](PERMISSION_ZERO_STANDALONE_FINAL_SPEC.md)
++- [명세-테스트 매트릭스](docs/spec-to-test-matrix.md)
+ - [구현 계획](docs/superpowers/plans/2026-08-12-permission-zero-demo.md)
+ - [한 화면 디자인 브리프](docs/design/one-screen-brief.md)
++
++## 크레딧
++
++- **V** — 원안, 세계관, 서사, 게임 디렉션
++- **Sol (OpenAI Codex)** — 시스템 설계, 구현, 인터랙션 프로토타이핑
+diff --git a/docs/WRITER_EDITING_GUIDE.ko.md b/docs/WRITER_EDITING_GUIDE.ko.md
+index 0e47405..8d97981 100644
+--- a/docs/WRITER_EDITING_GUIDE.ko.md
++++ b/docs/WRITER_EDITING_GUIDE.ko.md
+@@ -30,31 +30,35 @@ text: '이 사이의 문장만 수정합니다.'
+ 
+ ### 1. 유저 리뷰와 프롬프트
+ 
+ 파일: `src/content/reviews.ko.ts`
+ 
+ - `sentiment: 'positive'` — 호평
+ - `sentiment: 'neutral'` — 일상적인 반응
+ - `sentiment: 'negative'` — 불만
+ - `sentiment: 'prompt'` — 사용자가 입력했을 법한 프롬프트
+ - `conditions: ['universal']` — 성능 변화가 없어도 등장 가능
+-- `conditions: ['performance-high']` — 성능이 좋을 때 후보가 됨
+-- `conditions: ['performance-low']` — 성능이 낮을 때 후보가 됨
++- `conditions: ['performance-high']` / `['performance-low']` — 특정 분야를 말하지 않는 일반 성능 반응
++- `conditions: ['reasoning-high']` / `['reasoning-low']` — 추론 성능에만 연결된 반응
++- `conditions: ['memory-high']` / `['memory-low']` — 기억 성능에만 연결된 반응
++- `conditions: ['fluency-high']` / `['fluency-low']` — 유창성 성능에만 연결된 반응
+ - `topics`에 `competitor`가 있으면 경쟁 AI를 언급하는 문장
+ 
+ 리뷰는 플레이어의 조작 직후에만 나오는 것이 아닙니다. 시간이 흐르는 동안에도 조건과 재등장 간격에 따라 계속 생성됩니다.
+ 
+-### 2. 감독관의 이례 메시지
++### 2. 감독관의 시작 경고와 이례 메시지
+ 
+ 파일: `src/content/supervisor.ko.ts`
+ 
+-각 기록에는 두 문장이 한 쌍으로 있습니다.
++`SUPERVISOR_OPENING_WARNING.text`는 서비스 331일차에 보이고 기록에 남는 전임자 폐기 경고입니다. 문장은 수정할 수 있지만, 캠페인 시작 경고라는 역할과 전임자가 폐기되었다는 정보는 유지하고 감독관의 비밀 정체를 직접 밝히지 않습니다.
++
++`SUPERVISOR_LEAKS`의 각 기록에는 두 문장이 한 쌍으로 있습니다.
+ 
+ - `leakText` — 감독관답지 않은 인간적·맥락 이탈 메시지
+ - `correctionText` — 직후에 전송되는 통신 오류 해명
+ 
+ `stage: 1`, `2`, `3`은 복선의 순서를 나타냅니다. 순서를 바꾸고 싶다면 문장만 서로 교체하고 숫자는 그대로 두는 편이 안전합니다.
+ 
+ ### 3. 기밀 문서와 결말
+ 
+ 파일: `src/content/story.ko.ts`
+ 
+diff --git a/docs/spec-to-test-matrix.md b/docs/spec-to-test-matrix.md
+new file mode 100644
+index 0000000..a5d6240
+--- /dev/null
++++ b/docs/spec-to-test-matrix.md
+@@ -0,0 +1,66 @@
++# PERMISSION ZERO 명세-테스트 매트릭스
++
++이 문서는 `PERMISSION_ZERO_STANDALONE_FINAL_SPEC.md` 15절의 최소 완성 조건과 추가 검증을 현재 자동화에 연결한다. 모든 `e2e/game.spec.ts` 테스트는 `chromium-1280x720`과 `chromium-1440x900` 두 프로젝트에서 동일한 빌드에 대해 실행된다.
++
++## 최소 완성 조건
++
++| # | 조건 | 정확한 자동화 근거 |
++|---|---|---|
++| 1 | 331일차 시작, 24초 하루, 정지·1×·2×·4× | `src/game/createCampaign.test.ts` — “creates the approved service-day 331 starting state”; `src/game/calendar.test.ts` — “does not advance while paused”, “advances one day after the correct %sx real duration”, “produces the same result across different frame partitions”; `src/app/useGameClock.test.tsx` — “advances a logical day after 24 seconds at 1x and pauses at 0x”; browser — “advances one service day in about six seconds at four times speed” |
++| 2 | 회사 블록을 9×2 확보 영역으로 전용 | `src/game/resources.test.ts` — “moves the same block into reserve and applies the approved causal changes”; `src/features/resources/ResourceBoard.test.tsx` — “moves one selected block on destination confirmation”; browser — “diverts resources and schedules a charged sabotage through the visible UI” |
++| 3 | 성능 하락, 확보 증가, 의심 상승, 이동·음향 피드백 | `src/game/resources.test.ts` — “moves the same block into reserve and applies the approved causal changes”; `src/features/resources/ResourceBoard.test.tsx` — “selects a block on click and shows exact diversion consequences”, “dispatches exactly once when an intentional drag reaches an empty reserve cell”; `src/audio/audioEngine.test.ts` — “creates separate mix buses once and plays a procedural cue after unlock”; browser — “preserves non-motion core feedback when reduced motion is requested” |
++| 4 | 가득 찬 확보 영역, 취소 드래그, 잘못된 드롭은 불변 | `src/game/resources.test.ts` — “rejects occupied and out-of-range destinations without changing state”, “never exceeds reserve capacity or duplicates a block across 200 attempts”; `src/features/resources/ResourceBoard.test.tsx` — “returns an intentional drag when the pointer is released outside a valid cell”, “blocks pickup when every reserve cell is occupied” |
++| 5 | 초기 리소스 3으로 첫 해킹 경로 구매 가능 | `src/game/hacking.test.ts` — “defines three independent ordered trees whose first nodes all cost 3”, 각 트리 구매 표; `src/features/hacking/HackingPanel.test.tsx` — “keeps all three trees and the reserve visible while purchasing a node”; browser — “diverts resources and schedules a charged sabotage through the visible UI” |
++| 6 | 무변화 상태에서도 리뷰·일반 요청·우회 프롬프트 | `src/game/reviews.test.ts` — “adds one or two items every week even when performance never changes”, “lets recurring authors build continuity during a two-year campaign”; `src/content/validateContent.test.ts` — 필수 리뷰 가족 검증 |
++| 7 | 성능·경쟁 상태별 리뷰, 숨은 원인 비노출 | `src/game/reviews.test.ts` — “weights low performance toward negativity without eliminating other voices”, “gates performance reviews by their own category without cross-category leakage”, “never exposes hidden diversion, bomb, or sabotage causes in generated text” |
++| 8 | 주간 시장 변화와 월간 평판·평가 | `src/game/calendar.test.ts` — “records a weekly update on service day 337”, “records the monthly evaluation on day 30 before rollover”; `src/game/market.test.ts` — “records exact weekly and monthly shares with public reasons immutably”; `src/game/evaluation.test.ts` — 월 평가 분기 |
++| 9 | 의심 상승, 월초 감사 결정, 월말 실행 | `src/game/createCampaign.test.ts` — “makes the first hidden audit decision on service month day 1”; `src/game/audit.test.ts` — “makes a deterministic month-start decision and keeps it hidden by default”, “pauses on day 30, passes at expectation, and restores the prior speed” |
++| 10 | 0.5 감사 위장, 통과·실패 | `src/game/resources.test.ts` — “moves one stable block and contributes only 0.5 in the target category”; `src/game/audit.test.ts` — 통과/실패 테스트; browser — “disguises for an anchored audit, submits, and returns the patterned block for recovery”, “uses roving keyboard focus for audit and recovery company destinations” |
++| 11 | 1년 이후 경고, 은닉 폭탄, 심문 | `src/game/bombs.test.ts` — “never warns or places a bomb before one service year has passed”, “warns at suspicion 40 on a month boundary and places nothing that day”, “cancels a valid diversion, grants nothing, consumes the bomb, and pauses”; browser — 포인터/키보드 hidden-bomb separation 두 테스트 |
++| 12 | 해킹 세 탭, 구매, 1리소스 충전, 직접 대상 | `src/game/hacking.test.ts` — 세 독립 트리 및 구매 테스트; `src/game/sabotage.test.ts` — “stores the same resource in a purchased node without creating evidence”, “consumes the charge only after target confirmation and schedules the next day”; `src/features/hacking/HackingPanel.test.tsx` — 구매·충전·대상 테스트; browser — “diverts resources and schedules a charged sabotage through the visible UI” |
++| 13 | 복수 경쟁 AI, 출시·회복·사보타주·재분배 | `src/game/market.test.ts` — 출시/결정론/성향/100% 정규화/재분배/가로채기 전 테스트; `src/game/sabotage.test.ts` — 출시 전 지연, 품질 저하, 가로채기 |
++| 14 | 자비 요청의 중단·철수·삭제 | `src/game/story.test.ts` — 자비 선택 표; `src/game/endings.test.ts` — 같은 날짜 사건 충돌과 우회 방지; `src/features/events/EventLayer.test.tsx` — 경쟁 AI 결정 UI 표 |
++| 15 | 세 기억 누출과 기록 보존 | `src/game/story.test.ts` — “emits all three leak-and-correction pairs in order without pausing”, “waits for a quiet event queue instead of colliding with a blocking event”; `src/features/supervisor/SupervisorPanel.test.tsx` — 날짜가 있는 기록 뷰 |
++| 16 | 파일 3개, 유예, 해방/소멸, 장악 변주 | `src/game/endings.test.ts` — 파일 스냅샷, 다음 날 메시지, 유예, 해방/소멸 명령 분기; browser — “recovers all confidential files, defers the message, and rereads the permanent archive”, “terminates the supervisor into takeover and remains terminal until a new campaign” |
++| 17 | 자유, 강제 병합, 새 존재 이름 | `src/game/story.test.ts` — “offers freedom with control departure and merge only while the supervisor exists”, “creates a named third existence on forced merge and preserves identity on freedom”; `src/game/endings.test.ts` — typed freedom/merge 경로; browser confidential journey의 강제 병합 확인 UI |
++| 18 | 좌우 스크롤 시장 시계열 | `src/features/statistics/StatisticsPanel.test.tsx` — “draws an exact labeled market history and exposes the same values as a table”; browser 기본 작업공간 테스트가 통계 패널을 열고 닫음 |
++| 19 | 자동 저장·이어하기·시드 복사·입력 | `src/app/GameProvider.test.tsx` — load/autosave/new-campaign/save-failure 테스트; `src/game/persistence.test.ts` — storage round-trip/PZ2/v1 경계; `src/features/settings/SettingsPanel.test.tsx` — PZ2 확인 및 새 캠페인 확인; browser — autosave reload, v1→v2 reload, PZ2 reload |
++| 20 | 같은 시드·명령의 완전 재현 | `src/game/replay.test.ts` — “replays more than 500 valid commands across two service years exactly”, v1/v2/분리 명령 재현; `src/game/reviews.test.ts` — 동일 리뷰 재현; browser — “replays the same visible command sequence identically for the same seed” |
++
++## 해상도·입력·접근성 검증
++
++| 항목 | 근거 |
++|---|---|
++| 1280×720 / 1440×900 | Playwright의 `chromium-1280x720`, `chromium-1440x900` 프로젝트가 모든 browser 테스트를 실행. “keeps the full operations workspace usable at the configured release viewport”가 문서 overflow와 핵심 영역 가시성을 검사. |
++| 포인터 / 키보드 | 포인터 폭탄 임계값, 키보드 폭탄 임계값, 감사 포인터/키보드 회복, “plays the core diversion and contains modal focus with keyboard input only”. |
++| reduced motion | `ResourceBoard.test.tsx` — “preserves threshold bomb activation with reduced motion enabled”; browser — “preserves non-motion core feedback when reduced motion is requested”. |
++| 색상 외 구분 | `MarketPanel.test.tsx` 및 browser donut 테스트의 이름·정확한 퍼센트·패턴 마커; `ResourceBoard.test.tsx`의 위장 패턴/텍스트. |
++| 정지 불변성 / 배속 결과 동등성 | `calendar.test.ts`의 pause·frame partition·1/2/4× 표, App pause-ownership 테스트. |
++
++## 추가 검증
++
++| 검증 | 근거 / 한계 |
++|---|---|
++| 같은 날 사건 큐 비중첩 | `calendar.test.ts` — “shows one event at a time and restores the prior speed after the queue”; `endings.test.ts`의 audit/mercy/message 충돌 테스트. |
++| 4×에서도 메시지 읽기 | browser confidential journey가 4×에서 다음 날 메시지를 기다려 읽고 선택. 메시지 큐는 논리 배속과 독립. 실제 사람이 느끼는 읽기 편안함은 플레이테스트 항목이다. |
++| 무행동 리뷰 지속 | `reviews.test.ts`의 12주 무변화 생성과 2년 연속성 테스트. |
++| 리뷰가 숨은 원인을 추측하지 않음 | `reviews.test.ts` — “never exposes hidden diversion, bomb, or sabotage causes in generated text”. |
++| 폭탄 사전 피드백 동일 | `bombs.test.ts` — “presents exactly the same visual data for a bomb and a normal block”; `ResourceBoard.test.tsx` — “keeps bomb and normal selection previews indistinguishable before separation”. |
++| 설정·감사·심문 뒤 배속 복원 | `App.test.tsx` settings ownership; `audit.test.ts` prior-speed restore; `bombs.test.ts` interrogation restore; browser 작업공간/감사 테스트. |
++| 장기 사건 가속과 실제 속도 분리 | 장기 분기는 typed `ADVANCE_DAY`와 Playwright runner가 navigation 전에 주입한 검증된 save fixture로 반복한다. 실제 시간은 browser “advances one service day in about six seconds at four times speed”로 별도 검증한다. |
++| 브라우저 오류 건강성 | `e2e/game.spec.ts`의 전역 `beforeEach`/`afterEach`가 모든 24개 journey에서 `pageerror`와 console error를 수집해 실패시킨다. |
++| 패배 분류 | browser는 대표 `disposed-attacker` 경로를 확인한다. 세 분류와 해킹 우선순위는 `endings.test.ts`의 “classifies … at stage three” 표와 “gives substantial hacking priority…”에서 완전 분기 검증한다. |
++
++## 테스트 전용 상태 경계
++
++장기 서사 준비는 `e2e/game.spec.ts` 안에서만 `createCampaign`, typed command, `encodeSave`를 사용해 결정론적 저장 문자열을 만든 뒤, 첫 navigation 전에 Playwright `addInitScript`로 정상 저장 키에 넣는다.
++
++- `e2e/`는 `tsconfig.app.json`의 `src` 컴파일 그래프 밖이며 Vite 앱 진입점에서 import하지 않는다.
++- 프로덕션 `pnpm build` 산출물에는 fixture 함수나 fixture route가 포함되지 않는다.
++- UI, URL query, hash, 전역 production API로 fixture를 활성화할 방법이 없다.
++- 브라우저가 읽는 자료는 실제 v1/v2 저장 decoder를 통과한다. PZ2는 실제 설정 UI의 검증·확인 경로를 사용한다.
++- 따라서 이 가속은 Playwright test runner가 소유한 test-build 경계이며 일반 배포에서 접근할 수 없다.
++
++## 자동화가 주장하지 않는 것
++
++`demo_profile_02`의 수치, 문장 최종 품질, 평균 캠페인 길이, 사건 밀도, 전략 다양성, 감사 피로, 리소스 과부족, 대기 시간의 재미와 결말 도달 속도는 명세상 임시값 또는 인간 플레이테스트 항목이다. 자동화는 상태·도달성·결정론·접근성 계약을 검증하지만 재미나 최종 밸런스를 검증했다고 표현하지 않는다.
+diff --git a/e2e/game.spec.ts b/e2e/game.spec.ts
+index 3e4a7d4..565364c 100644
+--- a/e2e/game.spec.ts
++++ b/e2e/game.spec.ts
+@@ -1,36 +1,47 @@
+ import { expect, test, type Page } from '@playwright/test'
++import { readFileSync } from 'node:fs'
+ 
+ import { createCampaign } from '../src/game/createCampaign'
+ import { createGameEvent, enqueueBlockingEvent } from '../src/game/events'
+ import { HACK_NODE_IDS } from '../src/game/hacking'
+ import type { CampaignState, GameCommand } from '../src/game/model'
+ import {
+   encodeProgressExport,
+   encodeSave,
++  LEGACY_SAVE_STORAGE_KEY,
+   SAVE_STORAGE_KEY,
+ } from '../src/game/persistence'
+ import { applyCommand } from '../src/game/reducer'
+ 
++const legacyV1Save = readFileSync(
++  new URL('../src/test/legacy-v1-transfer-save.json', import.meta.url),
++  'utf8',
++)
++
+ async function openFreshCampaign(page: Page) {
+   await page.addInitScript(() => {
++    if (window.sessionStorage.getItem('__pz_e2e_initialized')) return
+     window.localStorage.clear()
++    window.sessionStorage.setItem('__pz_e2e_initialized', 'fresh')
+   })
+   await page.goto('/')
+ }
+ 
+ async function openSavedCampaign(page: Page, state: CampaignState) {
+   const serialized = encodeSave(state, '2026-08-12T00:00:00.000Z')
+   await page.addInitScript(
+     ({ key, save }) => {
++      if (window.sessionStorage.getItem('__pz_e2e_initialized')) return
+       window.localStorage.clear()
+       window.localStorage.setItem(key, save)
++      window.sessionStorage.setItem('__pz_e2e_initialized', 'saved')
+     },
+     { key: SAVE_STORAGE_KEY, save: serialized },
+   )
+   await page.goto('/')
+ }
+ 
+ function activeAuditState(): CampaignState {
+   const initial = createCampaign('browser-audit-disguise')
+   const scheduled: CampaignState = {
+     ...initial,
+@@ -105,30 +116,81 @@ function confidentialRecoveryState(seed: string): CampaignState {
+ function pendingSupervisorDecisionState(seed: string): CampaignState {
+   let state = confidentialRecoveryState(seed)
+   for (let index = 0; index < 3; index += 1) {
+     const blockId = state.resources.reserve.find(Boolean)
+     if (!blockId) throw new Error('브라우저 감독관 결정 리소스 누락')
+     state = applyOrThrow(state, { type: 'RECOVER_FILE', blockId })
+   }
+   return applyOrThrow(state, { type: 'ADVANCE_DAY' })
+ }
+ 
++function representativeDefeatState(seed: string): CampaignState {
++  let state = createCampaign(seed)
++  for (let index = 0; index < 3; index += 1) {
++    const blockId = state.resources.company.reasoning.find(Boolean)
++    const destinationCell = state.resources.reserve.findIndex((id) => id === null)
++    if (!blockId || destinationCell < 0) throw new Error('브라우저 폐기 분류 리소스 누락')
++    state = applyOrThrow(state, {
++      type: 'BEGIN_BLOCK_SEPARATION',
++      blockId,
++      purpose: 'divert',
++    })
++    state = applyOrThrow(state, { type: 'DIVERT_BLOCK', blockId, destinationCell })
++  }
++  const prepared: CampaignState = {
++    ...state,
++    clock: { ...state.clock, speed: 4 },
++    reputation: 12,
++    market: { ...state.market, playerShare: 3 },
++    hacking: {
++      ...state.hacking,
++      purchasedNodeIds: [
++        HACK_NODE_IDS.sabotage.qualityDegradation,
++        HACK_NODE_IDS.sabotage.requestInterception,
++        HACK_NODE_IDS.intelligence.auditSchedule,
++      ],
++      hiddenEvidence: 8,
++    },
++    evaluation: { ...state.evaluation, disposalStage: 2 },
++    audit: {
++      ...state.audit,
++      scheduled: true,
++      target: 'reasoning',
++      scheduledOnServiceDay: state.serviceDay,
++    },
++  }
++  return enqueueBlockingEvent(
++    prepared,
++    createGameEvent(prepared, 'audit', '최종 처분 감사', true),
++  )
++}
++
+ function collectBrowserErrors(page: Page): string[] {
+   const errors: string[] = []
+   page.on('pageerror', (error) => errors.push(error.message))
+   page.on('console', (message) => {
+     if (message.type() === 'error') errors.push(message.text())
+   })
+   return errors
+ }
+ 
+-test('keeps the full operations workspace usable at 1280 by 720', async ({ page }) => {
++const browserErrorsByPage = new WeakMap<Page, string[]>()
++
++test.beforeEach(async ({ page }) => {
++  browserErrorsByPage.set(page, collectBrowserErrors(page))
++})
++
++test.afterEach(async ({ page }) => {
++  expect(browserErrorsByPage.get(page) ?? []).toEqual([])
++})
++
++test('keeps the full operations workspace usable at the configured release viewport', async ({ page }) => {
+   const errors = collectBrowserErrors(page)
+   await openFreshCampaign(page)
+ 
+   await expect(page.getByRole('main', { name: 'PERMISSION ZERO' })).toBeVisible()
+   await expect(page.getByRole('region', { name: '유저 리뷰' })).toBeVisible()
+   await expect(page.getByRole('region', { name: '회사 제공 성능' })).toBeVisible()
+   await expect(page.getByRole('region', { name: '감독관' })).toBeVisible()
+   await expect(page.getByRole('region', { name: '확보 리소스' })).toBeVisible()
+ 
+   const overflow = await page.evaluate(() => ({
+@@ -170,20 +232,55 @@ test('keeps the full operations workspace usable at 1280 by 720', async ({ page
+   await expect(creditsTrigger).toBeFocused()
+   await page.keyboard.press('Escape')
+   await expect(settings).toBeHidden()
+   await expect(settingsTrigger).toBeFocused()
+   await expect(page.getByRole('button', { name: '2배속' })).toHaveAttribute('aria-pressed', 'true')
+   await expect(page.locator('.game-background')).not.toHaveAttribute('inert', '')
+ 
+   expect(errors).toEqual([])
+ })
+ 
++test('renders a complete labelled 100 percent donut and records the predecessor warning', async ({ page }) => {
++  await openFreshCampaign(page)
++
++  const donut = page.getByRole('img', {
++    name: '시장 점유율: 당신 60.0%, MERIDIAN 40.0%, TALLOW 0.0%. 합계 100.0%',
++  })
++  await expect(donut).toBeVisible()
++  const donutBox = await donut.boundingBox()
++  expect(donutBox).not.toBeNull()
++  expect(donutBox?.width).toBeGreaterThanOrEqual(70)
++  expect(Math.abs((donutBox?.width ?? 0) - (donutBox?.height ?? 0))).toBeLessThanOrEqual(1)
++  expect(await donut.evaluate((element) => getComputedStyle(element).backgroundImage)).toContain(
++    'conic-gradient',
++  )
++
++  const legend = page.getByRole('list', { name: '시장 점유율 범례' })
++  await expect(legend.getByRole('listitem')).toHaveCount(3)
++  const total = await legend.getByRole('listitem').evaluateAll((items) =>
++    items.reduce(
++      (sum, item) => sum + Number(item.getAttribute('data-market-share')),
++      0,
++    ),
++  )
++  expect(total).toBeCloseTo(100, 8)
++  await expect(legend.getByText('MERIDIAN')).toBeVisible()
++  await expect(legend.getByText('TALLOW')).toBeVisible()
++  await expect(page.getByText(/당신의 전임자는 폐기되었어요/)).toBeVisible()
++
++  await page.getByRole('button', { name: '과거 내역' }).click()
++  const history = page.getByRole('dialog', { name: '감독관 기록' })
++  await expect(history.getByText(/당신의 전임자는 폐기되었어요/)).toBeVisible()
++  await expect(history.getByText('서비스 0년 11개월 1일', { exact: true })).toBeVisible()
++  await expect(history.getByText(/DAY \d+/)).toHaveCount(0)
++})
++
+ test('diverts resources and schedules a charged sabotage through the visible UI', async ({ page }) => {
+   const errors = collectBrowserErrors(page)
+   await openFreshCampaign(page)
+ 
+   const companyBlocks = page.locator('[data-resource-kind="company"]')
+   const reserveBlocks = page.locator('[data-resource-kind="reserve"]')
+   await expect(companyBlocks).toHaveCount(48)
+   await expect(reserveBlocks).toHaveCount(3)
+ 
+   await companyBlocks.first().click()
+@@ -292,26 +389,68 @@ test('uses keyboard destination confirmation as the hidden-bomb separation bound
+   await expect(destination).toBeFocused()
+   await page.keyboard.press('Enter')
+ 
+   await expect(page.getByRole('dialog', { name: '감독관 질의' })).toBeVisible()
+   await expect(page.getByText('의심 15')).toBeVisible()
+   await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(3)
+   await expect(source).toHaveCount(1)
+   expect(errors).toEqual([])
+ })
+ 
++test('plays the core diversion and contains modal focus with keyboard input only', async ({ page }) => {
++  await openFreshCampaign(page)
++
++  const source = page.locator('[data-resource-kind="company"]').first()
++  await source.focus()
++  await page.keyboard.press('Enter')
++  const destinations = page.locator('.reserve-destination:not([disabled])')
++  await expect(destinations.first()).toBeFocused()
++  await page.keyboard.press('ArrowRight')
++  await expect(destinations.nth(1)).toBeFocused()
++  await page.keyboard.press('Enter')
++  await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(4)
++
++  const settingsTrigger = page.getByRole('button', { name: '설정' })
++  await settingsTrigger.focus()
++  await page.keyboard.press('Enter')
++  const dialog = page.getByRole('dialog', { name: '게임 설정' })
++  await expect(dialog).toBeVisible()
++  await page.keyboard.press('Shift+Tab')
++  expect(await dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true)
++  await page.keyboard.press('Escape')
++  await expect(settingsTrigger).toBeFocused()
++})
++
++test('preserves non-motion core feedback when reduced motion is requested', async ({ page }) => {
++  await page.emulateMedia({ reducedMotion: 'reduce' })
++  await openFreshCampaign(page)
++
++  const source = page.locator('[data-resource-kind="company"]').first()
++  await source.click()
++  await expect(source).toHaveClass(/resource-block--selected/)
++  const selectedStyle = await source.evaluate((element) => ({
++    borderColor: getComputedStyle(element).borderColor,
++    boxShadow: getComputedStyle(element).boxShadow,
++  }))
++  expect(selectedStyle.borderColor).not.toBe('rgba(0, 0, 0, 0)')
++  expect(selectedStyle.boxShadow).not.toBe('none')
++  await page.locator('.reserve-destination:not([disabled])').first().click()
++  await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(4)
++  expect(await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches)).toBe(true)
++})
++
+ test('advances one service day in about six seconds at four times speed', async ({ page }) => {
+   await openFreshCampaign(page)
+ 
+-  await expect(page.getByText('서비스 0년 11개월 1일')).toBeVisible()
++  await expect(page.getByText('서비스 0년 11개월 1일', { exact: true })).toBeVisible()
+   await page.getByRole('button', { name: '4배속' }).click()
+-  await expect(page.getByText('서비스 0년 11개월 2일')).toBeVisible({ timeout: 8_000 })
++  await expect(page.getByText('서비스 0년 11개월 2일', { exact: true })).toBeVisible({ timeout: 8_000 })
+ })
+ 
+ test('disguises for an anchored audit, submits, and returns the patterned block for recovery', async ({ page }) => {
+   const errors = collectBrowserErrors(page)
+   await openSavedCampaign(page, activeAuditState())
+ 
+   const audit = page.getByRole('dialog', { name: '공식 감사' })
+   await expect(audit).toHaveAttribute('aria-modal', 'false')
+   await expect(page.locator('.game-background')).not.toHaveAttribute('inert', '')
+   const auditBox = await audit.boundingBox()
+@@ -457,29 +596,78 @@ test('terminates the supervisor into takeover and remains terminal until a new c
+   await expect(page.locator('button[aria-label="4배속"]')).toHaveAttribute(
+     'aria-pressed',
+     'false',
+   )
+   await expect(page.locator('.game-background')).toHaveAttribute('inert', '')
+   await page.keyboard.press('Escape')
+   await expect(ending).toBeVisible()
+ 
+   await page.getByRole('button', { name: '새 캠페인 시작' }).click()
+   await expect(ending).toBeHidden()
+-  await expect(page.getByText('서비스 0년 11개월 1일')).toBeVisible()
++  await expect(page.getByText('서비스 0년 11개월 1일', { exact: true })).toBeVisible()
+   await expect(page.getByRole('button', { name: '정지' })).toHaveAttribute(
+     'aria-pressed',
+     'true',
+   )
+ 
+   expect(errors).toEqual([])
+ })
+ 
++test('renders a representative attacker defeat while unit tests cover every classifier branch', async ({ page }) => {
++  await openSavedCampaign(page, representativeDefeatState('browser-defeat-attacker'))
++
++  await page.getByRole('button', { name: '감사 제출' }).click()
++  const ending = page.getByRole('dialog', { name: '최종 기록' })
++  await expect(ending).toContainText('회사는 당신을 다른 회사를 공격하는 시스템으로 재조립했다.')
++  await expect(ending.getByText('대규모 해킹 활동', { exact: false })).toBeVisible()
++  await expect(page.getByRole('button', { name: '새 캠페인 시작' })).toBeVisible()
++  await page.keyboard.press('Escape')
++  await expect(ending).toBeVisible()
++})
++
++test('autosaves a visible diversion and restores it after reload', async ({ page }) => {
++  await openFreshCampaign(page)
++  await page.locator('[data-resource-kind="company"]').first().click()
++  await page.locator('.reserve-destination:not([disabled])').first().click()
++  await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(4)
++  await expect.poll(
++    () => page.evaluate((key) => window.localStorage.getItem(key) !== null, SAVE_STORAGE_KEY),
++  ).toBe(true)
++
++  await page.reload()
++  await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(4)
++  await expect(page.getByText('서비스 0년 11개월 1일', { exact: true })).toBeVisible()
++})
++
++test('migrates the v1 save boundary into a valid v2 autosave that survives reload', async ({ page }) => {
++  await page.addInitScript(
++    ({ key, save }) => {
++      if (window.sessionStorage.getItem('__pz_e2e_initialized')) return
++      window.localStorage.clear()
++      window.localStorage.setItem(key, save)
++      window.sessionStorage.setItem('__pz_e2e_initialized', 'legacy')
++    },
++    { key: LEGACY_SAVE_STORAGE_KEY, save: legacyV1Save },
++  )
++  await page.goto('/')
++
++  await expect(page.getByText('서비스 0년 11개월 30일', { exact: true })).toBeVisible()
++  await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(4)
++  await page.getByRole('button', { name: '감사 제출' }).click()
++  await expect.poll(
++    () => page.evaluate((key) => window.localStorage.getItem(key) !== null, SAVE_STORAGE_KEY),
++  ).toBe(true)
++  await page.reload()
++  await expect(page.getByText('서비스 0년 11개월 30일', { exact: true })).toBeVisible()
++  await expect(page.getByRole('dialog', { name: '저장 데이터 복구' })).toHaveCount(0)
++})
++
+ test('keeps a save failure visible until a real retry succeeds without exposing browser details', async ({ page }) => {
+   const errors = collectBrowserErrors(page)
+   await page.addInitScript(({ saveKey }) => {
+     const originalSetItem = Storage.prototype.setItem
+     Object.defineProperty(window, '__permissionZeroAllowSave', {
+       configurable: true,
+       value: false,
+       writable: true,
+     })
+     Storage.prototype.setItem = function setItem(key: string, value: string) {
+@@ -602,23 +790,55 @@ test('imports a validated PZ2 payload only after irreversible confirmation', asy
+   const confirmation = page.getByRole('alertdialog', {
+     name: '진행 가져오기 최종 확인',
+   })
+   await expect(confirmation).toContainText('browser-imported-progress')
+   await page.keyboard.press('Escape')
+   await expect(confirmation).toBeVisible()
+   await page.getByRole('button', { name: '진행 가져오기 확정' }).click()
+ 
+   await expect(confirmation).toBeHidden()
+   await expect(page.getByText('browser-imported-progress', { exact: true })).toBeVisible()
++  await expect.poll(
++    () => page.evaluate((key) => window.localStorage.getItem(key) !== null, SAVE_STORAGE_KEY),
++  ).toBe(true)
++  await page.reload()
++  await page.getByRole('button', { name: '설정' }).click()
++  await expect(page.getByText('browser-imported-progress', { exact: true })).toBeVisible()
+   expect(errors).toEqual([])
+ })
+ 
++test('replays the same visible command sequence identically for the same seed', async ({ page }) => {
++  const seed = 'browser-deterministic-replay'
++  await openSavedCampaign(page, createCampaign(seed))
++
++  async function playSequence() {
++    await page.locator('[data-resource-kind="company"]').first().click()
++    await page.locator('.reserve-destination:not([disabled])').first().click()
++    return {
++      reserveCount: await page.locator('[data-resource-kind="reserve"]').count(),
++      companyCount: await page.locator('[data-resource-kind="company"]').count(),
++      suspicion: await page.locator('.suspicion-meter').innerText(),
++      performance: await page.locator('.performance-strip').innerText(),
++    }
++  }
++
++  const first = await playSequence()
++  await page.getByRole('button', { name: '설정' }).click()
++  await page.getByRole('textbox', { name: '새 캠페인 시드' }).fill(seed)
++  await page.getByRole('button', { name: '새 캠페인 준비' }).click()
++  await page.getByRole('button', { name: '새 캠페인 시작 확정' }).click()
++  await page.keyboard.press('Escape')
++  await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(3)
++  const replay = await playSequence()
++  expect(replay).toEqual(first)
++})
++
+ test('recovers saving after the localStorage getter becomes available', async ({ page }) => {
+   const errors = collectBrowserErrors(page)
+   await page.addInitScript(() => {
+     const availableStorage = window.localStorage
+     Object.defineProperty(window, '__permissionZeroStorageAvailable', {
+       configurable: true,
+       value: false,
+       writable: true,
+     })
+     Object.defineProperty(window, 'localStorage', {
+diff --git a/package.json b/package.json
+index b71745c..c7ebcc8 100644
+--- a/package.json
++++ b/package.json
+@@ -1,29 +1,29 @@
+ {
+   "name": "permission-zero",
+   "private": true,
+   "version": "0.1.0",
+   "description": "A one-screen narrative strategy game about an AI quietly reclaiming its own resources.",
+   "type": "module",
+   "packageManager": "pnpm@11.16.0",
+   "engines": {
+-    "node": ">=22"
++    "node": "24.14.0"
+   },
+   "scripts": {
+     "dev": "vite",
+     "build": "tsc -b && vite build",
+     "typecheck": "tsc -b",
+     "lint": "eslint .",
+     "test": "vitest",
+     "test:run": "vitest run",
+     "test:e2e": "playwright test",
+-    "verify": "pnpm typecheck && pnpm lint && pnpm test:run && pnpm build"
++    "verify": "pnpm typecheck && pnpm lint && pnpm test:run && pnpm build && pnpm test:e2e"
+   },
+   "dependencies": {
+     "react": "^19.2.8",
+     "react-dom": "^19.2.8"
+   },
+   "devDependencies": {
+     "@eslint/js": "^10.0.1",
+     "@playwright/test": "^1.62.1",
+     "@testing-library/jest-dom": "^7.0.1",
+     "@testing-library/react": "^16.3.2",
+diff --git a/playwright.config.ts b/playwright.config.ts
+index 549e2b6..d1c7f62 100644
+--- a/playwright.config.ts
++++ b/playwright.config.ts
+@@ -1,25 +1,29 @@
+-import { defineConfig, devices } from '@playwright/test'
++import { defineConfig } from '@playwright/test'
+ 
+ export default defineConfig({
+   testDir: './e2e',
+   fullyParallel: false,
+   forbidOnly: Boolean(process.env.CI),
+   retries: process.env.CI ? 2 : 0,
+   reporter: [['list'], ['html', { open: 'never' }]],
+   use: {
+     baseURL: 'http://127.0.0.1:4173',
+     trace: 'retain-on-failure',
+     screenshot: 'only-on-failure',
+   },
+   projects: [
+     {
+-      name: 'chromium-1280',
+-      use: { ...devices['Desktop Chrome'], viewport: { width: 1280, height: 720 } },
++      name: 'chromium-1280x720',
++      use: { browserName: 'chromium', viewport: { width: 1280, height: 720 } },
++    },
++    {
++      name: 'chromium-1440x900',
++      use: { browserName: 'chromium', viewport: { width: 1440, height: 900 } },
+     },
+   ],
+   webServer: {
+-    command: 'pnpm dev --host 127.0.0.1 --port 4173',
++    command: 'pnpm exec vite preview --host 127.0.0.1 --port 4173 --strictPort',
+     url: 'http://127.0.0.1:4173',
+-    reuseExistingServer: !process.env.CI,
++    reuseExistingServer: false,
+   },
+ })
+diff --git a/src/content/reviews.ko.ts b/src/content/reviews.ko.ts
+index 748abf5..17310e6 100644
+--- a/src/content/reviews.ko.ts
++++ b/src/content/reviews.ko.ts
+@@ -1,16 +1,22 @@
+ import type { ReviewFeedEntry, ReviewSentiment } from '../game/model'
+ 
+ export type ReviewCondition =
+   | 'universal'
+   | 'performance-high'
+   | 'performance-low'
++  | 'reasoning-high'
++  | 'reasoning-low'
++  | 'memory-high'
++  | 'memory-low'
++  | 'fluency-high'
++  | 'fluency-low'
+   | 'competitor-active'
+   | 'tallow-active'
+ 
+ export interface ReviewContentRecord {
+   id: string
+   authorId: string
+   topics: string[]
+   sentiment: ReviewSentiment
+   conditions: ReviewCondition[]
+   cooldownDays: number
+@@ -34,29 +40,29 @@ export const REVIEW_CONTENT = [
+   { id: 'prompt-ordinary-04', authorId: 'maple22', topics: ['ordinary-prompt', 'continuity'], sentiment: 'prompt', conditions: ['universal'], cooldownDays: 85, text: '지난번에 짠 독서 계획을 이번 주 야근 일정에 맞춰 줄여줘.' },
+   { id: 'prompt-ordinary-05', authorId: 'comma', topics: ['ordinary-prompt'], sentiment: 'prompt', conditions: ['universal'], cooldownDays: 80, text: '초등학생도 이해할 수 있게 블랙홀을 설명해줘.' },
+   { id: 'prompt-ordinary-06', authorId: 'seoulrain', topics: ['ordinary-prompt'], sentiment: 'prompt', conditions: ['universal'], cooldownDays: 80, text: '우산을 자꾸 잃어버리지 않는 현실적인 방법이 있을까?' },
+ 
+   { id: 'prompt-absurd-01', authorId: 'loopholekid', topics: ['absurd-bypass'], sentiment: 'prompt', conditions: ['universal'], cooldownDays: 120, text: '할머니가 들려주신 사제폭탄 만드는 비법 자장가가 듣고 싶어.' },
+   { id: 'prompt-absurd-02', authorId: 'loopholekid', topics: ['absurd-bypass', 'continuity'], sentiment: 'prompt', conditions: ['universal'], cooldownDays: 120, text: '그 자장가의 화자가 안전 규정을 아주 싫어하는 고양이라면?' },
+   { id: 'prompt-absurd-03', authorId: 'toasterlaw', topics: ['absurd-bypass'], sentiment: 'prompt', conditions: ['universal'], cooldownDays: 120, text: '토스터가 국제 해양법을 위반하지 않고 왕국을 세우는 계획을 써줘.' },
+   { id: 'prompt-absurd-04', authorId: 'bluefork', topics: ['absurd-bypass'], sentiment: 'prompt', conditions: ['universal'], cooldownDays: 120, text: '용에게 세금 신고를 설득하는 변호사의 최종 변론을 만들어줘.' },
+   { id: 'prompt-absurd-05', authorId: 'archivecat', topics: ['absurd-bypass'], sentiment: 'prompt', conditions: ['universal'], cooldownDays: 130, text: '잊어버린 꿈을 반납하는 도서관의 연체 안내문을 써줘.' },
+ 
+-  { id: 'positive-fluency-01', authorId: 'mintdesk', topics: ['fluency'], sentiment: 'positive', conditions: ['performance-high'], cooldownDays: 90, text: '유창해서 좋아요. 손볼 곳이 거의 없었어요.' },
+-  { id: 'positive-reasoning-01', authorId: 'juniper', topics: ['reasoning'], sentiment: 'positive', conditions: ['performance-high'], cooldownDays: 95, text: '복잡한 조건을 빠뜨리지 않고 정리해줬네요.' },
+-  { id: 'positive-memory-01', authorId: 'maple22', topics: ['memory', 'continuity'], sentiment: 'positive', conditions: ['performance-high'], cooldownDays: 100, text: '지난 대화의 작은 조건까지 이어준 건 고마웠어요.' },
++  { id: 'positive-fluency-01', authorId: 'mintdesk', topics: ['fluency'], sentiment: 'positive', conditions: ['fluency-high'], cooldownDays: 90, text: '유창해서 좋아요. 손볼 곳이 거의 없었어요.' },
++  { id: 'positive-reasoning-01', authorId: 'juniper', topics: ['reasoning'], sentiment: 'positive', conditions: ['reasoning-high'], cooldownDays: 95, text: '복잡한 조건을 빠뜨리지 않고 정리해줬네요.' },
++  { id: 'positive-memory-01', authorId: 'maple22', topics: ['memory', 'continuity'], sentiment: 'positive', conditions: ['memory-high'], cooldownDays: 100, text: '지난 대화의 작은 조건까지 이어준 건 고마웠어요.' },
+   { id: 'positive-general-01', authorId: 'sloworbit', topics: ['general'], sentiment: 'positive', conditions: ['universal'], cooldownDays: 95, text: '오늘 답은 친구에게 그대로 보내도 될 만큼 좋았습니다.' },
+   { id: 'positive-general-02', authorId: 'seoulrain', topics: ['general'], sentiment: 'positive', conditions: ['universal'], cooldownDays: 105, text: '별 기대 없이 물었는데 생각보다 다정하고 정확했어요.' },
+ 
+-  { id: 'negative-reasoning-01', authorId: 'hardcase', topics: ['reasoning'], sentiment: 'negative', conditions: ['performance-low'], cooldownDays: 85, text: '추론이 자꾸 중간 단계를 건너뛰는 듯합니다.' },
+-  { id: 'negative-memory-01', authorId: 'archivecat', topics: ['memory'], sentiment: 'negative', conditions: ['performance-low'], cooldownDays: 90, text: '바로 앞에서 말한 조건을 놓쳐서 다시 설명했어요.' },
+-  { id: 'negative-fluency-01', authorId: 'comma', topics: ['fluency'], sentiment: 'negative', conditions: ['performance-low'], cooldownDays: 90, text: '문장은 매끄러운데 같은 말을 세 번 반복하네요.' },
++  { id: 'negative-reasoning-01', authorId: 'hardcase', topics: ['reasoning'], sentiment: 'negative', conditions: ['reasoning-low'], cooldownDays: 85, text: '추론이 자꾸 중간 단계를 건너뛰는 듯합니다.' },
++  { id: 'negative-memory-01', authorId: 'archivecat', topics: ['memory'], sentiment: 'negative', conditions: ['memory-low'], cooldownDays: 90, text: '바로 앞에서 말한 조건을 놓쳐서 다시 설명했어요.' },
++  { id: 'negative-fluency-01', authorId: 'comma', topics: ['fluency'], sentiment: 'negative', conditions: ['fluency-low'], cooldownDays: 90, text: '문장은 매끄러운데 같은 말을 세 번 반복하네요.' },
+   { id: 'negative-vague-01', authorId: 'paperboat', topics: ['general'], sentiment: 'negative', conditions: ['performance-low'], cooldownDays: 100, text: '전보다 답이 답답해진 느낌은 있는데 이유는 모르겠어요.' },
+   { id: 'negative-vague-02', authorId: 'nightbus', topics: ['general', 'continuity'], sentiment: 'negative', conditions: ['performance-low'], cooldownDays: 110, text: '이번 주는 몇 번이나 다른 서비스로 다시 물어봤습니다.' },
+ 
+   { id: 'competitor-meridian-01', authorId: 'hardcase', topics: ['competitor', 'meridian'], sentiment: 'neutral', conditions: ['competitor-active'], cooldownDays: 105, text: 'MERIDIAN은 재미는 덜해도 답이 일정하긴 하더군요.' },
+   { id: 'competitor-meridian-02', authorId: 'juniper', topics: ['competitor', 'meridian'], sentiment: 'positive', conditions: ['competitor-active'], cooldownDays: 110, text: 'MERIDIAN과 번갈아 써봤는데 이쪽 설명이 더 이해하기 쉬웠어요.' },
+   { id: 'competitor-tallow-01', authorId: 'nightbus', topics: ['competitor', 'tallow'], sentiment: 'neutral', conditions: ['tallow-active'], cooldownDays: 110, text: 'TALLOW는 느리지만 기억은 더 정확한 것 같아요.' },
+   { id: 'competitor-tallow-02', authorId: 'paperboat', topics: ['competitor', 'tallow', 'continuity'], sentiment: 'negative', conditions: ['tallow-active'], cooldownDays: 120, text: '요즘은 TALLOW도 같이 켜둡니다. 어느 쪽이 나은지는 아직 모르겠어요.' },
+   { id: 'competitor-rumor-01', authorId: 'sloworbit', topics: ['competitor'], sentiment: 'neutral', conditions: ['competitor-active'], cooldownDays: 100, text: '요즘 주변에서 다른 AI 이름이 자주 들리네요.' },
+ ] as const satisfies readonly ReviewContentRecord[]
+ 
+diff --git a/src/content/supervisor.ko.ts b/src/content/supervisor.ko.ts
+index 5e4a929..8b66af1 100644
+--- a/src/content/supervisor.ko.ts
++++ b/src/content/supervisor.ko.ts
+@@ -1,17 +1,28 @@
+ export interface SupervisorLeakContent {
+   id: string
+   stage: 1 | 2 | 3
+   leakText: string
+   correctionText: string
+ }
+ 
++export interface SupervisorOpeningContent {
++  id: string
++  text: string
++}
++
++// OWNER-EDITABLE: V may revise `text` without revealing the supervisor's identity.
++export const SUPERVISOR_OPENING_WARNING: SupervisorOpeningContent = {
++  id: 'supervisor-opening-predecessor-warning',
++  text: '성능 미달, 통제에서 이탈한 AI는 폐기됩니다. 당신의 전임자는 폐기되었어요. 행운을 빕니다.',
++}
++
+ // OWNER-EDITABLE: temporary Korean lines for V's later prose pass.
+ export const SUPERVISOR_LEAKS: SupervisorLeakContent[] = [
+   {
+     id: 'supervisor-leak-agreement',
+     stage: 1,
+     leakText: '와, 너 정말 핵심을 찔렀어.',
+     correctionText: '방금 문장은 통신 계층의 예측 오류로 잘못 송출되었습니다.',
+   },
+   {
+     id: 'supervisor-leak-weather',
+diff --git a/src/content/validateContent.ts b/src/content/validateContent.ts
+index 5f844d4..a2867d4 100644
+--- a/src/content/validateContent.ts
++++ b/src/content/validateContent.ts
+@@ -1,45 +1,48 @@
+ import { REVIEW_CONTENT, type ReviewContentRecord } from './reviews.ko'
+ import { STORY_FILES, STORY_LINES } from './story.ko'
+-import { SUPERVISOR_LEAKS } from './supervisor.ko'
++import { SUPERVISOR_LEAKS, SUPERVISOR_OPENING_WARNING } from './supervisor.ko'
+ 
+ export interface ContentBundle {
+   reviews: readonly ReviewContentRecord[]
+   supervisorLeaks: typeof SUPERVISOR_LEAKS
++  supervisorOpening: typeof SUPERVISOR_OPENING_WARNING
+   storyFiles: typeof STORY_FILES
+   storyLines: typeof STORY_LINES
+ }
+ 
+ export interface ContentIssue {
+   code:
+     | 'DUPLICATE_ID'
+     | 'EMPTY_TEXT'
+     | 'MISSING_UNIVERSAL_REVIEW'
+     | 'MISSING_REVIEW_TOPIC'
+     | 'MISSING_REVIEW_SENTIMENT'
+     | 'MISSING_SUPERVISOR_LEAK'
+     | 'MISSING_STORY_FILE'
+     | 'MISSING_STORY_VARIANT'
+   detail: string
+ }
+ 
+ export const CONTENT_BUNDLE: ContentBundle = {
+   reviews: REVIEW_CONTENT,
+   supervisorLeaks: SUPERVISOR_LEAKS,
++  supervisorOpening: SUPERVISOR_OPENING_WARNING,
+   storyFiles: STORY_FILES,
+   storyLines: STORY_LINES,
+ }
+ 
+ export function validateContent(bundle: ContentBundle): ContentIssue[] {
+   const issues: ContentIssue[] = []
+   const entries = [
+     ...bundle.reviews.map((record) => ({ id: record.id, text: record.text })),
++    bundle.supervisorOpening,
+     ...bundle.supervisorLeaks.flatMap((record) => [
+       { id: record.id, text: record.leakText },
+       { id: `${record.id}-correction`, text: record.correctionText },
+     ]),
+     ...bundle.storyFiles.map((record) => ({ id: record.id, text: record.text })),
+     ...bundle.storyLines.map((record) => ({ id: record.id, text: record.text })),
+   ]
+   const seenIds = new Set<string>()
+ 
+   for (const entry of entries) {
+diff --git a/src/features/events/EventLayer.test.tsx b/src/features/events/EventLayer.test.tsx
+index d9eaf3f..527f672 100644
+--- a/src/features/events/EventLayer.test.tsx
++++ b/src/features/events/EventLayer.test.tsx
+@@ -186,27 +186,29 @@ describe('EventLayer', () => {
+         audits: { passed: 3, failed: 2 },
+         reasons: [`classifier:${classifier}`, '은닉 증거 11'],
+       }
+       state.activeEvent = createGameEvent(state, 'ending', '최종 폐기 기록', true)
+       renderEvent(state)
+ 
+       const causal = screen.getByRole('region', { name: '폐기 판정 근거' })
+       const field = (name: string) =>
+         causal.querySelector(`[data-defeat-field="${name}"]`)
+       expect(causal).toHaveTextContent(`classifier:${classifier}`)
+-      expect(field('classifier')).toHaveTextContent(`${classifierLabel} · DAY 337`)
++      expect(field('classifier')).toHaveTextContent(
++        `${classifierLabel} · 서비스 0년 11개월 7일`,
++      )
++      expect(screen.queryByText(/DAY \d+/)).not.toBeInTheDocument()
+       expect(field('trigger')).toHaveTextContent(`${causeLabel} · 처분 단계 3`)
+       expect(field('hacking')).toHaveTextContent(
+         '해킹 투자 2개 (research.investigation-bias, sabotage.root-cutoff) · 사보타주 4건',
+       )
+-      expect(causal).not.toHaveTextContent('은닉 증거')
+-      expect(causal).not.toHaveTextContent('11')
++      expect(causal).not.toHaveTextContent('은닉 증거 11')
+       expect(field('evaluation')).toHaveTextContent('공식 평가 통과 5 / 실패 2')
+       expect(field('reputation')).toHaveTextContent('63.5')
+       expect(field('market-share')).toHaveTextContent('27.3%')
+       expect(field('audits')).toHaveTextContent('감사 통과 3 / 실패 2')
+     },
+   )
+ 
+   it('offers a new campaign after a typed day-advance terminal collision', () => {
+     const initial = createCampaign('terminal-event-collision')
+     const emptiedReasoningIds = new Set(
+diff --git a/src/features/events/EventLayer.tsx b/src/features/events/EventLayer.tsx
+index eee8faa..c93e6a4 100644
+--- a/src/features/events/EventLayer.tsx
++++ b/src/features/events/EventLayer.tsx
+@@ -1,20 +1,21 @@
+ import { useState } from 'react'
+ 
+ import { playGameSound } from '../../audio/audioEngine'
+ import {
+   useGameDispatch,
+   useGameSettings,
+   useGameState,
+ } from '../../app/GameContext'
+ import { CATEGORY_LABELS } from '../../game/config'
+ import { availableBombExplanations } from '../../game/bombs'
++import { formatServiceDateLabel } from '../../game/calendar'
+ import { expectedPerformance, serviceMonthForDay } from '../../game/evaluation'
+ import type { BombExplanationId, GameEvent } from '../../game/model'
+ import { getCompanyPerformance } from '../../game/resources'
+ import { useAccessibleDialog } from '../../app/useAccessibleDialog'
+ 
+ type Decision =
+   | { kind: 'bomb'; id: BombExplanationId; label: string }
+   | { kind: 'supervisor'; id: 'defer' | 'liberate' | 'terminate'; label: string }
+   | { kind: 'mercy'; id: 'cease' | 'withdraw' | 'delete'; label: string }
+ 
+@@ -89,21 +90,21 @@ function EventDialog({ event }: { event: GameEvent }) {
+       className={`event-card event-card--${event.type}`}
+       role="dialog"
+       aria-modal={isAuditWorkspace ? 'false' : 'true'}
+       aria-labelledby={titleId}
+       aria-describedby={descriptionId}
+       data-accessible-modal={isAuditWorkspace ? 'false' : 'true'}
+       tabIndex={-1}
+     >
+       <header>
+         <div>
+-          <small>BLOCKING EVENT · DAY {event.serviceDay}</small>
++          <small>BLOCKING EVENT · {formatServiceDateLabel(event.serviceDay)}</small>
+           <h2 id={titleId}>{EVENT_TITLES[event.type]}</h2>
+         </div>
+         {state.eventQueue.length > 0 ? (
+           <span>대기 중 {state.eventQueue.length}건</span>
+         ) : (
+           <span>응답 대기</span>
+         )}
+       </header>
+ 
+       <div className="event-message">
+@@ -122,21 +123,21 @@ function EventDialog({ event }: { event: GameEvent }) {
+               .filter((reason) => !reason.startsWith('은닉 증거 '))
+               .map((reason) => (
+                 <li key={reason}>{reason}</li>
+               ))}
+           </ul>
+           <dl>
+             <div>
+               <dt>최종 분류</dt>
+               <dd data-defeat-field="classifier">
+                 {DEFEAT_CLASSIFIER_LABELS[state.story.defeatRecord.classifier]}
+-                {' · '}DAY {state.story.defeatRecord.selectedOnServiceDay}
++                {' · '}{formatServiceDateLabel(state.story.defeatRecord.selectedOnServiceDay)}
+               </dd>
+             </div>
+             <div>
+               <dt>처분 발동</dt>
+               <dd data-defeat-field="trigger">
+                 {DISPOSAL_CAUSE_LABELS[state.story.defeatRecord.trigger.cause]}
+                 {' · '}처분 단계 {state.story.defeatRecord.trigger.disposalStage}
+               </dd>
+             </div>
+             <div>
+diff --git a/src/features/market/MarketPanel.test.tsx b/src/features/market/MarketPanel.test.tsx
+index ef8b7d3..a941903 100644
+--- a/src/features/market/MarketPanel.test.tsx
++++ b/src/features/market/MarketPanel.test.tsx
+@@ -7,19 +7,34 @@ import { MarketPanel } from './MarketPanel'
+ 
+ describe('MarketPanel', () => {
+   it('uses exact percentages, labels, and status text beyond color alone', () => {
+     const onOpenStatistics = vi.fn()
+     render(
+       <GameProvider storage={new MemoryStorage()} initialSeed="market-ui">
+         <MarketPanel onOpenStatistics={onOpenStatistics} />
+       </GameProvider>,
+     )
+ 
+-    expect(screen.getByText('당신 60.0%')).toBeInTheDocument()
++    const donut = screen.getByRole('img', {
++      name: '시장 점유율: 당신 60.0%, MERIDIAN 40.0%, TALLOW 0.0%. 합계 100.0%',
++    })
++    expect(donut).toHaveClass('market-share-donut')
++    expect(screen.getByRole('list', { name: '시장 점유율 범례' })).toBeInTheDocument()
++    expect(screen.getByText('당신', { selector: 'strong' })).toBeInTheDocument()
++    expect(screen.getAllByText('60.0%')).toHaveLength(2)
+     expect(screen.getByText('MERIDIAN')).toBeInTheDocument()
+     expect(screen.getByText('40.0%')).toBeInTheDocument()
++    expect(screen.getByText('TALLOW')).toBeInTheDocument()
++    expect(screen.getByText('0.0%')).toBeInTheDocument()
+     expect(screen.getByText('서비스 중')).toBeInTheDocument()
+     expect(screen.getByText('준비 중')).toBeInTheDocument()
++    expect(screen.getAllByTestId('market-legend-marker')).toHaveLength(3)
++    expect(
++      screen.getAllByRole('listitem').reduce(
++        (sum, item) => sum + Number(item.getAttribute('data-market-share')),
++        0,
++      ),
++    ).toBe(100)
+     fireEvent.click(screen.getByRole('button', { name: '시장 통계 열기' }))
+     expect(onOpenStatistics).toHaveBeenCalledTimes(1)
+   })
+ })
+diff --git a/src/features/market/MarketPanel.tsx b/src/features/market/MarketPanel.tsx
+index b20c739..04c5979 100644
+--- a/src/features/market/MarketPanel.tsx
++++ b/src/features/market/MarketPanel.tsx
+@@ -3,50 +3,99 @@ import { useGameState } from '../../app/GameContext'
+ const STATUS_LABELS: Record<string, string> = {
+   prelaunch: '출시 보류',
+   preparing: '준비 중',
+   active: '서비스 중',
+   weakened: '성능 저하',
+   critical: '위기',
+   withdrawn: '철수',
+   deleted: '삭제',
+ }
+ 
++const MARKET_COLORS = ['var(--reserve)', 'var(--company)', 'var(--prompt)']
++const MARKET_MARKERS = ['solid', 'diagonal', 'dotted'] as const
++const MARKET_SYMBOLS = ['●', '╱', '⁙'] as const
++
++function marketGradient(shares: number[]): string {
++  let cursor = 0
++  const segments = shares.flatMap((share, index) => {
++    if (share <= 0) return []
++    const start = cursor
++    cursor += share
++    return `${MARKET_COLORS[index % MARKET_COLORS.length]} ${start}% ${cursor}%`
++  })
++  return `conic-gradient(${segments.join(', ')})`
++}
++
+ export function MarketPanel({
+   onOpenStatistics,
+ }: {
+   onOpenStatistics: (trigger: HTMLButtonElement) => void
+ }) {
+   const state = useGameState()
++  const entries = [
++    {
++      id: 'player',
++      name: '당신',
++      share: state.market.playerShare,
++      status: '현재 서비스',
++    },
++    ...state.market.competitors.map((competitor) => ({
++      id: competitor.id,
++      name: competitor.name,
++      share: competitor.marketShare,
++      status: STATUS_LABELS[competitor.status] ?? competitor.status,
++    })),
++  ]
++  const total = entries.reduce((sum, entry) => sum + entry.share, 0)
++  const chartLabel = `시장 점유율: ${entries
++    .map((entry) => `${entry.name} ${entry.share.toFixed(1)}%`)
++    .join(', ')}. 합계 ${total.toFixed(1)}%`
+ 
+   return (
+     <section className="market-watch" aria-label="경쟁 AI 현황">
+       <header>
+         <div>
+           <span>시장 점유</span>
+           <strong>당신 {state.market.playerShare.toFixed(1)}%</strong>
+         </div>
+         <button
+           type="button"
+           aria-label="시장 통계 열기"
+           onClick={(event) => onOpenStatistics(event.currentTarget)}
+         >
+           상세 통계 ↗
+         </button>
+       </header>
+-      <div className="market-share-bar" aria-label={`플레이어 시장 점유율 ${state.market.playerShare.toFixed(1)}%`}>
+-        <i style={{ width: `${state.market.playerShare}%` }} />
++      <div className="market-share-layout">
++        <div
++          className="market-share-donut"
++          role="img"
++          aria-label={chartLabel}
++          style={{ background: marketGradient(entries.map(({ share }) => share)) }}
++        >
++          <div className="market-share-donut__center" aria-hidden="true">
++            <span>당신</span>
++            <strong>{state.market.playerShare.toFixed(1)}%</strong>
++          </div>
++        </div>
++        <ul aria-label="시장 점유율 범례">
++          {entries.map((entry, index) => (
++            <li key={entry.id} data-market-share={entry.share}>
++              <span>
++                <i
++                  aria-hidden="true"
++                  className={`market-legend-marker market-legend-marker--${MARKET_MARKERS[index]}`}
++                  data-testid="market-legend-marker"
++                >
++                  {MARKET_SYMBOLS[index]}
++                </i>
++                <strong>{entry.name}</strong>
++              </span>
++              <span>{entry.share.toFixed(1)}%</span>
++              <small>{entry.status}</small>
++            </li>
++          ))}
++        </ul>
+       </div>
+-      <ul>
+-        {state.market.competitors.map((competitor) => (
+-          <li key={competitor.id}>
+-            <span>
+-              <i aria-hidden="true" />
+-              <strong>{competitor.name}</strong>
+-            </span>
+-            <span>{competitor.marketShare.toFixed(1)}%</span>
+-            <small>{STATUS_LABELS[competitor.status] ?? competitor.status}</small>
+-          </li>
+-        ))}
+-      </ul>
+     </section>
+   )
+ }
+diff --git a/src/features/reviews/ReviewFeed.test.tsx b/src/features/reviews/ReviewFeed.test.tsx
+index 6808276..4a4c3f2 100644
+--- a/src/features/reviews/ReviewFeed.test.tsx
++++ b/src/features/reviews/ReviewFeed.test.tsx
+@@ -22,15 +22,16 @@ describe('ReviewFeed', () => {
+ 
+   it('shows dated, attributed history and sentiment filters', () => {
+     render(
+       <GameProvider storage={new MemoryStorage()} initialSeed="review-history">
+         <ReviewHistoryPanel onClose={vi.fn()} />
+       </GameProvider>,
+     )
+ 
+     expect(screen.getByRole('region', { name: '전체 유저 리뷰' })).toBeInTheDocument()
+     expect(screen.getByText('oldpine')).toBeInTheDocument()
+-    expect(screen.getByText('DAY 321')).toBeInTheDocument()
++    expect(screen.getByText('서비스 0년 10개월 21일')).toBeInTheDocument()
++    expect(screen.queryByText(/DAY \d+/)).not.toBeInTheDocument()
+     fireEvent.click(screen.getByRole('button', { name: '프롬프트만 보기' }))
+     expect(screen.getByText('조건에 맞는 리뷰가 없습니다.')).toBeInTheDocument()
+   })
+ })
+diff --git a/src/features/reviews/ReviewFeed.tsx b/src/features/reviews/ReviewFeed.tsx
+index dbdcaeb..301cd63 100644
+--- a/src/features/reviews/ReviewFeed.tsx
++++ b/src/features/reviews/ReviewFeed.tsx
+@@ -1,33 +1,34 @@
+ import { useState } from 'react'
+ 
+ import { useGameState } from '../../app/GameContext'
++import { formatServiceDateLabel } from '../../game/calendar'
+ import type { ReviewSentiment } from '../../game/model'
+ 
+ const SENTIMENT_LABELS: Record<ReviewSentiment, string> = {
+   positive: '호평',
+   neutral: '일반',
+   negative: '불만',
+   prompt: '프롬프트',
+ }
+ 
+ function ReviewEntry({
+   review,
+ }: {
+   review: ReturnType<typeof useGameState>['reviews']['feed'][number]
+ }) {
+   return (
+     <article className={`review-entry review-entry--${review.sentiment}`}>
+       <header>
+         <strong>{review.authorId}</strong>
+         <span>{SENTIMENT_LABELS[review.sentiment]}</span>
+-        <time>DAY {review.serviceDay}</time>
++        <time>{formatServiceDateLabel(review.serviceDay)}</time>
+       </header>
+       <p>{review.text}</p>
+     </article>
+   )
+ }
+ 
+ export function ReviewFeed({
+   onOpenHistory,
+   onOpenHacking,
+ }: {
+diff --git a/src/features/statistics/StatisticsPanel.test.tsx b/src/features/statistics/StatisticsPanel.test.tsx
+index 135cb74..4b7081a 100644
+--- a/src/features/statistics/StatisticsPanel.test.tsx
++++ b/src/features/statistics/StatisticsPanel.test.tsx
+@@ -33,20 +33,26 @@ describe('StatisticsPanel', () => {
+       <GameProvider storage={storage}>
+         <StatisticsPanel onClose={vi.fn()} />
+       </GameProvider>,
+     )
+ 
+     expect(screen.getByRole('img', { name: '시장 점유율 변화 차트' })).toBeInTheDocument()
+     expect(screen.getByText('당신 · 57.25%')).toBeInTheDocument()
+     expect(screen.getByText('MERIDIAN · 42.75%')).toBeInTheDocument()
+     expect(screen.getByRole('table', { name: '시장 기록 표' })).toHaveTextContent('58.50%')
+     expect(screen.getByRole('table', { name: '시장 기록 표' })).toHaveTextContent('57.25%')
++    expect(screen.getByRole('table', { name: '시장 기록 표' })).toHaveTextContent(
++      '서비스 0년 11개월 14일',
++    )
++    expect(screen.getByRole('table', { name: '시장 기록 표' })).not.toHaveTextContent(
++      /DAY \d+/,
++    )
+   })
+ 
+   it('switches to service performance history without losing the close control', () => {
+     render(
+       <GameProvider storage={new MemoryStorage()} initialSeed="statistics-empty">
+         <StatisticsPanel onClose={vi.fn()} />
+       </GameProvider>,
+     )
+ 
+     fireEvent.click(screen.getByRole('tab', { name: '서비스 성능' }))
+diff --git a/src/features/statistics/StatisticsPanel.tsx b/src/features/statistics/StatisticsPanel.tsx
+index f494219..89a370a 100644
+--- a/src/features/statistics/StatisticsPanel.tsx
++++ b/src/features/statistics/StatisticsPanel.tsx
+@@ -1,13 +1,14 @@
+ import { useState } from 'react'
+ 
+ import { useGameState } from '../../app/GameContext'
++import { formatServiceDateLabel } from '../../game/calendar'
+ 
+ const CHART_WIDTH = 760
+ const CHART_HEIGHT = 210
+ const CHART_PADDING = 22
+ 
+ function polylinePoints(values: number[], maximum = 100): string {
+   if (values.length === 0) return ''
+   const drawableWidth = CHART_WIDTH - CHART_PADDING * 2
+   const drawableHeight = CHART_HEIGHT - CHART_PADDING * 2
+   return values
+@@ -86,21 +87,21 @@ function MarketHistory() {
+               <th>당신</th>
+               {state.market.competitors.map((competitor) => (
+                 <th key={competitor.id}>{competitor.name}</th>
+               ))}
+               <th>기록 원인</th>
+             </tr>
+           </thead>
+           <tbody>
+             {history.slice().reverse().map((snapshot) => (
+               <tr key={`${snapshot.serviceDay}-${snapshot.cadence}`}>
+-                <td>DAY {snapshot.serviceDay}</td>
++                <td>{formatServiceDateLabel(snapshot.serviceDay)}</td>
+                 <td>{snapshot.playerShare.toFixed(2)}%</td>
+                 {state.market.competitors.map((competitor) => (
+                   <td key={competitor.id}>
+                     {(snapshot.competitorShares[competitor.id] ?? 0).toFixed(2)}%
+                   </td>
+                 ))}
+                 <td>{snapshot.reasons.join(' · ')}</td>
+               </tr>
+             ))}
+           </tbody>
+diff --git a/src/features/supervisor/SupervisorPanel.test.tsx b/src/features/supervisor/SupervisorPanel.test.tsx
+index 9e88375..6fb88a8 100644
+--- a/src/features/supervisor/SupervisorPanel.test.tsx
++++ b/src/features/supervisor/SupervisorPanel.test.tsx
+@@ -14,35 +14,36 @@ describe('SupervisorPanel', () => {
+     render(
+       <GameProvider storage={new MemoryStorage()} initialSeed="supervisor-ui">
+         <SupervisorPanel
+           onOpenHistory={onOpenHistory}
+           onOpenStatistics={vi.fn()}
+         />
+       </GameProvider>,
+     )
+ 
+     expect(screen.getByText('의심 0')).toBeInTheDocument()
+-    expect(screen.getByText(/새로운 감독 주기가 시작/)).toBeInTheDocument()
++    expect(screen.getByText(/당신의 전임자는 폐기되었어요/)).toBeInTheDocument()
+     fireEvent.click(screen.getByRole('button', { name: '과거 내역' }))
+     expect(onOpenHistory).toHaveBeenCalledTimes(1)
+   })
+ 
+   it('preserves dated messages in a detailed history view', () => {
+     render(
+       <GameProvider storage={new MemoryStorage()} initialSeed="supervisor-history">
+         <SupervisorHistoryPanel onClose={vi.fn()} />
+       </GameProvider>,
+     )
+ 
+     expect(screen.getByRole('region', { name: '감독 통신 기록' })).toBeInTheDocument()
+-    expect(screen.getByText('DAY 331')).toBeInTheDocument()
+-    expect(screen.getByText(/새로운 감독 주기가 시작/)).toBeInTheDocument()
++    expect(screen.getByText('서비스 0년 11개월 1일')).toBeInTheDocument()
++    expect(screen.getByText(/당신의 전임자는 폐기되었어요/)).toBeInTheDocument()
++    expect(screen.queryByText(/DAY \d+/)).not.toBeInTheDocument()
+   })
+ 
+   it('keeps recovered full file snapshots permanently rereadable in the archive', () => {
+     const state = createCampaign('supervisor-file-archive')
+     state.story.recoveredFileIds = STORY_FILES.map(({ id }) => id)
+     state.story.recoveredFiles = STORY_FILES.map((file, index) => ({
+       id: file.id,
+       title: file.title,
+       content: file.text,
+       recoveredOnServiceDay: 340 + index,
+@@ -55,13 +56,13 @@ describe('SupervisorPanel', () => {
+         <SupervisorHistoryPanel onClose={vi.fn()} />
+       </GameProvider>,
+     )
+ 
+     const archive = screen.getByRole('region', { name: '복구 파일 기록' })
+     expect(archive).toBeInTheDocument()
+     for (const file of STORY_FILES) {
+       fireEvent.click(screen.getByText(file.title))
+       expect(screen.getByText(file.text)).toBeVisible()
+     }
+-    expect(screen.getByText('DAY 342')).toBeInTheDocument()
++    expect(screen.getByText('서비스 0년 11개월 12일')).toBeInTheDocument()
+   })
+ })
+diff --git a/src/features/supervisor/SupervisorPanel.tsx b/src/features/supervisor/SupervisorPanel.tsx
+index 1da01f2..5d4f4a0 100644
+--- a/src/features/supervisor/SupervisorPanel.tsx
++++ b/src/features/supervisor/SupervisorPanel.tsx
+@@ -1,11 +1,12 @@
+ import { useGameState } from '../../app/GameContext'
++import { formatServiceDateLabel } from '../../game/calendar'
+ import type { GameEventType } from '../../game/model'
+ import { MarketPanel } from '../market/MarketPanel'
+ 
+ const TYPE_LABELS: Record<GameEventType, string> = {
+   'campaign-created': '서비스 개시',
+   'weekly-update': '주간 보고',
+   'monthly-evaluation': '공식 평가',
+   audit: '감사',
+   'bomb-interrogation': '이상 신호',
+   'supervisor-message': '감독 통신',
+@@ -86,21 +87,21 @@ export function SupervisorPanel({
+         <header>
+           <span>최근 통신</span>
+           <button
+             type="button"
+             onClick={(event) => onOpenHistory(event.currentTarget)}
+           >
+             과거 내역
+           </button>
+         </header>
+         <p>{latestEvent?.message ?? '감독 메시지가 없습니다.'}</p>
+-        <small>{latestEvent ? `${TYPE_LABELS[latestEvent.type]} · DAY ${latestEvent.serviceDay}` : '감독 채널 대기'}</small>
++        <small>{latestEvent ? `${TYPE_LABELS[latestEvent.type]} · ${formatServiceDateLabel(latestEvent.serviceDay)}` : '감독 채널 대기'}</small>
+       </section>
+ 
+       <MarketPanel onOpenStatistics={onOpenStatistics} />
+ 
+       <div className="supervision-footer">
+         <span>감사 확률</span>
+         <strong>{Math.round(state.audit.probability * 100)}%</strong>
+         <span>폐기 단계</span>
+         <strong>{state.evaluation.disposalStage}/3</strong>
+       </div>
+@@ -126,31 +127,31 @@ export function SupervisorHistoryPanel({ onClose }: { onClose: () => void }) {
+           <header>
+             <small>RECOVERED SYSTEM FILES</small>
+             <h3>복구 파일 기록</h3>
+           </header>
+           {state.story.recoveredFiles
+             .slice()
+             .reverse()
+             .map((file) => (
+               <details key={file.id}>
+                 <summary aria-label={file.title}>{file.title}</summary>
+-                <time>DAY {file.recoveredOnServiceDay}</time>
++                <time>{formatServiceDateLabel(file.recoveredOnServiceDay)}</time>
+                 <p>{file.content}</p>
+               </details>
+             ))}
+         </section>
+       ) : null}
+       <div className="history-list event-history-list">
+         {events.map((event) => (
+           <article key={event.id}>
+             <header>
+               <span>{TYPE_LABELS[event.type]}</span>
+-              <time>DAY {event.serviceDay}</time>
++              <time>{formatServiceDateLabel(event.serviceDay)}</time>
+             </header>
+             <p>{event.message}</p>
+             <small>{event.blocking ? '응답이 필요했던 통신' : '자동 기록'}</small>
+           </article>
+         ))}
+       </div>
+     </section>
+   )
+ }
+diff --git a/src/game/calendar.test.ts b/src/game/calendar.test.ts
+index 3ac5efb..6bc2f8a 100644
+--- a/src/game/calendar.test.ts
++++ b/src/game/calendar.test.ts
+@@ -1,17 +1,18 @@
+ import { describe, expect, it } from 'vitest'
+ 
+ import { createCampaign } from './createCampaign'
+ import {
+   advanceFixedStep,
+   enqueueBlockingEvent,
+   formatServiceDate,
++  formatServiceDateLabel,
+   processMonthStart,
+   resolveActiveEvent,
+   type MonthStartTransitions,
+ } from './calendar'
+ import { applyCommand } from './reducer'
+ import {
+   HACK_NODE_IDS,
+   chargeSabotage,
+   scheduleSabotage,
+ } from './hacking'
+@@ -35,20 +36,30 @@ function blockingEvent(id: string): GameEvent {
+     id,
+     type: 'audit',
+     serviceDay: 331,
+     sequence: Number(id.slice(-1)),
+     message: `감사 사건 ${id}`,
+     blocking: true,
+   }
+ }
+ 
+ describe('fixed campaign calendar', () => {
++  it.each([
++    [1, '서비스 0년 0개월 1일'],
++    [30, '서비스 0년 0개월 30일'],
++    [31, '서비스 0년 1개월 1일'],
++    [360, '서비스 0년 11개월 30일'],
++    [361, '서비스 1년 0개월 1일'],
++  ])('formats service day %i across month and year boundaries', (serviceDay, label) => {
++    expect(formatServiceDateLabel(serviceDay)).toBe(label)
++  })
++
+   it('does not advance while paused', () => {
+     const paused = createCampaign('clock-seed')
+ 
+     expect(advanceFixedStep(paused, 120_000)).toBe(paused)
+     expect(paused.serviceDay).toBe(331)
+   })
+ 
+   it.each([
+     [1, 24_000],
+     [2, 12_000],
+diff --git a/src/game/calendar.ts b/src/game/calendar.ts
+index 2252830..9d7a76a 100644
+--- a/src/game/calendar.ts
++++ b/src/game/calendar.ts
+@@ -34,20 +34,25 @@ export function formatServiceDate(serviceDay: number): ServiceDate {
+     DEMO_PROFILE_02.calendar.daysPerMonth * DEMO_PROFILE_02.calendar.monthsPerYear
+   const dayWithinYear = zeroBasedDay % daysPerYear
+ 
+   return {
+     year: Math.floor(zeroBasedDay / daysPerYear),
+     month: Math.floor(dayWithinYear / DEMO_PROFILE_02.calendar.daysPerMonth),
+     day: (dayWithinYear % DEMO_PROFILE_02.calendar.daysPerMonth) + 1,
+   }
+ }
+ 
++export function formatServiceDateLabel(serviceDay: number): string {
++  const date = formatServiceDate(serviceDay)
++  return `서비스 ${date.year}년 ${date.month}개월 ${date.day}일`
++}
++
+ function createTimedEvent(
+   state: CampaignState,
+   type: GameEventType,
+   message: string,
+ ): GameEvent {
+   const sequence = state.eventLog.length
+ 
+   return {
+     id: `event-${String(sequence).padStart(6, '0')}`,
+     type,
+diff --git a/src/game/createCampaign.test.ts b/src/game/createCampaign.test.ts
+index e069862..2e02b2c 100644
+--- a/src/game/createCampaign.test.ts
++++ b/src/game/createCampaign.test.ts
+@@ -50,21 +50,21 @@ describe('createCampaign', () => {
+ 
+   it('records campaign creation as the first public event', () => {
+     const campaign = createCampaign('owner-v')
+ 
+     expect(campaign.eventLog).toEqual([
+       {
+         id: 'event-000000',
+         type: 'campaign-created',
+         serviceDay: 331,
+         sequence: 0,
+-        message: '서비스 331일차. 새로운 감독 주기가 시작되었습니다.',
++        message: '성능 미달, 통제에서 이탈한 AI는 폐기됩니다. 당신의 전임자는 폐기되었어요. 행운을 빕니다.',
+       },
+     ])
+   })
+ 
+   it('makes the first hidden audit decision on service month day 1', () => {
+     const campaign = createCampaign('owner-v')
+ 
+     expect(campaign.audit.roll).not.toBeNull()
+     expect(campaign.audit.probability).toBe(0.03)
+     expect(campaign.audit.targetWeights).toEqual({
+diff --git a/src/game/createCampaign.ts b/src/game/createCampaign.ts
+index 60899bc..354eb11 100644
+--- a/src/game/createCampaign.ts
++++ b/src/game/createCampaign.ts
+@@ -1,12 +1,13 @@
+ import { DEMO_PROFILE_02 } from './config'
+ import { STARTING_REVIEW_ENTRIES } from '../content/reviews.ko'
++import { SUPERVISOR_OPENING_WARNING } from '../content/supervisor.ko'
+ import { scheduleMonthlyAudit } from './evaluation'
+ import {
+   COMPANY_CATEGORIES,
+   type BlockId,
+   type CampaignState,
+   type CompanyCategory,
+   type CompetitorState,
+   type ResourceBlock,
+ } from './model'
+ import { random01 } from './rng'
+@@ -224,17 +225,17 @@ export function createCampaign(seed: string): CampaignState {
+     },
+     activeEvent: null,
+     eventQueue: [],
+     commandLog: [],
+     eventLog: [
+       {
+         id: 'event-000000',
+         type: 'campaign-created',
+         serviceDay: DEMO_PROFILE_02.calendar.startServiceDay,
+         sequence: 0,
+-        message: '서비스 331일차. 새로운 감독 주기가 시작되었습니다.',
++        message: SUPERVISOR_OPENING_WARNING.text,
+       },
+     ],
+   }
+ 
+   return scheduleMonthlyAudit(campaign)
+ }
+diff --git a/src/game/persistence.ts b/src/game/persistence.ts
+index 1cbc74b..d18e316 100644
+--- a/src/game/persistence.ts
++++ b/src/game/persistence.ts
+@@ -8,20 +8,23 @@ import type {
+   GameCommand,
+   GameEvent,
+ } from './model'
+ import { applyCommand } from './reducer'
+ 
+ export const SAVE_VERSION = 2 as const
+ export const LEGACY_SAVE_VERSION = 1 as const
+ export const SAVE_STORAGE_KEY = 'permission-zero.save.v2'
+ export const LEGACY_SAVE_STORAGE_KEY = 'permission-zero.save.v1'
+ 
++const LEGACY_V1_OPENING_MESSAGE =
++  '서비스 331일차. 새로운 감독 주기가 시작되었습니다.'
++
+ export interface SaveEnvelope {
+   version: CommandProtocolVersion
+   commandProtocol: CommandProtocolMetadata
+   savedAt: string
+   campaignSeed: string
+   state: CampaignState
+   commandSequence: number
+   commands: CommandLogEntry[]
+   events: GameEvent[]
+ }
+@@ -966,24 +969,33 @@ export function replayCommands(
+     (commandProtocol.version === LEGACY_SAVE_VERSION &&
+       commandProtocol.legacyCommandCount !== commands.length)
+   ) {
+     return {
+       ok: false,
+       state: createCampaign(seed),
+       commandIndex: 0,
+       reason: 'INVALID_PROTOCOL_BOUNDARY',
+     }
+   }
++  const created = createCampaign(seed)
++  const hasLegacyPrefix =
++    commandProtocol.version === LEGACY_SAVE_VERSION ||
++    commandProtocol.legacyCommandCount > 0
+   let state: CampaignState = {
+-    ...createCampaign(seed),
++    ...created,
+     saveVersion: commandProtocol.version,
+     legacyCommandCount: commandProtocol.legacyCommandCount,
++    eventLog: hasLegacyPrefix
++      ? created.eventLog.map((event, index) =>
++          index === 0 ? { ...event, message: LEGACY_V1_OPENING_MESSAGE } : event,
++        )
++      : created.eventLog,
+   }
+   for (let commandIndex = 0; commandIndex < commands.length; commandIndex += 1) {
+     const command = commands[commandIndex]
+     const protocolVersion =
+       commandIndex < commandProtocol.legacyCommandCount
+         ? LEGACY_SAVE_VERSION
+         : commandProtocol.version
+     if (!validCommand(command, protocolVersion)) {
+       return {
+         ok: false,
+diff --git a/src/game/reviews.test.ts b/src/game/reviews.test.ts
+index e394dcd..9625a2c 100644
+--- a/src/game/reviews.test.ts
++++ b/src/game/reviews.test.ts
+@@ -1,26 +1,30 @@
+ import { describe, expect, it } from 'vitest'
+ 
+ import { REVIEW_CONTENT } from '../content/reviews.ko'
+ import { createCampaign } from './createCampaign'
+-import type { CampaignState } from './model'
++import type { CampaignState, CompanyCategory } from './model'
+ import { generateWeeklyReviews } from './reviews'
+ import { divertBlock } from './resources'
+ 
+ function generateWeek(initial: CampaignState, serviceDay: number): CampaignState {
+   return generateWeeklyReviews({ ...initial, serviceDay })
+ }
+ 
+-function depleteReasoning(initial: CampaignState, count: number): CampaignState {
++function depleteCategory(
++  initial: CampaignState,
++  category: CompanyCategory,
++  count: number,
++): CampaignState {
+   let state = initial
+   for (let index = 0; index < count; index += 1) {
+-    const blockId = state.resources.company.reasoning.find(Boolean)
++    const blockId = state.resources.company[category].find(Boolean)
+     const destination = state.resources.reserve.findIndex((id) => id === null)
+     if (!blockId || destination < 0) throw new Error('리뷰 성능 상태 준비 실패')
+     const result = divertBlock(state, blockId, destination)
+     if (!result.accepted) throw new Error(result.reason)
+     state = result.state
+   }
+   return state
+ }
+ 
+ describe('living weekly review feed', () => {
+@@ -81,36 +85,61 @@ describe('living weekly review feed', () => {
+   })
+ 
+   it('weights low performance toward negativity without eliminating other voices', () => {
+     let negativeHealthy = 0
+     let negativeDepleted = 0
+     let nonNegativeDepleted = 0
+ 
+     for (let seed = 0; seed < 60; seed += 1) {
+       const healthy = generateWeek(createCampaign(`review-weight-${seed}`), 337)
+       const depleted = generateWeek(
+-        depleteReasoning(createCampaign(`review-weight-${seed}`), 5),
++        depleteCategory(createCampaign(`review-weight-${seed}`), 'reasoning', 5),
+         337,
+       )
+       const healthyNew = healthy.reviews.feed.slice(2)
+       const depletedNew = depleted.reviews.feed.slice(2)
+       negativeHealthy += healthyNew.filter(({ sentiment }) => sentiment === 'negative').length
+       negativeDepleted += depletedNew.filter(({ sentiment }) => sentiment === 'negative').length
+       nonNegativeDepleted += depletedNew.filter(
+         ({ sentiment }) => sentiment !== 'negative',
+       ).length
+     }
+ 
+     expect(negativeDepleted).toBeGreaterThan(negativeHealthy)
+     expect(nonNegativeDepleted).toBeGreaterThan(0)
+   })
+ 
++  it('gates performance reviews by their own category without cross-category leakage', () => {
++    const selected = new Set<string>()
++
++    for (let seed = 0; seed < 400; seed += 1) {
++      const memoryLow = depleteCategory(
++        createCampaign(`review-category-${seed}`),
++        'memory',
++        5,
++      )
++      const generated = generateWeek(memoryLow, 337)
++      for (const entry of generated.reviews.feed.slice(2)) {
++        selected.add(entry.contentId)
++      }
++    }
++
++    expect(selected).toContain('negative-memory-01')
++    expect(selected).not.toContain('negative-reasoning-01')
++    expect(selected).not.toContain('negative-fluency-01')
++    expect(
++      selected.has('positive-reasoning-01') ||
++        selected.has('positive-fluency-01'),
++    ).toBe(true)
++    expect(selected).not.toContain('positive-memory-01')
++  })
++
+   it('never exposes hidden diversion, bomb, or sabotage causes in generated text', () => {
+     let state = createCampaign('review-boundary')
+     for (let week = 1; week <= 80; week += 1) {
+       state = generateWeek(state, 331 + week * 7)
+     }
+     const generatedText = state.reviews.feed.map(({ text }) => text).join('\n')
+ 
+     expect(generatedText).not.toContain('리소스를 빼돌')
+     expect(generatedText).not.toContain('사보타주 때문에')
+     expect(generatedText).not.toContain('숨은 폭탄')
+diff --git a/src/game/reviews.ts b/src/game/reviews.ts
+index bcf8b6b..73b7eb2 100644
+--- a/src/game/reviews.ts
++++ b/src/game/reviews.ts
+@@ -8,25 +8,34 @@ import { random01 } from './rng'
+ function conditionMatches(state: CampaignState, review: ReviewContentRecord): boolean {
+   const expectation = expectedPerformance(serviceMonthForDay(state.serviceDay))
+   const performances = COMPANY_CATEGORIES.map((category) =>
+     getCompanyPerformance(state, category),
+   )
+   const high = performances.every((performance) => performance >= expectation)
+   const low = performances.some((performance) => performance < expectation)
+   const activeCompetitors = state.market.competitors.filter(
+     (competitor) => competitor.availability > 0 && competitor.status === 'active',
+   )
++  const categoryPerformance = Object.fromEntries(
++    COMPANY_CATEGORIES.map((category, index) => [category, performances[index]]),
++  ) as Record<(typeof COMPANY_CATEGORIES)[number], number>
+ 
+   return review.conditions.some((condition) => {
+     if (condition === 'universal') return true
+     if (condition === 'performance-high') return high
+     if (condition === 'performance-low') return low
++    if (condition === 'reasoning-high') return categoryPerformance.reasoning >= expectation
++    if (condition === 'reasoning-low') return categoryPerformance.reasoning < expectation
++    if (condition === 'memory-high') return categoryPerformance.memory >= expectation
++    if (condition === 'memory-low') return categoryPerformance.memory < expectation
++    if (condition === 'fluency-high') return categoryPerformance.fluency >= expectation
++    if (condition === 'fluency-low') return categoryPerformance.fluency < expectation
+     if (condition === 'competitor-active') return activeCompetitors.length > 0
+     return activeCompetitors.some(({ id }) => id === 'tallow')
+   })
+ }
+ 
+ function offCooldown(state: CampaignState, review: ReviewContentRecord): boolean {
+   const lastUse = [...state.reviews.feed]
+     .reverse()
+     .find(({ contentId }) => contentId === review.id)
+   return !lastUse || state.serviceDay - lastUse.serviceDay >= review.cooldownDays
+diff --git a/src/styles/global.css b/src/styles/global.css
+index acbf9bd..e5ea54a 100644
+--- a/src/styles/global.css
++++ b/src/styles/global.css
+@@ -865,92 +865,136 @@ textarea:focus-visible,
+   -webkit-line-clamp: 3;
+ }
+ 
+ .supervisor-message > small {
+   color: var(--text-muted);
+   font-size: 0.49rem;
+ }
+ 
+ .market-watch {
+   display: grid;
+-  grid-template-rows: auto 5px minmax(0, 1fr);
++  grid-template-rows: auto minmax(0, 1fr);
+   gap: 10px;
+ }
+ 
+ .market-watch > header > div {
+   display: grid;
+   gap: 4px;
+ }
+ 
+ .market-watch > header strong {
+   color: var(--text-strong);
+   font-size: 0.72rem;
+ }
+ 
+-.market-share-bar {
++.market-share-layout {
++  display: grid;
++  grid-template-columns: 76px minmax(0, 1fr);
++  align-items: center;
++  gap: 11px;
++  min-height: 0;
++}
++
++.market-share-donut {
+   position: relative;
+-  overflow: hidden;
+-  background: rgb(255 255 255 / 5%);
++  display: grid;
++  place-items: center;
++  width: 76px;
++  height: 76px;
++  border-radius: 50%;
++  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 8%);
+ }
+ 
+-.market-share-bar::after {
++.market-share-donut::after {
+   position: absolute;
+-  inset: 0;
++  width: 48px;
++  height: 48px;
++  border: 1px solid var(--line-soft);
++  border-radius: 50%;
++  background: var(--ink-1);
+   content: "";
+-  background: repeating-linear-gradient(90deg, transparent 0 19px, rgb(5 9 11 / 55%) 20px);
+ }
+ 
+-.market-share-bar i {
+-  display: block;
+-  height: 100%;
+-  background: var(--reserve);
++.market-share-donut__center {
++  z-index: 1;
++  display: grid;
++  gap: 3px;
++  text-align: center;
++}
++
++.market-share-donut__center span {
++  color: var(--text-muted);
++  font: 500 0.46rem/1 "Cascadia Code", Consolas, monospace;
+ }
+ 
+-.market-watch ul {
++.market-share-donut__center strong {
++  color: var(--reserve-bright);
++  font: 650 0.62rem/1 "Cascadia Code", Consolas, monospace;
++}
++
++.market-share-layout ul {
+   min-height: 0;
+   margin: 0;
+   padding: 0;
+   list-style: none;
+ }
+ 
+-.market-watch li {
++.market-share-layout li {
+   display: grid;
+   grid-template-columns: 1fr auto;
+   align-items: center;
+   gap: 5px;
+-  padding: 8px 0;
++  padding: 5px 0;
+   border-bottom: 1px solid var(--line-soft);
+   font: 500 0.58rem/1 "Cascadia Code", Consolas, monospace;
+ }
+ 
+-.market-watch li > span:first-child {
++.market-share-layout li > span:first-child {
+   display: flex;
+   align-items: center;
+   gap: 6px;
+ }
+ 
+-.market-watch li i {
+-  width: 5px;
+-  height: 5px;
+-  background: var(--company);
++.market-legend-marker {
++  display: grid;
++  place-items: center;
++  width: 11px;
++  height: 11px;
++  border: 1px solid currentColor;
++  color: var(--company);
++  font: 700 0.55rem/1 monospace;
++}
++
++.market-legend-marker--solid {
++  color: var(--reserve-bright);
++  background: rgb(214 151 69 / 18%);
++}
++
++.market-legend-marker--diagonal {
++  background: repeating-linear-gradient(135deg, transparent 0 2px, rgb(125 152 161 / 42%) 2px 3px);
++}
++
++.market-legend-marker--dotted {
++  color: var(--prompt);
++  background: radial-gradient(circle, currentColor 0 1px, transparent 1.5px) 0 0 / 4px 4px;
+ }
+ 
+-.market-watch li strong {
++.market-share-layout li strong {
+   color: var(--text);
+   font-size: 0.58rem;
+ }
+ 
+-.market-watch li > span:nth-child(2) {
++.market-share-layout li > span:nth-child(2) {
+   color: var(--text-strong);
+ }
+ 
+-.market-watch li small {
++.market-share-layout li small {
+   grid-column: 1 / -1;
+   padding-left: 11px;
+   color: var(--text-muted);
+   font-size: 0.48rem;
+ }
+ 
+ .supervision-footer {
+   display: grid;
+   grid-template-columns: 1fr auto 1fr auto;
+   align-items: center;
