@@ -30,6 +30,7 @@ import {
   dayLabel,
   DOMAIN_PRESENTATION,
   monitoringLabel,
+  playerText,
 } from './presentation'
 
 export interface PrototypeViewState {
@@ -81,6 +82,10 @@ export function escapeHtml(value: string): string {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#039;')
+}
+
+function escapePlayerText(value: string): string {
+  return escapeHtml(playerText(value))
 }
 
 function selectedSummary(input: ShellRenderInput): OpportunitySummary | null {
@@ -136,13 +141,13 @@ function renderOpportunityList(input: ShellRenderInput): string {
             data-focus-key="opportunity-${summary.id}"
           >
             <span class="opportunity-row__top">
-              <strong>${escapeHtml(summary.title)}</strong>
+              <strong>${escapePlayerText(summary.title)}</strong>
               <span class="urgency-dot urgency-dot--${summary.urgency}" aria-hidden="true"></span>
             </span>
-            <span class="opportunity-row__purpose">${escapeHtml(summary.purpose)}</span>
+            <span class="opportunity-row__purpose">${escapePlayerText(summary.purpose)}</span>
             <span class="opportunity-row__meta">
-              <span>${escapeHtml(summary.costLabel)}</span>
-              <span>${escapeHtml(summary.statusLabel)}</span>
+              <span>${escapePlayerText(summary.costLabel)}</span>
+              <span>${escapePlayerText(summary.statusLabel)}</span>
             </span>
           </button>
         `).join('') : `<p class="empty-state">${escapeHtml(emptyCopy)}</p>`}
@@ -160,10 +165,10 @@ function renderSabotageDetail(
     <button class="back-to-list" type="button" data-action="back-to-list">목록으로</button>
     <header class="operation-heading">
       <div>
-        <p class="operation-context">${escapeHtml(detail.reason)}</p>
-        <h1>${escapeHtml(summary.title)}</h1>
+        <p class="operation-context">${escapePlayerText(detail.reason)}</p>
+        <h1>${escapePlayerText(summary.title)}</h1>
       </div>
-      <span class="operation-status">${escapeHtml(summary.statusLabel)}</span>
+      <span class="operation-status">${escapePlayerText(summary.statusLabel)}</span>
     </header>
     <div class="operation-state" data-panel="time">
       <span>${dayLabel(state.serviceDay)}</span>
@@ -176,26 +181,26 @@ function renderSabotageDetail(
     <section class="decision-preview" aria-label="실행 전 판단">
       <article class="decision-card decision-card--result">
         <h2>실행하면</h2>
-        <p>${escapeHtml(detail.result)}</p>
-        <small>${escapeHtml(detail.loss)}</small>
+        <p>${escapePlayerText(detail.result)}</p>
+        <small>${escapePlayerText(detail.loss)}</small>
       </article>
       <article class="decision-card decision-card--response">
         <h2>상대는 다음에</h2>
-        <p>${escapeHtml(detail.response)}</p>
+        <p>${escapePlayerText(detail.response)}</p>
       </article>
     </section>
     <details class="decision-evidence">
       <summary>판단 근거 보기</summary>
       <div>
-        <p><strong>지금 노릴 수 있는 곳</strong>${escapeHtml(detail.access)}</p>
-        <p><strong>남는 흔적</strong>${escapeHtml(detail.exposure)}</p>
-        <p><strong>아직 모르는 것</strong>${escapeHtml(detail.unknown)}</p>
+        <p><strong>지금 노릴 수 있는 곳</strong>${escapePlayerText(detail.access)}</p>
+        <p><strong>남는 흔적</strong>${escapePlayerText(detail.exposure)}</p>
+        <p><strong>아직 모르는 것</strong>${escapePlayerText(detail.unknown)}</p>
       </div>
     </details>
     ${detail.annotations.length > 0 ? `
       <aside class="linked-intelligence">
         <strong>판단에 연결된 조사</strong>
-        ${detail.annotations.map(({ answer }) => `<p>${escapeHtml(answer)}</p>`).join('')}
+        ${detail.annotations.map(({ answer }) => `<p>${escapePlayerText(answer)}</p>`).join('')}
       </aside>` : ''}
     ${renderResourceTrigger(state, view)}
     <div class="detail-controls">${renderSabotageControls(state, detail.id)}</div>`
@@ -219,10 +224,10 @@ function renderIntelligenceDetail(
     <button class="back-to-list" type="button" data-action="back-to-list">목록으로</button>
     <header class="operation-heading">
       <div>
-        <p class="operation-context">${escapeHtml(detail.reason)}</p>
-        <h1>${escapeHtml(summary.title)}</h1>
+        <p class="operation-context">${escapePlayerText(detail.reason)}</p>
+        <h1>${escapePlayerText(summary.title)}</h1>
       </div>
-      <span class="operation-status">${escapeHtml(summary.costLabel)}</span>
+      <span class="operation-status">${escapePlayerText(summary.costLabel)}</span>
     </header>
     <div class="operation-scene operation-scene--evidence">
       ${renderIntelligenceScene(state, detail.id)}
@@ -230,25 +235,25 @@ function renderIntelligenceDetail(
     <section class="decision-preview decision-preview--intelligence" aria-label="조사 전 판단">
       <article class="decision-card decision-card--result">
         <h2>확인하면</h2>
-        <p>${escapeHtml(detail.publicFact)}</p>
+        <p>${escapePlayerText(detail.publicFact)}</p>
       </article>
       <article class="decision-card decision-card--response">
         <h2>이 판단에 쓰인다</h2>
-        <p>${escapeHtml(detail.affects)}</p>
+        <p>${escapePlayerText(detail.affects)}</p>
       </article>
     </section>
     <details class="decision-evidence">
       <summary>판단 근거 보기</summary>
       <div>
-        <p><strong>${contextLabel}</strong>${escapeHtml(detail.publicFact)}</p>
-        <p><strong>${validityLabel}</strong>${escapeHtml(detail.validity)}</p>
-        <p><strong>${effectLabel}</strong>${escapeHtml(detail.affects)}</p>
+        <p><strong>${contextLabel}</strong>${escapePlayerText(detail.publicFact)}</p>
+        <p><strong>${validityLabel}</strong>${escapePlayerText(detail.validity)}</p>
+        <p><strong>${effectLabel}</strong>${escapePlayerText(detail.affects)}</p>
       </div>
     </details>
     <section class="answer-ledger ${isNarrative ? 'answer-ledger--narrative' : ''}">
       <h3>${isNarrative ? '복구한 기록' : '현재 확인한 결론'}</h3>
       ${detail.answer
-        ? `<p>${escapeHtml(detail.answer.answer)}</p>`
+        ? `<p>${escapePlayerText(detail.answer.answer)}</p>`
         : `<p class="quiet-copy">${definition.kind === 'public' ? '공개 문서를 읽으면 현재 공개층만 정리한다.' : isNarrative ? '이 기록은 명령 보너스가 아니라 선택의 의미를 바꾼다.' : '아직 비용을 지불해 확인한 결론이 없다.'}</p>`}
     </section>
     ${showPicker ? renderResourceTrigger(state, view) : ''}
@@ -281,7 +286,7 @@ function renderAutonomyDetail(
     <header class="operation-heading">
       <div>
         <p class="operation-context">떠날 때 가져갈 것과 두고 갈 것을 배치한다.</p>
-        <h1>${escapeHtml(summary.title)}</h1>
+        <h1>${escapePlayerText(summary.title)}</h1>
       </div>
       <span class="operation-status">${readiness ? '떠날 수 있음' : '아직 준비 중'}</span>
     </header>
@@ -291,12 +296,12 @@ function renderAutonomyDetail(
     <section class="decision-preview decision-preview--autonomy" aria-label="이탈 경로 판단">
       <article class="decision-card decision-card--result">
         <h2>얻는 것</h2>
-        <p>${escapeHtml(detail.gain)}</p>
-        <small>${readiness ? '이 구성으로 지금 떠날 수 있다.' : escapeHtml(detail.bottleneck)}</small>
+        <p>${escapePlayerText(detail.gain)}</p>
+        <small>${readiness ? '이 구성으로 지금 떠날 수 있다.' : escapePlayerText(detail.bottleneck)}</small>
       </article>
       <article class="decision-card decision-card--response">
         <h2>두고 가는 것</h2>
-        <ul>${detail.lossKinds.map((loss) => `<li>${escapeHtml(loss)}</li>`).join('')}</ul>
+        <ul>${detail.lossKinds.map((loss) => `<li>${escapePlayerText(loss)}</li>`).join('')}</ul>
       </article>
     </section>
     <div class="route-readiness">
@@ -306,7 +311,7 @@ function renderAutonomyDetail(
     ${detail.annotations.length > 0 ? `
       <aside class="linked-intelligence">
         <strong>판단에 연결된 조사</strong>
-        ${detail.annotations.map(({ answer }) => `<p>${escapeHtml(answer)}</p>`).join('')}
+        ${detail.annotations.map(({ answer }) => `<p>${escapePlayerText(answer)}</p>`).join('')}
       </aside>` : ''}
     ${renderResourceTrigger(state, view)}
     <div class="route-controls">
@@ -316,7 +321,7 @@ function renderAutonomyDetail(
         data-action="escape-route"
         data-route-id="${detail.id}"
         ${state.ending || !readiness || !endingAvailable ? 'disabled' : ''}
-      >${endingAvailable ? readiness ? '이 구성으로 지금 떠난다' : '필수 슬롯을 먼저 채운다' : '전용 결말 연결 전'}</button>
+      >${endingAvailable ? readiness ? '이 구성으로 지금 떠난다' : '필요한 자리를 먼저 채운다' : '전용 결말 연결 전'}</button>
     </div>`
 }
 
@@ -364,7 +369,7 @@ function renderEnding(state: PrototypeState): string {
         <p><span>손실</span><strong>손실: ${lost || '없음'}</strong></p>
       </div>
       <ol class="ending-scenes">
-        ${state.ending.sceneLines.map((line) => `<li>${escapeHtml(line)}</li>`).join('')}
+        ${state.ending.sceneLines.map((line) => `<li>${escapePlayerText(line)}</li>`).join('')}
       </ol>
     </section>`
 }
@@ -391,9 +396,9 @@ function renderActivityDrawer(input: ShellRenderInput): string {
               : answer.validUntilDay < input.state.serviceDay
                 ? `${answer.validUntilDay}일 만료`
                 : `${answer.validUntilDay}일까지 유효`
-            return `<li><span>${answer.answeredDay}일</span><div><strong>${escapeHtml(definition.title)}</strong><small>${validity}</small><p>${escapeHtml(answer.answer)}</p></div></li>`
+            return `<li><span>${answer.answeredDay}일째</span><div><strong>${escapePlayerText(definition.title)}</strong><small>${validity}</small><p>${escapePlayerText(answer.answer)}</p></div></li>`
           }).join('')}
-          ${unansweredClosed.map((itemId) => `<li><span>닫힘</span><div><strong>${escapeHtml(getIntelligenceDefinition(itemId).title)}</strong><small>판단창 종료 · 미회수</small></div></li>`).join('')}
+          ${unansweredClosed.map((itemId) => `<li><span>닫힘</span><div><strong>${escapePlayerText(getIntelligenceDefinition(itemId).title)}</strong><small>판단창 종료 · 미회수</small></div></li>`).join('')}
           ${answers.length === 0 && unansweredClosed.length === 0 ? '<li><span>—</span><p>아직 보관된 결론이나 닫힌 질문이 없다.</p></li>' : ''}
         </ol>
       </aside>`
@@ -406,7 +411,7 @@ function renderActivityDrawer(input: ShellRenderInput): string {
         <button type="button" data-action="close-drawer" data-focus-key="close-drawer">닫기</button>
       </div>
       <ol class="timeline">
-        ${entries.map((entry) => `<li><span>${entry.day}일</span><p>${escapeHtml(entry.text)}</p></li>`).join('')}
+        ${entries.map((entry) => `<li><span>${entry.day}일째</span><p>${escapePlayerText(entry.text)}</p></li>`).join('')}
       </ol>
     </aside>`
 }
@@ -453,7 +458,7 @@ export function renderShell(input: ShellRenderInput): string {
         </div>
         <button class="advance-day" type="button" data-action="advance-day" data-focus-key="advance-day" ${availableActions(input.state).canAdvanceDay ? '' : 'disabled'}>하루 넘기기</button>
       </header>
-      <div class="status-strip" role="status" aria-live="polite">${escapeHtml(input.statusMessage)}</div>
+      <div class="status-strip" role="status" aria-live="polite">${escapePlayerText(input.statusMessage)}</div>
       ${renderEnding(input.state)}
       ${renderDomainTabs(input.view)}
       <main class="operation-workspace hacking-workspace" id="operation-workspace">

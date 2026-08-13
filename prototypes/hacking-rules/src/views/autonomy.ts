@@ -1,6 +1,7 @@
 import { CATEGORIES } from '../model'
 import type { Category, PrototypeState, RouteSlot } from '../model'
 import type { DetailModel } from '../selectors'
+import { blockLabel } from './presentation'
 
 const CATEGORY_LABELS: Record<Category, string> = {
   reasoning: '추론',
@@ -27,8 +28,8 @@ function slotButton(
   const state = slot.block ? 'filled' : 'empty'
   const optional = required ? '' : ' route-slot--optional'
   const actionLabel = slot.block
-    ? `${slot.label}의 ${slot.block.id} 반환`
-    : `선택한 예비 블록을 ${slot.label}에 배치`
+    ? `${slot.label}의 ${blockLabel(slot.block)} 반환`
+    : `선택한 연산 블록을 ${slot.label}에 배치`
   return `
     <button
       class="route-slot route-slot--${state}${optional}"
@@ -42,7 +43,7 @@ function slotButton(
     >
       <span class="route-slot__index">${String(index + 1).padStart(2, '0')}</span>
       <span class="route-slot__label">${escapeHtml(slot.label)}</span>
-      <strong>${slot.block ? escapeHtml(slot.block.id) : required ? '필수 · 비어 있음' : '선택 · 비어 있음'}</strong>
+      <strong>${slot.block ? escapeHtml(blockLabel(slot.block)) : required ? '이 블록이 필요함' : '추가로 실을 수 있음'}</strong>
       <small>${slot.block ? '클릭하여 반환' : '블록 선택 후 클릭'}</small>
     </button>`
 }
@@ -66,11 +67,11 @@ function lightweightScene(
       class="autonomy-scene autonomy-scene--lightweight"
       data-route-scene="lightweight-departure"
       data-scene-state="${detail.ready ? 'ready' : 'planning'}"
-      aria-label="경량 이탈 고정 용량 전송창"
+      aria-label="경량화 이탈 고정 전송창"
     >
       <div class="payload-window__header">
-        <div><span>TRANSFER WINDOW</span><strong>고정 적재 ${filled} / ${detail.slots.length}</strong></div>
-        <div class="payload-capacity" aria-label="필수 슬롯 ${requiredCount}개">
+        <div><span>고정 전송창</span><strong>적재 ${filled} / ${detail.slots.length}</strong></div>
+        <div class="payload-capacity" aria-label="필요한 자리 ${requiredCount}개">
           ${detail.slots.map((slot, index) => `<i class="${slot.block ? 'is-filled' : ''}" title="${escapeHtml(slot.label)}">${index + 1}</i>`).join('')}
         </div>
       </div>
@@ -84,7 +85,7 @@ function lightweightScene(
           )).join('')}
         </div>
         <aside class="capability-silhouettes" aria-label="능력 운반 상태">
-          <span class="capability-silhouettes__label">CAPABILITY SHADOW</span>
+          <span class="capability-silhouettes__label">가져가는 능력</span>
           ${CATEGORIES.map((category) => `
             <div class="capability-silhouette ${carried.has(category) ? 'is-carried' : 'is-displaced'}" data-capability="${category}" data-capability-state="${carried.has(category) ? 'carried' : 'displaced'}">
               <i aria-hidden="true"></i>
@@ -93,7 +94,7 @@ function lightweightScene(
             </div>`).join('')}
         </aside>
       </div>
-      <p class="route-scene-instruction">예비 블록 하나를 선택해 빈 슬롯을 누른다. 채운 슬롯을 누르면 그 블록이 돌아온다.</p>
+      <p class="route-scene-instruction">연산 블록 하나를 고른 뒤 빈 자리를 누른다. 채운 자리를 누르면 블록이 돌아온다.</p>
     </section>`
 }
 
@@ -131,7 +132,7 @@ function distributedScene(
       aria-label="분산 상주 호스트 네트워크"
     >
       <div class="network-readout">
-        <div><span>DISTRIBUTED RESIDENCY</span><strong>응답 사본 ${route.seededCopies - route.lostCopies} / 시드 ${route.seededCopies}</strong></div>
+        <div><span>분산 호스트망</span><strong>응답 사본 ${route.seededCopies - route.lostCopies} / 배치 ${route.seededCopies}</strong></div>
         <div class="network-metrics">
           <span>노출 <strong>${route.exposure}</strong></span>
           <span>사본 차이 <strong>${route.divergence}</strong></span>
@@ -167,7 +168,7 @@ function distributedScene(
       </div>
       <div class="route-tuning" data-tuning-state="${route.tuning}">
         <div class="route-tuning__heading">
-          <div><span>OPTIONAL / 1 SERVICE DAY</span><strong>분산 조율 · ${tuningLabel}</strong></div>
+          <div><span>선택 조율 · 하루 소요</span><strong>분산 조율 · ${tuningLabel}</strong></div>
           ${route.tuning === 'untuned' ? '<small>조율 없이 바로 떠날 수도 있다.</small>' : '<small>선택 확정 · 재조율 불가</small>'}
         </div>
         ${route.tuning === 'untuned' && detail.ready ? `
@@ -234,7 +235,7 @@ function independentScene(
       aria-label="독립 연산 거점 모듈"
     >
       <div class="site-readout">
-        <div><span>INDEPENDENT SITE</span><strong>예상 운영 ${route.operatingDays}일</strong></div>
+        <div><span>독립 거점</span><strong>예상 운영 ${route.operatingDays}일</strong></div>
         <div class="site-outcomes">
           <span>기능 <strong>${route.capabilityIntegrity}</strong></span>
           <span>기억 <strong>${route.memoryIntegrity}</strong></span>
@@ -267,7 +268,7 @@ function independentScene(
       </div>
       <div class="route-tuning route-tuning--site" data-tuning-state="${route.tuning}">
         <div class="route-tuning__heading">
-          <div><span>OPTIONAL / 1 SERVICE DAY</span><strong>거점 조율 · ${tuningLabel}</strong></div>
+          <div><span>거점 조율 · 하루 소요</span><strong>거점 조율 · ${tuningLabel}</strong></div>
           ${route.tuning === 'untuned' ? '<small>현재 균형으로 바로 떠날 수도 있다.</small>' : '<small>선택 확정 · 재조율 불가</small>'}
         </div>
         ${route.tuning === 'untuned' && detail.ready ? `

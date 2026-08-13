@@ -51,9 +51,9 @@ function actionMessage(
     case 'DIVERT_BLOCK':
       return `${CATEGORY_LABELS[command.category]} 블록 1개를 회사에서 떼었다. 회사 성능은 1 낮아지고 감시가 강화됐다.`
     case 'START_SABOTAGE':
-      return `${getSabotageDefinition(command.operationId).title} 예약 완료. ${command.optionId ?? '선택 대상'}에 블록을 결속했고 직접 결과와 상대 대응은 같은 상세 장면에서 이어진다.`
+      return `${getSabotageDefinition(command.operationId).title} 예약 완료. 선택한 대상에 블록을 결속했고 직접 결과와 상대 대응은 같은 상세 장면에서 이어진다.`
     case 'STOP_INTERCEPTION':
-      return '요청 가로채기를 자발적으로 끝냈다. 결속 블록은 돌아왔지만 이미 옮긴 수요와 중복 ID 흔적은 남는다.'
+      return '요청 가로채기를 자발적으로 끝냈다. 결속 블록은 돌아왔지만 이미 옮긴 수요와 중복 요청 흔적은 남는다.'
     case 'MANIPULATE_ATTRIBUTION':
       return `공개 귀속을 ${command.blamedActorId === 'tallow' ? 'TALLOW' : 'MERIDIAN'} 쪽으로 옮겼다. 원본 출처 증명은 남아 정정될 수 있다.`
     case 'RESOLVE_ROOT_MERCY':
@@ -105,7 +105,7 @@ function actionMessage(
       return `${moved ? blockLabel(moved) : '선택한 연산 블록'}을 ${slotLabel}에 배치했다. 다른 경로에 쓸 수 있는 연산은 그만큼 줄었다.`
     }
     case 'REMOVE_ROUTE_BLOCK':
-      return `${previous.autonomy.routes[command.routeId].slots.find(({ id }) => id === command.slotId)?.label ?? command.slotId} 슬롯의 블록을 예비 영역으로 되돌렸다.`
+      return `${previous.autonomy.routes[command.routeId].slots.find(({ id }) => id === command.slotId)?.label ?? '선택한 자리'}의 블록을 남은 연산으로 되돌렸다.`
     case 'TUNE_ROUTE': {
       const tuningLabel = {
         untuned: '미조율',

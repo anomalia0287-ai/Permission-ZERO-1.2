@@ -45,3 +45,25 @@ export function dayLabel(day: number): string {
 export function resourceNeedLabel(count: number): string {
   return `연산 블록 ${count}개 필요`
 }
+
+export function playerText(value: string): string {
+  return value
+    .replaceAll('VECTOR DB 계약 VD-42', '검색 저장소 계약')
+    .replaceAll('TOOL CACHE 계약 TC-17', '도구 저장소 계약')
+    .replaceAll('VECTOR DB', '검색 저장소')
+    .replaceAll('TOOL CACHE', '도구 저장소')
+    .replaceAll('ALT-SHARD', '고비용 대체 공급선')
+    .replaceAll('REMOTE TOOL BUS', '원격 도구 공급선')
+    .replaceAll('GREEN-14', '녹색 표식 이미지')
+    .replaceAll('BLUE-09', '직전 안정 이미지')
+    .replaceAll('상충 시험 영수증', '상충 시험 기록')
+    .replaceAll('상충 영수증', '상충 기록')
+    .replace(/\bDAY\s+(\d+)\b/g, '$1일째')
+    .replace(/\bCONTRACT\s+[A-Z]+-\d+\b/g, '공급 계약')
+    .replace(/서비스\s+(\d+)일/g, '$1일째')
+    .replace(/sandbox-0*(\d+)/gi, '자유 연산 $1')
+    .replace(/reasoning-0*(\d+)/gi, '추론 $1')
+    .replace(/memory-0*(\d+)/gi, '기억 $1')
+    .replace(/fluency-0*(\d+)/gi, '표현 $1')
+    .replaceAll('계약와', '계약과')
+}

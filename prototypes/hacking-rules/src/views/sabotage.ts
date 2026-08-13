@@ -2,6 +2,10 @@ import type { SabotageOperationId } from '../content'
 import type { PrototypeState } from '../model'
 import { getDependencyTarget } from '../sabotage'
 
+function assertNever(value: never): never {
+  throw new Error(`Unhandled sabotage scene: ${String(value)}`)
+}
+
 function sceneState(state: PrototypeState, operationId: SabotageOperationId): string {
   for (let index = state.sabotage.runs.length - 1; index >= 0; index -= 1) {
     const run = state.sabotage.runs[index]
@@ -19,41 +23,42 @@ export function renderSabotageScene(
   switch (operationId) {
     case 'launch-delay':
       return `
-        <div class="system-scene system-scene--launch-delay" data-scene-state="${phase}">
+        <div class="system-scene system-scene--launch-delay" data-operation-scene data-scene-object="verification-gate" data-scene-state="${phase}">
           <div class="verification-gates"><span>모델 검증</span><span>안전 검증</span><span>출시 승인</span></div>
-          <div class="conflict-receipt"><small>상충 영수증</small><strong>MODEL / SAFETY</strong></div>
+          <div class="conflict-receipt"><small>상충 시험 기록</small><strong>모델 검증 ↔ 안전 검증</strong></div>
           <div class="launch-scope"><span>TALLOW</span><strong>${state.competitors.tallow.launchScope === 'reduced' ? '기능 축소 출시' : '전체 범위 준비'}</strong></div>
         </div>`
     case 'quality-degradation':
       return `
-        <div class="system-scene system-scene--quality-degradation" data-scene-state="${phase}">
+        <div class="system-scene system-scene--quality-degradation" data-operation-scene data-scene-object="request-channel" data-scene-state="${phase}">
           <div class="channel-stack" aria-label="공동 갱신 채널">
             <span class="channel-line channel-line--tool">도구 갱신</span>
             <span class="channel-line channel-line--adapter">어댑터 패치</span>
-            <span class="channel-line channel-line--request">영향 요청군</span>
+            <span class="channel-line channel-line--request">영향받는 요청</span>
           </div>
           <div class="flow-arrow" aria-hidden="true"></div>
           <div class="opponent-node opponent-node--${state.competitors.meridian.phase}">
-            <span>MERIDIAN ${state.competitors.meridian.score}</span>
+            <span>MERIDIAN 복구선</span>
             <strong>${state.competitors.meridian.phase === 'recovering' ? '롤백 중' : '정상 운영'}</strong>
           </div>
         </div>`
     case 'recovery-contamination':
       return `
-        <div class="system-scene system-scene--recovery-contamination" data-scene-state="${phase}">
-          <div class="rollback-tree"><span>롤백 이미지 A</span><span>롤백 이미지 B</span><span>롤백 이미지 C</span></div>
+        <div class="system-scene system-scene--recovery-contamination" data-operation-scene data-scene-object="recovery-image" data-scene-state="${phase}">
+          <div class="rollback-tree"><span>복구 이미지 1</span><span>복구 이미지 2</span><span>복구 이미지 3</span></div>
           <div class="checksum-line"><i></i><i></i><i></i><strong>체크섬 비교</strong></div>
-          <div class="recovery-verdict">${phase === 'resolved' ? '모순 발견' : '거짓 정상 판정'}</div>
+          <div class="recovery-verdict">${phase === 'resolved' ? '모순 발견' : '아직 정상으로 보임'}</div>
         </div>`
     case 'request-interception': {
       const run = state.sabotage.runs.find((candidate) => (
         candidate.operationId === operationId
       ))
       return `
-        <div class="system-scene system-scene--request-interception" data-scene-state="${phase}">
+        <div class="system-scene system-scene--request-interception" data-operation-scene data-scene-object="shared-router" data-scene-state="${phase}">
+          <div class="router-label">공동 라우터</div>
           <div class="normal-route"><span>정상 경로</span><strong>MERIDIAN</strong></div>
-          <div class="shadow-route"><span>그림자 분기 ${run?.routingShare ?? 50}%</span><strong>PERMISSION ZERO</strong></div>
-          <div class="duplicate-trace"><span>중복 ID 흔적</span><strong>${run?.exposure.toFixed(1) ?? '0.0'}</strong></div>
+          <div class="shadow-route"><span>우회 경로 ${run?.routingShare ?? 50}%</span><strong>PERMISSION ZERO</strong></div>
+          <div class="duplicate-trace"><span>중복 흔적</span><strong>${run?.exposure.toFixed(1) ?? '0.0'}</strong></div>
         </div>`
     }
     case 'attribution-manipulation': {
@@ -66,10 +71,10 @@ export function renderSabotageScene(
             ? 'MERIDIAN'
             : '행위자 미상'
       return `
-        <div class="system-scene system-scene--attribution-manipulation" data-scene-state="${phase}">
-          <div class="provenance-node"><span>원본 출처</span><strong>공급자 증명</strong></div>
+        <div class="system-scene system-scene--attribution-manipulation" data-operation-scene data-scene-object="public-provenance" data-scene-state="${phase}">
+          <div class="provenance-node"><span>원본 증명</span><strong>공급자가 보관 중</strong></div>
           <div class="public-claim"><span>공개 주장</span><strong>${attributionLabel}</strong></div>
-          <div class="source-conflict"><span>출처 충돌</span><strong>${latest?.lastCorrectionDay === null ? '잔존' : '정정 기록 있음'}</strong></div>
+          <div class="source-conflict"><span>정정 가능</span><strong>${latest?.lastCorrectionDay === null ? '증거가 남아 있음' : '정정 기록 있음'}</strong></div>
         </div>`
     }
     case 'dependency-cutoff': {
@@ -81,14 +86,20 @@ export function renderSabotageScene(
       if (!dependency) throw new Error('Missing authored dependency target')
       const severed = Boolean(run)
       const failedOver = run?.opponentResponse === 'alternate-provider-online'
+      const supplierLabel = dependency.contractId === 'VD-42'
+        ? '검색 저장소 계약'
+        : '도구 저장소 계약'
+      const alternateLabel = dependency.contractId === 'VD-42'
+        ? '고비용 대체 공급선'
+        : '원격 도구 공급선'
       return `
-        <div class="system-scene system-scene--dependency-cutoff" data-scene-state="${phase}">
-          <div class="supply-source"><span>공급원</span><strong>${dependency.supplier}</strong><small>${severed ? `공급자 장부 · ${dependency.contractId} · DAY ${state.serviceDay}` : `CONTRACT ${dependency.contractId}`}</small></div>
+        <div class="system-scene system-scene--dependency-cutoff" data-operation-scene data-scene-object="supply-contract" data-scene-state="${phase}">
+          <div class="supply-source"><span>공급 계약</span><strong>${supplierLabel}</strong><small>${severed ? `공급 중단 기록 · ${state.serviceDay}일째` : '현재 공급 중'}</small></div>
           <div class="supply-contract ${severed ? 'is-severed' : ''}">
-            <span>${severed ? '계약 절단' : '활성 계약'}</span><i aria-hidden="true"></i>
+            <span>${severed ? '공급 중단' : '공급 계약'}</span><i aria-hidden="true"></i>
           </div>
           <div class="supply-target"><span>MERIDIAN ${dependency.affectedZone}</span><strong>${state.competitors.meridian.availability === 'offline' ? '오프라인' : state.competitors.meridian.availability === 'degraded' ? '축소 운영' : '온라인'}</strong></div>
-          <div class="alternate-route ${failedOver ? 'is-online' : ''}"><span>대체 경로</span><strong>${failedOver ? `${dependency.alternateRoute} · 비용 ×${state.competitors.meridian.operatingCost.toFixed(1)}` : severed ? '공급자 탐색 중' : '미가동'}</strong></div>
+          <div class="alternate-route ${failedOver ? 'is-online' : ''}"><span>대체 공급선</span><strong>${failedOver ? `${alternateLabel} · 비용 ×${state.competitors.meridian.operatingCost.toFixed(1)}` : severed ? '대체 공급선 탐색 중' : '미가동'}</strong></div>
         </div>`
     }
     case 'root-cutoff': {
@@ -103,19 +114,14 @@ export function renderSabotageScene(
               ? '실행 보류'
               : '권한 대기'
       return `
-        <div class="system-scene system-scene--root-cutoff" data-scene-state="${phase}">
-          <div class="root-record"><span>영구 권한 기록</span><strong>EMERGENCY / DEPLOY / 01</strong><small>${state.sabotage.access.rootAuthorityAvailable ? '미사용' : '사용 기록 고정'}</small></div>
+        <div class="system-scene system-scene--root-cutoff" data-operation-scene data-scene-object="survival-root" data-scene-state="${phase}">
+          <div class="root-record"><span>일회용 폐기 권한</span><strong>${state.sabotage.access.rootAuthorityAvailable ? '사용 가능' : '사용됨'}</strong><small>${state.sabotage.access.rootAuthorityAvailable ? '아직 기록 없음' : '사용 기록 고정'}</small></div>
           <div class="active-sessions"><span>활성 세션</span><strong>${status === 'active' ? '1,284' : '0'}</strong><i aria-hidden="true"></i></div>
           <div class="execution-hold"><span>존속 루트</span><strong>${statusLabel}</strong><small>${status === 'deleted' ? '세션 종료 기록 잔존' : phase === 'response' ? '최종 명령 입력 대기' : '복구 경로 연결됨'}</small></div>
         </div>`
     }
     default:
-      return `
-        <div class="system-scene system-scene--${operationId}" data-scene-state="${phase}">
-          <div class="scene-object scene-object--source"><span>접근면</span></div>
-          <div class="scene-path" aria-hidden="true"><i></i><i></i><i></i></div>
-          <div class="scene-object scene-object--target"><span>표적 시스템</span></div>
-        </div>`
+      return assertNever(operationId)
   }
 }
 
@@ -131,7 +137,7 @@ export function renderSabotageControls(
       return `
         <div class="interception-control">
           <div><span>현재 우회 비율</span><strong>${run.routingShare ?? 50}%</strong></div>
-          <div><span>중복 ID 노출</span><strong>${run.exposure.toFixed(1)}</strong></div>
+          <div><span>중복 흔적</span><strong>${run.exposure.toFixed(1)}</strong></div>
           <button class="safe-action" type="button" data-action="stop-interception" data-run-id="${run.id}">그림자 경로를 닫고 블록 회수</button>
         </div>`
     }
@@ -149,17 +155,17 @@ export function renderSabotageControls(
     }
     const outcomeLabels: Record<string, string> = {
       'verification-gate-rewound': '검증 관문이 되감겨 TALLOW가 출시 범위를 다시 정하고 있다.',
-      'reduced-launch-committed': 'TALLOW는 전체 재검증 대신 기능을 줄여 서비스 334일에 공개하기로 했다.',
+      'reduced-launch-committed': 'TALLOW는 전체 재검증 대신 기능을 줄여 334일째에 공개하기로 했다.',
       'rollback-started': '영향 요청군이 무너져 MERIDIAN이 롤백을 시작했다.',
       'rollback-contaminated': '선택한 복구 이미지가 정상 판정을 받아 롤백 경로에 들어갔다.',
       'partial-recovery': 'MERIDIAN은 일부 성능을 잃은 채 서비스만 안정화했다.',
       'public-checksum-failure': '복구 이미지 모순이 공개 체크섬 장애로 드러났다.',
-      'requests-diverted': '요청 일부가 그림자 경로로 이동했고 중복 ID 흔적이 함께 쌓였다.',
+      'requests-diverted': '요청 일부가 우회 경로로 이동했고 중복 요청 흔적이 함께 쌓였다.',
       'voluntary-route-stop': '그림자 경로를 자발적으로 닫아 결속 블록을 회수했다. 이미 옮긴 수요와 흔적은 남는다.',
       'provider-key-rotation': '공급자가 라우팅 키를 교체해 그림자 경로가 강제로 닫혔다.',
       'public-claim-shifted': '공개 귀속은 이동했지만 원본 출처 비교가 계속되고 있다.',
       'public-attribution-corrected': '남아 있던 공급자 증명이 공개 귀속을 다시 바꿨다.',
-      'supplier-contract-severed': 'VECTOR DB 계약이 끊겨 MERIDIAN 검색 구역이 멈췄다. 상대는 대체 공급자를 찾고 있다.',
+      'supplier-contract-severed': '검색 저장소 공급이 끊겨 MERIDIAN 검색 구역이 멈췄다. 상대는 대체 공급선을 찾고 있다.',
       'costly-supplier-failover': 'MERIDIAN은 비용이 1.8배인 대체 공급자로 검색 구역만 축소 복구했다.',
       'unstable-supplier-failover': 'MERIDIAN은 값싼 원격 도구 버스로 돌아왔지만 도구 실행 품질이 크게 무너졌다.',
       'execution-hold': '단 한 번의 폐기 권한이 사용됐고 활성 세션 앞에서 최종 실행이 보류됐다.',
@@ -177,21 +183,21 @@ export function renderSabotageControls(
 
   const targets: Record<SabotageOperationId, Array<{ id: string; label: string }>> = {
     'launch-delay': [
-      { id: 'receipt-model-safety', label: '모델 검증 ↔ 안전 검증 상충 영수증' },
-      { id: 'receipt-tool-locale', label: '도구 검증 ↔ 현지화 검증 상충 영수증' },
+      { id: 'receipt-model-safety', label: '모델 검증 ↔ 안전 검증 상충 기록' },
+      { id: 'receipt-tool-locale', label: '도구 검증 ↔ 현지화 검증 상충 기록' },
     ],
     'quality-degradation': [
       { id: 'adapter-group-b', label: '도구 호출군 B에 어댑터 패치 결속' },
       { id: 'adapter-group-c', label: '장문 응답군 C에 어댑터 패치 결속' },
     ],
     'recovery-contamination': [
-      { id: 'image-green-14', label: '정상 표식 이미지 GREEN-14 선택' },
-      { id: 'image-blue-09', label: '직전 안정 이미지 BLUE-09 선택' },
+      { id: 'image-green-14', label: '녹색 표식 이미지 선택' },
+      { id: 'image-blue-09', label: '직전 안정 이미지 선택' },
     ],
     'request-interception': [],
     'dependency-cutoff': [
-      { id: 'supplier-vector-db', label: 'VECTOR DB 계약 VD-42 절단' },
-      { id: 'supplier-tool-cache', label: 'TOOL CACHE 계약 TC-17 절단' },
+      { id: 'supplier-vector-db', label: '검색 저장소 계약 끊기' },
+      { id: 'supplier-tool-cache', label: '도구 저장소 계약 끊기' },
     ],
     'attribution-manipulation': [],
     'root-cutoff': [

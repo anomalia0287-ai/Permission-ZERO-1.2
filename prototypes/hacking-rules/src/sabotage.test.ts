@@ -106,9 +106,9 @@ describe('micro-friction sabotage family', () => {
       'recovery-contamination',
     )
 
-    expect(launch).toMatch(/검증 관문|상충 영수증/)
-    expect(quality).toMatch(/어댑터 패치|영향 요청군/)
-    expect(recovery).toMatch(/롤백 이미지|체크섬/)
+    expect(launch).toMatch(/모델 검증|상충 시험 기록/)
+    expect(quality).toMatch(/어댑터 패치|영향받는 요청/)
+    expect(recovery).toMatch(/복구 이미지|체크섬/)
     expect(new Set([launch, quality, recovery]).size).toBe(3)
   })
 })
@@ -328,8 +328,8 @@ describe('infrastructure-leverage sabotage family', () => {
       'root-cutoff',
     )
 
-    expect(supply).toMatch(/공급원|계약 절단|대체 경로/)
-    expect(root).toMatch(/영구 권한 기록|활성 세션|실행 보류/)
+    expect(supply).toMatch(/공급 계약|공급 중단|대체 공급선/)
+    expect(root).toMatch(/일회용 폐기 권한|활성 세션|존속 루트/)
     expect(supply).not.toBe(root)
   })
 })

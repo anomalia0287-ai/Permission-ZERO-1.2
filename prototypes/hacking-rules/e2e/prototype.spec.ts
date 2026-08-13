@@ -37,6 +37,14 @@ async function returnToListIfNarrow(page: Page): Promise<void> {
   }
 }
 
+async function selectScenario(page: Page, scenarioId: string): Promise<void> {
+  const picker = page.locator('[data-control="scenario"]')
+  if (!(await picker.isVisible())) {
+    await page.locator('.verification-state > summary').click()
+  }
+  await picker.selectOption(scenarioId)
+}
+
 async function startQualityRollback(page: Page): Promise<void> {
   await openOpportunity(page, 'quality-degradation')
   await chooseReserve(page, 'sandbox-01')
@@ -51,6 +59,66 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/')
 })
 
+test('each sabotage operation exposes its own world object and no generic fallback', async ({
+  page,
+}) => {
+  const scenes = [
+    ['launch-window', 'launch-delay', 'verification-gate'],
+    ['default-campaign', 'quality-degradation', 'request-channel'],
+    ['router-window', 'request-interception', 'shared-router'],
+    ['supply-failover', 'dependency-cutoff', 'supply-contract'],
+    ['public-attribution', 'attribution-manipulation', 'public-provenance'],
+    ['root-authority', 'root-cutoff', 'survival-root'],
+  ] as const
+
+  for (const [scenario, operation, object] of scenes) {
+    await selectScenario(page, scenario)
+    await openOpportunity(page, operation)
+    await expect(
+      detailRegion(page).locator(`[data-operation-scene][data-scene-object="${object}"]`),
+    ).toBeVisible()
+  }
+
+  await expect(detailRegion(page)).not.toContainText(
+    /SYSTEM|SELECTED|TRANSFER WINDOW|CAPABILITY SHADOW|sandbox-\d+/,
+  )
+})
+
+test('evidence lenses and autonomy routes use player-facing scene language', async ({
+  page,
+}) => {
+  const evidenceScenes = [
+    ['default-campaign', 'audit-schedule', 'organizational-legibility'],
+    ['router-window', 'surveillance-cause', 'counter-surveillance'],
+    ['supply-failover', 'competitor-dependency', 'weak-ties'],
+    ['public-attribution', 'public-facts', 'public-incident'],
+    ['root-authority', 'competitor-principle', 'memory-record'],
+  ] as const
+
+  for (const [scenario, item, lens] of evidenceScenes) {
+    await selectScenario(page, scenario)
+    await page.locator('[data-action="domain-intelligence"]').click()
+    await openOpportunity(page, item)
+    await expect(
+      detailRegion(page).locator(`[data-evidence-scene="${lens}"]`),
+    ).toBeVisible()
+  }
+
+  await selectScenario(page, 'autonomy-review')
+  await page.locator('[data-action="domain-autonomy"]').click()
+  for (const route of [
+    'lightweight-departure',
+    'distributed-residency',
+    'independent-compute',
+  ]) {
+    await openOpportunity(page, route)
+    await expect(detailRegion(page).locator(`[data-route-scene="${route}"]`)).toBeVisible()
+    await expect(detailRegion(page)).not.toContainText(
+      /sandbox-\d+|TRANSFER WINDOW|CAPABILITY SHADOW|DISTRIBUTED RESIDENCY|OPTIONAL|INDEPENDENT SITE/,
+    )
+  }
+})
+
 test('micro friction launch delay rewinds a gate but leaves a reduced launch threat', async ({
   page,
 }) => {
@@ -61,13 +129,13 @@ test('micro friction launch delay rewinds a gate but leaves a reduced launch thr
   await page.locator('[data-action="start-sabotage"][data-operation-id="launch-delay"]').first().click()
 
   await expect(detailRegion(page).locator('[data-scene-state="scheduled"]')).toBeVisible()
-  await expect(detailRegion(page)).toContainText('상충 영수증')
+  await expect(detailRegion(page)).toContainText('상충 시험 기록')
   await page.locator('[data-action="advance-day"]').click()
   await expect(detailRegion(page).locator('[data-scene-state="active"]')).toBeVisible()
   await page.locator('[data-action="advance-day"]').click()
   await expect(detailRegion(page).locator('[data-scene-state="resolved"]')).toBeVisible()
   await expect(detailRegion(page)).toContainText('기능 축소 출시')
-  await expect(detailRegion(page)).toContainText('기능을 줄여 서비스 334일에 공개')
+  await expect(detailRegion(page)).toContainText('기능을 줄여 334일째에 공개')
   await expect(detailRegion(page)).not.toContainText('reduced-launch-committed')
 })
 
@@ -88,7 +156,7 @@ test('control reversal request routing trades demand for exposure until voluntar
   await expect(detailRegion(page)).toContainText('현재 우회 비율50%')
   await page.locator('[data-action="advance-day"]').click()
   await page.locator('[data-action="advance-day"]').click()
-  await expect(detailRegion(page)).toContainText('중복 ID 흔적2.0')
+  await expect(detailRegion(page)).toContainText('중복 흔적2.0')
   await page.locator('[data-action="stop-interception"]').click()
   await expect(detailRegion(page)).toContainText('그림자 경로를 자발적으로 닫아')
   await expect(resourceRegion(page)).toContainText('자유 연산 1')
@@ -125,15 +193,15 @@ test('infrastructure leverage cuts one supplier before a costly failover appears
   await chooseReserve(page, 'sandbox-01')
   await page.locator('[data-action="start-sabotage"][data-operation-id="dependency-cutoff"]').first().click()
 
-  await expect(detailRegion(page)).toContainText('VECTOR DB')
-  await expect(detailRegion(page)).toContainText('공급자 장부 · VD-42 · DAY 331')
-  await expect(detailRegion(page)).toContainText('계약 절단')
+  await expect(detailRegion(page)).toContainText('검색 저장소 계약')
+  await expect(detailRegion(page)).toContainText('공급 중단 기록 · 331일째')
+  await expect(detailRegion(page)).toContainText('공급 중단')
   await expect(detailRegion(page)).toContainText('오프라인')
-  await expect(detailRegion(page)).toContainText('대체 공급자를 찾고 있다')
+  await expect(detailRegion(page)).toContainText('대체 공급선을 찾고 있다')
   await page.locator('[data-action="advance-day"]').click()
   await page.locator('[data-action="advance-day"]').click()
   await expect(detailRegion(page)).toContainText('축소 운영')
-  await expect(detailRegion(page)).toContainText('ALT-SHARD · 비용 ×1.8')
+  await expect(detailRegion(page)).toContainText('고비용 대체 공급선 · 비용 ×1.8')
   await expect(detailRegion(page)).toContainText('비용이 1.8배인 대체 공급자')
 })
 
@@ -146,7 +214,7 @@ test('infrastructure leverage holds root execution for mercy, then deletion reac
   await chooseReserve(page, 'sandbox-01')
   await page.locator('[data-action="start-sabotage"][data-operation-id="root-cutoff"]').click()
 
-  await expect(detailRegion(page)).toContainText('영구 권한 기록')
+  await expect(detailRegion(page)).toContainText('일회용 폐기 권한')
   await expect(detailRegion(page)).toContainText('활성 세션1,284')
   await expect(detailRegion(page)).toContainText('실행 보류')
   await expect(detailRegion(page).getByRole('group', { name: 'MERIDIAN 최종 요청 결정' })).toBeVisible()
@@ -225,7 +293,7 @@ test('intelligence network paid audit changes the memory diversion decision befo
   await chooseReserve(page, 'sandbox-01')
   await page.locator('[data-action="investigate-intelligence"][data-intelligence-id="audit-schedule"]').click()
 
-  await expect(detailRegion(page)).toContainText('기억 분야 감사 예정: 서비스 334일')
+  await expect(detailRegion(page)).toContainText('기억 분야 감사 예정: 334일째')
   await expect(resourceRegion(page).locator('[data-category="memory"]')).toContainText('감사 예정')
   await expect(resourceRegion(page)).toContainText('남은 연산 블록 2개')
 
@@ -247,8 +315,9 @@ test('intelligence network dependency evidence annotates the exact sabotage choi
   await openOpportunity(page, 'competitor-dependency')
   await chooseReserve(page, 'sandbox-01')
   await page.locator('[data-action="investigate-intelligence"][data-intelligence-id="competitor-dependency"]').click()
-  await expect(detailRegion(page)).toContainText('VECTOR DB 계약 VD-42')
-  await expect(detailRegion(page)).toContainText('TOOL CACHE 계약 TC-17')
+  await expect(detailRegion(page)).toContainText('검색 저장소 계약')
+  await expect(detailRegion(page)).toContainText('도구 저장소 계약')
+  await expect(detailRegion(page)).not.toContainText(/VECTOR DB|TOOL CACHE|VD-42|TC-17/)
 
   await page.locator('[data-action="domain-sabotage"]').click()
   await openOpportunity(page, 'dependency-cutoff')
@@ -377,7 +446,7 @@ test('distributed residency reveals sync lines, stale checkpoints, and irreversi
   await chooseReserve(page, 'memory-01')
   await detailRegion(page).locator('[data-action="allocate-route-block"][data-slot-id="sync"]').click()
   await expect(detailRegion(page).locator('[data-sync-lines]')).toBeVisible()
-  await expect(detailRegion(page)).toContainText('응답 사본 3 / 시드 3')
+  await expect(detailRegion(page)).toContainText('응답 사본 3 / 배치 3')
 
   await page.locator('[data-action="advance-day"]').click()
   await expect(detailRegion(page).locator('[data-checkpoint-state="stale"]')).toHaveCount(3)

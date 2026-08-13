@@ -109,7 +109,7 @@ describe('clickable hacking-rules prototype', () => {
     expect(root.contains(button)).toBe(true)
     expect(document.activeElement).toBe(button)
     expect(root.querySelector('[data-detail-host]')?.textContent).toContain(
-      '상충 시험 영수증',
+      '상충 시험 기록',
     )
   })
 
@@ -224,7 +224,7 @@ describe('clickable hacking-rules prototype', () => {
     expect(question).not.toBeNull()
     question?.click()
 
-    expect(root.textContent).toContain('기억 분야 감사 예정: 서비스 334일')
+    expect(root.textContent).toContain('기억 분야 감사 예정: 334일째')
     expect(root.querySelector('[data-category="memory"]')?.textContent).toContain(
       '감사 예정',
     )
