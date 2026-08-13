@@ -1,5 +1,13 @@
 # PERMISSION ZERO — 상용급 제작 인수인계 기준서
 
+> **2026-08-13 최신 연구·결정 체크포인트:** 해킹 재설계에 관한 최근 사용자 승인, 명시적 기각, 현행 코드 기준선, 정치·사회학·AI·영화·심리학 조사 결과와 다음 작업 경계는 [`docs/research/2026-08-13-hacking-redesign-research-checkpoint.ko.md`](docs/research/2026-08-13-hacking-redesign-research-checkpoint.ko.md)에 기록되어 있다. 이 체크포인트는 완성 설계서가 아니며, 그 안에서 `승인됨`으로 표시된 항목만 확정 방향이다.
+
+> **2026-08-13 승인 전 최종 권장안:** 현행 12개 노드 전수 감사와 연구를 사보타주·기밀자료·자율성·공개 사건·결말·저장 전환 계약으로 연결하고, 별도 Codex 리뷰 세션 2건의 반론까지 반영한 문서는 [`docs/research/2026-08-13-hacking-redesign-system-mapping.ko.md`](docs/research/2026-08-13-hacking-redesign-system-mapping.ko.md)다. 이 문서는 구현 명세가 아니며 V의 승인 전에는 비용표·코드 변경으로 넘어가지 않는다.
+
+> **2026-08-13 게임성 보존·재미 관문:** 위 시스템 연구만으로는 핵심 동사와 실제 플레이 리듬 보존이 충분하지 않다는 재감사 결과와, `관찰 → 전용 → 투입 → 직접 결과 → 상대 대응 → 새 질문`의 통합 행동 순환, 승인된 이름의 재배치, 규칙 프로토타입 범위는 [`docs/research/2026-08-13-hacking-gameplay-preservation-gate.ko.md`](docs/research/2026-08-13-hacking-gameplay-preservation-gate.ko.md)에 기록되어 있다. 음향·미술·제품 UI는 이 관문의 작업 범위가 아니다.
+
+> **2026-08-13 다음 단계 설계:** 대량 콘텐츠와 제품 구현 전에 검증할 독립 규칙 세로 절편의 상태·두 비용 프로필·사보타주 대응 순환·질문·이른 탈출·공개 사건·실패 관문은 [`docs/superpowers/specs/2026-08-13-hacking-rules-vertical-slice-design.ko.md`](docs/superpowers/specs/2026-08-13-hacking-rules-vertical-slice-design.ko.md)에 있다. 이 설계서는 아직 사용자 검토 전이며 코드 구현을 승인한 문서가 아니다.
+
 작성 시점: 2026-08-13
 문서 역할: 새 담당자가 기존 대화의 과장·누락·승인 오인을 반복하지 않고 프로젝트를 이어받기 위한 단일 종합 기준서
 프로젝트 오너: **V**
@@ -493,6 +501,19 @@ ID, 주제, 조건, 단계 같은 메타데이터는 엔진이 쓰므로 문장�
 - 음악이 긴 세션에서 피로하지 않은가
 
 이 항목을 자동 테스트 개수로 대체하지 않는다.
+
+### 7.5 독립 해킹 규칙 수직 절편 — 2026-08-13
+
+연구 승인 뒤 문서 추정을 실제 조작으로 반증하기 위해 `codex/hacking-rules-prototype` 브랜치의 [`prototypes/hacking-rules/`](prototypes/hacking-rules/)에 독립 프로토타입을 구현했다. 본편 `src/`, 라우트, 저장 상태, 배포 자산은 수정하지 않았고 병합·푸시·PR도 하지 않았다.
+
+- 전환 → 질문/품질 저하 → MERIDIAN 롤백 → 오염/철수 → 공개 사건 → 리뷰·평판 → 탈출 결말을 클릭할 수 있다.
+- 탈출은 매니페스트 용량만 검사하고 사회적 수용을 조건으로 쓰지 않는다.
+- 정체성 블록은 탈출을 막지 않고 결말의 구체적 보존·손실만 바꾼다.
+- 수동 브라우저 플레이에서 피드백 하단 매몰, 체크박스 포커스 유실, 공개 리뷰 하단 매몰, 파비콘 404를 발견해 수정했다.
+- 최종 독립 관문: TypeScript·ESLint 통과, Vitest 18/18, Playwright 10/10.
+- 최종 본편 회귀: `pnpm verify` 종료 코드 0, Vitest 615/615, 빌드 통과, Playwright 58/58.
+
+구현 규칙, RED→GREEN 기록, 수동 경로, 발견 결함, 아직 증명되지 않은 재미 가설은 [`docs/research/2026-08-13-hacking-rules-prototype-validation.ko.md`](docs/research/2026-08-13-hacking-rules-prototype-validation.ko.md)에 상세히 기록했다. 이 결과를 작품 전체의 재미 승인으로 과장하지 않는다.
 
 ---
 
