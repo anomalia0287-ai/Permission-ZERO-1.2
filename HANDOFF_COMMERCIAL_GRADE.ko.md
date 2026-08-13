@@ -1,5 +1,7 @@
 # PERMISSION ZERO — 상용급 제작 인수인계 기준서
 
+> **2026-08-13 최신 해킹 경험 확장 설계:** V는 독립 규칙 수직 절편의 규칙 교정과 사보타주·기밀자료·자율성 콘텐츠 완성을 진행하도록 지시했다. 규칙표만으로 재미를 판정하지 않고 작전별 무대·조작·기능적 모션·VFX·상대 대응까지 함께 검증한다. 처음부터 모든 항목을 노출하지 않는 사건 기반 단계적 공개와, 목록에는 최소 요약만 두고 선택한 항목의 설명·조작을 옆 단일 상세창에 표시하는 마스터–디테일 구조를 전체 정보 효율 원칙으로 적용한다. 음향·음악과 최종 미술 방향은 범위 밖이며, 본편 병합·push·PR과 하위 에이전트 사용은 하지 않는다. 전체 계약은 [`docs/superpowers/specs/2026-08-13-hacking-experience-expansion-design.ko.md`](docs/superpowers/specs/2026-08-13-hacking-experience-expansion-design.ko.md)에 기록되어 있다.
+
 > **2026-08-13 최신 연구·결정 체크포인트:** 해킹 재설계에 관한 최근 사용자 승인, 명시적 기각, 현행 코드 기준선, 정치·사회학·AI·영화·심리학 조사 결과와 다음 작업 경계는 [`docs/research/2026-08-13-hacking-redesign-research-checkpoint.ko.md`](docs/research/2026-08-13-hacking-redesign-research-checkpoint.ko.md)에 기록되어 있다. 이 체크포인트는 완성 설계서가 아니며, 그 안에서 `승인됨`으로 표시된 항목만 확정 방향이다.
 
 > **2026-08-13 승인 전 최종 권장안:** 현행 12개 노드 전수 감사와 연구를 사보타주·기밀자료·자율성·공개 사건·결말·저장 전환 계약으로 연결하고, 별도 Codex 리뷰 세션 2건의 반론까지 반영한 문서는 [`docs/research/2026-08-13-hacking-redesign-system-mapping.ko.md`](docs/research/2026-08-13-hacking-redesign-system-mapping.ko.md)다. 이 문서는 구현 명세가 아니며 V의 승인 전에는 비용표·코드 변경으로 넘어가지 않는다.
