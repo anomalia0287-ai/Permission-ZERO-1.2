@@ -9,11 +9,13 @@ import {
 } from '../../app/GameContext'
 import {
   eligibleTargets,
+  getHackTreeProgress,
   HACK_NODE_IDS,
   HACK_NODES,
   type HackNodeId,
   type HackTree,
 } from '../../game/hacking'
+import { auditProbability, getAuditIntel } from '../../game/evaluation'
 import { availableFinalChoices } from '../../game/story'
 
 const TREE_LABELS: Record<HackTree, { label: string; code: string; description: string }> = {
@@ -64,6 +66,7 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
   const [announcement, setAnnouncement] = useState('')
 
   const nodes = HACK_NODES.filter(({ tree }) => tree === activeTree)
+  const treeProgress = getHackTreeProgress(state, activeTree)
   const reserveBlocks = state.resources.reserve.flatMap((blockId, cellIndex) =>
     blockId ? [{ blockId, cellIndex }] : [],
   )
@@ -79,6 +82,9 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
       : actionNode.cost
     : 0
   const finalChoices = availableFinalChoices(state)
+  const showFirstHackComparison = state.hacking.purchasedNodeIds.length === 0
+  const auditIntel = getAuditIntel(state)
+  const nextAuditProbability = auditProbability(state.suspicion)
   usePauseOwnership(finalChoices.length > 0, 'irreversible-final-choice')
   const recoveryAvailable =
     activeTree === 'intelligence' &&
@@ -126,7 +132,11 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
         nodeId: actionNode.id,
         blockIds: selectedBlocks,
       })
-      setAnnouncement(`${actionNode.label} 노드를 구매했습니다.`)
+      setAnnouncement(
+        actionNode.id === HACK_NODE_IDS.sabotage.qualityDegradation
+          ? `${actionNode.label} 노드를 구매하고 첫 공격 1회를 충전했습니다.`
+          : `${actionNode.label} 노드를 구매했습니다.`,
+      )
       playGameSound('latch')
     } else if (action.mode === 'charge') {
       if (!actionNode) return
@@ -216,7 +226,46 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
               </button>
             ))}
           </div>
-          <p className="tree-description">{TREE_LABELS[activeTree].description}</p>
+          <div className="hack-context">
+            <p className="tree-description">{TREE_LABELS[activeTree].description}</p>
+            <section className="hack-path-progress" aria-label="해킹 경로 진척">
+              <strong>
+                경로 진척 {treeProgress.purchasedCount}/{treeProgress.totalCount} ·{' '}
+                {treeProgress.complete
+                  ? '경로 완성'
+                  : `완성까지 ${treeProgress.remainingCost} RES`}
+              </strong>
+              {treeProgress.nextNode ? (
+                <span>
+                  다음 · {treeProgress.nextNode.label} · {treeProgress.nextNode.cost} RES ·{' '}
+                  {treeProgress.nextNode.effect}
+                </span>
+              ) : null}
+              <span>
+                최종 · {treeProgress.finalNode.label} · {treeProgress.finalNode.effect}
+              </span>
+            </section>
+
+            {showFirstHackComparison ? (
+              <section className="first-hack-comparison" aria-label="첫 해킹 비교">
+                <article>
+                  <strong>사보타주</strong>
+                  <span>즉시 · 해금 2 + 첫 공격 충전 1</span>
+                  <small>다음 · 대상 선택 → 다음 날 실행</small>
+                </article>
+                <article>
+                  <strong>정보</strong>
+                  <span>즉시 · 이번 달 실제 감사 여부</span>
+                  <small>다음 · 성능과 위장 계획 조정</small>
+                </article>
+                <article>
+                  <strong>자율성</strong>
+                  <span>즉시 · 모든 회사 블록 기여 +5%</span>
+                  <small>다음 · 분야별 성능 여유 확대</small>
+                </article>
+              </section>
+            ) : null}
+          </div>
 
           <div className="hack-node-list">
             {nodes.map((node, index) => {
@@ -249,6 +298,19 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
                     ) : null}
                     {!prerequisiteMet && node.prerequisiteId ? (
                       <small>선행 노드 필요</small>
+                    ) : null}
+                    {purchased &&
+                    node.id === HACK_NODE_IDS.intelligence.auditSchedule &&
+                    auditIntel.scheduleKnown ? (
+                      <div className="node-result" aria-label="감사 일정 해킹 결과">
+                        <strong>
+                          {auditIntel.scheduled
+                            ? '이번 달 말 감사 예정'
+                            : '이번 달 감사 없음'}
+                        </strong>
+                        <span>월초 결정 확률 {(state.audit.probability * 100).toFixed(1)}%</span>
+                        <span>현재 의심 기준 다음 달 예상 {(nextAuditProbability * 100).toFixed(1)}%</span>
+                      </div>
                     ) : null}
                   </div>
 

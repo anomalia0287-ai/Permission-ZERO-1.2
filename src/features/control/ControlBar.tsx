@@ -1,4 +1,5 @@
 import { formatServiceDate } from '../../game/calendar'
+import { getCampaignPhase } from '../../game/campaignPhase'
 import type { TimeSpeed } from '../../game/model'
 import { useGameDispatch, useGameState } from '../../app/GameContext'
 
@@ -29,6 +30,7 @@ export function ControlBar({
   const dispatch = useGameDispatch()
   const date = formatServiceDate(state.serviceDay)
   const day = date.day
+  const campaignPhase = getCampaignPhase(state)
 
   return (
     <header className="control-bar">
@@ -61,6 +63,10 @@ export function ControlBar({
       </div>
 
       <div className="cadence-cluster" aria-label="서비스 지표">
+        <section className="campaign-phase" aria-label="캠페인 단계">
+          <strong>단계 {campaignPhase.index}/4 · {campaignPhase.label}</strong>
+          <small>{campaignPhase.question}</small>
+        </section>
         <strong>평판 {Math.round(state.reputation)}</strong>
         <span>주간 갱신 D-{daysUntilWeekly(day)}</span>
         <span>공식 평가 D-{30 - day}</span>

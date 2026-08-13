@@ -14,6 +14,7 @@ import {
   unlockGameAudio,
 } from '../audio/audioEngine'
 import { derivePublicAudioState } from '../audio/publicAudioState'
+import { getCampaignPhase } from '../game/campaignPhase'
 import { ControlBar } from '../features/control/ControlBar'
 import { EventLayer } from '../features/events/EventLayer'
 import { HackingPanel } from '../features/hacking/HackingPanel'
@@ -123,6 +124,7 @@ function DetailLayer({
 
 function GameWorkspace() {
   const state = useGameState()
+  const campaignPhase = getCampaignPhase(state)
   const dispatch = useGameDispatch()
   const checkpointClock = useClockCheckpoint()
   const { settings, updateSettings } = useGameSettings()
@@ -214,6 +216,7 @@ function GameWorkspace() {
     <main
       className="game-shell"
       aria-label="PERMISSION ZERO"
+      data-campaign-phase={campaignPhase.id}
       data-reduced-motion={settings.reducedMotion ? 'true' : 'false'}
       style={{ '--ui-scale': settings.uiScale } as CSSProperties}
     >

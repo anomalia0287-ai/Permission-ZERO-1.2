@@ -1,5 +1,5 @@
-import { fireEvent, render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { act, fireEvent, render, screen } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
 
 import { useGameState } from '../../app/GameContext'
 import { GameProvider } from '../../app/GameProvider'
@@ -117,24 +117,38 @@ describe('EventLayer', () => {
     expect(screen.getByText('대기 중 1건')).toBeInTheDocument()
   })
 
-  it('offers generic continuation only for informational events and advances them in order', () => {
-    const state = createCampaign('generic-event-controls')
-    state.activeEvent = createGameEvent(
-      state,
-      'supervisor-message',
-      '첫 번째 일반 안내',
-      true,
-    )
-    state.eventLog = appendJournal(state.eventLog, state.activeEvent)
-    const queued = createGameEvent(state, 'weekly-update', '두 번째 일반 안내', true)
-    state.eventLog = appendJournal(state.eventLog, queued)
-    state.eventQueue = [queued]
-    renderEvent(state)
+  it('returns to operations for two seconds before presenting the next queued event', () => {
+    vi.useFakeTimers()
+    try {
+      const state = createCampaign('generic-event-controls')
+      state.activeEvent = createGameEvent(
+        state,
+        'supervisor-message',
+        '첫 번째 일반 안내',
+        true,
+      )
+      state.eventLog = appendJournal(state.eventLog, state.activeEvent)
+      const queued = createGameEvent(state, 'weekly-update', '두 번째 일반 안내', true)
+      state.eventLog = appendJournal(state.eventLog, queued)
+      state.eventQueue = [queued]
+      renderEvent(state)
 
-    fireEvent.click(screen.getByRole('button', { name: '계속' }))
-    expect(screen.getByText('두 번째 일반 안내')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '계속' }))
-    expect(screen.getByLabelText('active event')).toHaveTextContent('none')
+      expect(screen.getByText('첫 번째 일반 안내')).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: '계속' }))
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      expect(screen.getByRole('status', { name: '차단 사건 전환' })).toHaveTextContent(
+        '정상 화면 복귀 · 다음 차단 통신 대기',
+      )
+      act(() => vi.advanceTimersByTime(1_999))
+      expect(screen.queryByText('두 번째 일반 안내')).not.toBeInTheDocument()
+      act(() => vi.advanceTimersByTime(1))
+      expect(screen.getByText('두 번째 일반 안내')).toBeInTheDocument()
+
+      fireEvent.click(screen.getByRole('button', { name: '계속' }))
+      expect(screen.getByLabelText('active event')).toHaveTextContent('none')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('presents bomb explanations without revealing which blocks are dangerous', () => {

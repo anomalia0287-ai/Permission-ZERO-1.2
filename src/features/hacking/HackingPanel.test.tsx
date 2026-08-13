@@ -33,6 +33,104 @@ function renderHacking(storage = new MemoryStorage()) {
 }
 
 describe('HackingPanel', () => {
+  it('shows the next and final qualitative payoff of the active path', () => {
+    renderHacking()
+
+    const sabotageProgress = screen.getByRole('region', {
+      name: '해킹 경로 진척',
+    })
+    expect(sabotageProgress).toHaveTextContent('경로 진척 0/4 · 완성까지 34 RES')
+    expect(sabotageProgress).toHaveTextContent(
+      '다음 · 품질 저하 · 3 RES · 대상 성능 -10, 15일 지속',
+    )
+    expect(sabotageProgress).toHaveTextContent(
+      '최종 · 근원 차단 · 대상 성능 -40, 삭제 임박 시 자비 사건',
+    )
+
+    fireEvent.click(screen.getByRole('tab', { name: '정보' }))
+    const intelligenceProgress = screen.getByRole('region', {
+      name: '해킹 경로 진척',
+    })
+    expect(intelligenceProgress).toHaveTextContent('경로 진척 0/4 · 완성까지 30 RES')
+    expect(intelligenceProgress).toHaveTextContent(
+      '다음 · 감사 일정 · 3 RES · 이번 달 말 감사 예정 여부 공개',
+    )
+    expect(intelligenceProgress).toHaveTextContent(
+      '최종 · 감독관 접근 · 감독관 기록과 숨은 선택 경로 해금',
+    )
+  })
+
+  it('marks a fully purchased path complete without a next-node line', () => {
+    const state = createCampaign('completed-hack-path')
+    state.hacking.purchasedNodeIds = Object.values(HACK_NODE_IDS.autonomy)
+    const storage = new MemoryStorage()
+    storage.setItem(SAVE_STORAGE_KEY, encodeSave(state))
+    renderHacking(storage)
+
+    fireEvent.click(screen.getByRole('tab', { name: '자율성' }))
+    const progress = screen.getByRole('region', { name: '해킹 경로 진척' })
+    expect(progress).toHaveTextContent('경로 진척 4/4 · 경로 완성')
+    expect(progress).not.toHaveTextContent('다음 ·')
+    expect(progress).toHaveTextContent(
+      '최종 · 통제 이탈 · 캠페인의 최종 행동 해금',
+    )
+  })
+
+  it('compares the immediate payoff and next action of all three first paths', () => {
+    renderHacking()
+
+    const comparison = screen.getByRole('region', { name: '첫 해킹 비교' })
+    expect(comparison).toHaveTextContent('사보타주')
+    expect(comparison).toHaveTextContent('해금 2 + 첫 공격 충전 1')
+    expect(comparison).toHaveTextContent('정보')
+    expect(comparison).toHaveTextContent('이번 달 실제 감사 여부')
+    expect(comparison).toHaveTextContent('자율성')
+    expect(comparison).toHaveTextContent('모든 회사 블록 기여 +5%')
+  })
+
+  it('offers sabotage targets immediately after the first three-resource purchase', () => {
+    renderHacking()
+
+    fireEvent.click(screen.getByRole('button', { name: '품질 저하 구매 준비' }))
+    screen
+      .getAllByRole('button', { name: /구매 리소스 .* 선택/ })
+      .slice(0, 3)
+      .forEach((resource) => fireEvent.click(resource))
+    fireEvent.click(screen.getByRole('button', { name: '품질 저하 구매 확정' }))
+
+    expect(screen.getByLabelText('charged nodes')).toHaveTextContent(
+      HACK_NODE_IDS.sabotage.qualityDegradation,
+    )
+    expect(
+      screen.getByRole('button', { name: 'MERIDIAN 공격 대상 선택' }),
+    ).toBeEnabled()
+    expect(screen.getByRole('status', { name: '해킹 작업 결과' })).toHaveTextContent(
+      '첫 공격 1회를 충전했습니다',
+    )
+    expect(screen.queryByRole('region', { name: '첫 해킹 비교' })).not.toBeInTheDocument()
+  })
+
+  it('shows the concrete locked audit result after schedule intelligence is owned', () => {
+    const state = createCampaign('audit-intel-result-ui')
+    state.hacking.purchasedNodeIds = [HACK_NODE_IDS.intelligence.auditSchedule]
+    state.audit = {
+      ...state.audit,
+      scheduled: true,
+      target: 'reasoning',
+      scheduledOnServiceDay: 360,
+      probability: 0.03,
+      roll: 0.01,
+    }
+    const storage = new MemoryStorage()
+    storage.setItem(SAVE_STORAGE_KEY, encodeSave(state))
+    renderHacking(storage)
+    fireEvent.click(screen.getByRole('tab', { name: '정보' }))
+
+    expect(screen.getByText('이번 달 말 감사 예정')).toBeInTheDocument()
+    expect(screen.getByText('월초 결정 확률 3.0%')).toBeInTheDocument()
+    expect(screen.getByText('현재 의심 기준 다음 달 예상 3.0%')).toBeInTheDocument()
+  })
+
   it('hides cumulative evidence and shows immutable qualitative risk per sabotage node', () => {
     const lowEvidence = createCampaign('qualitative-risk-low')
     lowEvidence.hacking.hiddenEvidence = 0

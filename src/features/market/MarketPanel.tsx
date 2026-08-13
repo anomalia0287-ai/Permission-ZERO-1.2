@@ -1,4 +1,5 @@
 import { useGameState } from '../../app/GameContext'
+import { publicMarketCalculationInputs } from '../../game/market'
 import { publicCompetitorStatusLabel } from '../../game/publicLabels'
 
 const MARKET_COLORS = ['var(--reserve)', 'var(--company)', 'var(--prompt)']
@@ -37,6 +38,19 @@ export function MarketPanel({
     })),
   ]
   const total = entries.reduce((sum, entry) => sum + entry.share, 0)
+  const latestSnapshot = state.market.history.at(-1)
+  const previousSnapshot = state.market.history.at(-2)
+  const shareDelta =
+    latestSnapshot && previousSnapshot
+      ? latestSnapshot.playerShare - previousSnapshot.playerShare
+      : null
+  const signedShareDelta =
+    shareDelta === null
+      ? null
+      : `${Math.abs(shareDelta) < 0.005 || shareDelta > 0 ? '+' : ''}${(
+          Math.abs(shareDelta) < 0.005 ? 0 : shareDelta
+        ).toFixed(2)}%p`
+  const publicInputs = publicMarketCalculationInputs(state)
   const chartLabel = `시장 점유율: ${entries
     .map((entry) => `${entry.name} ${entry.share.toFixed(1)}%`)
     .join(', ')}. 합계 ${total.toFixed(1)}%`
@@ -47,6 +61,11 @@ export function MarketPanel({
         <div>
           <span>시장 점유</span>
           <strong>당신 {state.market.playerShare.toFixed(1)}%</strong>
+          <small>
+            {signedShareDelta
+              ? `직전 기록 대비 ${signedShareDelta}`
+              : '첫 시장 기록 전'}
+          </small>
         </div>
         <button
           type="button"
@@ -87,6 +106,18 @@ export function MarketPanel({
           ))}
         </ul>
       </div>
+      <details
+        className="market-calculation-inputs"
+        role="group"
+        aria-label="공개 계산 입력"
+      >
+        <summary>공개 계산 입력</summary>
+        <div>
+          {publicInputs.map((input) => (
+            <span key={input}>{input}</span>
+          ))}
+        </div>
+      </details>
     </section>
   )
 }

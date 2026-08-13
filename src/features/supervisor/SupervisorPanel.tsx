@@ -6,7 +6,16 @@ import {
   useSupervisorPresentationCheckpoint,
 } from '../../app/GameContext'
 import { useSupervisorMessagePresentation } from '../../app/useSupervisorMessagePresentation'
+import {
+  getBombProtocolPublicSchedule,
+  type BombProtocolPublicSchedule,
+} from '../../game/bombs'
 import { formatServiceDateLabel } from '../../game/calendar'
+import {
+  auditProbability,
+  getAuditIntel,
+  getSuspicionBand,
+} from '../../game/evaluation'
 import { MarketPanel } from '../market/MarketPanel'
 import { journalAt, journalPageFromNewest } from '../../game/journal'
 import {
@@ -16,6 +25,28 @@ import {
 
 function formatCompactNumber(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(1)
+}
+
+function bombProtocolStatusLabel(
+  schedule: BombProtocolPublicSchedule,
+  currentServiceDay: number,
+): string {
+  if (schedule.status === 'inactive') {
+    return currentServiceDay < schedule.firstEligibleServiceDay
+      ? `현재 미활성 · 최초 활성 가능 ${formatServiceDateLabel(
+          schedule.firstEligibleServiceDay,
+        )}`
+      : `현재 미활성 · 의심 ${schedule.activationSuspicion} 이상인 다음 월초에 활성`
+  }
+  if (schedule.status === 'suspended') {
+    return `현재 중지 · 의심 ${schedule.activationSuspicion} 회복 후 월초`
+  }
+
+  const intervalLabel =
+    schedule.status === 'accelerated' ? '현재 가속 간격' : '현재 기본 간격'
+  return `${intervalLabel} · 다음 검사 가능 ${formatServiceDateLabel(
+    schedule.nextEligibleServiceDay,
+  )}`
 }
 
 export function SupervisorPanel({
@@ -33,6 +64,10 @@ export function SupervisorPanel({
   })
   const latestEvent =
     state.activeEvent ?? presentedSupervisorMessage ?? journalAt(state.eventLog, -1)
+  const suspicionBand = getSuspicionBand(state.suspicion)
+  const auditIntel = getAuditIntel(state)
+  const nextAuditProbability = auditProbability(state.suspicion)
+  const bombProtocolSchedule = getBombProtocolPublicSchedule(state)
   const supervisorStatus = {
     present: {
       code: 'SUPERVISOR ONLINE',
@@ -83,6 +118,45 @@ export function SupervisorPanel({
           <span className="meter-track" aria-hidden="true">
             <i style={{ width: `${Math.min(100, state.suspicion)}%` }} />
           </span>
+          <div className={`suspicion-band suspicion-band--${suspicionBand.id}`}>
+            <strong>{suspicionBand.label}</strong>
+            <small>
+              {suspicionBand.nextLabel
+                ? `${suspicionBand.nextLabel}까지 ${suspicionBand.remainingToNext.toFixed(1)}`
+                : '최고 감시 단계'}
+            </small>
+          </div>
+          <div className="audit-forecast" aria-label="감사 결정과 예상">
+            <span>
+              {auditIntel.scheduleKnown
+                ? state.audit.scheduled
+                  ? '이번 달 말 감사 예정'
+                  : '이번 달 감사 없음'
+                : '이번 달 감사 결정 비공개'}
+            </span>
+            {auditIntel.scheduleKnown ? (
+              <small>월초 잠금 {(state.audit.probability * 100).toFixed(1)}%</small>
+            ) : null}
+            <strong>다음 달 감사 예상 {(nextAuditProbability * 100).toFixed(1)}%</strong>
+          </div>
+          <section
+            className={`bomb-protocol-schedule bomb-protocol-schedule--${bombProtocolSchedule.status}`}
+            aria-label="무결성 보호 검사 일정"
+          >
+            <div>
+              <span>
+                활성 {bombProtocolSchedule.activationSuspicion} · 가속{' '}
+                {bombProtocolSchedule.accelerationSuspicion}
+              </span>
+              <small>
+                기본 {bombProtocolSchedule.standardIntervalMonths}개월 · 가속{' '}
+                {bombProtocolSchedule.acceleratedIntervalMonths}개월
+              </small>
+            </div>
+            <strong>
+              {bombProtocolStatusLabel(bombProtocolSchedule, state.serviceDay)}
+            </strong>
+          </section>
         </div>
       </section>
 
@@ -107,8 +181,8 @@ export function SupervisorPanel({
       <MarketPanel onOpenStatistics={onOpenStatistics} />
 
       <div className="supervision-footer">
-        <span>감사 확률</span>
-        <strong>{Math.round(state.audit.probability * 100)}%</strong>
+        <span>다음 달 예상</span>
+        <strong>{(nextAuditProbability * 100).toFixed(1)}%</strong>
         <span>폐기 단계</span>
         <strong>{state.evaluation.disposalStage}/3</strong>
       </div>

@@ -48,6 +48,7 @@ describe('StatisticsPanel', () => {
     expect(screen.getByRole('table', { name: '시장 기록 표' })).not.toHaveTextContent(
       /DAY \d+/,
     )
+    expect(screen.getByRole('columnheader', { name: '공개 반영 항목' })).toBeInTheDocument()
   })
 
   it('switches to service performance history without losing the close control', () => {

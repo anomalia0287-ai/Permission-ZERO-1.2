@@ -96,7 +96,7 @@ function MarketHistory() {
               {state.market.competitors.map((competitor) => (
                 <th key={competitor.id}>{competitor.name}</th>
               ))}
-              <th>기록 원인</th>
+              <th>공개 반영 항목</th>
             </tr>
           </thead>
           <tbody>

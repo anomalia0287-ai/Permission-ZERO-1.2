@@ -45,6 +45,34 @@ export interface BombExplanation {
   priorUses: number
 }
 
+interface BombProtocolPublicRules {
+  firstEligibleServiceDay: number
+  activationSuspicion: number
+  accelerationSuspicion: number
+  standardIntervalMonths: number
+  acceleratedIntervalMonths: number
+}
+
+export type BombProtocolPublicSchedule = BombProtocolPublicRules &
+  (
+    | {
+        status: 'inactive'
+        nextEligibleServiceDay: null
+      }
+    | {
+        status: 'suspended'
+        nextEligibleServiceDay: null
+      }
+    | {
+        status: 'standard'
+        nextEligibleServiceDay: number
+      }
+    | {
+        status: 'accelerated'
+        nextEligibleServiceDay: number
+      }
+  )
+
 export type BombResolution =
   | { resolved: false; state: CampaignState; reason: string }
   | {
@@ -61,6 +89,69 @@ function clamp(value: number, minimum: number, maximum: number): number {
 
 function isMonthStart(serviceDay: number): boolean {
   return ((serviceDay - 1) % DEMO_PROFILE_02.calendar.daysPerMonth) + 1 === 1
+}
+
+function monthStartOnOrAfter(serviceDay: number): number {
+  const dayInMonth =
+    ((serviceDay - 1) % DEMO_PROFILE_02.calendar.daysPerMonth) + 1
+  return dayInMonth === 1
+    ? serviceDay
+    : serviceDay + DEMO_PROFILE_02.calendar.daysPerMonth - dayInMonth + 1
+}
+
+export function getBombProtocolPublicSchedule(
+  state: CampaignState,
+): BombProtocolPublicSchedule {
+  const activationSuspicion = DEMO_PROFILE_02.bombs.warningSuspicion
+  const accelerationSuspicion = DEMO_PROFILE_02.bombs.highSuspicion
+  const standardIntervalMonths =
+    DEMO_PROFILE_02.bombs.mediumIntervalDays /
+    DEMO_PROFILE_02.calendar.daysPerMonth
+  const acceleratedIntervalMonths =
+    DEMO_PROFILE_02.bombs.highIntervalDays /
+    DEMO_PROFILE_02.calendar.daysPerMonth
+  const publicRules = {
+    firstEligibleServiceDay: DEMO_PROFILE_02.bombs.firstEligibleServiceDay,
+    activationSuspicion,
+    accelerationSuspicion,
+    standardIntervalMonths,
+    acceleratedIntervalMonths,
+  }
+
+  if (!state.bombs.protocolWarned) {
+    return {
+      ...publicRules,
+      status: 'inactive',
+      nextEligibleServiceDay: null,
+    }
+  }
+
+  if (state.suspicion < activationSuspicion) {
+    return {
+      ...publicRules,
+      status: 'suspended',
+      nextEligibleServiceDay: null,
+    }
+  }
+
+  const accelerated = state.suspicion >= accelerationSuspicion
+  const intervalDays = accelerated
+    ? DEMO_PROFILE_02.bombs.highIntervalDays
+    : DEMO_PROFILE_02.bombs.mediumIntervalDays
+  const anchor =
+    state.bombs.lastPlacementCheckServiceDay ??
+    state.bombs.warningServiceDay ??
+    state.serviceDay
+  const firstEligibleServiceDay = anchor + intervalDays
+
+  return {
+    ...publicRules,
+    status: accelerated ? 'accelerated' : 'standard',
+    nextEligibleServiceDay:
+      firstEligibleServiceDay >= state.serviceDay
+        ? firstEligibleServiceDay
+        : monthStartOnOrAfter(state.serviceDay),
+  }
 }
 
 function activeBombIds(state: CampaignState): string[] {

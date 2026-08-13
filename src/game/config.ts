@@ -18,8 +18,8 @@ export const DEMO_PROFILE_02 = {
     diversionSuspicion: 2.4,
     normalContribution: 1,
     disguisedContribution: 0.5,
-    compressedNormalContribution: 1.1,
-    compressedDisguisedContribution: 0.55,
+    compressedNormalContribution: 1.05,
+    compressedDisguisedContribution: 0.525,
     disguiseRecoveryDays: 30,
   },
   player: {

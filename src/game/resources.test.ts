@@ -372,7 +372,7 @@ describe('audit disguise blocks', () => {
     })
   })
 
-  it('uses 1.1 and 0.55 contributions after compressed representation', () => {
+  it('uses balanced 1.05 and 0.525 contributions after compressed representation', () => {
     const initial = createCampaign('disguise-seed')
     const compressed = {
       ...initial,
@@ -396,17 +396,17 @@ describe('audit disguise blocks', () => {
       blockId,
       sourceCategory: 'memory',
       targetCategory: 'reasoning',
-      sourcePerformanceBefore: 17.6,
-      sourcePerformanceAfter: 16.5,
-      targetPerformanceBefore: 17.6,
-      targetPerformanceAfter: 18.15,
-      disguisedContribution: 0.55,
+      sourcePerformanceBefore: 16.8,
+      sourcePerformanceAfter: 15.75,
+      targetPerformanceBefore: 16.8,
+      targetPerformanceAfter: 17.325,
+      disguisedContribution: 0.525,
     })
     expect(result.accepted).toBe(true)
     if (!result.accepted) return
 
-    expect(getCompanyPerformance(result.state, 'memory')).toBeCloseTo(16.5)
-    expect(getCompanyPerformance(result.state, 'reasoning')).toBeCloseTo(18.15)
+    expect(getCompanyPerformance(result.state, 'memory')).toBeCloseTo(15.75)
+    expect(getCompanyPerformance(result.state, 'reasoning')).toBeCloseTo(17.325)
   })
 
   it('rejects a sideways reposition before mutation', () => {

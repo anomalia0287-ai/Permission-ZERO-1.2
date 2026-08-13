@@ -26,6 +26,35 @@ function publicStatus(serviceScore: number): CompetitorStatus {
   return 'active'
 }
 
+export function publicMarketCalculationInputs(state: CampaignState): string[] {
+  const expectation = expectedPerformance(serviceMonthForDay(state.serviceDay))
+  const averagePerformance =
+    COMPANY_CATEGORIES.reduce(
+      (sum, category) => sum + getCompanyPerformance(state, category),
+      0,
+    ) / COMPANY_CATEGORIES.length
+
+  const competitorInputs = state.market.competitors.map(
+    (competitor) =>
+      `${competitor.name} 성능 ${competitor.serviceScore.toFixed(1)} · 평판 ${competitor.reputation.toFixed(0)} · 가용성 ${(competitor.availability * 100).toFixed(0)}%`,
+  )
+  const interceptionInputs = Object.entries(state.market.interceptionRoutes)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .flatMap(([competitorId, percentagePoints]) => {
+      const competitor = state.market.competitors.find(({ id }) => id === competitorId)
+      return competitor && percentagePoints > 0
+        ? [`${competitor.name} 요청 가로채기 +${percentagePoints.toFixed(1)}%p`]
+        : []
+    })
+
+  return [
+    `평균 성능 ${averagePerformance.toFixed(1)} / 기대 ${expectation.toFixed(1)}`,
+    `평판 ${state.reputation}`,
+    ...competitorInputs,
+    ...interceptionInputs,
+  ]
+}
+
 function activeSabotagePenalty(
   competitor: CompetitorState,
   serviceDay: number,

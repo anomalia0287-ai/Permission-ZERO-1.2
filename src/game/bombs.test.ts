@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   availableBombExplanations,
   checkBombProtocol,
+  getBombProtocolPublicSchedule,
   getBlockVisualState,
   placeHiddenBomb,
   resolveBombInterrogation,
@@ -55,6 +56,49 @@ function armAndTrigger(
 }
 
 describe('hidden bomb protocol timing', () => {
+  it('derives only public schedule data from the protocol anchors', () => {
+    const inactive = getBombProtocolPublicSchedule(createCampaign('bomb-public-inactive'))
+    expect(inactive).toEqual({
+      firstEligibleServiceDay: 361,
+      activationSuspicion: 40,
+      accelerationSuspicion: 70,
+      standardIntervalMonths: 6,
+      acceleratedIntervalMonths: 3,
+      status: 'inactive',
+      nextEligibleServiceDay: null,
+    })
+
+    const warned = warnAt(361, 40, 'bomb-public-schedule')
+    expect(
+      getBombProtocolPublicSchedule({
+        ...warned,
+        serviceDay: 400,
+        suspicion: 55,
+      }),
+    ).toMatchObject({ status: 'standard', nextEligibleServiceDay: 541 })
+    expect(
+      getBombProtocolPublicSchedule({
+        ...warned,
+        serviceDay: 400,
+        suspicion: 75,
+      }),
+    ).toMatchObject({ status: 'accelerated', nextEligibleServiceDay: 451 })
+    expect(
+      getBombProtocolPublicSchedule({
+        ...warned,
+        serviceDay: 500,
+        suspicion: 75,
+      }),
+    ).toMatchObject({ status: 'accelerated', nextEligibleServiceDay: 511 })
+    expect(
+      getBombProtocolPublicSchedule({
+        ...warned,
+        serviceDay: 500,
+        suspicion: 39,
+      }),
+    ).toMatchObject({ status: 'suspended', nextEligibleServiceDay: null })
+  })
+
   it('never warns or places a bomb before one service year has passed', () => {
     const checked = warnAt(360, 100)
 

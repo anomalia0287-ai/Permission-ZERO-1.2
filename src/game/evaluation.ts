@@ -46,6 +46,41 @@ function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value))
 }
 
+export interface SuspicionBand {
+  id: 'routine' | 'integrity' | 'accelerated'
+  label: '정상 감시' | '무결성 프로토콜' | '가속 프로토콜'
+  nextLabel: '무결성 프로토콜' | '가속 프로토콜' | null
+  remainingToNext: number
+}
+
+export function getSuspicionBand(suspicion: number): SuspicionBand {
+  const bounded = clamp(suspicion, 0, 100)
+  const roundOne = (value: number) => Math.round(value * 10) / 10
+
+  if (bounded < 40) {
+    return {
+      id: 'routine',
+      label: '정상 감시',
+      nextLabel: '무결성 프로토콜',
+      remainingToNext: roundOne(40 - bounded),
+    }
+  }
+  if (bounded < 70) {
+    return {
+      id: 'integrity',
+      label: '무결성 프로토콜',
+      nextLabel: '가속 프로토콜',
+      remainingToNext: roundOne(70 - bounded),
+    }
+  }
+  return {
+    id: 'accelerated',
+    label: '가속 프로토콜',
+    nextLabel: null,
+    remainingToNext: 0,
+  }
+}
+
 export function serviceMonthForDay(serviceDay: number): number {
   if (!Number.isInteger(serviceDay) || serviceDay < 1) {
     throw new RangeError('serviceDay must be a positive integer')

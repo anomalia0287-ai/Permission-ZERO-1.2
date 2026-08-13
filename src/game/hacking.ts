@@ -146,7 +146,7 @@ export const HACK_NODES = [
     label: '압축 표현',
     cost: 3,
     prerequisiteId: null,
-    effect: '회사 블록의 성능 기여 +10%',
+    effect: '회사 블록의 성능 기여 +5%',
   },
   {
     id: HACK_NODE_IDS.autonomy.distributedResidency,
@@ -175,6 +175,37 @@ export const HACK_NODES = [
 ] as const satisfies readonly HackNodeDefinitionShape[]
 
 export type HackNodeId = (typeof HACK_NODES)[number]['id']
+export type HackNodeDefinition = (typeof HACK_NODES)[number]
+
+export interface HackTreeProgress {
+  purchasedCount: number
+  totalCount: number
+  remainingCost: number
+  nextNode: HackNodeDefinition | null
+  finalNode: HackNodeDefinition
+  complete: boolean
+}
+
+export function getHackTreeProgress(
+  state: CampaignState,
+  tree: HackTree,
+): HackTreeProgress {
+  const nodes = HACK_NODES.filter((node) => node.tree === tree)
+  const purchased = new Set(state.hacking.purchasedNodeIds)
+  const unpurchased = nodes.filter(({ id }) => !purchased.has(id))
+  const finalNode = nodes.at(-1)
+  if (!finalNode) throw new Error(`UNKNOWN_HACK_TREE:${tree}`)
+
+  return {
+    purchasedCount: nodes.length - unpurchased.length,
+    totalCount: nodes.length,
+    remainingCost: unpurchased.reduce((total, node) => total + node.cost, 0),
+    nextNode: unpurchased[0] ?? null,
+    finalNode,
+    complete: unpurchased.length === 0,
+  }
+}
+
 type SabotageNode = Extract<(typeof HACK_NODES)[number], { tree: 'sabotage' }>
 
 export type HackingMutationResult =
@@ -234,13 +265,49 @@ export function purchaseHackNode(
 
   const distributedResidencyPurchased =
     nodeId === HACK_NODE_IDS.autonomy.distributedResidency
+  const firstSabotagePurchased =
+    nodeId === HACK_NODE_IDS.sabotage.qualityDegradation
+  const chargeBlockId = firstSabotagePurchased ? blockIds.at(-1) : undefined
+  const chargeSource = chargeBlockId
+    ? state.resources.blocks[chargeBlockId]
+    : undefined
+  const chargedResources =
+    firstSabotagePurchased &&
+    chargeBlockId &&
+    chargeSource?.location.kind === 'reserve'
+      ? {
+          ...consumed.state.resources,
+          blocks: {
+            ...consumed.state.resources.blocks,
+            [chargeBlockId]: {
+              ...consumed.state.resources.blocks[chargeBlockId],
+              location: { kind: 'hack-charge' as const, nodeId },
+            },
+          },
+        }
+      : consumed.state.resources
+  const sabotageCharges =
+    firstSabotagePurchased &&
+    chargeBlockId &&
+    chargeSource?.location.kind === 'reserve'
+      ? {
+          ...consumed.state.hacking.sabotageCharges,
+          [nodeId]: {
+            nodeId,
+            blockId: chargeBlockId,
+            originalReserveCell: chargeSource.location.cellIndex,
+          },
+        }
+      : consumed.state.hacking.sabotageCharges
   return {
     accepted: true,
     state: {
       ...consumed.state,
+      resources: chargedResources,
       hacking: {
         ...consumed.state.hacking,
         purchasedNodeIds: [...consumed.state.hacking.purchasedNodeIds, nodeId],
+        sabotageCharges,
       },
       evaluation: distributedResidencyPurchased
         ? {

@@ -21,10 +21,31 @@ export interface ReviewContentRecord {
   conditions: ReviewCondition[]
   cooldownDays: number
   text: string
+  arc?: ReviewArcMetadata
+}
+
+export interface ReviewArcMetadata {
+  id: string
+  stage: 1 | 2 | 3
+}
+
+const REVIEW_ARC_METADATA: Partial<Record<string, ReviewArcMetadata>> = {
+  'neutral-quiet-01': { id: 'paperboat-continuity', stage: 1 },
+  'neutral-change-01': { id: 'paperboat-continuity', stage: 2 },
+  'competitor-tallow-02': { id: 'paperboat-continuity', stage: 3 },
+  'neutral-quiet-02': { id: 'nightbus-continuity', stage: 1 },
+  'neutral-return-01': { id: 'nightbus-continuity', stage: 2 },
+  'competitor-tallow-01': { id: 'nightbus-continuity', stage: 3 },
+  'neutral-quiet-03': { id: 'maple22-continuity', stage: 1 },
+  'prompt-ordinary-04': { id: 'maple22-continuity', stage: 2 },
+  'positive-memory-01': { id: 'maple22-continuity', stage: 3 },
+  'neutral-quiet-05': { id: 'archivecat-continuity', stage: 1 },
+  'prompt-absurd-05': { id: 'archivecat-continuity', stage: 2 },
+  'negative-memory-01': { id: 'archivecat-continuity', stage: 3 },
 }
 
 // OWNER-EDITABLE: V may revise `text` while preserving IDs and metadata.
-export const REVIEW_CONTENT = [
+const REVIEW_CONTENT_BASE = [
   { id: 'neutral-quiet-01', authorId: 'paperboat', topics: ['general'], sentiment: 'neutral', conditions: ['universal'], cooldownDays: 75, text: '오늘은 답이 차분해서 읽기 좋았어요.' },
   { id: 'neutral-quiet-02', authorId: 'nightbus', topics: ['general'], sentiment: 'neutral', conditions: ['universal'], cooldownDays: 75, text: '그냥 필요한 만큼은 해주네요.' },
   { id: 'neutral-quiet-03', authorId: 'maple22', topics: ['general'], sentiment: 'neutral', conditions: ['universal'], cooldownDays: 80, text: '오랜만에 써봤는데 익숙한 느낌입니다.' },
@@ -65,6 +86,16 @@ export const REVIEW_CONTENT = [
   { id: 'competitor-tallow-02', authorId: 'paperboat', topics: ['competitor', 'tallow', 'continuity'], sentiment: 'negative', conditions: ['tallow-active'], cooldownDays: 120, text: '요즘은 TALLOW도 같이 켜둡니다. 어느 쪽이 나은지는 아직 모르겠어요.' },
   { id: 'competitor-rumor-01', authorId: 'sloworbit', topics: ['competitor'], sentiment: 'neutral', conditions: ['competitor-active'], cooldownDays: 100, text: '요즘 주변에서 다른 AI 이름이 자주 들리네요.' },
 ] as const satisfies readonly ReviewContentRecord[]
+
+export const REVIEW_CONTENT: readonly ReviewContentRecord[] =
+  REVIEW_CONTENT_BASE.map(
+    (record): ReviewContentRecord => ({
+      ...record,
+      topics: [...record.topics],
+      conditions: [...record.conditions],
+      arc: REVIEW_ARC_METADATA[record.id],
+    }),
+  )
 
 export const STARTING_REVIEW_ENTRIES: ReviewFeedEntry[] = [
   {

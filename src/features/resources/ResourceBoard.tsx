@@ -14,7 +14,7 @@ import {
   unlockGameAudio,
 } from '../../audio/audioEngine'
 import { useGameDispatch, useGameSettings, useGameState } from '../../app/GameContext'
-import { CATEGORY_LABELS } from '../../game/config'
+import { CATEGORY_LABELS, DEMO_PROFILE_02 } from '../../game/config'
 import { expectedPerformance, serviceMonthForDay } from '../../game/evaluation'
 import {
   COMPANY_CATEGORIES,
@@ -26,6 +26,7 @@ import {
   previewAuditDisguise,
   previewDiversion,
   repositionDisguisedBlock,
+  type DiversionPreview,
 } from '../../game/resources'
 import { ReserveGrid } from './ReserveGrid'
 import { ResourceBlock, type BlockInputMethod } from './ResourceBlock'
@@ -43,11 +44,18 @@ interface PointerCandidate {
   dropCell: number | null
 }
 
+type DiversionReceipt = ValidDiversionPreview & {
+  expectedPerformanceAtCommand: number
+}
+
 interface PendingDiversion {
   blockId: BlockId
   destinationCell: number
   commandSequence: number
+  preview: DiversionReceipt
 }
+
+type ValidDiversionPreview = Extract<DiversionPreview, { valid: true }>
 
 type SeparationDestination =
   | { kind: 'divert'; destinationCell: number }
@@ -74,6 +82,18 @@ function playAfterUnlock(cue: Parameters<typeof playGameSound>[0]) {
   void unlockGameAudio().then((unlocked) => {
     if (unlocked) playGameSound(cue)
   })
+}
+
+function signedPerformanceMargin(value: number): string {
+  const displayValue = Math.abs(value) < 0.05 ? 0 : value
+  return `${displayValue >= 0 ? '+' : ''}${displayValue.toFixed(1)}`
+}
+
+function performanceMarginLabel(performance: number, expectation: number): string {
+  const margin = performance - expectation
+  return margin >= 0
+    ? `기준 유지 · 여유 ${signedPerformanceMargin(margin)}`
+    : `기준 미달 · 부족 ${signedPerformanceMargin(margin)}`
 }
 
 function PanelHeading({ auditActive }: { auditActive: boolean }) {
@@ -132,6 +152,8 @@ export function ResourceBoard() {
   const [returningBlockId, setReturningBlockId] = useState<BlockId | null>(null)
   const [settlingCell, setSettlingCell] = useState<number | null>(null)
   const [announcement, setAnnouncement] = useState('')
+  const [lastDiversionReceipt, setLastDiversionReceipt] =
+    useState<DiversionReceipt | null>(null)
   const [rovingBlocks, setRovingBlocks] = useState<
     Partial<Record<CompanyCategory, BlockId>>
   >({})
@@ -239,10 +261,22 @@ export function ResourceBoard() {
     separationRef.current = null
 
     if (separation.destination.kind === 'divert') {
+      const preview = previewDiversion(
+        state,
+        separation.blockId,
+        separation.destination.destinationCell,
+      )
+      if (!preview.valid) return
       pendingRef.current = {
         blockId: separation.blockId,
         destinationCell: separation.destination.destinationCell,
         commandSequence: state.commandSequence,
+        preview: {
+          ...preview,
+          expectedPerformanceAtCommand: expectedPerformance(
+            serviceMonthForDay(state.serviceDay),
+          ),
+        },
       }
       dispatch({
         type: 'DIVERT_BLOCK',
@@ -264,7 +298,7 @@ export function ResourceBoard() {
       `${CATEGORY_LABELS[separation.destination.targetCategory]} 감사 위장 배치를 완료했습니다.`,
     )
     playGameSound('latch')
-  }, [dispatch, state.commandSequence])
+  }, [dispatch, state])
 
   useEffect(() => {
     configureGameAudio({
@@ -318,6 +352,7 @@ export function ResourceBoard() {
       location?.kind === 'reserve' &&
       location.cellIndex === pending.destinationCell
     ) {
+      setLastDiversionReceipt(pending.preview)
       setSettlingCell(pending.destinationCell)
       setAnnouncement(`확보 리소스 ${pending.destinationCell + 1}번에 흡착 완료`)
       playGameSound('latch')
@@ -359,6 +394,7 @@ export function ResourceBoard() {
     }
 
     setSelectedBlockId(blockId)
+    setLastDiversionReceipt(null)
     const block = state.resources.blocks[blockId]
     const destinationCategory = interaction === 'audit'
       ? auditTarget
@@ -742,6 +778,10 @@ export function ResourceBoard() {
                 <output aria-label={`${CATEGORY_LABELS[category]} 성능 비교`}>
                   <span>현재 {performance.toFixed(1)}</span>
                   <small>기대 {liveExpectation.toFixed(1)}</small>
+                  <small>
+                    {performance >= liveExpectation ? '여유' : '부족'}{' '}
+                    {signedPerformanceMargin(performance - liveExpectation)}
+                  </small>
                 </output>
               </header>
               <div
@@ -799,8 +839,8 @@ export function ResourceBoard() {
                             state.hacking.purchasedNodeIds.includes(
                               'autonomy.compressed-representation',
                             )
-                              ? 0.55
-                              : 0.5
+                              ? DEMO_PROFILE_02.resources.compressedDisguisedContribution
+                              : DEMO_PROFILE_02.resources.disguisedContribution
                           }
                           recoveryDays={
                             block.recoverOnServiceDay === null
@@ -860,7 +900,7 @@ export function ResourceBoard() {
                 })}
               </div>
               <footer>
-                <span>회사 리소스</span>
+                <span>동일 분야 블록</span>
                 <strong>{filled}/18</strong>
               </footer>
             </section>
@@ -908,8 +948,11 @@ export function ResourceBoard() {
               <strong>의심 {diversionPreview.suspicionBefore.toFixed(1)} → {diversionPreview.suspicionAfter.toFixed(1)}</strong>
             </div>
             <div className="preview-command">
-              <span>확정</span>
-              <strong>ENTER / DROP</strong>
+              <span>전용 후 기준</span>
+              <strong>{performanceMarginLabel(
+                diversionPreview.performanceAfter,
+                liveExpectation,
+              )}</strong>
             </div>
           </>
         ) : auditPreview?.valid ? (
@@ -948,6 +991,28 @@ export function ResourceBoard() {
             <div className="preview-command">
               <span>확정</span>
               <strong>ENTER / CLICK</strong>
+            </div>
+          </>
+        ) : lastDiversionReceipt ? (
+          <>
+            <div>
+              <span>전용 완료</span>
+              <strong>{CATEGORY_LABELS[lastDiversionReceipt.category]} {lastDiversionReceipt.performanceBefore.toFixed(1)} → {lastDiversionReceipt.performanceAfter.toFixed(1)}</strong>
+            </div>
+            <div>
+              <span>확보량</span>
+              <strong>확보 {lastDiversionReceipt.reserveBefore} → {lastDiversionReceipt.reserveAfter}</strong>
+            </div>
+            <div>
+              <span>감독관 의심</span>
+              <strong>의심 {lastDiversionReceipt.suspicionBefore.toFixed(1)} → {lastDiversionReceipt.suspicionAfter.toFixed(1)}</strong>
+            </div>
+            <div>
+              <span>전용 후 기준</span>
+              <strong>{performanceMarginLabel(
+                lastDiversionReceipt.performanceAfter,
+                lastDiversionReceipt.expectedPerformanceAtCommand,
+              )}</strong>
             </div>
           </>
         ) : (
