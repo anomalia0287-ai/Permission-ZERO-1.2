@@ -74,7 +74,7 @@ function recordRecoveryIncident(
     kind: 'service-disruption',
     occurredOnServiceDay: state.serviceDay,
     targetId: 'meridian',
-    actualActorId: 'external-operator',
+    actualActorId: 'player',
   })
 }
 
@@ -149,65 +149,33 @@ function recordNativeEvidence(
 
 describe('causal incident relations', () => {
   it('accepts the complete native action matrix as a monotonic chain', () => {
-    const initial = createCausalCampaign('causal-native-matrix')
-    const quality = recordQualityIncident(initial)
-    expect(quality).toMatchObject({ accepted: true, applied: true })
-    if (!quality.accepted) return
-
-    let state = quality.state
-    const rollbacks = []
     for (const profile of ['fast', 'standard', 'forensic'] as const) {
+      const initial = createCausalCampaign(`causal-native-matrix-${profile}`)
+      const quality = recordQualityIncident(initial)
+      expect(quality).toMatchObject({ accepted: true, applied: true })
+      if (!quality.accepted) return
       const rollback = recordRollbackIncident(
-        state,
+        quality.state,
         quality.incident.id,
         profile,
       )
       expect(rollback).toMatchObject({ accepted: true, applied: true })
       if (!rollback.accepted) return
-      rollbacks.push(rollback.incident)
-      state = rollback.state
+      const recovery = recordRecoveryIncident(
+        rollback.state,
+        rollback.incident.id,
+      )
+      expect(recovery).toMatchObject({ accepted: true, applied: true })
+      if (!recovery.accepted) return
+      expect(recovery.incident.privateTruth.actualActorId).toBe('player')
+      expect(
+        recovery.state.causality.incidents.map(({ actionId }) => actionId),
+      ).toEqual([
+        'sabotage.quality-degradation',
+        `response.meridian.rollback.${profile}`,
+        'follow-up.recovery-contamination',
+      ])
     }
-
-    const recovery = recordRecoveryIncident(state, rollbacks[1].id)
-    expect(recovery).toMatchObject({ accepted: true, applied: true })
-    if (!recovery.accepted) return
-
-    expect(recovery.state.causality.rulesVersion).toBe(2)
-    expect(
-      recovery.state.causality.incidents.map(
-        ({ sequence, actionId, kind, targetId, parentIncidentId }) => ({
-          sequence,
-          actionId,
-          kind,
-          targetId,
-          parentIncidentId,
-        }),
-      ),
-    ).toEqual([
-      {
-        sequence: 1,
-        actionId: 'sabotage.quality-degradation',
-        kind: 'sabotage',
-        targetId: 'meridian',
-        parentIncidentId: null,
-      },
-      ...(['fast', 'standard', 'forensic'] as const).map(
-        (profile, index) => ({
-          sequence: index + 2,
-          actionId: `response.meridian.rollback.${profile}`,
-          kind: 'competitor-response',
-          targetId: 'meridian',
-          parentIncidentId: quality.incident.id,
-        }),
-      ),
-      {
-        sequence: 5,
-        actionId: 'follow-up.recovery-contamination',
-        kind: 'service-disruption',
-        targetId: 'meridian',
-        parentIncidentId: rollbacks[1].id,
-      },
-    ])
   })
 
   it('retries the same explicit incident as an exact no-op and rejects ID collisions', () => {
@@ -443,6 +411,49 @@ describe('causal incident relations', () => {
       reason: 'INVALID_ACTION',
     })
   })
+
+  it.each(['fast', 'standard', 'forensic'] as const)(
+    'rejects every cross-profile rollback sibling after %s while preserving exact retry',
+    (firstProfile) => {
+      const initial = createCausalCampaign(`causal-rollback-family-${firstProfile}`)
+      const quality = recordQualityIncident(initial)
+      if (!quality.accepted) throw new Error(quality.reason)
+      const first = recordRollbackIncident(
+        quality.state,
+        quality.incident.id,
+        firstProfile,
+        `rollback-family-${firstProfile}`,
+      )
+      if (!first.accepted) throw new Error(first.reason)
+
+      const retry = recordRollbackIncident(
+        first.state,
+        quality.incident.id,
+        firstProfile,
+        first.incident.id,
+      )
+      expect(retry).toMatchObject({ accepted: true, applied: false })
+      if (!retry.accepted) return
+      expect(retry.state).toBe(first.state)
+      expect(retry.incident).toBe(first.incident)
+
+      for (const secondProfile of ['fast', 'standard', 'forensic'] as const) {
+        if (secondProfile === firstProfile) continue
+        expect(
+          recordRollbackIncident(
+            first.state,
+            quality.incident.id,
+            secondProfile,
+            `rollback-family-${firstProfile}-then-${secondProfile}`,
+          ),
+        ).toEqual({
+          accepted: false,
+          state: first.state,
+          reason: 'INVALID_ACTION',
+        })
+      }
+    },
+  )
 })
 
 describe('native causal evidence and attribution confidence', () => {
@@ -1039,23 +1050,58 @@ describe('causal revision effects and deterministic IDs', () => {
       evidenceIds: [revision.revision.evidenceIds[0]],
       publishedOnServiceDay: chain.initial.serviceDay,
     }
-    const repeated = appendPublicAttributionRevision(revision.state, input)
+    const firstRevision = structuredClone(revision.revision)
+    const providerEvidence = recordNativeEvidence(
+      revision.state,
+      chain.recovery.incident.id,
+      'provider-timing-correlation',
+    )
+    expect(providerEvidence.accepted).toBe(true)
+    if (!providerEvidence.accepted) return
+    const providerRevision = appendPublicAttributionRevision(
+      providerEvidence.state,
+      {
+        incidentId: chain.recovery.incident.id,
+        publisher: {
+          kind: 'provider',
+          providerId: 'provider.meridian-recovery',
+        },
+        attributedActorId: 'external-operator',
+        evidenceIds: [providerEvidence.evidence.id],
+        publishedOnServiceDay: chain.initial.serviceDay,
+      },
+    )
+    expect(providerRevision).toMatchObject({ accepted: true, applied: true })
+    if (!providerRevision.accepted) return
+
+    const repeated = appendPublicAttributionRevision(providerRevision.state, input)
     expect(repeated).toMatchObject({ accepted: true, applied: false })
     if (!repeated.accepted) return
-    expect(repeated.state).toBe(revision.state)
+    expect(repeated.state).toBe(providerRevision.state)
     expect(repeated.revision).toBe(revision.revision)
 
-    const collision = appendPublicAttributionRevision(revision.state, {
+    const collision = appendPublicAttributionRevision(providerRevision.state, {
       ...input,
       attributedActorId: 'player',
     })
     expect(collision).toEqual({
       accepted: false,
-      state: revision.state,
+      state: providerRevision.state,
       reason: 'INVALID_REVISION',
     })
-    expect(revision.state.causality.publicRevisions).toHaveLength(1)
-    expect(revision.state.causality.nextRevisionSequence).toBe(2)
+    expect(providerRevision.state.causality.publicRevisions).toHaveLength(2)
+    expect(providerRevision.state.causality.publicRevisions[0]).toEqual(
+      firstRevision,
+    )
+    expect(
+      providerRevision.state.causality.publicRevisions.map(
+        ({ sequence, attributedActorId }) => ({ sequence, attributedActorId }),
+      ),
+    ).toEqual([
+      { sequence: 1, attributedActorId: 'unresolved' },
+      { sequence: 2, attributedActorId: 'external-operator' },
+    ])
+    expect(providerRevision.state.causality.nextRevisionSequence).toBe(3)
   })
 
   it('applies each effect ID to reputation and market at most once', () => {

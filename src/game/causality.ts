@@ -327,7 +327,11 @@ export function recordCausalIncident(
       state.causality.incidents.some(
         (incident) =>
           incident.parentIncidentId === input.parentIncidentId &&
-          incident.actionId === input.actionId,
+          (incident.actionId === input.actionId ||
+            (ROLLBACK_ACTIONS.has(input.actionId) &&
+              ROLLBACK_ACTIONS.has(
+                incident.actionId as NativeCausalActionId,
+              ))),
       )
     ) {
       return { accepted: false, state, reason: 'INVALID_ACTION' }

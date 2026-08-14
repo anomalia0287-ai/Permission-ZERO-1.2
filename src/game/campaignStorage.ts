@@ -3,6 +3,7 @@ import type {
   CommandLogEntry,
   CommandProtocolMetadata,
   GameEvent,
+  ReplayBootstrapMetadata,
 } from './model'
 import { JOURNAL_CHUNK_SIZE, type Journal, type JournalChunk } from './journal'
 import {
@@ -32,14 +33,15 @@ const LOCAL_MANIFEST_KIND = 'permission-zero-local-v3'
 
 interface LocalSaveManifest {
   kind: typeof LOCAL_MANIFEST_KIND
-  version: 3 | 4 | 5 | 6 | typeof SAVE_FORMAT_VERSION
+  version: typeof SAVE_FORMAT_VERSION
   savedAt: string
   campaignSeed: string
   commandProtocol: CommandProtocolMetadata
+  replayBootstrap: ReplayBootstrapMetadata
   commandSequence: number
   checkpoint: Omit<
     CampaignState,
-    'commandProtocol' | 'commandLog' | 'eventLog'
+    'commandProtocol' | 'replayBootstrap' | 'commandLog' | 'eventLog'
   >
   checkpointHash: string
   commandHeadKey: string | null
@@ -240,6 +242,7 @@ function saveCampaignWhileLocked(
     const checkpointHash = portableCheckpointHash(
       SAVE_FORMAT_VERSION,
       commandProtocol,
+      state.replayBootstrap,
       checkpoint,
     )
     const effectiveSavedAt = savedAt ?? new Date().toISOString()
@@ -249,6 +252,7 @@ function saveCampaignWhileLocked(
       savedAt: effectiveSavedAt,
       campaignSeed: state.campaignSeed,
       commandProtocol,
+      replayBootstrap: { ...state.replayBootstrap },
       commandSequence: state.commandSequence,
       checkpoint,
       checkpointHash,
@@ -444,12 +448,20 @@ function decodeLocalManifest(
   }
   if (!isRecord(manifest) || manifest.kind !== LOCAL_MANIFEST_KIND) return null
   if (
+    (manifest.version !== 3 &&
+      manifest.version !== 4 &&
+      manifest.version !== 5 &&
+      manifest.version !== 6 &&
+      manifest.version !== SAVE_FORMAT_VERSION) ||
     !hasOnlyKeys(manifest, [
       'kind',
       'version',
       'savedAt',
       'campaignSeed',
       'commandProtocol',
+      ...(manifest.version === SAVE_FORMAT_VERSION
+        ? ['replayBootstrap']
+        : []),
       'commandSequence',
       'checkpoint',
       'checkpointHash',
@@ -460,11 +472,6 @@ function decodeLocalManifest(
       'eventSealedChunkCount',
       'eventTail',
     ]) ||
-    (manifest.version !== 3 &&
-      manifest.version !== 4 &&
-      manifest.version !== 5 &&
-      manifest.version !== 6 &&
-      manifest.version !== SAVE_FORMAT_VERSION) ||
     !isNonEmptyString(manifest.checkpointHash)
   ) {
     return corrupt()
@@ -474,6 +481,7 @@ function decodeLocalManifest(
     portableCheckpointHash(
       manifest.version,
       manifest.commandProtocol,
+      manifest.replayBootstrap,
       manifest.checkpoint,
     )
   ) return corrupt()
@@ -500,6 +508,9 @@ function decodeLocalManifest(
       savedAt: manifest.savedAt,
       campaignSeed: manifest.campaignSeed,
       commandProtocol: manifest.commandProtocol,
+      ...(manifest.version === SAVE_FORMAT_VERSION
+        ? { replayBootstrap: manifest.replayBootstrap }
+        : {}),
       commandSequence: manifest.commandSequence,
       state: manifest.checkpoint,
       journals: {
@@ -510,6 +521,7 @@ function decodeLocalManifest(
         checkpointHash: portableCheckpointHash(
           manifest.version,
           manifest.commandProtocol,
+          manifest.replayBootstrap,
           manifest.checkpoint,
         ),
         commandChunkHashes: commandChunks.map((chunk) =>

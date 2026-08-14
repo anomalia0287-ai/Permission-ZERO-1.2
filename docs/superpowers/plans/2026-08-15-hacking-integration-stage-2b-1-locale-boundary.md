@@ -8,6 +8,19 @@
 
 **Tech Stack:** TypeScript 5.9, Vitest 4, React 19, Vite 8, Playwright 1.62, pnpm 11.16.0, Node.js 24.14.0.
 
+## Final-review replay and rollback amendment (2026-08-15)
+
+The locale correction remains authoritative, but its statement that v7 replay stays valid is incomplete unless replay presentation provenance is stored independently from the command timeline. The final branch additionally requires:
+
+- `ReplayBootstrapMetadata { openingVersion: 1 | 2, legacyReviewPrefixCount }` in `CampaignState` and decoded `SaveEnvelope`;
+- exactly one top-level `replayBootstrap` in v7 portable/local representations, excluded from checkpoints and bound by fixed-order `{ commandProtocol, replayBootstrap, state }` integrity;
+- unchanged v1-v6 exact schemas/hashes, followed by strict version-specific synthesis using frozen seq-0 events and a contiguous legacy-review prefix;
+- a mandatory paired replay argument, typed `INVALID_REPLAY_BOOTSTRAP`, and index-only normalization after each accepted command;
+- one semantic fast/standard/forensic rollback-family child per quality root in mutation and persisted validation;
+- genuine PZ2-PZ6 Settings imports and PZ2-PZ7 codec matrices, recovery private actor `player`, a real second provider attribution revision, and real state-changing ID allocation evidence.
+
+This amendment supersedes later publication/merge steps in this historical plan for the corrective branch: the corrective task creates one local commit only and does not push, open a PR, or merge.
+
 ## Global Constraints
 
 - Execute this plan only in `C:\Users\V\Desktop\Permission ZERO 1.2\.worktrees\hacking-integration-stage-2b` on `codex/hacking-integration-stage-2b`.
@@ -501,6 +514,8 @@ Do not reuse or delete the preserved 2B-1 worktree.
 | No save v8 for this unmerged repair | Global constraints, Task 2 |
 | Confidence/action/audience rules never parse prose | Tasks 1-3 |
 | v1-v6 migration and v7 replay remain valid | Tasks 2-3 |
+| Independent replay-bootstrap authority and v7/local integrity | Final-review replay and rollback amendment; persistence/replay focused suites |
+| One rollback profile per quality root | Final-review replay and rollback amendment; causality and forged-save suites |
 | Exact Node 24.14.0 and real browser gate | Tasks 3-4 |
 | Independent full-branch review before merge | Task 4 |
 
@@ -509,6 +524,8 @@ Do not reuse or delete the preserved 2B-1 worktree.
 - Native evidence construction accepts no prose and stores `legacySummary: null`.
 - v7 rejects native localized summaries, old `summary` keys, missing `legacySummary`, and legacy records without their preserved fallback.
 - Every valid v6 evidence sentence is reproduced exactly under `legacySummary` after decode, v7 encode, and second decode.
+- Empty v1/v2 origins and mixed v5/v6 legacy-review prefixes reproduce exactly through decode, v7 resave, and replay without changing native suffixes.
+- V7 portable/local authority, PZ2-PZ7 transfer matrices, rollback-family uniqueness, recovery attribution, append-only revisions, and real ID-allocation independence have focused regression evidence.
 - Causal projection exposes stable kinds and legacy fallback only; it does not create translated text.
 - The complete branch passes under exact Node.js 24.14.0, receives an independent full-diff review, is published as a ready PR, and merges without deleting the preserved branch.
 - A new isolated 2B-2 branch is based on the actual merge commit.

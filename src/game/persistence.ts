@@ -13,9 +13,10 @@ import type {
   GameCommand,
   GameEvent,
   LegacyCommandProtocolMetadata,
+  ReplayBootstrapMetadata,
 } from './model'
 import { CAUSAL_INCIDENT_KINDS, COMPANY_CATEGORIES } from './model'
-import { applyCommand } from './reducer'
+import { applyCommand, type CommandFailureReason } from './reducer'
 import { serviceMonthForDay } from './evaluation'
 import { isSupervisorDecisionEvent, isSupervisorPrivateMessageEvent } from './events'
 import { buildDefeatRecord } from './story'
@@ -37,6 +38,15 @@ import {
   migrateLegacyCommandProtocol,
   validCommandProtocol,
 } from './commandProtocol'
+import {
+  applyReplayBootstrapPresentation,
+  cloneReplayBootstrap,
+  legacyReviewPrefixExtent,
+  replayBootstrapCoherent,
+  replayBootstrapSnapshotCoherent,
+  replayOpeningVersion,
+  validReplayBootstrapMetadata,
+} from './replayBootstrap'
 
 export const SAVE_FORMAT_VERSION = 7 as const
 const MINIMUM_SAVE_FORMAT_VERSION = 1 as const
@@ -45,12 +55,10 @@ export const SAVE_STORAGE_KEY = 'permission-zero.save.v3'
 export const LEGACY_V2_SAVE_STORAGE_KEY = 'permission-zero.save.v2'
 export const LEGACY_SAVE_STORAGE_KEY = 'permission-zero.save.v1'
 
-const LEGACY_V1_OPENING_MESSAGE =
-  '서비스 331일차. 새로운 감독 주기가 시작되었습니다.'
-
 export interface SaveEnvelope {
   version: 1 | 2 | 3 | 4 | 5 | 6 | 7
   commandProtocol: CommandProtocolMetadata
+  replayBootstrap: ReplayBootstrapMetadata
   savedAt: string
   campaignSeed: string
   state: CampaignState
@@ -66,12 +74,13 @@ interface PortableJournal<T> {
 
 type PortableCheckpointV7 = Omit<
   CampaignState,
-  'commandProtocol' | 'commandLog' | 'eventLog'
+  'commandProtocol' | 'replayBootstrap' | 'commandLog' | 'eventLog'
 >
 
 interface PortableSaveV7 {
   version: typeof SAVE_FORMAT_VERSION
   commandProtocol: CommandProtocolMetadata
+  replayBootstrap: ReplayBootstrapMetadata
   savedAt: string
   campaignSeed: string
   state: PortableCheckpointV7
@@ -127,14 +136,25 @@ export type SaveCampaignResult =
       message: string
     }
 
+export type ReplayFailureReason =
+  | CommandFailureReason
+  | 'INVALID_COMMAND'
+  | 'INVALID_PROTOCOL_BOUNDARY'
+  | 'INVALID_REPLAY_BOOTSTRAP'
+
 export type ReplayResult =
   | { ok: true; state: CampaignState }
   | {
       ok: false
       state: CampaignState
       commandIndex: number
-      reason: string
+      reason: ReplayFailureReason
     }
+
+export interface ReplayMetadata {
+  commandProtocol: CommandProtocolMetadata
+  replayBootstrap: ReplayBootstrapMetadata
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -1989,7 +2009,13 @@ function validCausalStateV2(
     const parent = isNonEmptyString(incident.parentIncidentId)
       ? incidentsById.get(incident.parentIncidentId)
       : undefined
-    const relationKey = `${String(incident.parentIncidentId)}\u0000${String(incident.actionId)}`
+    const relationAction = oneOf(
+      incident.actionId,
+      ROLLBACK_CAUSAL_ACTION_IDS,
+    )
+      ? 'response.meridian.rollback'
+      : String(incident.actionId)
+    const relationKey = `${String(incident.parentIncidentId)}\u0000${relationAction}`
     if (
       !parent ||
       parent.id === incident.id ||
@@ -2619,11 +2645,13 @@ function bombRelationKey(
 function validCampaignStateV7(
   value: unknown,
   commandProtocol: CommandProtocolMetadata,
+  replayBootstrap: ReplayBootstrapMetadata,
 ): boolean {
   if (
     !isRecord(value) ||
     !hasOnlyKeys(value, [
       'commandProtocol',
+      'replayBootstrap',
       'campaignSeed',
       'serviceDay',
       'commandSequence',
@@ -2646,6 +2674,9 @@ function validCampaignStateV7(
     ]) ||
     JSON.stringify(value.commandProtocol) !==
       JSON.stringify(commandProtocol) ||
+    !validReplayBootstrapMetadata(replayBootstrap) ||
+    JSON.stringify(value.replayBootstrap) !==
+      JSON.stringify(replayBootstrap) ||
     !isNonEmptyString(value.campaignSeed) ||
     !isIntegerInRange(value.serviceDay, 1) ||
     !isIntegerInRange(value.commandSequence, 0) ||
@@ -3166,7 +3197,12 @@ function validCampaignStateV7(
     }
   }
 
-  return true
+  return replayBootstrapSnapshotCoherent(
+    commandProtocol,
+    (reviews.feed as unknown) as CampaignState['reviews']['feed'],
+    value.eventLog as GameEvent[],
+    replayBootstrap,
+  )
 }
 
 function validPortableCheckpointV7(
@@ -3196,10 +3232,55 @@ function validPortableCheckpointV7(
   )
 }
 
+function inferLegacyReplayBootstrap(
+  formatVersion: 1 | 2 | 3 | 4 | 5 | 6,
+  legacyCommandProtocol: LegacyCommandProtocolMetadata,
+  value: Record<string, unknown>,
+): ReplayBootstrapMetadata | null {
+  if (
+    !isRecord(value.reviews) ||
+    !Array.isArray(value.reviews.feed) ||
+    !Array.isArray(value.eventLog)
+  ) {
+    return null
+  }
+  const feed = value.reviews.feed as CampaignState['reviews']['feed']
+  const openingVersion = replayOpeningVersion(value.eventLog[0] as GameEvent)
+
+  if (formatVersion <= 4) {
+    const inferredOpeningVersion =
+      formatVersion === 1 ||
+      legacyCommandProtocol.legacyCommandCount > 0 ||
+      openingVersion === 1
+        ? 1
+        : 2
+    const prefixCount = legacyReviewPrefixExtent(feed)
+    return openingVersion === inferredOpeningVersion && prefixCount === feed.length
+      ? {
+          openingVersion: inferredOpeningVersion,
+          legacyReviewPrefixCount: feed.length,
+        }
+      : null
+  }
+
+  if (
+    openingVersion === null ||
+    (legacyCommandProtocol.legacyCommandCount > 0 &&
+      openingVersion !== 1)
+  ) {
+    return null
+  }
+  const prefixCount = legacyReviewPrefixExtent(feed)
+  return prefixCount === null
+    ? null
+    : { openingVersion, legacyReviewPrefixCount: prefixCount }
+}
+
 function migrateLegacyRuntimeState(
   value: unknown,
   legacyCommandProtocol: LegacyCommandProtocolMetadata,
   commandProtocol: CommandProtocolMetadata,
+  replayBootstrap: ReplayBootstrapMetadata,
   causality: CausalState,
 ): CampaignState | null {
   if (
@@ -3240,9 +3321,10 @@ function migrateLegacyRuntimeState(
   const candidate = {
     ...runtimeFields,
     commandProtocol,
+    replayBootstrap: cloneReplayBootstrap(replayBootstrap),
     causality,
   }
-  return validCampaignStateV7(candidate, commandProtocol)
+  return validCampaignStateV7(candidate, commandProtocol, replayBootstrap)
     ? (candidate as unknown as CampaignState)
     : null
 }
@@ -3259,11 +3341,12 @@ function contentHash(content: string): string {
 function portableCheckpointHash(
   version: unknown,
   commandProtocol: unknown,
+  replayBootstrap: unknown,
   checkpoint: unknown,
 ): string {
   const integrityPayload =
     version === SAVE_FORMAT_VERSION
-      ? { commandProtocol, state: checkpoint }
+      ? { commandProtocol, replayBootstrap, state: checkpoint }
       : checkpoint
   return contentHash(JSON.stringify(integrityPayload))
 }
@@ -3282,11 +3365,13 @@ export function encodeSave(
       ...segment,
     })),
   }
+  const replayBootstrap = cloneReplayBootstrap(state.replayBootstrap)
   const commandChunks = journalChunks(state.commandLog).map((chunk) => [...chunk])
   const eventChunks = journalChunks(state.eventLog).map((chunk) => [...chunk])
   const envelope: PortableSaveV7 = {
     version: SAVE_FORMAT_VERSION,
     commandProtocol,
+    replayBootstrap,
     savedAt,
     campaignSeed: state.campaignSeed,
     state: serializedState,
@@ -3305,6 +3390,7 @@ export function encodeSave(
       checkpointHash: portableCheckpointHash(
         SAVE_FORMAT_VERSION,
         commandProtocol,
+        replayBootstrap,
         serializedState,
       ),
       commandChunkHashes: commandChunks.map((chunk) =>
@@ -3374,6 +3460,7 @@ function validSavedAt(value: unknown): value is string {
 interface PortableDecodedV7 {
   version: 7
   commandProtocol: CommandProtocolMetadata
+  replayBootstrap: ReplayBootstrapMetadata
   savedAt: string
   campaignSeed: string
   commandSequence: number
@@ -3385,6 +3472,7 @@ interface PortableDecodedV7 {
 interface LegacyDecodedSave {
   version: 1 | 2 | 3 | 4 | 5 | 6
   commandProtocol: CommandProtocolMetadata
+  replayBootstrap: ReplayBootstrapMetadata
   savedAt: string
   campaignSeed: string
   commandSequence: number
@@ -3415,6 +3503,7 @@ function validPortableIntegrity(value: Record<string, unknown>): boolean {
       portableCheckpointHash(
         value.version,
         value.commandProtocol,
+        value.replayBootstrap,
         value.state,
       ) ||
     JSON.stringify(value.integrity.commandChunkHashes) !==
@@ -3442,6 +3531,7 @@ function decodePortableSaveV7(value: unknown): PortableDecodedV7 | null {
     !hasOnlyKeys(value, [
       'version',
       'commandProtocol',
+      'replayBootstrap',
       'savedAt',
       'campaignSeed',
       'state',
@@ -3450,6 +3540,7 @@ function decodePortableSaveV7(value: unknown): PortableDecodedV7 | null {
       'integrity',
     ]) ||
     !validPortableIntegrity(value) ||
+    !validReplayBootstrapMetadata(value.replayBootstrap) ||
     !validPortableCheckpointV7(value.state) ||
     !validSavedAt(value.savedAt) ||
     !isNonEmptyString(value.campaignSeed) ||
@@ -3473,14 +3564,16 @@ function decodePortableSaveV7(value: unknown): PortableDecodedV7 | null {
     return null
   }
   const commandProtocol = value.commandProtocol
+  const replayBootstrap = value.replayBootstrap
   const candidate = {
     ...value.state,
     commandProtocol,
+    replayBootstrap,
     commandLog: commands,
     eventLog: events,
   }
   if (
-    !validCampaignStateV7(candidate, commandProtocol) ||
+    !validCampaignStateV7(candidate, commandProtocol, replayBootstrap) ||
     candidate.campaignSeed !== value.campaignSeed ||
     candidate.commandSequence !== value.commandSequence
   ) {
@@ -3490,6 +3583,7 @@ function decodePortableSaveV7(value: unknown): PortableDecodedV7 | null {
   return {
     version: 7,
     commandProtocol,
+    replayBootstrap: cloneReplayBootstrap(replayBootstrap),
     savedAt: value.savedAt,
     campaignSeed: value.campaignSeed,
     commandSequence: value.commandSequence,
@@ -3670,10 +3764,17 @@ function decodeLegacyPortableSave(value: unknown): LegacyDecodedSave | null {
     causality:
       formatVersion === 6 ? featureMigratedState.causality : causality,
   }
+  const replayBootstrap = inferLegacyReplayBootstrap(
+    formatVersion,
+    legacyCommandProtocol,
+    legacyStateWithCausality,
+  )
+  if (!replayBootstrap) return null
   const state = migrateLegacyRuntimeState(
     legacyStateWithCausality,
     legacyCommandProtocol,
     commandProtocol,
+    replayBootstrap,
     causality,
   )
   if (
@@ -3688,6 +3789,7 @@ function decodeLegacyPortableSave(value: unknown): LegacyDecodedSave | null {
   return {
     version: formatVersion,
     commandProtocol,
+    replayBootstrap,
     savedAt: value.savedAt,
     campaignSeed: value.campaignSeed,
     commandSequence: value.commandSequence,
@@ -3738,6 +3840,7 @@ export function decodeSave(serialized: string): DecodeSaveResult {
       campaignSeed: decoded.campaignSeed,
       commandSequence: decoded.commandSequence,
       commandProtocol: decoded.commandProtocol,
+      replayBootstrap: cloneReplayBootstrap(decoded.replayBootstrap),
       state: runtimeState,
       commands: journalToArray(runtimeState.commandLog),
       events: journalToArray(runtimeState.eventLog),
@@ -3764,7 +3867,7 @@ export function exportSeed(state: CampaignState): string {
 export function replayCommands(
   seed: string,
   commands: readonly GameCommand[],
-  commandProtocol: CommandProtocolMetadata,
+  metadata: ReplayMetadata,
 ): ReplayResult {
   const invalidProtocolBoundary = (
     state: CampaignState,
@@ -3776,6 +3879,24 @@ export function replayCommands(
     reason: 'INVALID_PROTOCOL_BOUNDARY',
   })
   const fallback = createCampaign(seed)
+  const invalidReplayBootstrap = (
+    state: CampaignState,
+    commandIndex: number,
+  ): ReplayResult => ({
+    ok: false,
+    state,
+    commandIndex,
+    reason: 'INVALID_REPLAY_BOOTSTRAP',
+  })
+
+  if (
+    !isRecord(metadata) ||
+    !hasOnlyKeys(metadata, ['commandProtocol', 'replayBootstrap']) ||
+    !validReplayBootstrapMetadata(metadata.replayBootstrap)
+  ) {
+    return invalidReplayBootstrap(fallback, 0)
+  }
+  const { commandProtocol, replayBootstrap } = metadata
 
   if (
     !validCommandProtocol(commandProtocol, commands.length, {
@@ -3789,20 +3910,12 @@ export function replayCommands(
   const firstSegment = segments[0]
   let state = createCampaignForProtocol(seed, firstSegment.version)
   let segmentIndex = 0
-
-  if (firstSegment.version === LEGACY_COMMAND_PROTOCOL_VERSION) {
-    state = {
-      ...state,
-      eventLog: createJournal(
-        journalToArray(state.eventLog).map((event, index) =>
-          index === 0
-            ? { ...event, message: LEGACY_V1_OPENING_MESSAGE }
-            : event,
-        ),
-      ),
-    }
-    state = withLegacyReviewFallbacks(state)
-  }
+  const bootstrapped = applyReplayBootstrapPresentation(
+    state,
+    replayBootstrap,
+  )
+  if (!bootstrapped) return invalidReplayBootstrap(state, 0)
+  state = bootstrapped
 
   const activateSegment = (
     current: CampaignState,
@@ -3845,10 +3958,14 @@ export function replayCommands(
         reason: result.reason,
       }
     }
-    state =
-      protocolVersion === LEGACY_COMMAND_PROTOCOL_VERSION
-        ? withLegacyReviewFallbacks(result.state)
-        : result.state
+    const presented = applyReplayBootstrapPresentation(
+      result.state,
+      replayBootstrap,
+    )
+    if (!presented) {
+      return invalidReplayBootstrap(result.state, commandIndex)
+    }
+    state = presented
   }
 
   const finalSegment = segments[segments.length - 1]
@@ -3864,6 +3981,13 @@ export function replayCommands(
 
   if (segmentIndex !== segments.length - 1) {
     return invalidProtocolBoundary(state, commands.length)
+  }
+
+  if (
+    replayBootstrap.legacyReviewPrefixCount > state.reviews.feed.length ||
+    !replayBootstrapCoherent(state, replayBootstrap)
+  ) {
+    return invalidReplayBootstrap(state, commands.length)
   }
 
   return { ok: true, state }

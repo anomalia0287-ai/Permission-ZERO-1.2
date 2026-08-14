@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- Prerequisite: the complete Stage 2B-1 branch, including the `legacySummary` amendment, is merged to `origin/main` and this work runs in `C:\Users\V\Desktop\Permission ZERO 1.2\.worktrees\hacking-integration-stage-2b-2` on `codex/hacking-integration-stage-2b-2`.
+- Prerequisite: the complete Stage 2B-1 branch, including the `legacySummary` and independent replay-bootstrap amendments, is merged to `origin/main` and this work runs in `C:\Users\V\Desktop\Permission ZERO 1.2\.worktrees\hacking-integration-stage-2b-2` on `codex/hacking-integration-stage-2b-2`.
 - Read `docs/superpowers/specs/2026-08-14-hacking-integration-stage-2b-design.md`, `docs/superpowers/specs/2026-08-14-resource-field-ui-design.ko.md`, and every source/test file modified by this plan in full before editing. Do not review only selected hunks.
 - This plan implements only Stage 2B-2: root quality degradation, MERIDIAN rollback, and the derived opportunity selector. It does not add `EXECUTE_SABOTAGE_FOLLOW_UP`, recovery contamination, public checksum evidence, provider evidence, public attribution, market-transfer effects, or causal UI prose.
 - Preserve all 12 hacking node IDs, costs, reserve cap 18, diversion suspicion `+2.4`, compressed representation `+5%`, quality penalty `-10`, quality duration 15 days, and root evidence delta `+2`.
@@ -20,6 +20,7 @@
 - Native causal evidence uses stable `kind` and `legacySummary: null`; no Korean or English completed sentence enters causal state.
 - Opportunity IDs, open/expired/used state, and deadlines are derived. Do not add `opportunities`, deadlines, rolls, or motion/UI state to `CampaignState` or persistence.
 - Reuse `rollCausalResponseOutcome`; do not consume an ID stream or add a new random slot.
+- Fast, standard, and forensic are mutually exclusive members of one rollback relation family. A quality root may own exactly one selected rollback child; mutation and persisted-state validation reject every cross-profile sibling while an exact retry of the selected relation remains a no-op.
 - Treat repository `.superpowers/`, `docs/design/2026-08-14-*.md`, and `prototypes/hacking-rules/` as read-only/out of scope.
 - Use TDD and make one independently reviewable engine commit after all tasks pass. Do not push or merge this branch until the floating-resource-field plan also passes, because the approved 2B-2 product slice includes the real resource UI.
 
@@ -379,6 +380,8 @@ The evidence must be invisible to TALLOW and public observers.
 
 Call `processCausalResponses` twice on the same day. The second call must return the same state object with no new incident/evidence/sequence.
 
+For each fast/standard/forensic profile, first record that profile successfully, then attempt each of the other two profiles under the same quality root and require `INVALID_ACTION`. Retry the selected profile with the exact existing incident ID and require the existing idempotent no-op. Forge a fully integrity-refreshed save with two different rollback-family siblings and require `CORRUPT_SAVE`; do not key uniqueness by the exact action string.
+
 Use the typed optional `CausalGameplayOperations` parameter for tests, mirroring Task 1. Force the rollback incident to succeed and its evidence write to fail. Assert the result is `processed: false` with the original pre-response state and no partial rollback incident.
 
 Add a root incident with no MERIDIAN-visible quality evidence and assert no response is created even though raw private state contains the incident.
@@ -696,6 +699,7 @@ The branch is ready for the next plan only when the worktree is clean, the engin
 | MERIDIAN policy consumes redacted projection only | Task 2 |
 | Rollback always occurs when internal evidence is visible | Tasks 2-3 |
 | Fast/standard/forensic use frozen response slot 0 | Task 3 |
+| Exactly one rollback-family child per quality root; exact retry remains idempotent | Stage 2B-1 final-review invariant, Task 3 |
 | Company-visible rollback evidence gates opportunity | Task 3 |
 | Opportunity ID/deadline/status are derived, not saved | Tasks 3 and 5 |
 | Protocol-v3 daily placement; v1/v2 unchanged | Task 4 |

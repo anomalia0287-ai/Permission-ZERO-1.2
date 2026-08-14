@@ -9,6 +9,10 @@ describe('createCampaign', () => {
     const campaign = createCampaign('native-v3')
 
     expect(campaign).toMatchObject({
+      replayBootstrap: {
+        openingVersion: 2,
+        legacyReviewPrefixCount: 0,
+      },
       commandProtocol: {
         segments: [{ version: 3, startsAtSequence: 1 }],
       },
@@ -28,6 +32,10 @@ describe('createCampaign', () => {
 
       expect(campaign.commandProtocol).toEqual({
         segments: [{ version, startsAtSequence: 1 }],
+      })
+      expect((campaign as unknown as Record<string, unknown>).replayBootstrap).toEqual({
+        openingVersion: 2,
+        legacyReviewPrefixCount: 0,
       })
       expect(campaign.causality.rulesVersion).toBe(2)
       expect(campaign).not.toHaveProperty('saveVersion')

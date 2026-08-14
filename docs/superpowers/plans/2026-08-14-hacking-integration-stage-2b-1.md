@@ -4,9 +4,20 @@
 
 **Goal:** Establish the versioned, deterministic, information-safe foundation for the first hacking causal chain by moving the live runtime to save format v7, command protocol v3, and causal rules v2 while reproducing every persisted v1/v2 command under its original rules.
 
-**Architecture:** Replace the single legacy command boundary with a canonical segment timeline injected from the v7 envelope into runtime state, validate and migrate each v1-v6 input before converting it, upgrade causal records to explicit action/parent/confidence metadata, filter incident shells at the knowledge-projection boundary, and isolate future gameplay rolls in named outcome streams with frozen slots. Stage 2B-1 stops at these model, migration, replay, and determinism boundaries; it does not connect sabotage gameplay or create follow-up opportunities.
+**Architecture:** Replace the single legacy command boundary with a canonical segment timeline injected from the v7 envelope into runtime state, preserve independent opening/review provenance in a required replay-bootstrap authority, validate and migrate each v1-v6 input before converting it, upgrade causal records to explicit action/parent/confidence metadata, filter incident shells at the knowledge-projection boundary, and isolate future gameplay rolls in named outcome streams with frozen slots. Stage 2B-1 stops at these model, migration, replay, and determinism boundaries; it does not connect sabotage gameplay or create follow-up opportunities.
 
 **Tech Stack:** TypeScript 5.9, Vitest 4, React 19, Testing Library, Vite 8, Playwright 1.62, pnpm 11.16.0, Node.js 24.14.0.
+
+## Final-review correction authority (2026-08-15)
+
+The implemented timeline alone is not sufficient replay authority: empty v1 and v2 histories both migrate to `3@1`, while v5/v6 continuations can contain a variable legacy-review prefix followed by native captured reviews. The final 2B-1 boundary therefore also requires `ReplayBootstrapMetadata { openingVersion: 1 | 2, legacyReviewPrefixCount }` in runtime state and decoded envelopes.
+
+- V7 portable saves and local manifests store exactly one top-level `replayBootstrap` sibling of `commandProtocol`; neither appears in the checkpoint.
+- The fixed v7 checkpoint-hash payload is `{ commandProtocol, replayBootstrap, state: checkpoint }`. V1-v6 exact schemas and hash recipes remain unchanged.
+- V1-v6 infer the field only after their original exact validation. V7 never infers/defaults it.
+- Replay accepts `{ commandProtocol, replayBootstrap }` as one required argument and normalizes only the indexed legacy-review prefix after every accepted command.
+- One quality-degradation parent may have at most one member of the fast/standard/forensic rollback family. Exact retry of the chosen relation remains idempotent; cross-profile siblings and integrity-refreshed saved copies are rejected.
+- Genuine PZ2-PZ6 UI fixtures, PZ2-PZ7 clipboard/file codec matrices, a two-revision unresolved→provider chain, private recovery actor `player`, and real ID-allocation state mutation are required evidence. Claims below that mention only protocol metadata must be read together with this correction.
 
 ## Global Constraints
 
@@ -18,7 +29,7 @@
 - Preserve `hiddenEvidence`; Stage 2B's structured causal evidence coexists with the current audit/ending counter until a separately approved migration removes that dependency.
 - Do not add `EXECUTE_SABOTAGE_FOLLOW_UP` in 2B-1. That command and all opportunity lifecycle failures belong to 2B-3.
 - Keep `SAVE_STORAGE_KEY = 'permission-zero.save.v3'`, `LOCAL_MANIFEST_KIND = 'permission-zero-local-v3'`, and the browser save lock name unchanged. These identify storage locations/layouts, not the portable format version.
-- The v7 envelope owns the sole serialized `commandProtocol`. The v7 checkpoint must not contain `commandProtocol`, `saveVersion`, or `legacyCommandCount`; the decoder injects one validated timeline into `CampaignState`.
+- The v7 envelope owns the sole serialized `commandProtocol` and `replayBootstrap`. The v7 checkpoint must not contain either field, `saveVersion`, or `legacyCommandCount`; the decoder injects both validated authorities into `CampaignState`.
 - Preserve input `envelope.version` in successful decode results. Only a subsequent encode emits v7.
 - Preserve all v6 causal IDs, sequence numbers, dates, evidence records, summaries, audiences, revisions, and applied effects exactly. Add only migration metadata that did not exist: `actionId`, `parentIncidentId`, and `confidence`.
 - Keep arbitrary v6 evidence `kind` strings readable after migration. Native causal-rules-v2 mutation APIs may create only the five stable evidence kinds specified below.
@@ -1013,6 +1024,7 @@ Do not push, open a PR, or merge until the 2B-1 commit and full verification res
 | §6 fixed IDs/economy/hidden-evidence/exclusion constraints | Global constraints, Task 8 scope audit |
 | §7.1 three independent version axes | Tasks 1, 2, 5 |
 | §7.2 canonical protocol segments, validation, sole copy, empty v3 activation | Tasks 1, 5, 6 |
+| §7.2.1 replay-bootstrap opening/review authority, v7 hash, legacy synthesis | Final-review correction authority; Tasks 5, 6, 8 |
 | §7.3 exact v1-v6 migration, source-version reporting, PZ7/.pz7 | Tasks 5, 7 |
 | §8.1 action IDs, parent relations, native/legacy separation | Tasks 2, 5 |
 | §8.2 evidence-derived confidence | Tasks 2, 5 |
@@ -1037,6 +1049,8 @@ Do not push, open a PR, or merge until the 2B-1 commit and full verification res
 - Fresh campaigns run save v7 / protocol v3 / causal rules v2.
 - Every v1-v6 input is validated under its original schema, migrated without invented historical facts, and re-encoded only as v7.
 - Every historical command executes under its original v1 or v2 semantics; an empty final v3 activation is reflected in runtime state.
+- Empty v1/v2 histories and mixed v5/v6 review histories retain exact opening and legacy-prefix provenance independently of the command timeline.
+- Mutation and persisted validation permit exactly one selected rollback profile per quality root while retaining exact-retry idempotence.
 - No observer receives an inaccessible incident shell, private truth, action/parent metadata, or private evidence citation list.
 - Outcome rolls depend only on the approved canonical inputs and cannot be shifted by ID generation.
 - New exports are PZ7/.pz7; old PZ2-PZ6 and v1-v6 files remain importable.

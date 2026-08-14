@@ -8,7 +8,14 @@ import {
   rollCausalEvidenceStrength,
   rollCausalResponseOutcome,
 } from './causalOutcomes'
-import { createEmptyCausalState, deriveCausalId } from './causality'
+import {
+  applyCausalEffect,
+  appendPublicAttributionRevision,
+  createEmptyCausalState,
+  deriveCausalId,
+  recordCausalEvidence,
+  recordCausalIncident,
+} from './causality'
 import { createCampaign } from './createCampaign'
 import type {
   CampaignState,
@@ -157,20 +164,88 @@ describe('isolated causal outcome rolls', () => {
   })
 
   it('cannot be perturbed by allocating IDs from any causal ID stream', () => {
-    const state = fixedState()
+    let state = fixedState()
     const incident = fixedIncident()
     const before = rollCausalResponseOutcome(state, incident)
-
-    for (const stream of [
+    const expectedIds = Object.fromEntries(([
       'causal-incident',
       'causal-evidence',
       'causal-revision',
       'causal-effect',
-    ] as const) {
-      for (let sequence = 1; sequence <= 8; sequence += 1) {
-        deriveCausalId(state, stream, sequence)
-      }
-    }
+    ] as const).map((stream) => [stream, deriveCausalId(state, stream, 1)]))
+
+    const quality = recordCausalIncident(state, {
+      actionId: 'sabotage.quality-degradation',
+      parentIncidentId: null,
+      kind: 'sabotage',
+      occurredOnServiceDay: state.serviceDay,
+      targetId: 'meridian',
+      actualActorId: 'player',
+    })
+    if (!quality.accepted) throw new Error(quality.reason)
+    const rollback = recordCausalIncident(quality.state, {
+      actionId: 'response.meridian.rollback.standard',
+      parentIncidentId: quality.incident.id,
+      kind: 'competitor-response',
+      occurredOnServiceDay: state.serviceDay,
+      targetId: 'meridian',
+      actualActorId: 'meridian',
+    })
+    if (!rollback.accepted) throw new Error(rollback.reason)
+    const recovery = recordCausalIncident(rollback.state, {
+      actionId: 'follow-up.recovery-contamination',
+      parentIncidentId: rollback.incident.id,
+      kind: 'service-disruption',
+      occurredOnServiceDay: state.serviceDay,
+      targetId: 'meridian',
+      actualActorId: 'player',
+    })
+    if (!recovery.accepted) throw new Error(recovery.reason)
+    const evidence = recordCausalEvidence(recovery.state, {
+      incidentId: recovery.incident.id,
+      kind: 'public-recovery-checksum-anomaly',
+      discoveredOnServiceDay: state.serviceDay,
+      audiences: [{ kind: 'public' }],
+    })
+    if (!evidence.accepted) throw new Error(evidence.reason)
+    const revision = appendPublicAttributionRevision(evidence.state, {
+      incidentId: recovery.incident.id,
+      publisher: { kind: 'public' },
+      attributedActorId: 'unresolved',
+      evidenceIds: [evidence.evidence.id],
+      publishedOnServiceDay: state.serviceDay,
+    })
+    if (!revision.accepted) throw new Error(revision.reason)
+    const effect = applyCausalEffect(revision.state, {
+      incidentId: recovery.incident.id,
+      revisionId: revision.revision.id,
+      appliedOnServiceDay: state.serviceDay,
+      effect: { kind: 'reputation', targetId: 'player', delta: -1 },
+    })
+    if (!effect.accepted) throw new Error(effect.reason)
+    state = effect.state
+
+    expect({
+      incident: quality.incident.id,
+      evidence: evidence.evidence.id,
+      revision: revision.revision.id,
+      effect: effect.appliedEffect.id,
+    }).toEqual({
+      incident: expectedIds['causal-incident'],
+      evidence: expectedIds['causal-evidence'],
+      revision: expectedIds['causal-revision'],
+      effect: expectedIds['causal-effect'],
+    })
+    expect(state.causality).toMatchObject({
+      nextIncidentSequence: 4,
+      nextEvidenceSequence: 2,
+      nextRevisionSequence: 2,
+      nextEffectSequence: 2,
+    })
+    expect(state.causality.incidents).toHaveLength(3)
+    expect(state.causality.evidence).toHaveLength(1)
+    expect(state.causality.publicRevisions).toHaveLength(1)
+    expect(state.causality.appliedEffects).toHaveLength(1)
 
     expect(rollCausalResponseOutcome(state, incident)).toBe(before)
   })

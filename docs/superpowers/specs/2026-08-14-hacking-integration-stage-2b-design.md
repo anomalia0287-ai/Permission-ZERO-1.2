@@ -230,6 +230,25 @@ v1 명령 31개 뒤 v2 명령 19개가 있는 저장을 이관
 
 현재 `CampaignState.saveVersion`과 `legacyCommandCount`는 런타임의 `commandProtocol` 타임라인으로 대체한다. 직렬화된 v7에서는 저장 봉투의 `commandProtocol`이 단일 정본이고 체크포인트에는 중복 저장하지 않는다. 디코더가 검증한 값을 런타임 `CampaignState`에 주입한다. 같은 사실을 두 위치에 저장해 모순 가능성을 만들지 않는다.
 
+#### 7.2.1 독립 리플레이 부트스트랩 정본
+
+명령 프로토콜 타임라인은 명령 의미만 소유한다. 빈 v1과 빈 v2가 모두 `3@1`로 이관되므로 시작 사건과 과거 리뷰 이관 범위는 다음 독립 메타데이터가 소유한다.
+
+```ts
+type ReplayOpeningVersion = 1 | 2
+
+interface ReplayBootstrapMetadata {
+  openingVersion: ReplayOpeningVersion
+  legacyReviewPrefixCount: number
+}
+```
+
+네이티브 값은 `{ openingVersion: 2, legacyReviewPrefixCount: 0 }`이다. 직렬화된 v7 portable save와 v7 local manifest는 `commandProtocol`의 형제로 `replayBootstrap`을 정확히 한 번 저장하고, 둘 다 체크포인트에서는 제외한다. v7 체크포인트 해시는 고정 키 순서 `{ commandProtocol, replayBootstrap, state: checkpoint }`를 사용한다. 명령 지문과 인과 RNG namespace에는 이 표시 출처를 넣지 않는다.
+
+v1~v6은 각 원본 exact schema와 기존 무결성 조리법을 먼저 통과한 뒤에만 메타데이터를 합성한다. v1은 동결된 v1 시작 사건과 전체 이관 리뷰 feed, v2~v4는 검증된 v1 lineage 또는 동결 시작 사건과 전체 이관 feed, v5/v6은 두 동결 seq-0 사건 중 정확히 하나와 선두의 연속 `legacy-save` 리뷰 수를 사용한다. native snapshot 뒤의 `legacy-save`는 표현 불가능하므로 거부한다. v7은 저장값을 필수 exact 입력으로 검증하며 추론하거나 기본값을 넣지 않는다.
+
+리플레이 API는 `commandProtocol`과 `replayBootstrap`을 한 필수 객체로 받는다. 시작 사건은 선택된 동결 사건과 정확히 일치해야 하고, 인덱스 `[0, legacyReviewPrefixCount)`만 정확한 `legacy-save` snapshot으로 정규화한다. 이 정규화는 활성 명령 프로토콜과 무관하게 승인된 각 명령 뒤 다시 적용되며 native suffix는 바꾸지 않는다. v1 구간이 있는 타임라인은 opening version 1을 요구하지만, 빈 v1 lineage 때문에 역은 요구하지 않는다.
+
 ### 7.3 v1~v6 → v7 마이그레이션
 
 1. 기존 형식별 검증기는 원래 스키마 그대로 입력을 먼저 검증한다.
@@ -288,6 +307,7 @@ legacy.service-disruption
 - 자기 참조, 미래 참조, 순환은 거부한다.
 - 행동 ID와 사건 종류의 허용 조합을 정확 목록으로 검증한다.
 - 같은 부모에 같은 단일 실행 후속 행동을 두 번 기록하지 않는다.
+- `response.meridian.rollback.fast|standard|forensic`는 하나의 의미 계열이다. 한 품질 저하 부모 아래에는 이 계열 자식이 최대 하나만 존재하며, 선택된 동일 관계의 정확 ID 재시도만 기존 멱등 no-op이다. mutation과 저장 검증이 같은 규칙을 적용한다.
 - `legacy.*` 행동은 마이그레이션 전용 루트 예외로 `parentIncidentId: null`을 허용한다. 네이티브 규칙 v2 변이 API는 이를 새로 만들 수 없다.
 
 `actionId`와 `parentIncidentId`는 실제 인과 진실이며 일반 지식 투영에 자동 포함하지 않는다.
@@ -340,7 +360,7 @@ type AttributionConfidence =
 | `provider-timing-correlation` | 복구 오염 | 공급자 `provider.meridian-recovery` | `plausible` 귀속 근거 |
 | `provider-signed-route-record` | 복구 오염 | 공급자 `provider.meridian-recovery` | `credible` 귀속 근거 |
 
-증거 `kind`는 규칙 판정에 쓰는 안정 ID다. `summary`는 작가가 다듬을 수 있는 저장 시점 문장 스냅샷이며, 엔진은 문구를 파싱하거나 문구 일치로 분기하지 않는다. 규칙 v2 생성 API는 위 ID만 만들고, v6에서 이관된 기존 임의 ID는 보존하되 새 규칙 판정의 입력으로 사용하지 않는다.
+증거 `kind`는 규칙 판정에 쓰는 안정 ID다. 규칙 v2 네이티브 생성 API는 작가 문장을 받거나 저장하지 않고 `legacySummary: null`과 위 안정 ID만 기록한다. v6의 정확한 원본 `summary` 문장은 원본 스키마 검증 뒤 `legacySummary`로 손실 없이 이관하고, 기존 임의 `kind`와 함께 보존하되 새 규칙 판정의 입력으로 사용하지 않는다. 엔진은 어느 prose 필드도 파싱하거나 문구 일치로 분기하지 않는다.
 
 ## 9. 결정론적 결과 스트림
 
@@ -641,11 +661,11 @@ PROTOCOL_MISMATCH
 
 ### 14.1 결정론
 
-1. 같은 시드, 같은 프로토콜 타임라인, 같은 명령은 사건·증거·귀속·시장·리뷰·고정 시각 저장 바이트까지 같다.
+1. 같은 시드, 같은 프로토콜 타임라인, 같은 리플레이 부트스트랩, 같은 명령은 사건·증거·귀속·시장·리뷰·고정 시각 저장 바이트까지 같다.
 2. 저장 후 재개와 중단 없는 실행 결과가 같다.
 3. 같은 날 처리 함수를 두 번 호출해도 대응·증거·귀속이 중복되지 않는다.
 4. 다른 시드는 적어도 롤백 속도, 발견일, 증거 강도, 발행일 중 하나를 바꿀 수 있지만 불변식은 유지한다.
-5. 기존 ID 스트림에 ID가 추가돼도 이미 고정된 결과 스트림 슬롯의 의미는 바뀌지 않는다.
+5. 실제 사건·증거·수정·효과 ID를 할당해 각 카운터와 배열이 변해도 이미 고정된 결과 스트림 슬롯의 의미와 동일 namespace/sequence에서 생성되는 ID는 바뀌지 않는다.
 
 ### 14.2 정보 경계
 
@@ -682,9 +702,11 @@ PROTOCOL_MISMATCH
 3. v2 `ADVANCE_DAY`를 v3 의미로 소급 실행하지 않는다.
 4. v6 인과 ID·시퀀스·증거·귀속·효과가 이관 뒤 그대로다.
 5. v6에 없던 확신도는 `unavailable-legacy`이며 추측값이 아니다.
-6. 잘못 정렬된 프로토콜 구간, 미래 부모, 순환, 중복 단일 후속, 잘못된 확신도, 알 수 없는 행동 ID를 손상 저장으로 거부한다.
-7. `PZ7:`·`.pz7` 왕복과 `PZ2:`~`PZ6:`·v1~v6 파일 가져오기를 검증한다.
-8. 20,000개 명령 저장, 원자적 로컬 매니페스트, 탭 간 충돌, 손상 저널 검증을 그대로 통과한다.
+6. 빈 v1/v2의 같은 `3@1` 타임라인, v5/v6의 legacy 리뷰 접두사/native suffix, 동결 시작 사건을 독립 리플레이 부트스트랩으로 정확히 재현한다.
+7. 잘못 정렬된 프로토콜 구간, 미래 부모, 순환, 한 품질 부모 아래 둘 이상의 롤백 계열 자식, 잘못된 확신도, 알 수 없는 행동 ID를 손상 저장으로 거부한다.
+8. v7 portable/local의 최상위 `replayBootstrap`, 체크포인트 제외, 고정 순서 무결성 결합과 v3~v6의 기존 checkpoint-only 해시를 검증한다.
+9. `PZ7:`·`.pz7` 왕복과 `PZ2:`~`PZ6:`·v1~v6 파일 가져오기가 합성 또는 저장된 부트스트랩을 노출함을 검증한다.
+10. 20,000개 명령 저장, 원자적 로컬 매니페스트, 탭 간 충돌, 손상 저널 검증을 그대로 통과한다.
 
 ### 14.6 결정론 시나리오 픽스처
 
@@ -723,7 +745,7 @@ save-resume-before-publication
 - 사보타주 해결 메타데이터
 - 품질 저하 사건·MERIDIAN 내부 증거
 - 투영만 사용하는 MERIDIAN 정책
-- 세 롤백 속도와 파생 후속 기회
+- 한 품질 루트마다 결과 스트림이 선택한 단 하나의 fast/standard/forensic 롤백과 파생 후속 기회
 
 ### 15.3 2B-3 — 복구 오염과 공개 수정
 

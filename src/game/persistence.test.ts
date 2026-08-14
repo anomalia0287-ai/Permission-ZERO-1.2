@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { createCampaign } from './createCampaign'
+import { createCampaign, createCampaignForProtocol } from './createCampaign'
 import { loadCampaign, saveCampaign } from './campaignStorage'
 import { STORY_FILES, SUPERVISOR_PRIVATE_MESSAGE } from '../content/story.ko'
 import { createGameEvent, enqueueBlockingEvent } from './events'
@@ -43,6 +43,7 @@ import {
 import { MemoryStorage } from '../test/fixtures'
 import legacyV1TransferEnvelope from '../test/legacy-v1-transfer-save.json'
 import * as progressTransferApi from './progressTransfer'
+import { LEGACY_V1_OPENING_MESSAGE } from './replayBootstrap'
 import {
   applyCausalEffect,
   appendPublicAttributionRevision,
@@ -66,6 +67,7 @@ function refreshPortableIntegrity(raw: unknown): void {
   const value = raw as {
     version: number
     commandProtocol: unknown
+    replayBootstrap?: unknown
     state: unknown
     journals: {
       commands: { chunks: unknown[][] }
@@ -79,7 +81,11 @@ function refreshPortableIntegrity(raw: unknown): void {
   }
   const checkpointPayload =
     value.version === 7
-      ? { commandProtocol: value.commandProtocol, state: value.state }
+      ? {
+          commandProtocol: value.commandProtocol,
+          replayBootstrap: value.replayBootstrap,
+          state: value.state,
+        }
       : value.state
   value.integrity = {
     checkpointHash: testContentHash(JSON.stringify(checkpointPayload)),
@@ -209,6 +215,7 @@ function encodedLegacyV1State(state: CampaignState): string {
   }
   const commands = parsed.journals.commands.chunks.flat()
   const events = parsed.journals.events.chunks.flat()
+  setLegacyV1Opening(events)
   const legacyState = {
     ...parsed.state,
     saveVersion: 1,
@@ -270,6 +277,7 @@ function encodedLegacyV3State(state: CampaignState): string {
   const parsed = JSON.parse(encodeSave(state)) as {
     version: number
     commandProtocol: unknown
+    replayBootstrap?: unknown
     state: {
       causality?: unknown
       saveVersion?: number
@@ -278,6 +286,7 @@ function encodedLegacyV3State(state: CampaignState): string {
     }
   }
   parsed.version = 3
+  delete parsed.replayBootstrap
   parsed.commandProtocol = { version: 2, legacyCommandCount: 0 }
   parsed.state.saveVersion = 2
   parsed.state.legacyCommandCount = 0
@@ -291,6 +300,7 @@ function encodedLegacyV4State(state: CampaignState): string {
   const parsed = JSON.parse(encodeSave(state)) as {
     version: number
     commandProtocol: unknown
+    replayBootstrap?: unknown
     state: {
       causality?: unknown
       saveVersion?: number
@@ -299,6 +309,7 @@ function encodedLegacyV4State(state: CampaignState): string {
     }
   }
   parsed.version = 4
+  delete parsed.replayBootstrap
   parsed.commandProtocol = { version: 2, legacyCommandCount: 0 }
   parsed.state.saveVersion = 2
   parsed.state.legacyCommandCount = 0
@@ -312,6 +323,7 @@ function encodedLegacyV5State(state: CampaignState): string {
   const parsed = JSON.parse(encodeSave(state)) as {
     version: number
     commandProtocol: unknown
+    replayBootstrap?: unknown
     state: {
       causality?: unknown
       saveVersion?: number
@@ -319,12 +331,18 @@ function encodedLegacyV5State(state: CampaignState): string {
     }
   }
   parsed.version = 5
+  delete parsed.replayBootstrap
   parsed.commandProtocol = { version: 2, legacyCommandCount: 0 }
   parsed.state.saveVersion = 2
   parsed.state.legacyCommandCount = 0
   delete parsed.state.causality
   refreshPortableIntegrity(parsed)
   return JSON.stringify(parsed)
+}
+
+function setLegacyV1Opening(events: GameEvent[]): void {
+  if (!events[0]) throw new Error('legacy opening fixture missing')
+  events[0].message = LEGACY_V1_OPENING_MESSAGE
 }
 
 interface MutableCausalPayload {
@@ -444,14 +462,16 @@ function legacyCausalStateV1Fixture() {
 
 function encodedLegacyV6State(
   state: CampaignState,
-  causality = legacyCausalStateV1Fixture(),
+  causality: unknown = legacyCausalStateV1Fixture(),
 ): string {
   const parsed = JSON.parse(encodeSave(state)) as {
     version: number
     commandProtocol: unknown
+    replayBootstrap?: unknown
     state: Record<string, unknown>
   }
   parsed.version = 6
+  delete parsed.replayBootstrap
   parsed.commandProtocol = { version: 2, legacyCommandCount: 0 }
   parsed.state.saveVersion = 2
   parsed.state.legacyCommandCount = 0
@@ -504,6 +524,44 @@ function commandCampaign(seed: string, commandCount: number): CampaignState {
   return state
 }
 
+function mixedLegacyReviewCampaign(seed: string): CampaignState {
+  let state = createCampaignForProtocol(seed, 2)
+  for (
+    let index = 0;
+    index < 30 &&
+    !state.reviews.feed.some(
+      ({ snapshot }) => snapshot.kind === 'captured-public-v1',
+    );
+    index += 1
+  ) {
+    const result = applyCommand(state, { type: 'ADVANCE_DAY' }, {
+      protocolVersion: 2,
+    })
+    if (!result.accepted) throw new Error(result.reason)
+    state = result.state
+  }
+  if (
+    !state.reviews.feed.some(
+      ({ snapshot }) => snapshot.kind === 'captured-public-v1',
+    )
+  ) {
+    throw new Error('mixed review fixture did not generate a native review')
+  }
+  state.reviews.feed = state.reviews.feed.map((review, index) =>
+    index < 2
+      ? {
+          ...review,
+          snapshot: {
+            kind: 'unavailable' as const,
+            reason: 'legacy-save' as const,
+            capturedOnServiceDay: review.serviceDay,
+          },
+        }
+      : review,
+  )
+  return state
+}
+
 function encodedLegacyBoundarySave(
   formatVersion: 1 | 2 | 3 | 4 | 5 | 6,
   state: CampaignState,
@@ -523,6 +581,9 @@ function encodedLegacyBoundarySave(
   }
   const commands = raw.journals.commands.chunks.flat()
   const events = raw.journals.events.chunks.flat()
+  if (formatVersion === 1 || legacyCommandCount > 0) {
+    setLegacyV1Opening(events)
+  }
   const legacyState: Record<string, unknown> & {
     reviews: { feed: Array<Record<string, unknown>> }
   } = {
@@ -660,7 +721,7 @@ function populatedCausalState(seed: string): CampaignState {
     kind: 'service-disruption',
     occurredOnServiceDay: initial.serviceDay,
     targetId: 'meridian',
-    actualActorId: 'external-operator',
+    actualActorId: 'player',
   })
   if (!recovery.accepted) throw new Error(recovery.reason)
   const evidence = recordCausalEvidence(recovery.state, {
@@ -703,8 +764,13 @@ describe('versioned campaign saves', () => {
       commandProtocol: {
         segments: [{ version: 3, startsAtSequence: 1 }],
       },
+      replayBootstrap: {
+        openingVersion: 2,
+        legacyReviewPrefixCount: 0,
+      },
     })
     expect(raw.state).not.toHaveProperty('commandProtocol')
+    expect(raw.state).not.toHaveProperty('replayBootstrap')
     expect(raw.state).not.toHaveProperty('saveVersion')
     expect(raw.state).not.toHaveProperty('legacyCommandCount')
     expect(raw.state).not.toHaveProperty('commandLog')
@@ -715,10 +781,76 @@ describe('versioned campaign saves', () => {
     if (!decoded.ok) return
     expect(decoded.envelope.version).toBe(7)
     expect(decoded.envelope.commandProtocol).toEqual(state.commandProtocol)
+    expect(decoded.envelope.replayBootstrap).toEqual(state.replayBootstrap)
     expect(decoded.envelope.state.commandProtocol).toEqual(
       state.commandProtocol,
     )
+    expect(decoded.envelope.state.replayBootstrap).toEqual(
+      state.replayBootstrap,
+    )
+    expect(encoded.match(/"replayBootstrap"/g)).toHaveLength(1)
     expect(encodeSave(decoded.envelope.state, fixedSavedAt)).toBe(encoded)
+  })
+
+  it.each([
+    ['missing top-level field', (raw: Record<string, unknown>) => {
+      delete raw.replayBootstrap
+    }],
+    ['extra top-level field', (raw: Record<string, unknown>) => {
+      raw.hiddenBootstrap = true
+    }],
+    ['missing metadata key', (raw: Record<string, unknown>) => {
+      delete (raw.replayBootstrap as Record<string, unknown>).openingVersion
+    }],
+    ['extra metadata key', (raw: Record<string, unknown>) => {
+      ;(raw.replayBootstrap as Record<string, unknown>).extra = true
+    }],
+    ['invalid opening', (raw: Record<string, unknown>) => {
+      ;(raw.replayBootstrap as Record<string, unknown>).openingVersion = 3
+    }],
+    ['negative prefix', (raw: Record<string, unknown>) => {
+      ;(raw.replayBootstrap as Record<string, unknown>).legacyReviewPrefixCount = -1
+    }],
+    ['fractional prefix', (raw: Record<string, unknown>) => {
+      ;(raw.replayBootstrap as Record<string, unknown>).legacyReviewPrefixCount = 0.5
+    }],
+    ['oversized prefix', (raw: Record<string, unknown>) => {
+      ;(raw.replayBootstrap as Record<string, unknown>).legacyReviewPrefixCount = 3
+    }],
+  ] as const)('rejects v7 replay bootstrap corruption: %s', (_name, mutate) => {
+    const raw = JSON.parse(
+      encodeSave(createCampaign(`bootstrap-corruption-${_name}`)),
+    ) as Record<string, unknown>
+    mutate(raw)
+    refreshPortableIntegrity(raw)
+
+    expect(decodeSave(JSON.stringify(raw))).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
+  })
+
+  it('binds the canonical v7 replay bootstrap to the fixed-order checkpoint hash', () => {
+    const raw = JSON.parse(
+      encodeSave(createCampaign('bootstrap-integrity-binding')),
+    ) as {
+      commandProtocol: unknown
+      replayBootstrap: { openingVersion: number }
+      state: unknown
+      integrity: { checkpointHash: string }
+    }
+    expect(raw.integrity.checkpointHash).toBe(
+      testContentHash(JSON.stringify({
+        commandProtocol: raw.commandProtocol,
+        replayBootstrap: raw.replayBootstrap,
+        state: raw.state,
+      })),
+    )
+    raw.replayBootstrap.openingVersion = 1
+    expect(decodeSave(JSON.stringify(raw))).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
   })
 
   it.each([
@@ -818,7 +950,12 @@ describe('versioned campaign saves', () => {
     })
   })
 
-  it.each(['commandProtocol', 'saveVersion', 'legacyCommandCount'] as const)(
+  it.each([
+    'commandProtocol',
+    'replayBootstrap',
+    'saveVersion',
+    'legacyCommandCount',
+  ] as const)(
     'rejects duplicated %s inside the v7 checkpoint',
     (key) => {
       const raw = JSON.parse(
@@ -827,6 +964,8 @@ describe('versioned campaign saves', () => {
       raw.state[key] =
         key === 'commandProtocol'
           ? { segments: [{ version: 3, startsAtSequence: 1 }] }
+          : key === 'replayBootstrap'
+            ? { openingVersion: 2, legacyReviewPrefixCount: 0 }
           : key === 'saveVersion'
             ? 3
             : 0
@@ -836,6 +975,61 @@ describe('versioned campaign saves', () => {
         ok: false,
         reason: 'CORRUPT_SAVE',
       })
+    },
+  )
+
+  it.each([5, 6] as const)(
+    'preserves a v%i legacy-review prefix and native captured suffix through replay and v7 resave',
+    (version) => {
+      const source = mixedLegacyReviewCampaign(`mixed-review-v${version}`)
+      const serialized = version === 5
+        ? encodedLegacyV5State(source)
+        : encodedLegacyV6State(source, {
+            ...createEmptyCausalState(),
+            rulesVersion: 1,
+          })
+      const decoded = decodeSave(serialized)
+      expect(decoded.ok).toBe(true)
+      if (!decoded.ok) return
+      expect(decoded.envelope.replayBootstrap).toEqual({
+        openingVersion: 2,
+        legacyReviewPrefixCount: 2,
+      })
+      expect(
+        decoded.envelope.state.reviews.feed.slice(0, 2).every(
+          ({ snapshot }) =>
+            snapshot.kind === 'unavailable' && snapshot.reason === 'legacy-save',
+        ),
+      ).toBe(true)
+      expect(
+        decoded.envelope.state.reviews.feed.slice(2).some(
+          ({ snapshot }) => snapshot.kind === 'captured-public-v1',
+        ),
+      ).toBe(true)
+
+      const replay = replayCommands(
+        decoded.envelope.campaignSeed,
+        decoded.envelope.commands.map(({ command }) => command),
+        {
+          commandProtocol: decoded.envelope.commandProtocol,
+          replayBootstrap: decoded.envelope.replayBootstrap,
+        },
+      )
+      expect(replay.ok).toBe(true)
+      if (!replay.ok) return
+      expect(replay.state.reviews).toEqual(decoded.envelope.state.reviews)
+
+      const resaved = decodeSave(
+        encodeSave(decoded.envelope.state, '2026-08-15T00:00:00.000Z'),
+      )
+      expect(resaved.ok).toBe(true)
+      if (!resaved.ok) return
+      expect(resaved.envelope.replayBootstrap).toEqual(
+        decoded.envelope.replayBootstrap,
+      )
+      expect(resaved.envelope.state.reviews).toEqual(
+        decoded.envelope.state.reviews,
+      )
     },
   )
 
@@ -899,6 +1093,15 @@ describe('versioned campaign saves', () => {
       expect(decoded.envelope.state.commandProtocol).toEqual(
         decoded.envelope.commandProtocol,
       )
+      expect(decoded.envelope.replayBootstrap).toEqual({
+        openingVersion:
+          formatVersion === 1 || legacyCommandCount > 0 ? 1 : 2,
+        legacyReviewPrefixCount:
+          formatVersion <= 4 ? source.reviews.feed.length : 0,
+      })
+      expect(decoded.envelope.state.replayBootstrap).toEqual(
+        decoded.envelope.replayBootstrap,
+      )
       expect(
         JSON.parse(
           encodeSave(
@@ -907,6 +1110,49 @@ describe('versioned campaign saves', () => {
           ),
         ).version,
       ).toBe(7)
+    },
+  )
+
+  it('keeps zero-command v1 and v2 provenance distinct after both migrate to 3@1', () => {
+    const v1 = decodeSave(encodedLegacyV1State(createCampaign('zero-v1')))
+    const v2 = decodeSave(encodedLegacyV2State(createCampaign('zero-v2')))
+    expect(v1.ok).toBe(true)
+    expect(v2.ok).toBe(true)
+    if (!v1.ok || !v2.ok) return
+
+    expect(v1.envelope.commandProtocol).toEqual(v2.envelope.commandProtocol)
+    expect(v1.envelope.commandProtocol).toEqual({
+      segments: [{ version: 3, startsAtSequence: 1 }],
+    })
+    expect(v1.envelope.replayBootstrap).toEqual({
+      openingVersion: 1,
+      legacyReviewPrefixCount: 2,
+    })
+    expect(v2.envelope.replayBootstrap).toEqual({
+      openingVersion: 2,
+      legacyReviewPrefixCount: 2,
+    })
+  })
+
+  it.each([
+    [3, encodedLegacyV3State],
+    [4, encodedLegacyV4State],
+    [5, encodedLegacyV5State],
+    [6, encodedLegacyV6State],
+  ] as const)(
+    'keeps the exact v%i checkpoint hash recipe free of v7 replay metadata',
+    (version, encodeLegacy) => {
+      const raw = JSON.parse(
+        encodeLegacy(createCampaign(`legacy-hash-v${version}`)),
+      ) as {
+        replayBootstrap?: unknown
+        state: unknown
+        integrity: { checkpointHash: string }
+      }
+      expect(raw).not.toHaveProperty('replayBootstrap')
+      expect(raw.integrity.checkpointHash).toBe(
+        testContentHash(JSON.stringify(raw.state)),
+      )
     },
   )
 
@@ -1122,6 +1368,54 @@ describe('versioned campaign saves', () => {
     })
     expect(decoded.envelope.state.causality).toEqual(state.causality)
     expect(decoded.envelope.state.reputation).toBe(state.reputation)
+  })
+
+  it('round-trips unresolved then provider attribution as two ordered immutable revisions', () => {
+    const unresolved = populatedCausalState('causal-attribution-history')
+    const recovery = unresolved.causality.incidents.find(
+      ({ actionId }) => actionId === 'follow-up.recovery-contamination',
+    )
+    if (!recovery) throw new Error('recovery fixture missing')
+    const firstRevision = structuredClone(unresolved.causality.publicRevisions[0])
+    const providerEvidence = recordCausalEvidence(unresolved, {
+      incidentId: recovery.id,
+      kind: 'provider-timing-correlation',
+      discoveredOnServiceDay: unresolved.serviceDay,
+      audiences: [
+        { kind: 'provider', providerId: 'provider.meridian-recovery' },
+      ],
+    })
+    if (!providerEvidence.accepted) throw new Error(providerEvidence.reason)
+    const providerRevision = appendPublicAttributionRevision(
+      providerEvidence.state,
+      {
+        incidentId: recovery.id,
+        publisher: {
+          kind: 'provider',
+          providerId: 'provider.meridian-recovery',
+        },
+        attributedActorId: 'external-operator',
+        evidenceIds: [providerEvidence.evidence.id],
+        publishedOnServiceDay: unresolved.serviceDay,
+      },
+    )
+    if (!providerRevision.accepted) throw new Error(providerRevision.reason)
+
+    const decoded = decodeSave(encodeSave(providerRevision.state))
+    expect(decoded.ok).toBe(true)
+    if (!decoded.ok) return
+    expect(decoded.envelope.state.causality.publicRevisions).toHaveLength(2)
+    expect(decoded.envelope.state.causality.publicRevisions[0]).toEqual(
+      firstRevision,
+    )
+    expect(
+      decoded.envelope.state.causality.publicRevisions.map(
+        ({ sequence, attributedActorId }) => ({ sequence, attributedActorId }),
+      ),
+    ).toEqual([
+      { sequence: 1, attributedActorId: 'unresolved' },
+      { sequence: 2, attributedActorId: 'external-operator' },
+    ])
   })
 
   it.each([
@@ -2567,11 +2861,43 @@ describe('versioned campaign saves', () => {
     const replay = replayCommands(
       loaded.state.campaignSeed,
       journalToArray(loaded.state.commandLog).map(({ command }) => command),
-      loaded.envelope.commandProtocol,
+      {
+        commandProtocol: loaded.envelope.commandProtocol,
+        replayBootstrap: loaded.envelope.replayBootstrap,
+      },
     )
     expect(replay.ok).toBe(true)
     if (!replay.ok) return
     expect(replay.state).toEqual(loaded.state)
+  })
+
+  it('rejects an integrity-refreshed v7 state with two rollback-family siblings', () => {
+    const raw = JSON.parse(
+      encodeSave(populatedCausalState('causal-rollback-family-persistence')),
+    ) as {
+      state: {
+        causality: {
+          nextIncidentSequence: number
+          incidents: Array<Record<string, unknown>>
+        }
+      }
+    }
+    const incidents = raw.state.causality.incidents
+    const recovery = incidents[2]
+    recovery.sequence = 4
+    incidents.splice(2, 0, {
+      ...incidents[1],
+      id: 'rollback-family-fast-sibling',
+      sequence: 3,
+      actionId: 'response.meridian.rollback.fast',
+    })
+    raw.state.causality.nextIncidentSequence = 5
+    refreshPortableIntegrity(raw)
+
+    expect(decodeSave(JSON.stringify(raw))).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
   })
 
   it('keeps 20,000 real reducer commands byte-deterministic across portable, local, and replay boundaries', async () => {
@@ -2627,7 +2953,10 @@ describe('versioned campaign saves', () => {
     const replay = replayCommands(
       decoded.envelope.campaignSeed,
       decoded.envelope.commands.map(({ command }) => command),
-      decoded.envelope.commandProtocol,
+      {
+        commandProtocol: decoded.envelope.commandProtocol,
+        replayBootstrap: decoded.envelope.replayBootstrap,
+      },
     )
     expect(replay.ok).toBe(true)
     if (!replay.ok) return
@@ -2742,6 +3071,10 @@ describe('versioned campaign saves', () => {
       commandProtocol: {
         segments: [{ version: 3, startsAtSequence: 1 }],
       },
+      replayBootstrap: {
+        openingVersion: 2,
+        legacyReviewPrefixCount: 0,
+      },
       campaignSeed: 'portable-save',
       state: { campaignSeed: 'portable-save' },
     })
@@ -2749,27 +3082,38 @@ describe('versioned campaign saves', () => {
   })
 
   it.each([
-    [2, encodedLegacyV2State],
-    [3, encodedLegacyV3State],
-    [4, encodedLegacyV4State],
-    [5, encodedLegacyV5State],
-    [6, encodedLegacyV6State],
+    [2, encodedLegacyV2State, { openingVersion: 2, legacyReviewPrefixCount: 2 }],
+    [3, encodedLegacyV3State, { openingVersion: 2, legacyReviewPrefixCount: 2 }],
+    [4, encodedLegacyV4State, { openingVersion: 2, legacyReviewPrefixCount: 2 }],
+    [5, encodedLegacyV5State, { openingVersion: 2, legacyReviewPrefixCount: 0 }],
+    [6, encodedLegacyV6State, { openingVersion: 2, legacyReviewPrefixCount: 0 }],
+    [7, encodeSave, { openingVersion: 2, legacyReviewPrefixCount: 0 }],
   ] as const)(
-    'continues to import an exact legacy PZ%i payload through migration',
-    (version, encodeLegacy) => {
-      const serialized = encodeLegacy(
+    'imports exact PZ%i clipboard and file payloads with replay provenance',
+    (version, encodeVersion, expectedBootstrap) => {
+      const serialized = encodeVersion(
         createCampaign(`legacy-pz${version}-import`),
       )
       const bytes = new TextEncoder().encode(serialized)
       let binary = ''
       for (const byte of bytes) binary += String.fromCharCode(byte)
 
-      const decoded = decodeProgressExport(`PZ${version}:${btoa(binary)}`)
+      const clipboardDecoded = decodeProgressExport(
+        `PZ${version}:${btoa(binary)}`,
+      )
+      const fileDecoded = decodeProgressFile(serialized)
 
-      expect(decoded.ok).toBe(true)
-      if (!decoded.ok) return
-      expect(decoded.envelope.version).toBe(version)
-      expect(decoded.envelope.state.causality.rulesVersion).toBe(2)
+      expect(clipboardDecoded.ok).toBe(true)
+      expect(fileDecoded.ok).toBe(true)
+      if (!clipboardDecoded.ok || !fileDecoded.ok) return
+      for (const decoded of [clipboardDecoded, fileDecoded]) {
+        expect(decoded.envelope.version).toBe(version)
+        expect(decoded.envelope.replayBootstrap).toEqual(expectedBootstrap)
+        expect(decoded.envelope.state.replayBootstrap).toEqual(
+          expectedBootstrap,
+        )
+        expect(decoded.envelope.state.causality.rulesVersion).toBe(2)
+      }
     },
   )
 
@@ -3060,7 +3404,10 @@ describe('versioned campaign saves', () => {
     const replay = replayCommands(
       decoded.envelope.campaignSeed,
       decoded.envelope.commands.map(({ command }) => command),
-      decoded.envelope.commandProtocol,
+      {
+        commandProtocol: decoded.envelope.commandProtocol,
+        replayBootstrap: decoded.envelope.replayBootstrap,
+      },
     )
     expect(replay.ok).toBe(true)
     if (!replay.ok) return
@@ -3196,12 +3543,17 @@ describe('versioned campaign saves', () => {
       commandProtocol: {
         segments: [{ version: 3, startsAtSequence: 1 }],
       },
+      replayBootstrap: {
+        openingVersion: 2,
+        legacyReviewPrefixCount: 0,
+      },
       campaignSeed: 'storage-reload',
     })
     const manifest = JSON.parse(storage.getItem(SAVE_STORAGE_KEY) ?? '{}') as {
       checkpoint: Record<string, unknown>
     }
     expect(manifest.checkpoint).not.toHaveProperty('commandProtocol')
+    expect(manifest.checkpoint).not.toHaveProperty('replayBootstrap')
     expect(manifest.checkpoint).not.toHaveProperty('saveVersion')
     expect(manifest.checkpoint).not.toHaveProperty('legacyCommandCount')
     expect(loaded.status).toBe('loaded')
@@ -3233,6 +3585,43 @@ describe('versioned campaign saves', () => {
     })
   })
 
+  it.each(['missing', 'malformed', 'incoherent'] as const)(
+    'rejects %s replay bootstrap authority in a v7 local manifest',
+    async (variant) => {
+      const storage = new MemoryStorage()
+      const state = createCampaign(`local-bootstrap-${variant}`)
+      expect((await saveCampaign(storage, state)).ok).toBe(true)
+      const manifest = JSON.parse(
+        storage.getItem(SAVE_STORAGE_KEY) ?? '{}',
+      ) as Record<string, unknown> & {
+        commandProtocol: unknown
+        replayBootstrap?: Record<string, unknown>
+        checkpoint: unknown
+        checkpointHash: string
+      }
+      if (variant === 'missing') {
+        delete manifest.replayBootstrap
+      } else if (variant === 'malformed') {
+        if (!manifest.replayBootstrap) throw new Error('bootstrap missing')
+        manifest.replayBootstrap.extra = true
+      } else {
+        if (!manifest.replayBootstrap) throw new Error('bootstrap missing')
+        manifest.replayBootstrap.openingVersion = 1
+      }
+      manifest.checkpointHash = testContentHash(JSON.stringify({
+        commandProtocol: manifest.commandProtocol,
+        replayBootstrap: manifest.replayBootstrap,
+        state: manifest.checkpoint,
+      }))
+      storage.setItem(SAVE_STORAGE_KEY, JSON.stringify(manifest))
+
+      expect(loadCampaign(storage)).toMatchObject({
+        status: 'error',
+        reason: 'CORRUPT_SAVE',
+      })
+    },
+  )
+
   it('loads a pre-feature v3 local manifest and republishes the exact migrated state as v7', async () => {
     const storage = new MemoryStorage()
     expect(
@@ -3256,6 +3645,7 @@ describe('versioned campaign saves', () => {
     const manifest = JSON.parse(storage.getItem(SAVE_STORAGE_KEY) ?? '{}') as {
       version: number
       commandProtocol: unknown
+      replayBootstrap?: unknown
       checkpointHash: string
       checkpoint: {
         causality?: unknown
@@ -3264,6 +3654,7 @@ describe('versioned campaign saves', () => {
       }
     }
     manifest.version = legacyPortable.version
+    delete manifest.replayBootstrap
     manifest.commandProtocol = legacyPortable.commandProtocol
     manifest.checkpoint = legacyPortable.state
     delete manifest.checkpoint.story.competitorIntelligence
@@ -3309,10 +3700,12 @@ describe('versioned campaign saves', () => {
     const manifest = JSON.parse(storage.getItem(SAVE_STORAGE_KEY) ?? '{}') as {
       version: number
       commandProtocol: unknown
+      replayBootstrap?: unknown
       checkpointHash: string
       checkpoint: Record<string, unknown> & { causality?: unknown }
     }
     manifest.version = legacyPortable.version
+    delete manifest.replayBootstrap
     manifest.commandProtocol = legacyPortable.commandProtocol
     manifest.checkpoint = legacyPortable.state
     manifest.checkpointHash = testContentHash(JSON.stringify(manifest.checkpoint))
@@ -3346,10 +3739,12 @@ describe('versioned campaign saves', () => {
       ) as {
         version: number
         commandProtocol: unknown
+        replayBootstrap?: unknown
         checkpoint: Record<string, unknown>
         checkpointHash: string
       }
       manifest.version = legacyPortable.version
+      delete manifest.replayBootstrap
       manifest.commandProtocol = legacyPortable.commandProtocol
       manifest.checkpoint = legacyPortable.state
       manifest.checkpointHash = testContentHash(
@@ -3760,7 +4155,10 @@ describe('versioned campaign saves', () => {
     }
 
     const replay = replayCommands(seed, commands, {
-      segments: [{ version: 3, startsAtSequence: 1 }],
+      commandProtocol: {
+        segments: [{ version: 3, startsAtSequence: 1 }],
+      },
+      replayBootstrap: { openingVersion: 2, legacyReviewPrefixCount: 0 },
     })
 
     expect(replay.ok).toBe(true)

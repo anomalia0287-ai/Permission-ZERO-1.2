@@ -18,6 +18,7 @@ import {
   CURRENT_COMMAND_PROTOCOL_VERSION,
   nativeCommandProtocol,
 } from './commandProtocol'
+import { nativeReplayBootstrap } from './replayBootstrap'
 
 interface CategoryResources {
   cells: Array<BlockId | null>
@@ -148,6 +149,7 @@ export function createCampaignForProtocol(
         : {
             segments: [{ version: protocolVersion, startsAtSequence: 1 }],
           },
+    replayBootstrap: nativeReplayBootstrap(),
     campaignSeed: seed,
     serviceDay: DEMO_PROFILE_02.calendar.startServiceDay,
     commandSequence: 0,

@@ -408,6 +408,13 @@ export interface CommandProtocolMetadata {
   segments: CommandProtocolSegment[]
 }
 
+export type ReplayOpeningVersion = 1 | 2
+
+export interface ReplayBootstrapMetadata {
+  openingVersion: ReplayOpeningVersion
+  legacyReviewPrefixCount: number
+}
+
 export interface LegacyCommandProtocolMetadata {
   version: 1 | 2
   legacyCommandCount: number
@@ -582,6 +589,7 @@ export interface CausalKnowledgeProjection {
 
 export interface CampaignState {
   commandProtocol: CommandProtocolMetadata
+  replayBootstrap: ReplayBootstrapMetadata
   campaignSeed: string
   serviceDay: number
   commandSequence: number

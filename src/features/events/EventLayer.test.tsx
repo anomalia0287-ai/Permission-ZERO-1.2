@@ -86,6 +86,7 @@ function renderEvent(
   }
   if (legacyFormat) {
     encoded.version = 3
+    delete encoded.replayBootstrap
     encoded.commandProtocol = { version: 2, legacyCommandCount: 0 }
     encoded.state.saveVersion = 2
     encoded.state.legacyCommandCount = 0
