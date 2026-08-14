@@ -14,6 +14,15 @@ import { applyCommand } from '../../game/reducer'
 import { MemoryStorage } from '../../test/fixtures'
 import { EventLayer } from './EventLayer'
 
+function testContentHash(content: string): string {
+  let hash = 0x811c9dc5
+  for (let index = 0; index < content.length; index += 1) {
+    hash ^= content.charCodeAt(index)
+    hash = Math.imul(hash, 0x01000193)
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0')
+}
+
 function Probe() {
   const state = useGameState()
   return (
@@ -68,29 +77,25 @@ function renderEvent(
     eventLog,
   }
   const storage = new MemoryStorage()
-  const saveState = legacyFormat
-    ? (() => {
-      const legacy = {
-        ...persisted,
-        reviews: {
-          ...persisted.reviews,
-          feed: persisted.reviews.feed.map((review) => ({
-            id: review.id,
-            contentId: review.contentId,
-            authorId: review.authorId,
-            serviceDay: review.serviceDay,
-            sentiment: review.sentiment,
-            topics: review.topics,
-            text: review.text,
-          })),
-        },
-      } as unknown as Record<string, unknown>
-      delete legacy.causality
-      return legacy as unknown as typeof persisted
-    })()
-    : persisted
-  const encoded = JSON.parse(encodeSave(saveState)) as Record<string, unknown>
-  if (legacyFormat) encoded.version = 3
+  const encoded = JSON.parse(encodeSave(persisted)) as Record<string, unknown> & {
+    commandProtocol: unknown
+    state: Record<string, unknown> & {
+      reviews: { feed: Array<Record<string, unknown>> }
+    }
+    integrity: { checkpointHash: string }
+  }
+  if (legacyFormat) {
+    encoded.version = 3
+    delete encoded.replayBootstrap
+    encoded.commandProtocol = { version: 2, legacyCommandCount: 0 }
+    encoded.state.saveVersion = 2
+    encoded.state.legacyCommandCount = 0
+    delete encoded.state.causality
+    for (const review of encoded.state.reviews.feed) delete review.snapshot
+    encoded.integrity.checkpointHash = testContentHash(
+      JSON.stringify(encoded.state),
+    )
+  }
   storage.setItem(SAVE_STORAGE_KEY, JSON.stringify(encoded))
   return render(
     <GameProvider storage={storage}>

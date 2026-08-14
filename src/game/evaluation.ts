@@ -433,8 +433,8 @@ export function openScheduledAudit(state: CampaignState): CampaignState {
       'audit',
       `${publicCategoryLabelForProtocol(
         state.audit.target,
-        state.commandSequence,
-        state.legacyCommandCount,
+        state.commandProtocol,
+        state.commandSequence + 1,
       )} 분야의 공식 감사가 시작되었습니다.`,
       true,
     ),

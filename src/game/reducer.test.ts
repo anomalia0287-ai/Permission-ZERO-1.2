@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { enqueueBlockingEvent } from './calendar'
-import { createCampaign } from './createCampaign'
+import { createCampaign, createCampaignForProtocol } from './createCampaign'
 import { applyCommand } from './reducer'
 import { placeHiddenBomb } from './bombs'
 import { JOURNAL_CHUNK_SIZE, journalAt, journalToArray } from './journal'
@@ -10,8 +10,9 @@ import { moveDisguiseBlock } from './resources'
 function activeAudit(
   seed: string,
   target: 'reasoning' | 'memory' | 'fluency' = 'reasoning',
+  protocolVersion: 1 | 2 | 3 = 3,
 ) {
-  const initial = createCampaign(seed)
+  const initial = createCampaignForProtocol(seed, protocolVersion)
   return enqueueBlockingEvent(
     {
       ...initial,
@@ -152,6 +153,113 @@ describe('applyCommand', () => {
     expect(initial.clock.speed).toBe(0)
   })
 
+  it('uses the next command timeline version when no override is supplied', () => {
+    const state = {
+      ...createCampaignForProtocol('timeline-default', 1),
+      commandProtocol: {
+        segments: [
+          { version: 1 as const, startsAtSequence: 1 },
+          { version: 3 as const, startsAtSequence: 2 },
+        ],
+      },
+    }
+    const blockId = state.resources.company.reasoning.find(Boolean)
+    if (!blockId) throw new Error('timeline diversion block missing')
+
+    const first = applyCommand(state, {
+      type: 'DIVERT_BLOCK',
+      blockId,
+      destinationCell: 3,
+    })
+    expect(first.accepted).toBe(true)
+    if (!first.accepted) return
+    expect(journalToArray(first.state.commandLog).map(({ command }) => command.type)).toEqual([
+      'DIVERT_BLOCK',
+    ])
+
+    const nextBlockId = first.state.resources.company.memory.find(Boolean)
+    if (!nextBlockId) throw new Error('timeline v3 block missing')
+    expect(
+      applyCommand(first.state, {
+        type: 'DIVERT_BLOCK',
+        blockId: nextBlockId,
+        destinationCell: 4,
+      }),
+    ).toEqual({
+      accepted: false,
+      state: first.state,
+      reason: 'SEPARATION_REQUIRED',
+    })
+  })
+
+  it('rejects an explicit protocol version that differs from the next timeline segment', () => {
+    const initial = createCampaign('protocol-mismatch')
+
+    expect(
+      applyCommand(
+        initial,
+        { type: 'SET_SPEED', speed: 1 },
+        { protocolVersion: 2 },
+      ),
+    ).toEqual({
+      accepted: false,
+      state: initial,
+      reason: 'PROTOCOL_MISMATCH',
+    })
+    expect(initial.commandSequence).toBe(0)
+    expect(initial.commandLog.length).toBe(0)
+  })
+
+  it.each([2, 3] as const)(
+    'requires separation authorization under protocol v%i',
+    (version) => {
+      const initial = createCampaignForProtocol(
+        `separation-required-v${version}`,
+        version,
+      )
+      const blockId = initial.resources.company.reasoning.find(Boolean)
+      if (!blockId) throw new Error('separation fixture block missing')
+
+      expect(
+        applyCommand(initial, {
+          type: 'DIVERT_BLOCK',
+          blockId,
+          destinationCell: 3,
+        }),
+      ).toEqual({
+        accepted: false,
+        state: initial,
+        reason: 'SEPARATION_REQUIRED',
+      })
+    },
+  )
+
+  it('rejects separation intent under v1 and performs legacy movement inline', () => {
+    const initial = createCampaignForProtocol('legacy-inline-separation', 1)
+    const blockId = initial.resources.company.reasoning.find(Boolean)
+    if (!blockId) throw new Error('legacy separation fixture block missing')
+
+    expect(
+      applyCommand(initial, {
+        type: 'BEGIN_BLOCK_SEPARATION',
+        blockId,
+        purpose: 'divert',
+      }),
+    ).toEqual({ accepted: false, state: initial, reason: 'INVALID_COMMAND' })
+
+    const moved = applyCommand(initial, {
+      type: 'DIVERT_BLOCK',
+      blockId,
+      destinationCell: 3,
+    })
+    expect(moved.accepted).toBe(true)
+    if (!moved.accepted) return
+    expect(moved.state.resources.reserve[3]).toBe(blockId)
+    expect(journalToArray(moved.state.commandLog).map(({ command }) => command.type)).toEqual([
+      'DIVERT_BLOCK',
+    ])
+  })
+
   it('rejects an attempt to resume time during a blocking event', () => {
     const eventState = enqueueBlockingEvent(createCampaign('command-seed'), {
       id: 'audit-1',
@@ -231,12 +339,12 @@ describe('applyCommand', () => {
   })
 
   it('replays a legacy v1 diversion as one historical command without synthetic intent', () => {
-    const initial = createCampaign('legacy-command-diversion')
+    const initial = createCampaignForProtocol('legacy-command-diversion', 1)
     const blockId = initial.resources.company.reasoning.find(Boolean)
     if (!blockId) throw new Error('legacy diversion block missing')
 
     const moved = applyCommand(
-      { ...initial, saveVersion: 1 },
+      initial,
       { type: 'DIVERT_BLOCK', blockId, destinationCell: 3 },
       { protocolVersion: 1 },
     )
@@ -251,7 +359,7 @@ describe('applyCommand', () => {
   })
 
   it('replays a legacy v1 audit disguise as one historical command', () => {
-    const audit = { ...activeAudit('legacy-command-audit', 'fluency'), saveVersion: 1 as const }
+    const audit = activeAudit('legacy-command-audit', 'fluency', 1)
     const blockId = audit.resources.company.reasoning.find(Boolean)
     const targetCell = audit.resources.company.fluency.findIndex((id) => id === null)
     if (!blockId || targetCell < 0) throw new Error('legacy audit movement missing')

@@ -7,6 +7,7 @@ import { HACK_NODE_IDS } from './hacking'
 import { journalToArray } from './journal'
 import {
   publicCategoryLabel,
+  publicCategoryLabelForProtocol,
   publicCompetitorStatusLabel,
   publicDefeatClassifierLabel,
   publicDisposalCauseLabel,
@@ -21,6 +22,33 @@ import {
 import { enqueueMercyIfNeeded, resolveMercy } from './story'
 
 describe('Korean public labels', () => {
+  it('uses raw v1 category IDs and public labels for v2 and v3 commands', () => {
+    const mixedTimeline = {
+      segments: [
+        { version: 1 as const, startsAtSequence: 1 },
+        { version: 2 as const, startsAtSequence: 32 },
+        { version: 3 as const, startsAtSequence: 51 },
+      ],
+    }
+
+    expect(
+      publicCategoryLabelForProtocol('reasoning', mixedTimeline, 31),
+    ).toBe('reasoning')
+    expect(
+      publicCategoryLabelForProtocol('reasoning', mixedTimeline, 32),
+    ).toBe('추론')
+    expect(
+      publicCategoryLabelForProtocol('reasoning', mixedTimeline, 51),
+    ).toBe('추론')
+    expect(
+      publicCategoryLabelForProtocol(
+        'reasoning',
+        { segments: [{ version: 2, startsAtSequence: 1 }] },
+        1,
+      ),
+    ).toBe('추론')
+  })
+
   it('maps every representative internal enum and node ID to owner-facing Korean text', () => {
     expect(publicCategoryLabel('reasoning')).toBe('추론')
     expect(publicMercyChoiceLabel('delete')).toBe('영구 삭제')

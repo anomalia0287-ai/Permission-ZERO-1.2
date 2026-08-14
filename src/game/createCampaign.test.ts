@@ -1,10 +1,48 @@
 import { describe, expect, it } from 'vitest'
 
-import { createCampaign } from './createCampaign'
+import { createCampaign, createCampaignForProtocol } from './createCampaign'
 import { journalToArray } from './journal'
 import { COMPANY_CATEGORIES } from './model'
 
 describe('createCampaign', () => {
+  it('creates only native protocol v3 with causal rules v2', () => {
+    const campaign = createCampaign('native-v3')
+
+    expect(campaign).toMatchObject({
+      replayBootstrap: {
+        openingVersion: 2,
+        legacyReviewPrefixCount: 0,
+      },
+      commandProtocol: {
+        segments: [{ version: 3, startsAtSequence: 1 }],
+      },
+      causality: { rulesVersion: 2 },
+    })
+    expect(campaign).not.toHaveProperty('saveVersion')
+    expect(campaign).not.toHaveProperty('legacyCommandCount')
+  })
+
+  it.each([1, 2, 3] as const)(
+    'creates a canonical replay baseline for protocol v%i without old causal rules',
+    (version) => {
+      const campaign = createCampaignForProtocol(
+        `protocol-baseline-${version}`,
+        version,
+      )
+
+      expect(campaign.commandProtocol).toEqual({
+        segments: [{ version, startsAtSequence: 1 }],
+      })
+      expect((campaign as unknown as Record<string, unknown>).replayBootstrap).toEqual({
+        openingVersion: 2,
+        legacyReviewPrefixCount: 0,
+      })
+      expect(campaign.causality.rulesVersion).toBe(2)
+      expect(campaign).not.toHaveProperty('saveVersion')
+      expect(campaign).not.toHaveProperty('legacyCommandCount')
+    },
+  )
+
   it('creates the approved service-day 331 starting state', () => {
     const campaign = createCampaign('owner-v')
 

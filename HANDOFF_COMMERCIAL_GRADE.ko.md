@@ -1092,3 +1092,16 @@ Frostpunk 2, IXION, Hacknet 등의 이름을 언급했으나 어떤 화면에서
 다음 결과만 목표로 한다.
 
 > 1280×720 원본 화면을 보는 순간 플레이어가 무엇을 훔치고, 무엇을 잃고, 무엇을 두려워하는지 이해하며, 직접 블록을 움직이는 순간 이 게임만의 긴장과 축적을 느끼는 상용 게임 인터페이스.
+
+---
+
+## 20. 최신 저장·재현 부록 — Stage 2B-1 최종 검토 교정 (2026-08-15)
+
+이 부록은 위의 v6/PZ6 상태 기록보다 최신인 Stage 2B-1 저장 경계 정본이다. 시각 완성도·재미 판정은 바꾸지 않는다.
+
+- 현재 branch-local 저장 형식은 v7, 새 전송 출력은 `PZ7:`/`.pz7`, 명령 프로토콜은 v3, 인과 규칙은 v2다. PZ2~PZ6과 v1~v6 파일은 각 원본 exact schema와 기존 해시를 먼저 검증한 뒤 v7 런타임으로 이관한다.
+- 명령 타임라인과 별도로 `replayBootstrap { openingVersion, legacyReviewPrefixCount }`가 시작 사건과 이관 리뷰 접두사의 정본이다. 빈 v1과 빈 v2가 같은 `3@1`이 되어도 출처를 잃지 않으며, v5/v6의 legacy 리뷰 접두사 뒤 native captured suffix를 덮어쓰지 않는다.
+- v7 portable save와 local manifest는 `commandProtocol`과 `replayBootstrap`을 각각 최상위에 한 번만 저장하고 체크포인트에서는 제외한다. v7 무결성은 고정 순서 `{ commandProtocol, replayBootstrap, state }`를 묶고, v3~v6의 checkpoint-only 조리법은 바꾸지 않는다.
+- 한 품질 저하 루트 아래 fast/standard/forensic 롤백은 결과 스트림이 선택한 단 하나만 허용한다. 다른 profile의 두 번째 자식은 mutation과 저장 검증 모두 거부하고, 선택된 정확 관계의 재시도는 기존 멱등 no-op이다.
+- 복구 오염의 비공개 실제 행위자는 `player`다. 최초 공개 수정은 `unresolved`, 이후 공급자 증거에 따른 공개 귀속은 `external-operator`이며 두 수정은 앞 기록을 덮어쓰지 않는 append-only sequence로 남는다.
+- 자동 근거는 `src/game/createCampaign.test.ts`, `src/game/replay.test.ts`, `src/game/persistence.test.ts`, `src/game/causality.test.ts`, `src/game/causalOutcomes.test.ts`, `src/features/settings/SettingsPanel.test.tsx`에 있다. 정확 Node 24.14.0 최종 관문과 세부 RED/GREEN 기록은 ignored `artifacts/sdd/2026-08-15-hacking-integration-stage-2b-1-locale-boundary/final-review-fix-report.md`가 소유한다.

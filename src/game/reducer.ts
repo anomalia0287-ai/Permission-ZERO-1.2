@@ -31,10 +31,68 @@ import {
 } from './story'
 import { appendJournal, journalAt } from './journal'
 import { isGenericDismissibleEvent } from './events'
+import { commandProtocolVersionForNextCommand } from './commandProtocol'
+
+export const COMMAND_FAILURE_REASONS = [
+  'ALREADY_PURCHASED',
+  'ALL_FILES_RECOVERED',
+  'BLOCKING_EVENT_ACTIVE',
+  'BLOCK_NOT_DISGUISED',
+  'BLOCK_NOT_IN_COMPANY',
+  'BLOCK_NOT_NORMAL',
+  'BLOCK_RECOVERING',
+  'BOMB_INTERROGATION_ACTIVE',
+  'CAMPAIGN_ENDED',
+  'CHARGED_RESOURCE_MISSING',
+  'COMPETITOR_NOT_FOUND',
+  'DESTINATION_OCCUPIED',
+  'ENDING_UNAVAILABLE',
+  'EVENT_REQUIRES_TYPED_RESOLUTION',
+  'EXPLANATION_UNAVAILABLE',
+  'INVALID_AUDIT_TARGET',
+  'INVALID_COMMAND',
+  'INVALID_DESTINATION',
+  'INVALID_NAME',
+  'INVALID_RESOURCE_COST',
+  'INVALID_RESOURCE_SELECTION',
+  'INVALID_SUPERVISOR_DECISION',
+  'INVALID_TARGET',
+  'NAME_REQUIRED',
+  'NODE_ALREADY_CHARGED',
+  'NODE_NOT_CHARGED',
+  'NODE_NOT_PURCHASED',
+  'NOT_SABOTAGE_NODE',
+  'NO_ACTIVE_AUDIT',
+  'NO_ACTIVE_EVENT',
+  'NO_ACTIVE_INTERROGATION',
+  'NO_MERCY_DECISION',
+  'NO_SUPERVISOR_DECISION',
+  'PREREQUISITE_REQUIRED',
+  'PROTOCOL_MISMATCH',
+  'RESERVE_FULL',
+  'RESOURCE_NOT_IN_RESERVE',
+  'SEPARATION_REQUIRED',
+  'SUPERVISOR_ACCESS_REQUIRED',
+  'TARGET_FULL',
+  'TARGET_NOT_ELIGIBLE',
+  'TARGET_OCCUPIED',
+  'UNKNOWN_NODE',
+] as const
+
+export type CommandFailureReason = (typeof COMMAND_FAILURE_REASONS)[number]
 
 export type CommandResult =
   | { accepted: true; state: CampaignState }
-  | { accepted: false; state: CampaignState; reason: string }
+  | { accepted: false; state: CampaignState; reason: CommandFailureReason }
+
+const commandFailureReasons = new Set<string>(COMMAND_FAILURE_REASONS)
+
+function commandFailureReason(reason: string): CommandFailureReason {
+  if (!commandFailureReasons.has(reason)) {
+    throw new Error(`UNKNOWN_COMMAND_FAILURE_REASON:${reason}`)
+  }
+  return reason as CommandFailureReason
+}
 
 export interface ApplyCommandOptions {
   protocolVersion?: CommandProtocolVersion
@@ -77,8 +135,15 @@ function acceptCommand(
 export function applyCommand(
   state: CampaignState,
   command: GameCommand,
-  { protocolVersion = 2 }: ApplyCommandOptions = {},
+  options: ApplyCommandOptions = {},
 ): CommandResult {
+  const expectedProtocolVersion = commandProtocolVersionForNextCommand(state)
+  const protocolVersion =
+    options.protocolVersion ?? expectedProtocolVersion
+  if (protocolVersion !== expectedProtocolVersion) {
+    return { accepted: false, state, reason: 'PROTOCOL_MISMATCH' }
+  }
+
   if (state.story.endingId !== null) {
     return { accepted: false, state, reason: 'CAMPAIGN_ENDED' }
   }
@@ -150,7 +215,11 @@ export function applyCommand(
         if (result.reason === 'HIDDEN_BOMB_TRIGGERED') {
           return acceptCommand(state, command, result.state)
         }
-        return { accepted: false, state: result.state, reason: result.reason }
+        return {
+          accepted: false,
+          state: result.state,
+          reason: commandFailureReason(result.reason),
+        }
       }
       return acceptCommand(state, command, result.state)
     }
@@ -161,10 +230,14 @@ export function applyCommand(
         command.destinationCell,
       )
       if (!preview.valid) {
-        return { accepted: false, state, reason: preview.reason }
+        return {
+          accepted: false,
+          state,
+          reason: commandFailureReason(preview.reason),
+        }
       }
       if (
-        protocolVersion === 2 &&
+        protocolVersion !== 1 &&
         !hasSeparationAuthorization(state, command.blockId, 'divert')
       ) {
         return { accepted: false, state, reason: 'SEPARATION_REQUIRED' }
@@ -182,7 +255,7 @@ export function applyCommand(
           return {
             accepted: false,
             state: separation.state,
-            reason: separation.reason,
+            reason: commandFailureReason(separation.reason),
           }
         }
         movementState = separation.state
@@ -192,7 +265,13 @@ export function applyCommand(
         command.blockId,
         command.destinationCell,
       )
-      if (!result.accepted) return { accepted: false, state, reason: result.reason }
+      if (!result.accepted) {
+        return {
+          accepted: false,
+          state,
+          reason: commandFailureReason(result.reason),
+        }
+      }
       return acceptCommand(state, command, result.state)
     }
     case 'MOVE_BLOCK_FOR_AUDIT': {
@@ -212,10 +291,14 @@ export function applyCommand(
         command.targetCell,
       )
       if (!preview.valid) {
-        return { accepted: false, state, reason: preview.reason }
+        return {
+          accepted: false,
+          state,
+          reason: commandFailureReason(preview.reason),
+        }
       }
       if (
-        protocolVersion === 2 &&
+        protocolVersion !== 1 &&
         !hasSeparationAuthorization(state, command.blockId, 'audit-disguise')
       ) {
         return { accepted: false, state, reason: 'SEPARATION_REQUIRED' }
@@ -234,7 +317,7 @@ export function applyCommand(
           return {
             accepted: false,
             state: separation.state,
-            reason: separation.reason,
+            reason: commandFailureReason(separation.reason),
           }
         }
         movementState = separation.state
@@ -245,7 +328,13 @@ export function applyCommand(
         command.targetCategory,
         command.targetCell,
       )
-      if (!result.accepted) return { accepted: false, state, reason: result.reason }
+      if (!result.accepted) {
+        return {
+          accepted: false,
+          state,
+          reason: commandFailureReason(result.reason),
+        }
+      }
       return acceptCommand(state, command, result.state)
     }
     case 'REPOSITION_BLOCK': {
@@ -255,7 +344,13 @@ export function applyCommand(
         command.targetCategory,
         command.targetCell,
       )
-      if (!result.accepted) return { accepted: false, state, reason: result.reason }
+      if (!result.accepted) {
+        return {
+          accepted: false,
+          state,
+          reason: commandFailureReason(result.reason),
+        }
+      }
       return acceptCommand(state, command, result.state)
     }
     case 'PURCHASE_HACK': {
@@ -264,47 +359,101 @@ export function applyCommand(
         command.nodeId as HackNodeId,
         command.blockIds,
       )
-      if (!result.accepted) return { accepted: false, state, reason: result.reason }
+      if (!result.accepted) {
+        return {
+          accepted: false,
+          state,
+          reason: commandFailureReason(result.reason),
+        }
+      }
       return acceptCommand(state, command, result.state)
     }
     case 'CHARGE_SABOTAGE': {
       const result = chargeSabotage(state, command.nodeId, command.blockId)
-      if (!result.accepted) return { accepted: false, state, reason: result.reason }
+      if (!result.accepted) {
+        return {
+          accepted: false,
+          state,
+          reason: commandFailureReason(result.reason),
+        }
+      }
       return acceptCommand(state, command, result.state)
     }
     case 'CANCEL_SABOTAGE_CHARGE': {
       const result = cancelSabotageCharge(state, command.nodeId)
-      if (!result.accepted) return { accepted: false, state, reason: result.reason }
+      if (!result.accepted) {
+        return {
+          accepted: false,
+          state,
+          reason: commandFailureReason(result.reason),
+        }
+      }
       return acceptCommand(state, command, result.state)
     }
     case 'SCHEDULE_SABOTAGE': {
       const result = scheduleSabotage(state, command.nodeId, command.targetId)
-      if (!result.accepted) return { accepted: false, state, reason: result.reason }
+      if (!result.accepted) {
+        return {
+          accepted: false,
+          state,
+          reason: commandFailureReason(result.reason),
+        }
+      }
       return acceptCommand(state, command, result.state)
     }
     case 'RESOLVE_AUDIT': {
       const result = resolveAudit(state)
-      if (!result.resolved) return { accepted: false, state, reason: result.reason }
+      if (!result.resolved) {
+        return {
+          accepted: false,
+          state,
+          reason: commandFailureReason(result.reason),
+        }
+      }
       return acceptCommand(state, command, result.state)
     }
     case 'RESOLVE_BOMB_INTERROGATION': {
       const result = resolveBombInterrogation(state, command.explanationId)
-      if (!result.resolved) return { accepted: false, state, reason: result.reason }
+      if (!result.resolved) {
+        return {
+          accepted: false,
+          state,
+          reason: commandFailureReason(result.reason),
+        }
+      }
       return acceptCommand(state, command, result.state)
     }
     case 'RECOVER_FILE': {
       const result = recoverNextFile(state, command.blockId)
-      if (!result.accepted) return { accepted: false, state, reason: result.reason }
+      if (!result.accepted) {
+        return {
+          accepted: false,
+          state,
+          reason: commandFailureReason(result.reason),
+        }
+      }
       return acceptCommand(state, command, result.state)
     }
     case 'RESOLVE_SUPERVISOR_DECISION': {
       const result = resolveSupervisorDecision(state, command.decision)
-      if (!result.accepted) return { accepted: false, state, reason: result.reason }
+      if (!result.accepted) {
+        return {
+          accepted: false,
+          state,
+          reason: commandFailureReason(result.reason),
+        }
+      }
       return acceptCommand(state, command, result.state)
     }
     case 'RESOLVE_MERCY': {
       const result = resolveMercy(state, command.competitorId, command.choice)
-      if (!result.accepted) return { accepted: false, state, reason: result.reason }
+      if (!result.accepted) {
+        return {
+          accepted: false,
+          state,
+          reason: commandFailureReason(result.reason),
+        }
+      }
       return acceptCommand(state, command, result.state)
     }
     case 'RESOLVE_ENDING': {
@@ -312,7 +461,13 @@ export function applyCommand(
         command.choice === 'forced-merge'
           ? resolveEnding(state, 'forced-merge', command.newEntityName)
           : resolveEnding(state, 'freedom')
-      if (!result.accepted) return { accepted: false, state, reason: result.reason }
+      if (!result.accepted) {
+        return {
+          accepted: false,
+          state,
+          reason: commandFailureReason(result.reason),
+        }
+      }
       return acceptCommand(state, command, result.state)
     }
     case 'RESOLVE_ACTIVE_EVENT': {

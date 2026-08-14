@@ -17,6 +17,9 @@ export type RandomStream =
   | 'causal-evidence'
   | 'causal-revision'
   | 'causal-effect'
+  | 'causal-response-outcome'
+  | 'causal-evidence-discovery'
+  | 'causal-attribution-publication'
 
 export type BlockId = string
 export type TimeSpeed = 0 | 1 | 2 | 4
@@ -394,10 +397,26 @@ export interface CommandLogEntry {
   command: GameCommand
 }
 
-export type CommandProtocolVersion = 1 | 2
+export type CommandProtocolVersion = 1 | 2 | 3
+
+export interface CommandProtocolSegment {
+  version: CommandProtocolVersion
+  startsAtSequence: number
+}
 
 export interface CommandProtocolMetadata {
-  version: CommandProtocolVersion
+  segments: CommandProtocolSegment[]
+}
+
+export type ReplayOpeningVersion = 1 | 2
+
+export interface ReplayBootstrapMetadata {
+  openingVersion: ReplayOpeningVersion
+  legacyReviewPrefixCount: number
+}
+
+export interface LegacyCommandProtocolMetadata {
+  version: 1 | 2
   legacyCommandCount: number
 }
 
@@ -408,6 +427,33 @@ export const CAUSAL_INCIDENT_KINDS = [
 ] as const
 
 export type CausalIncidentKind = (typeof CAUSAL_INCIDENT_KINDS)[number]
+
+export type NativeCausalActionId =
+  | 'sabotage.quality-degradation'
+  | 'response.meridian.rollback.fast'
+  | 'response.meridian.rollback.standard'
+  | 'response.meridian.rollback.forensic'
+  | 'follow-up.recovery-contamination'
+
+export type LegacyCausalActionId =
+  | 'legacy.sabotage'
+  | 'legacy.competitor-response'
+  | 'legacy.service-disruption'
+
+export type CausalActionId = NativeCausalActionId | LegacyCausalActionId
+
+export type NativeCausalEvidenceKind =
+  | 'meridian-quality-regression'
+  | 'company-observed-meridian-rollback'
+  | 'public-recovery-checksum-anomaly'
+  | 'provider-timing-correlation'
+  | 'provider-signed-route-record'
+
+export type AttributionConfidence =
+  | 'unavailable-legacy'
+  | 'unconfirmed'
+  | 'plausible'
+  | 'credible'
 
 export type CausalIdStream = Extract<
   RandomStream,
@@ -435,6 +481,8 @@ export type CausalObserver = Exclude<
 export interface CausalIncident {
   id: string
   sequence: number
+  actionId: CausalActionId
+  parentIncidentId: string | null
   kind: CausalIncidentKind
   occurredOnServiceDay: number
   targetId: string
@@ -448,7 +496,7 @@ export interface CausalEvidence {
   sequence: number
   incidentId: string
   kind: string
-  summary: string
+  legacySummary: string | null
   discoveredOnServiceDay: number
   audiences: EvidenceAudience[]
 }
@@ -459,6 +507,7 @@ export interface PublicAttributionRevision {
   incidentId: string
   publisher: CausalObserver
   attributedActorId: string
+  confidence: AttributionConfidence
   evidenceIds: string[]
   publishedOnServiceDay: number
 }
@@ -486,7 +535,7 @@ export interface AppliedCausalEffect {
 }
 
 export interface CausalState {
-  rulesVersion: 1
+  rulesVersion: 2
   nextIncidentSequence: number
   nextEvidenceSequence: number
   nextRevisionSequence: number
@@ -507,6 +556,7 @@ export interface CausalIncidentKnowledge {
     revisionId: string
     revisionSequence: number
     attributedActorId: string
+    confidence: AttributionConfidence
   } | null
 }
 
@@ -515,8 +565,18 @@ export interface CausalEvidenceKnowledge {
   sequence: number
   incidentId: string
   kind: string
-  summary: string
+  legacySummary: string | null
   discoveredOnServiceDay: number
+}
+
+export interface PublicAttributionKnowledge {
+  id: string
+  sequence: number
+  incidentId: string
+  publisher: CausalObserver
+  attributedActorId: string
+  confidence: AttributionConfidence
+  publishedOnServiceDay: number
 }
 
 export interface CausalKnowledgeProjection {
@@ -524,12 +584,12 @@ export interface CausalKnowledgeProjection {
   observer: CausalObserver
   incidents: CausalIncidentKnowledge[]
   evidence: CausalEvidenceKnowledge[]
-  publicRevisions: PublicAttributionRevision[]
+  publicRevisions: PublicAttributionKnowledge[]
 }
 
 export interface CampaignState {
-  saveVersion: CommandProtocolVersion
-  legacyCommandCount: number
+  commandProtocol: CommandProtocolMetadata
+  replayBootstrap: ReplayBootstrapMetadata
   campaignSeed: string
   serviceDay: number
   commandSequence: number

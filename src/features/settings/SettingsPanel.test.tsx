@@ -11,9 +11,10 @@ import { GameProvider } from '../../app/GameProvider'
 import { AccessibleDialog } from '../../app/AccessibleDialog'
 import { saveCampaign } from '../../game/campaignStorage'
 import { createCampaign } from '../../game/createCampaign'
+import { createEmptyCausalState } from '../../game/causality'
 import { createJournal } from '../../game/journal'
-import type { CampaignState } from '../../game/model'
-import { SAVE_STORAGE_KEY } from '../../game/persistence'
+import type { CampaignState, CommandLogEntry, GameEvent } from '../../game/model'
+import { SAVE_STORAGE_KEY, encodeSave } from '../../game/persistence'
 import {
   PROGRESS_EXPORT_MAX_ENCODED_LENGTH,
   PROGRESS_FILE_MAX_BYTES,
@@ -38,6 +39,12 @@ function Probe() {
       <output aria-label="muted value">{String(settings.muted)}</output>
       <output aria-label="reduced motion value">{String(settings.reducedMotion)}</output>
       <output aria-label="progress command count">{state.commandSequence}</output>
+      <output aria-label="replay opening version">
+        {state.replayBootstrap.openingVersion}
+      </output>
+      <output aria-label="legacy review prefix count">
+        {state.replayBootstrap.legacyReviewPrefixCount}
+      </output>
     </>
   )
 }
@@ -57,6 +64,81 @@ function progressPayload(state: CampaignState): string {
   const encoded = encodeProgressExport(state)
   if (!encoded.ok) throw new Error('test campaign must fit the progress export')
   return encoded.payload
+}
+
+function fixtureHash(content: string): string {
+  let hash = 0x811c9dc5
+  for (let index = 0; index < content.length; index += 1) {
+    hash ^= content.charCodeAt(index)
+    hash = Math.imul(hash, 0x01000193)
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0')
+}
+
+function legacyProgressPayload(
+  version: 2 | 3 | 4 | 5 | 6,
+  seed: string,
+): string {
+  const raw = JSON.parse(encodeSave(createCampaign(seed))) as {
+    savedAt: string
+    campaignSeed: string
+    commandSequence: number
+    state: Record<string, unknown> & {
+      causality?: unknown
+      reviews: { feed: Array<Record<string, unknown>> }
+    }
+    journals: {
+      commands: { chunks: CommandLogEntry[][] }
+      events: { chunks: GameEvent[][] }
+    }
+  }
+  const commands = raw.journals.commands.chunks.flat()
+  const events = raw.journals.events.chunks.flat()
+  const state = {
+    ...raw.state,
+    saveVersion: 2,
+    legacyCommandCount: 0,
+  }
+  if (version < 6) delete state.causality
+  else state.causality = { ...createEmptyCausalState(), rulesVersion: 1 }
+  if (version < 5) {
+    for (const review of state.reviews.feed) delete review.snapshot
+  }
+
+  const legacyProtocol = { version: 2, legacyCommandCount: 0 }
+  const envelope = version === 2
+    ? {
+        version,
+        commandProtocol: legacyProtocol,
+        savedAt: raw.savedAt,
+        campaignSeed: raw.campaignSeed,
+        state: { ...state, commandLog: commands, eventLog: events },
+        commandSequence: raw.commandSequence,
+        commands,
+        events,
+      }
+    : {
+        version,
+        commandProtocol: legacyProtocol,
+        savedAt: raw.savedAt,
+        campaignSeed: raw.campaignSeed,
+        state,
+        commandSequence: raw.commandSequence,
+        journals: raw.journals,
+        integrity: {
+          checkpointHash: fixtureHash(JSON.stringify(state)),
+          commandChunkHashes: raw.journals.commands.chunks.map((chunk) =>
+            fixtureHash(JSON.stringify(chunk)),
+          ),
+          eventChunkHashes: raw.journals.events.chunks.map((chunk) =>
+            fixtureHash(JSON.stringify(chunk)),
+          ),
+        },
+      }
+  const bytes = new TextEncoder().encode(JSON.stringify(envelope))
+  let binary = ''
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return `PZ${version}:${btoa(binary)}`
 }
 
 function largeAppendOnlyCommandCampaign(): CampaignState {
@@ -141,6 +223,17 @@ describe('SettingsPanel', () => {
     expect(screen.getByRole('status', { name: '음악 엔진 상태' })).toHaveTextContent(
       '대기 · 음악 60%',
     )
+    expect(screen.getByLabelText('진행 파일 가져오기')).toHaveAttribute(
+      'accept',
+      '.pz7,.pz6,.pz5,.pz4,.pz3,.pz2,application/vnd.permission-zero.progress+json',
+    )
+    const compatibility = screen
+      .getByRole('region', { name: '진행 가져오기' })
+      .querySelector('p')
+    expect(compatibility).not.toBeNull()
+    expect(compatibility).toHaveTextContent('PZ2:')
+    expect(compatibility).toHaveTextContent('PZ6:')
+    expect(compatibility).toHaveTextContent('.pz7')
 
     fireEvent.change(screen.getByRole('slider', { name: '전체 음량' }), {
       target: { value: '0.4' },
@@ -227,7 +320,8 @@ describe('SettingsPanel', () => {
   })
 
   it('validates and explicitly confirms an exact PZ2 import before replacing the campaign', async () => {
-    const payload = progressPayload(createCampaign('imported-round-trip'))
+    const payload = legacyProgressPayload(2, 'imported-round-trip')
+    expect(payload).toMatch(/^PZ2:/)
     render(
       <GameProvider storage={new MemoryStorage()} initialSeed="before-import">
         <div data-app-background data-testid="import-background">
@@ -256,13 +350,50 @@ describe('SettingsPanel', () => {
     expect(screen.getByLabelText('current seed')).toHaveTextContent(
       'imported-round-trip',
     )
+    expect(screen.getByLabelText('replay opening version')).toHaveTextContent('2')
+    expect(screen.getByLabelText('legacy review prefix count')).toHaveTextContent('2')
     expect(screen.queryByRole('alertdialog', {
       name: '진행 가져오기 최종 확인',
     })).not.toBeInTheDocument()
     expect(screen.getByTestId('import-background')).not.toHaveAttribute('inert')
   })
 
-  it('rejects a tampered PZ2 payload without mutating progress or rendering parser details', () => {
+  it.each([3, 4, 5, 6] as const)(
+    'validates and confirms a genuine PZ%i clipboard import with inferred replay provenance',
+    async (version) => {
+      const seed = `legacy-pz${version}-ui-import`
+      const payload = legacyProgressPayload(version, seed)
+      expect(payload).toMatch(new RegExp(`^PZ${version}:`))
+      render(
+        <GameProvider
+          storage={new MemoryStorage()}
+          initialSeed={`before-pz${version}`}
+        >
+          <SettingsPanel onClose={vi.fn()} onOpenGuide={vi.fn()} />
+          <Probe />
+        </GameProvider>,
+      )
+
+      fireEvent.change(
+        screen.getByRole('textbox', { name: '진행 내보내기 붙여넣기' }),
+        { target: { value: payload } },
+      )
+      fireEvent.click(screen.getByRole('button', { name: '진행 내보내기 검증' }))
+      expect(
+        screen.getByRole('alertdialog', { name: '진행 가져오기 최종 확인' }),
+      ).toHaveTextContent(seed)
+      fireEvent.click(screen.getByRole('button', { name: '진행 가져오기 확정' }))
+      await act(async () => undefined)
+
+      expect(screen.getByLabelText('current seed')).toHaveTextContent(seed)
+      expect(screen.getByLabelText('replay opening version')).toHaveTextContent('2')
+      expect(screen.getByLabelText('legacy review prefix count')).toHaveTextContent(
+        version <= 4 ? '2' : '0',
+      )
+    },
+  )
+
+  it('rejects a tampered PZ7 payload without mutating progress or rendering parser details', () => {
     const payload = progressPayload(createCampaign('tamper-target'))
     const tampered = `${payload.slice(0, 5)}${payload[5] === 'A' ? 'B' : 'A'}${payload.slice(6)}`
     render(
@@ -286,7 +417,7 @@ describe('SettingsPanel', () => {
     expect(document.body).not.toHaveTextContent('DOMException')
   })
 
-  it('does not normalize text before the strict PZ2 prefix and size boundary', () => {
+  it('does not normalize text before the strict progress prefix and size boundary', () => {
     const payload = ` ${progressPayload(createCampaign('whitespace-target'))}`
     render(
       <GameProvider storage={new MemoryStorage()} initialSeed="whitespace-safe">
@@ -334,7 +465,7 @@ describe('SettingsPanel', () => {
     )
   })
 
-  it('shares the PZ2 input limit and rejects an oversized paste without mutating progress', () => {
+  it('shares the progress input limit and rejects an oversized paste without mutating progress', () => {
     render(
       <GameProvider storage={new MemoryStorage()} initialSeed="oversize-safe">
         <SettingsPanel onClose={vi.fn()} onOpenGuide={vi.fn()} />
@@ -386,7 +517,7 @@ describe('SettingsPanel', () => {
     expect(screen.getByRole('alert', { name: '저장 실패' })).toBeInTheDocument()
   })
 
-  it('validates and imports an exact .pz6 file above the clipboard cap only after confirmation', async () => {
+  it('validates and imports an exact .pz7 file above the clipboard cap only after confirmation', async () => {
     const campaign = largeAppendOnlyCommandCampaign()
     const progressFile = encodeProgressFile(
       campaign,
@@ -429,7 +560,7 @@ describe('SettingsPanel', () => {
   it('rejects an oversized progress file before reading it into memory', async () => {
     const text = vi.fn(async () => encodeProgressFile(createCampaign('never-read')).content)
     const file = {
-      name: 'oversized.pz6',
+      name: 'oversized.pz7',
       size: PROGRESS_FILE_MAX_BYTES + 1,
       type: 'application/vnd.permission-zero.progress+json',
       text,
@@ -451,7 +582,7 @@ describe('SettingsPanel', () => {
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
   })
 
-  it('downloads an exact .pz6 recovery file when the clipboard representation is too large', async () => {
+  it('downloads an exact .pz7 recovery file when the clipboard representation is too large', async () => {
     vi.useFakeTimers()
     const storage = new SecurityFailingStorage()
     storage.failWrites = false
@@ -555,7 +686,7 @@ describe('SettingsPanel', () => {
     await act(async () => undefined)
 
     expect(writeText).toHaveBeenCalledTimes(1)
-    expect(writeText.mock.calls[0]?.[0]).toEqual(expect.stringMatching(/^PZ6:/))
+    expect(writeText.mock.calls[0]?.[0]).toEqual(expect.stringMatching(/^PZ7:/))
     expect(screen.getByRole('alert', { name: '저장 실패' })).toHaveTextContent(
       '복사했습니다',
     )
@@ -587,7 +718,7 @@ describe('SettingsPanel', () => {
       '정확한 진행 내보내기가 너무 커서 아무것도 복사하지 않았습니다.',
     )
     expect(warning).toHaveTextContent(
-      '.pz6 진행 파일로 전체 상태와 기록을 정확히 다운로드할 수 있습니다.',
+      '.pz7 진행 파일로 전체 상태와 기록을 정확히 다운로드할 수 있습니다.',
     )
     expect(warning).toHaveTextContent(
       '브라우저 저장 공간은 유한하므로 경고가 계속되면 파일을 안전한 곳에 보관하세요.',

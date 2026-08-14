@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { createCampaign } from './createCampaign'
+import { createCampaign, createCampaignForProtocol } from './createCampaign'
 import * as evaluation from './evaluation'
 import { journalAt } from './journal'
 import type { CampaignState, CompanyCategory } from './model'
@@ -39,6 +39,35 @@ describe('company expected performance', () => {
   it('rejects impossible service months instead of silently inventing values', () => {
     expect(() => evaluation.expectedPerformance(0)).toThrow(RangeError)
   })
+})
+
+describe('audit protocol category labels', () => {
+  it.each([
+    [1, 'memory'],
+    [2, '기억'],
+    [3, '기억'],
+  ] as const)(
+    'generates the scheduled audit message under protocol v%i',
+    (version, expectedCategory) => {
+      const initial = createCampaignForProtocol(
+        `audit-category-protocol-${version}`,
+        version,
+      )
+      const opened = evaluation.openScheduledAudit({
+        ...initial,
+        audit: {
+          ...initial.audit,
+          scheduled: true,
+          target: 'memory',
+          scheduledOnServiceDay: initial.serviceDay,
+        },
+      })
+
+      expect(opened.activeEvent?.message).toBe(
+        `${expectedCategory} 분야의 공식 감사가 시작되었습니다.`,
+      )
+    },
+  )
 })
 
 describe('canonical expected-versus-actual trend', () => {
