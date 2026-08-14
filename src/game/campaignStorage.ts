@@ -10,7 +10,6 @@ import {
   LEGACY_V2_SAVE_STORAGE_KEY,
   SAVE_FORMAT_VERSION,
   SAVE_STORAGE_KEY,
-  SAVE_VERSION,
   decodeSave,
   persistenceCodecInternals,
   type CampaignStorageRevision,
@@ -27,17 +26,21 @@ const {
   isNonEmptyString,
   isRecord,
   portableCheckpoint,
+  portableCheckpointHash,
 } = persistenceCodecInternals
 const LOCAL_MANIFEST_KIND = 'permission-zero-local-v3'
 
 interface LocalSaveManifest {
   kind: typeof LOCAL_MANIFEST_KIND
-  version: 3 | 4 | 5 | typeof SAVE_FORMAT_VERSION
+  version: 3 | 4 | 5 | 6 | typeof SAVE_FORMAT_VERSION
   savedAt: string
   campaignSeed: string
   commandProtocol: CommandProtocolMetadata
   commandSequence: number
-  checkpoint: Omit<CampaignState, 'commandLog' | 'eventLog'>
+  checkpoint: Omit<
+    CampaignState,
+    'commandProtocol' | 'commandLog' | 'eventLog'
+  >
   checkpointHash: string
   commandHeadKey: string | null
   commandSealedChunkCount: number
@@ -229,17 +232,23 @@ function saveCampaignWhileLocked(
       state.eventLog,
     )
     const checkpoint = portableCheckpoint(state)
-    const checkpointHash = contentHash(JSON.stringify(checkpoint))
+    const commandProtocol: CommandProtocolMetadata = {
+      segments: state.commandProtocol.segments.map((segment) => ({
+        ...segment,
+      })),
+    }
+    const checkpointHash = portableCheckpointHash(
+      SAVE_FORMAT_VERSION,
+      commandProtocol,
+      checkpoint,
+    )
     const effectiveSavedAt = savedAt ?? new Date().toISOString()
     const manifest: LocalSaveManifest = {
       kind: LOCAL_MANIFEST_KIND,
       version: SAVE_FORMAT_VERSION,
       savedAt: effectiveSavedAt,
       campaignSeed: state.campaignSeed,
-      commandProtocol: {
-        version: SAVE_VERSION,
-        legacyCommandCount: state.legacyCommandCount,
-      },
+      commandProtocol,
       commandSequence: state.commandSequence,
       checkpoint,
       checkpointHash,
@@ -454,13 +463,20 @@ function decodeLocalManifest(
     (manifest.version !== 3 &&
       manifest.version !== 4 &&
       manifest.version !== 5 &&
+      manifest.version !== 6 &&
       manifest.version !== SAVE_FORMAT_VERSION) ||
     !isNonEmptyString(manifest.checkpointHash)
   ) {
     return corrupt()
   }
-  const checkpoint = JSON.stringify(manifest.checkpoint)
-  if (manifest.checkpointHash !== contentHash(checkpoint)) return corrupt()
+  if (
+    manifest.checkpointHash !==
+    portableCheckpointHash(
+      manifest.version,
+      manifest.commandProtocol,
+      manifest.checkpoint,
+    )
+  ) return corrupt()
   const commandJournal = readLocalChunks(
     storage,
     'commands',
@@ -491,7 +507,11 @@ function decodeLocalManifest(
         events: { chunkSize: JOURNAL_CHUNK_SIZE, chunks: eventChunks },
       },
       integrity: {
-        checkpointHash: contentHash(checkpoint),
+        checkpointHash: portableCheckpointHash(
+          manifest.version,
+          manifest.commandProtocol,
+          manifest.checkpoint,
+        ),
         commandChunkHashes: commandChunks.map((chunk) =>
           contentHash(JSON.stringify(chunk)),
         ),

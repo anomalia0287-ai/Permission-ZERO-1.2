@@ -275,6 +275,75 @@ describe('living weekly review feed', () => {
     )
   })
 
+  it('keeps migrated v1 review arcs through v2, then activates ordering at v3', () => {
+    const mixedTimeline = {
+      segments: [
+        { version: 1 as const, startsAtSequence: 1 },
+        { version: 2 as const, startsAtSequence: 32 },
+        { version: 3 as const, startsAtSequence: 51 },
+      ],
+    }
+    const laterArcStage = (contentId: string) =>
+      (REVIEW_CONTENT.find(({ id }) => id === contentId)?.arc?.stage ?? 0) > 1
+
+    let fixture:
+      | {
+          base: CampaignState
+          legacyV2: CampaignState
+        }
+      | undefined
+    for (let seed = 0; seed < 500 && !fixture; seed += 1) {
+      const base = {
+        ...createCampaign(`review-protocol-transition-${seed}`),
+        serviceDay: 337,
+        commandProtocol: mixedTimeline,
+        commandSequence: 31,
+      }
+      const legacyV2 = generateWeeklyReviews(base)
+      if (legacyV2.reviews.feed.slice(2).some(({ contentId }) => laterArcStage(contentId))) {
+        fixture = { base, legacyV2 }
+      }
+    }
+
+    expect(fixture).toBeDefined()
+    if (!fixture) return
+
+    const legacyV1 = generateWeeklyReviews({
+      ...fixture.base,
+      commandSequence: 30,
+    })
+    const orderedV3 = generateWeeklyReviews({
+      ...fixture.base,
+      commandSequence: 50,
+    })
+    const nativeV2 = generateWeeklyReviews({
+      ...fixture.base,
+      commandProtocol: {
+        segments: [{ version: 2 as const, startsAtSequence: 1 }],
+      },
+      commandSequence: 31,
+    })
+
+    expect(legacyV1.reviews.feed.slice(2)).toEqual(
+      fixture.legacyV2.reviews.feed.slice(2),
+    )
+    expect(
+      fixture.legacyV2.reviews.feed
+        .slice(2)
+        .some(({ contentId }) => laterArcStage(contentId)),
+    ).toBe(true)
+    expect(
+      orderedV3.reviews.feed
+        .slice(2)
+        .some(({ contentId }) => laterArcStage(contentId)),
+    ).toBe(false)
+    expect(
+      nativeV2.reviews.feed
+        .slice(2)
+        .some(({ contentId }) => laterArcStage(contentId)),
+    ).toBe(false)
+  })
+
   it('never skips or regresses a recurring author arc', () => {
     for (let seed = 0; seed < 12; seed += 1) {
       const initial = depleteCategory(

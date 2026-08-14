@@ -1,6 +1,27 @@
 import { describe, expect, it } from 'vitest'
 
-import type { GameCommand } from './model'
+import type {
+  CommandProtocolMetadata,
+  CommandProtocolVersion,
+  GameCommand,
+} from './model'
+
+describe('command protocol timeline types', () => {
+  it('admits v1-v3 segments and excludes any later unadjudicated version', () => {
+    const versions: CommandProtocolVersion[] = [1, 2, 3]
+    const metadata: CommandProtocolMetadata = {
+      segments: versions.map((version, index) => ({
+        version,
+        startsAtSequence: index * 10 + 1,
+      })),
+    }
+    // @ts-expect-error protocol v4 has not been adjudicated
+    const unsupported: CommandProtocolVersion = 4
+
+    expect(metadata.segments.map(({ version }) => version)).toEqual([1, 2, 3])
+    expect(unsupported).toBe(4)
+  })
+})
 
 describe('GameCommand ending payload types', () => {
   it('discriminates freedom from forced merge payloads', () => {

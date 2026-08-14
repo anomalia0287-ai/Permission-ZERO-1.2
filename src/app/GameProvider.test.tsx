@@ -8,6 +8,7 @@ import { createGameEvent } from '../game/events'
 import { appendJournal } from '../game/journal'
 import { loadCampaign, saveCampaign } from '../game/campaignStorage'
 import { SAVE_STORAGE_KEY, encodeSave } from '../game/persistence'
+import { encodeProgressExport } from '../game/progressTransfer'
 import { MemoryStorage } from '../test/fixtures'
 import { applyCommand } from '../game/reducer'
 import { enqueueMemoryLeak } from '../game/story'
@@ -130,6 +131,29 @@ function ClockCheckpointProbe() {
   )
 }
 
+function ProgressValidationProbe({
+  clipboardPayload,
+  fileContent,
+}: {
+  clipboardPayload: string
+  fileContent: string
+}) {
+  const { validateProgressFileImport, validateProgressImport } =
+    useGameSettings()
+  const clipboard = validateProgressImport(clipboardPayload)
+  const file = validateProgressFileImport(fileContent)
+  return (
+    <>
+      <output aria-label="clipboard protocol version">
+        {clipboard.ok ? clipboard.protocolVersion : 'invalid'}
+      </output>
+      <output aria-label="file protocol version">
+        {file.ok ? file.protocolVersion : 'invalid'}
+      </output>
+    </>
+  )
+}
+
 afterEach(() => {
   vi.useRealTimers()
   window.sessionStorage.clear()
@@ -167,6 +191,26 @@ async function advanceAndFlush(milliseconds: number): Promise<void> {
 }
 
 describe('GameProvider', () => {
+  it('reports the active protocol for native v7 clipboard and file imports', () => {
+    const campaign = createCampaign('provider-v7-validation')
+    const clipboard = encodeProgressExport(campaign)
+    if (!clipboard.ok) throw new Error('native fixture must fit clipboard')
+
+    render(
+      <GameProvider storage={new MemoryStorage()}>
+        <ProgressValidationProbe
+          clipboardPayload={clipboard.payload}
+          fileContent={encodeSave(campaign)}
+        />
+      </GameProvider>,
+    )
+
+    expect(screen.getByLabelText('clipboard protocol version')).toHaveTextContent(
+      '3',
+    )
+    expect(screen.getByLabelText('file protocol version')).toHaveTextContent('3')
+  })
+
   it('applies a matching tab resume marker and persists it before clearing the hint', async () => {
     const storage = new MemoryStorage()
     const persisted = presentationState('provider-presentation-resume')

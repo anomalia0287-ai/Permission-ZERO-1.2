@@ -9,6 +9,7 @@ import {
 } from 'react'
 
 import { createCampaign } from '../game/createCampaign'
+import { currentCommandProtocolVersion } from '../game/commandProtocol'
 import { loadCampaign, saveCampaign } from '../game/campaignStorage'
 import type { CampaignState, GameCommand } from '../game/model'
 import type {
@@ -406,7 +407,9 @@ export function GameProvider({
       ok: true,
       campaignSeed: decoded.envelope.campaignSeed,
       savedAt: decoded.envelope.savedAt,
-      protocolVersion: decoded.envelope.commandProtocol.version,
+      protocolVersion: currentCommandProtocolVersion(
+        decoded.envelope.commandProtocol,
+      ),
     }
   }, [])
 
@@ -419,7 +422,9 @@ export function GameProvider({
       ok: true,
       campaignSeed: decoded.envelope.campaignSeed,
       savedAt: decoded.envelope.savedAt,
-      protocolVersion: decoded.envelope.commandProtocol.version,
+      protocolVersion: currentCommandProtocolVersion(
+        decoded.envelope.commandProtocol,
+      ),
     }
   }, [])
 

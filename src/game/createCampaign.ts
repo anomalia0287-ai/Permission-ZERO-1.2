@@ -6,6 +6,7 @@ import {
   COMPANY_CATEGORIES,
   type BlockId,
   type CampaignState,
+  type CommandProtocolVersion,
   type CompanyCategory,
   type CompetitorState,
   type ResourceBlock,
@@ -13,6 +14,10 @@ import {
 import { random01 } from './rng'
 import { createJournal } from './journal'
 import { createEmptyCausalState } from './causality'
+import {
+  CURRENT_COMMAND_PROTOCOL_VERSION,
+  nativeCommandProtocol,
+} from './commandProtocol'
 
 interface CategoryResources {
   cells: Array<BlockId | null>
@@ -99,6 +104,13 @@ function createCompetitors(): CompetitorState[] {
 }
 
 export function createCampaign(seed: string): CampaignState {
+  return createCampaignForProtocol(seed, CURRENT_COMMAND_PROTOCOL_VERSION)
+}
+
+export function createCampaignForProtocol(
+  seed: string,
+  protocolVersion: CommandProtocolVersion,
+): CampaignState {
   const categoryResources = COMPANY_CATEGORIES.map((category, categoryIndex) =>
     createCategoryResources(seed, category, categoryIndex),
   )
@@ -130,8 +142,12 @@ export function createCampaign(seed: string): CampaignState {
   }
 
   const campaign: CampaignState = {
-    saveVersion: 2,
-    legacyCommandCount: 0,
+    commandProtocol:
+      protocolVersion === CURRENT_COMMAND_PROTOCOL_VERSION
+        ? nativeCommandProtocol()
+        : {
+            segments: [{ version: protocolVersion, startsAtSequence: 1 }],
+          },
     campaignSeed: seed,
     serviceDay: DEMO_PROFILE_02.calendar.startServiceDay,
     commandSequence: 0,

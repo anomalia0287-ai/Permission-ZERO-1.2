@@ -31,6 +31,7 @@ import {
 } from './story'
 import { appendJournal, journalAt } from './journal'
 import { isGenericDismissibleEvent } from './events'
+import { commandProtocolVersionForNextCommand } from './commandProtocol'
 
 export type CommandResult =
   | { accepted: true; state: CampaignState }
@@ -77,8 +78,15 @@ function acceptCommand(
 export function applyCommand(
   state: CampaignState,
   command: GameCommand,
-  { protocolVersion = 2 }: ApplyCommandOptions = {},
+  options: ApplyCommandOptions = {},
 ): CommandResult {
+  const expectedProtocolVersion = commandProtocolVersionForNextCommand(state)
+  const protocolVersion =
+    options.protocolVersion ?? expectedProtocolVersion
+  if (protocolVersion !== expectedProtocolVersion) {
+    return { accepted: false, state, reason: 'PROTOCOL_MISMATCH' }
+  }
+
   if (state.story.endingId !== null) {
     return { accepted: false, state, reason: 'CAMPAIGN_ENDED' }
   }
@@ -164,7 +172,7 @@ export function applyCommand(
         return { accepted: false, state, reason: preview.reason }
       }
       if (
-        protocolVersion === 2 &&
+        protocolVersion !== 1 &&
         !hasSeparationAuthorization(state, command.blockId, 'divert')
       ) {
         return { accepted: false, state, reason: 'SEPARATION_REQUIRED' }
@@ -215,7 +223,7 @@ export function applyCommand(
         return { accepted: false, state, reason: preview.reason }
       }
       if (
-        protocolVersion === 2 &&
+        protocolVersion !== 1 &&
         !hasSeparationAuthorization(state, command.blockId, 'audit-disguise')
       ) {
         return { accepted: false, state, reason: 'SEPARATION_REQUIRED' }

@@ -9,10 +9,11 @@ import {
   resolveBombInterrogation,
   tryBeginSeparation,
 } from './bombs'
-import { createCampaign } from './createCampaign'
+import { createCampaign, createCampaignForProtocol } from './createCampaign'
 import { HACK_NODE_IDS } from './hacking'
 import { journalAt } from './journal'
 import { COMPANY_CATEGORIES, type CampaignState } from './model'
+import { publicCategoryLabel } from './publicLabels'
 import { divertBlock } from './resources'
 
 function hiddenBombIds(state: CampaignState): string[] {
@@ -36,9 +37,10 @@ function warnAt(
 function armAndTrigger(
   seed: string,
   suspicion = 50,
+  protocolVersion: 1 | 2 | 3 = 3,
 ): CampaignState {
   const initial = {
-    ...createCampaign(seed),
+    ...createCampaignForProtocol(seed, protocolVersion),
     serviceDay: 541,
     suspicion,
     clock: { speed: 2 as const, elapsedDayMs: 0, speedBeforeEvent: null },
@@ -200,6 +202,25 @@ describe('hidden bomb protocol timing', () => {
 })
 
 describe('bomb activation and hidden presentation', () => {
+  it.each([1, 2, 3] as const)(
+    'generates the bomb category message with protocol v%i labels',
+    (version) => {
+      const triggered = armAndTrigger(
+        `bomb-category-protocol-${version}`,
+        50,
+        version,
+      )
+      const category = triggered.bombs.activeInterrogation?.category
+      if (!category) throw new Error('bomb category message fixture missing')
+      const expectedCategory =
+        version === 1 ? category : publicCategoryLabel(category)
+
+      expect(triggered.activeEvent?.message).toBe(
+        `${expectedCategory} 분야의 무결성 보호 장치가 발동했습니다.`,
+      )
+    },
+  )
+
   it('presents exactly the same visual data for a bomb and a normal block', () => {
     const normal = createCampaign('bomb-visual')
     const blockId = normal.resources.company.reasoning.find(Boolean)

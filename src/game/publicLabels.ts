@@ -1,4 +1,5 @@
 import type {
+  CommandProtocolMetadata,
   CompanyCategory,
   CompetitorStatus,
   DefeatClassifier,
@@ -7,6 +8,7 @@ import type {
   GameEventType,
   ReviewSentiment,
 } from './model'
+import { usesLegacyCategoryLabels } from './commandProtocol'
 
 export const PUBLIC_CATEGORY_LABELS: Readonly<Record<CompanyCategory, string>> = {
   reasoning: '추론',
@@ -154,10 +156,10 @@ export function publicReviewTopicLabel(value: string): string {
 
 export function publicCategoryLabelForProtocol(
   value: CompanyCategory,
-  commandSequence: number,
-  legacyCommandCount: number,
+  commandProtocol: CommandProtocolMetadata,
+  nextCommandSequence: number,
 ): string {
-  return commandSequence < legacyCommandCount
+  return usesLegacyCategoryLabels(commandProtocol, nextCommandSequence)
     ? value
     : publicCategoryLabel(value)
 }

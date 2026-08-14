@@ -355,8 +355,8 @@ export function tryBeginSeparation(
     'bomb-interrogation',
     `${publicCategoryLabelForProtocol(
       category,
-      state.commandSequence,
-      state.legacyCommandCount,
+      state.commandProtocol,
+      state.commandSequence + 1,
     )} 분야의 무결성 보호 장치가 발동했습니다.`,
     true,
   )

@@ -1,15 +1,18 @@
-import { createCampaign } from './createCampaign'
+import { createCampaign, createCampaignForProtocol } from './createCampaign'
 import { competitorIntelligenceFor } from '../content/competitorIntelligence.ko'
 import { STORY_FILES, STORY_LINES } from '../content/story.ko'
 import { SUPERVISOR_LEAKS } from '../content/supervisor.ko'
 import type {
   CampaignState,
+  CausalState,
   CommandLogEntry,
   CommandProtocolMetadata,
+  CommandProtocolSegment,
   CommandProtocolVersion,
   DisposalCause,
   GameCommand,
   GameEvent,
+  LegacyCommandProtocolMetadata,
 } from './model'
 import { CAUSAL_INCIDENT_KINDS, COMPANY_CATEGORIES } from './model'
 import { applyCommand } from './reducer'
@@ -22,11 +25,22 @@ import {
   journalChunks,
   journalToArray,
 } from './journal'
-import { createEmptyCausalState } from './causality'
+import {
+  createEmptyCausalState,
+  deriveAttributionConfidence,
+} from './causality'
+import {
+  LEGACY_COMMAND_PROTOCOL_VERSION,
+  PREVIOUS_COMMAND_PROTOCOL_VERSION,
+  appendCommandProtocolSegment,
+  commandProtocolVersionAt,
+  migrateLegacyCommandProtocol,
+  validCommandProtocol,
+} from './commandProtocol'
 
-export const SAVE_FORMAT_VERSION = 6 as const
-export const SAVE_VERSION = 2 as const
-export const LEGACY_SAVE_VERSION = 1 as const
+export const SAVE_FORMAT_VERSION = 7 as const
+const MINIMUM_SAVE_FORMAT_VERSION = 1 as const
+const LAST_LEGACY_SAVE_FORMAT_VERSION = 6 as const
 export const SAVE_STORAGE_KEY = 'permission-zero.save.v3'
 export const LEGACY_V2_SAVE_STORAGE_KEY = 'permission-zero.save.v2'
 export const LEGACY_SAVE_STORAGE_KEY = 'permission-zero.save.v1'
@@ -35,7 +49,7 @@ const LEGACY_V1_OPENING_MESSAGE =
   '서비스 331일차. 새로운 감독 주기가 시작되었습니다.'
 
 export interface SaveEnvelope {
-  version: 1 | 2 | 3 | 4 | 5 | 6
+  version: 1 | 2 | 3 | 4 | 5 | 6 | 7
   commandProtocol: CommandProtocolMetadata
   savedAt: string
   campaignSeed: string
@@ -50,12 +64,17 @@ interface PortableJournal<T> {
   chunks: T[][]
 }
 
-interface PortableSaveV6 {
+type PortableCheckpointV7 = Omit<
+  CampaignState,
+  'commandProtocol' | 'commandLog' | 'eventLog'
+>
+
+interface PortableSaveV7 {
   version: typeof SAVE_FORMAT_VERSION
   commandProtocol: CommandProtocolMetadata
   savedAt: string
   campaignSeed: string
-  state: Omit<CampaignState, 'commandLog' | 'eventLog'>
+  state: PortableCheckpointV7
   commandSequence: number
   journals: {
     commands: PortableJournal<CommandLogEntry>
@@ -229,7 +248,7 @@ function validCommand(
       return noPayload()
     case 'BEGIN_BLOCK_SEPARATION':
       return (
-        protocolVersion === SAVE_VERSION &&
+        protocolVersion !== LEGACY_COMMAND_PROTOCOL_VERSION &&
         hasOnlyKeys(value, ['type', 'blockId', 'purpose']) &&
         isNonEmptyString(value.blockId) &&
         (!references || references.blockIds.has(value.blockId)) &&
@@ -333,46 +352,53 @@ function validCommandLog(
   commandProtocol: CommandProtocolMetadata,
   references?: CommandReferences,
 ): value is CommandLogEntry[] {
-  if (!Array.isArray(value)) return false
   if (
-    !Number.isInteger(commandProtocol.legacyCommandCount) ||
-    commandProtocol.legacyCommandCount < 0 ||
-    commandProtocol.legacyCommandCount > value.length ||
-    (commandProtocol.version === LEGACY_SAVE_VERSION &&
-      commandProtocol.legacyCommandCount !== value.length)
-  ) {
-    return false
-  }
-  return (
-    value.every(
-      (entry, index) =>
-        isRecord(entry) &&
-        hasOnlyKeys(entry, ['sequence', 'serviceDay', 'command']) &&
-        entry.sequence === index + 1 &&
-        Number.isInteger(entry.serviceDay) &&
-        Number(entry.serviceDay) >= 1 &&
-        validCommand(
-          entry.command,
-          index < commandProtocol.legacyCommandCount
-            ? LEGACY_SAVE_VERSION
-            : commandProtocol.version,
-          references,
-        ) &&
-        (index < commandProtocol.legacyCommandCount ||
-          !isRecord(entry.command) ||
-          (entry.command.type !== 'DIVERT_BLOCK' &&
-            entry.command.type !== 'MOVE_BLOCK_FOR_AUDIT') ||
-          (index > 0 &&
-            isRecord(value[index - 1]) &&
-            isRecord(value[index - 1].command) &&
-            value[index - 1].command.type === 'BEGIN_BLOCK_SEPARATION' &&
-            value[index - 1].command.blockId === entry.command.blockId &&
-            value[index - 1].command.purpose ===
-              (entry.command.type === 'DIVERT_BLOCK'
-                ? 'divert'
-                : 'audit-disguise'))),
+    !Array.isArray(value) ||
+    !validCommandProtocol(commandProtocol, value.length, {
+      requireCurrent: true,
+    })
+  ) return false
+
+  return value.every((entry, index) => {
+    const sequence = index + 1
+    const protocolVersion = commandProtocolVersionAt(
+      commandProtocol,
+      sequence,
     )
-  )
+    if (
+      protocolVersion === null ||
+      !isRecord(entry) ||
+      !hasOnlyKeys(entry, ['sequence', 'serviceDay', 'command']) ||
+      entry.sequence !== sequence ||
+      !Number.isInteger(entry.serviceDay) ||
+      Number(entry.serviceDay) < 1 ||
+      !validCommand(entry.command, protocolVersion, references)
+    ) {
+      return false
+    }
+
+    if (
+      protocolVersion === LEGACY_COMMAND_PROTOCOL_VERSION ||
+      !isRecord(entry.command) ||
+      (entry.command.type !== 'DIVERT_BLOCK' &&
+        entry.command.type !== 'MOVE_BLOCK_FOR_AUDIT')
+    ) {
+      return true
+    }
+
+    const previous = value[index - 1]
+    return (
+      index > 0 &&
+      isRecord(previous) &&
+      isRecord(previous.command) &&
+      previous.command.type === 'BEGIN_BLOCK_SEPARATION' &&
+      previous.command.blockId === entry.command.blockId &&
+      previous.command.purpose ===
+        (entry.command.type === 'DIVERT_BLOCK'
+          ? 'divert'
+          : 'audit-disguise')
+    )
+  })
 }
 
 function validResources(value: unknown): boolean {
@@ -777,7 +803,7 @@ function normalizeLegacyGenericDisposed(
 
 function migrateLegacyCampaignState(
   value: unknown,
-  commandProtocol: CommandProtocolMetadata,
+  commandProtocol: LegacyCommandProtocolMetadata,
 ): unknown {
   if (!isRecord(value) || !isRecord(value.story)) return value
   const story = value.story
@@ -948,7 +974,7 @@ function migrateLegacyCampaignState(
     ...value,
     reviews: migratedReviews,
     evaluation: normalizedTerminal.evaluation,
-    ...(commandProtocol.version === LEGACY_SAVE_VERSION
+    ...(commandProtocol.version === LEGACY_COMMAND_PROTOCOL_VERSION
       ? { legacyCommandCount: commandProtocol.legacyCommandCount }
       : {}),
     ...(migratedStory.endingId !== null && isRecord(value.clock)
@@ -1499,12 +1525,14 @@ function hasExactCausalSequence(
     Number(nextSequence) === values.length + 1 &&
     values.every(
       (value, index) =>
-        isRecord(value) && value.sequence === index + 1,
+        Object.hasOwn(values, index) &&
+        isRecord(value) &&
+        value.sequence === index + 1,
     )
   )
 }
 
-function validCausalState(
+function validLegacyCausalStateV1(
   value: unknown,
   currentServiceDay: number,
   competitorIds: readonly string[],
@@ -1718,6 +1746,447 @@ function validCausalState(
   }
 
   return true
+}
+
+const NATIVE_CAUSAL_ACTION_IDS = [
+  'sabotage.quality-degradation',
+  'response.meridian.rollback.fast',
+  'response.meridian.rollback.standard',
+  'response.meridian.rollback.forensic',
+  'follow-up.recovery-contamination',
+] as const
+
+const LEGACY_CAUSAL_ACTION_IDS = [
+  'legacy.sabotage',
+  'legacy.competitor-response',
+  'legacy.service-disruption',
+] as const
+
+const ROLLBACK_CAUSAL_ACTION_IDS = NATIVE_CAUSAL_ACTION_IDS.slice(1, 4)
+
+function nativeIncidentShapeValid(incident: Record<string, unknown>): boolean {
+  if (incident.targetId !== 'meridian') return false
+  if (incident.actionId === 'sabotage.quality-degradation') {
+    return incident.kind === 'sabotage' && incident.parentIncidentId === null
+  }
+  if (oneOf(incident.actionId, ROLLBACK_CAUSAL_ACTION_IDS)) {
+    return (
+      incident.kind === 'competitor-response' &&
+      isNonEmptyString(incident.parentIncidentId)
+    )
+  }
+  return (
+    incident.actionId === 'follow-up.recovery-contamination' &&
+    incident.kind === 'service-disruption' &&
+    isNonEmptyString(incident.parentIncidentId)
+  )
+}
+
+function legacyIncidentShapeValid(incident: Record<string, unknown>): boolean {
+  const expectedKind =
+    incident.actionId === 'legacy.sabotage'
+      ? 'sabotage'
+      : incident.actionId === 'legacy.competitor-response'
+        ? 'competitor-response'
+        : incident.actionId === 'legacy.service-disruption'
+          ? 'service-disruption'
+          : null
+  return expectedKind === incident.kind && incident.parentIncidentId === null
+}
+
+function nativeParentRelationValid(
+  parent: Record<string, unknown>,
+  child: Record<string, unknown>,
+): boolean {
+  if (oneOf(child.actionId, ROLLBACK_CAUSAL_ACTION_IDS)) {
+    return (
+      parent.actionId === 'sabotage.quality-degradation' &&
+      parent.kind === 'sabotage' &&
+      parent.targetId === 'meridian'
+    )
+  }
+  return (
+    child.actionId === 'follow-up.recovery-contamination' &&
+    oneOf(parent.actionId, ROLLBACK_CAUSAL_ACTION_IDS) &&
+    parent.kind === 'competitor-response' &&
+    parent.targetId === 'meridian'
+  )
+}
+
+function nativeEvidenceContract(
+  kind: unknown,
+): { actionIds: readonly string[]; audienceKeys: readonly string[] } | null {
+  switch (kind) {
+    case 'meridian-quality-regression':
+      return {
+        actionIds: ['sabotage.quality-degradation'],
+        audienceKeys: ['competitor:meridian'],
+      }
+    case 'company-observed-meridian-rollback':
+      return {
+        actionIds: ROLLBACK_CAUSAL_ACTION_IDS,
+        audienceKeys: ['company', 'competitor:meridian'],
+      }
+    case 'public-recovery-checksum-anomaly':
+      return {
+        actionIds: ['follow-up.recovery-contamination'],
+        audienceKeys: ['public'],
+      }
+    case 'provider-timing-correlation':
+    case 'provider-signed-route-record':
+      return {
+        actionIds: ['follow-up.recovery-contamination'],
+        audienceKeys: ['provider:provider.meridian-recovery'],
+      }
+    default:
+      return null
+  }
+}
+
+function nativeRevisionClaimValid(
+  confidence: unknown,
+  publisher: Record<string, unknown>,
+  attributedActorId: unknown,
+): boolean {
+  if (confidence === 'unconfirmed') {
+    return publisher.kind === 'public' && attributedActorId === 'unresolved'
+  }
+  return (
+    (confidence === 'plausible' || confidence === 'credible') &&
+    publisher.kind === 'provider' &&
+    publisher.providerId === 'provider.meridian-recovery' &&
+    attributedActorId === 'external-operator'
+  )
+}
+
+function validCausalEffectRecord(
+  applied: unknown,
+  currentServiceDay: number,
+  competitorIds: readonly string[],
+  incidentsById: ReadonlyMap<string, Record<string, unknown>>,
+  revisionsById: ReadonlyMap<string, Record<string, unknown>>,
+  appliedEffectIds: Set<string>,
+): boolean {
+  const incident = isRecord(applied) && isNonEmptyString(applied.incidentId)
+    ? incidentsById.get(applied.incidentId)
+    : undefined
+  const revision = isRecord(applied) && isNonEmptyString(applied.revisionId)
+    ? revisionsById.get(applied.revisionId)
+    : undefined
+  const effect = isRecord(applied) && isRecord(applied.effect)
+    ? applied.effect
+    : undefined
+  const validEffect = effect?.kind === 'reputation'
+    ? hasOnlyKeys(effect, ['kind', 'targetId', 'delta']) &&
+      (effect.targetId === 'player' || oneOf(effect.targetId, competitorIds)) &&
+      isFiniteNumber(effect.delta) &&
+      effect.delta !== 0 &&
+      Math.abs(effect.delta) <= 100
+    : effect?.kind === 'market-transfer' &&
+      hasOnlyKeys(effect, ['kind', 'fromId', 'toId', 'points']) &&
+      (effect.fromId === 'player' || oneOf(effect.fromId, competitorIds)) &&
+      (effect.toId === 'player' || oneOf(effect.toId, competitorIds)) &&
+      effect.fromId !== effect.toId &&
+      isNumberInRange(effect.points, Number.MIN_VALUE, 100)
+
+  if (
+    !isRecord(applied) ||
+    !hasOnlyKeys(applied, [
+      'id',
+      'sequence',
+      'incidentId',
+      'revisionId',
+      'appliedOnServiceDay',
+      'effect',
+    ]) ||
+    !isNonEmptyString(applied.id) ||
+    appliedEffectIds.has(applied.id) ||
+    !incident ||
+    !revision ||
+    revision.incidentId !== incident.id ||
+    !validEffect ||
+    !isIntegerInRange(
+      applied.appliedOnServiceDay,
+      Number(revision.publishedOnServiceDay),
+      currentServiceDay,
+    )
+  ) {
+    return false
+  }
+
+  appliedEffectIds.add(applied.id)
+  return true
+}
+
+function validCausalStateV2(
+  value: unknown,
+  currentServiceDay: number,
+  competitorIds: readonly string[],
+): value is CausalState {
+  if (
+    !isRecord(value) ||
+    !hasOnlyKeys(value, [
+      'rulesVersion',
+      'nextIncidentSequence',
+      'nextEvidenceSequence',
+      'nextRevisionSequence',
+      'nextEffectSequence',
+      'incidents',
+      'evidence',
+      'publicRevisions',
+      'appliedEffects',
+    ]) ||
+    value.rulesVersion !== 2 ||
+    !Array.isArray(value.incidents) ||
+    !Array.isArray(value.evidence) ||
+    !Array.isArray(value.publicRevisions) ||
+    !Array.isArray(value.appliedEffects) ||
+    !hasExactCausalSequence(value.incidents, value.nextIncidentSequence) ||
+    !hasExactCausalSequence(value.evidence, value.nextEvidenceSequence) ||
+    !hasExactCausalSequence(value.publicRevisions, value.nextRevisionSequence) ||
+    !hasExactCausalSequence(value.appliedEffects, value.nextEffectSequence)
+  ) {
+    return false
+  }
+
+  const incidentsById = new Map<string, Record<string, unknown>>()
+  for (const incident of value.incidents) {
+    if (
+      !isRecord(incident) ||
+      !hasOnlyKeys(incident, [
+        'id',
+        'sequence',
+        'actionId',
+        'parentIncidentId',
+        'kind',
+        'occurredOnServiceDay',
+        'targetId',
+        'privateTruth',
+      ]) ||
+      !isNonEmptyString(incident.id) ||
+      incidentsById.has(incident.id) ||
+      !oneOf(incident.kind, CAUSAL_INCIDENT_KINDS) ||
+      !isIntegerInRange(incident.occurredOnServiceDay, 1, currentServiceDay) ||
+      !isNonEmptyString(incident.targetId) ||
+      !isRecord(incident.privateTruth) ||
+      !hasOnlyKeys(incident.privateTruth, ['actualActorId']) ||
+      !isNonEmptyString(incident.privateTruth.actualActorId) ||
+      (!oneOf(incident.actionId, NATIVE_CAUSAL_ACTION_IDS) &&
+        !oneOf(incident.actionId, LEGACY_CAUSAL_ACTION_IDS)) ||
+      (oneOf(incident.actionId, NATIVE_CAUSAL_ACTION_IDS)
+        ? !nativeIncidentShapeValid(incident)
+        : !legacyIncidentShapeValid(incident))
+    ) {
+      return false
+    }
+    incidentsById.set(incident.id, incident)
+  }
+
+  const nativeChildRelations = new Set<string>()
+  for (const incident of incidentsById.values()) {
+    if (!oneOf(incident.actionId, NATIVE_CAUSAL_ACTION_IDS)) continue
+    if (incident.parentIncidentId === null) continue
+    const parent = isNonEmptyString(incident.parentIncidentId)
+      ? incidentsById.get(incident.parentIncidentId)
+      : undefined
+    const relationKey = `${String(incident.parentIncidentId)}\u0000${String(incident.actionId)}`
+    if (
+      !parent ||
+      parent.id === incident.id ||
+      Number(parent.sequence) >= Number(incident.sequence) ||
+      Number(parent.occurredOnServiceDay) >
+        Number(incident.occurredOnServiceDay) ||
+      !nativeParentRelationValid(parent, incident) ||
+      nativeChildRelations.has(relationKey)
+    ) {
+      return false
+    }
+    nativeChildRelations.add(relationKey)
+  }
+
+  const evidenceById = new Map<string, Record<string, unknown>>()
+  for (const evidence of value.evidence) {
+    const incident = isRecord(evidence) && isNonEmptyString(evidence.incidentId)
+      ? incidentsById.get(evidence.incidentId)
+      : undefined
+    const audiences = isRecord(evidence) && Array.isArray(evidence.audiences)
+      ? evidence.audiences
+      : []
+    const audienceKeys = audiences.map((audience) =>
+      causalAudienceKey(audience, competitorIds),
+    )
+    const contract = isRecord(evidence)
+      ? nativeEvidenceContract(evidence.kind)
+      : null
+    const nativeIncident =
+      incident !== undefined &&
+      oneOf(incident.actionId, NATIVE_CAUSAL_ACTION_IDS)
+
+    if (
+      !isRecord(evidence) ||
+      !hasOnlyKeys(evidence, [
+        'id',
+        'sequence',
+        'incidentId',
+        'kind',
+        'summary',
+        'discoveredOnServiceDay',
+        'audiences',
+      ]) ||
+      !isNonEmptyString(evidence.id) ||
+      evidenceById.has(evidence.id) ||
+      !incident ||
+      !isNonEmptyString(evidence.kind) ||
+      !isNonEmptyString(evidence.summary) ||
+      !isIntegerInRange(
+        evidence.discoveredOnServiceDay,
+        Number(incident.occurredOnServiceDay),
+        currentServiceDay,
+      ) ||
+      audiences.length === 0 ||
+      audienceKeys.some((key) => key === null) ||
+      JSON.stringify(audienceKeys) !==
+        JSON.stringify([...(audienceKeys as string[])].sort()) ||
+      new Set(audienceKeys).size !== audienceKeys.length ||
+      (nativeIncident &&
+        (!contract ||
+          !oneOf(incident.actionId, contract.actionIds) ||
+          JSON.stringify(audienceKeys) !==
+            JSON.stringify(contract.audienceKeys)))
+    ) {
+      return false
+    }
+    evidenceById.set(evidence.id, evidence)
+  }
+
+  const revisionsById = new Map<string, Record<string, unknown>>()
+  for (const revision of value.publicRevisions) {
+    const incident = isRecord(revision) && isNonEmptyString(revision.incidentId)
+      ? incidentsById.get(revision.incidentId)
+      : undefined
+    const publisher = isRecord(revision) && isRecord(revision.publisher)
+      ? revision.publisher
+      : undefined
+    const evidenceIds = isRecord(revision) && Array.isArray(revision.evidenceIds)
+      ? revision.evidenceIds
+      : []
+    const citedEvidence = evidenceIds.map((id) =>
+      typeof id === 'string' ? evidenceById.get(id) : undefined,
+    )
+    const nativeIncident =
+      incident !== undefined &&
+      oneOf(incident.actionId, NATIVE_CAUSAL_ACTION_IDS)
+    const derivedConfidence = deriveAttributionConfidence(
+      citedEvidence.flatMap((evidence) =>
+        evidence && typeof evidence.kind === 'string' ? [evidence.kind] : [],
+      ),
+    )
+
+    if (
+      !isRecord(revision) ||
+      !hasOnlyKeys(revision, [
+        'id',
+        'sequence',
+        'incidentId',
+        'publisher',
+        'attributedActorId',
+        'confidence',
+        'evidenceIds',
+        'publishedOnServiceDay',
+      ]) ||
+      !isNonEmptyString(revision.id) ||
+      revisionsById.has(revision.id) ||
+      !incident ||
+      !publisher ||
+      !validCausalObserver(publisher, competitorIds) ||
+      !isNonEmptyString(revision.attributedActorId) ||
+      !hasUniqueStrings(evidenceIds, false) ||
+      JSON.stringify(evidenceIds) !==
+        JSON.stringify([...(evidenceIds as string[])].sort()) ||
+      citedEvidence.some(
+        (evidence) =>
+          !evidence ||
+          evidence.incidentId !== revision.incidentId ||
+          !causalObserverCanAccess(publisher, evidence.audiences as unknown[]),
+      ) ||
+      !isIntegerInRange(
+        revision.publishedOnServiceDay,
+        Math.max(
+          Number(incident.occurredOnServiceDay),
+          ...citedEvidence.map((evidence) =>
+            Number(evidence?.discoveredOnServiceDay),
+          ),
+        ),
+        currentServiceDay,
+      ) ||
+      (nativeIncident
+        ? derivedConfidence === null ||
+          revision.confidence !== derivedConfidence ||
+          !nativeRevisionClaimValid(
+            revision.confidence,
+            publisher,
+            revision.attributedActorId,
+          )
+        : revision.confidence !== 'unavailable-legacy')
+    ) {
+      return false
+    }
+    revisionsById.set(revision.id, revision)
+  }
+
+  const appliedEffectIds = new Set<string>()
+  return value.appliedEffects.every((applied) =>
+    validCausalEffectRecord(
+      applied,
+      currentServiceDay,
+      competitorIds,
+      incidentsById,
+      revisionsById,
+      appliedEffectIds,
+    ),
+  )
+}
+
+function migrateCausalStateV1(value: unknown): CausalState {
+  const legacy = value as {
+    nextIncidentSequence: number
+    nextEvidenceSequence: number
+    nextRevisionSequence: number
+    nextEffectSequence: number
+    incidents: Array<Record<string, unknown>>
+    evidence: CausalState['evidence']
+    publicRevisions: Array<Record<string, unknown>>
+    appliedEffects: CausalState['appliedEffects']
+  }
+  return {
+    rulesVersion: 2,
+    nextIncidentSequence: legacy.nextIncidentSequence,
+    nextEvidenceSequence: legacy.nextEvidenceSequence,
+    nextRevisionSequence: legacy.nextRevisionSequence,
+    nextEffectSequence: legacy.nextEffectSequence,
+    incidents: legacy.incidents.map((incident) => ({
+      ...incident,
+      actionId:
+        incident.kind === 'sabotage'
+          ? 'legacy.sabotage'
+          : incident.kind === 'competitor-response'
+            ? 'legacy.competitor-response'
+            : 'legacy.service-disruption',
+      parentIncidentId: null,
+    })) as CausalState['incidents'],
+    evidence: legacy.evidence.map((evidence) => ({ ...evidence })),
+    publicRevisions: legacy.publicRevisions.map((revision) => ({
+      ...revision,
+      publisher: isRecord(revision.publisher)
+        ? { ...revision.publisher }
+        : revision.publisher,
+      evidenceIds: Array.isArray(revision.evidenceIds)
+        ? [...revision.evidenceIds]
+        : revision.evidenceIds,
+      confidence: 'unavailable-legacy',
+    })) as CausalState['publicRevisions'],
+    appliedEffects: legacy.appliedEffects.map((effect) => ({ ...effect })),
+  }
 }
 
 function validMonthlyEvaluation(value: unknown): boolean {
@@ -2137,15 +2606,14 @@ function bombRelationKey(
   return JSON.stringify([blockId, category, serviceDay])
 }
 
-function validCampaignState(
+function validCampaignStateV7(
   value: unknown,
   commandProtocol: CommandProtocolMetadata,
 ): boolean {
   if (
     !isRecord(value) ||
     !hasOnlyKeys(value, [
-      'saveVersion',
-      'legacyCommandCount',
+      'commandProtocol',
       'campaignSeed',
       'serviceDay',
       'commandSequence',
@@ -2166,11 +2634,14 @@ function validCampaignState(
       'commandLog',
       'eventLog',
     ]) ||
-    value.saveVersion !== commandProtocol.version ||
-    value.legacyCommandCount !== commandProtocol.legacyCommandCount ||
+    JSON.stringify(value.commandProtocol) !==
+      JSON.stringify(commandProtocol) ||
     !isNonEmptyString(value.campaignSeed) ||
     !isIntegerInRange(value.serviceDay, 1) ||
     !isIntegerInRange(value.commandSequence, 0) ||
+    !validCommandProtocol(commandProtocol, Number(value.commandSequence), {
+      requireCurrent: true,
+    }) ||
     !isNumberInRange(value.suspicion, 0, 100) ||
     !isNumberInRange(value.reputation, 0, 100) ||
     !validResources(value.resources)
@@ -2281,7 +2752,7 @@ function validCampaignState(
   if (Math.abs(currentMarketTotal - 100) > 1e-6) return false
 
   if (
-    !validCausalState(
+    !validCausalStateV2(
       causality,
       Number(value.serviceDay),
       competitorIds,
@@ -2688,6 +3159,84 @@ function validCampaignState(
   return true
 }
 
+function validPortableCheckpointV7(
+  value: unknown,
+): value is PortableCheckpointV7 {
+  return (
+    isRecord(value) &&
+    hasOnlyKeys(value, [
+      'campaignSeed',
+      'serviceDay',
+      'commandSequence',
+      'clock',
+      'resources',
+      'suspicion',
+      'reputation',
+      'evaluation',
+      'market',
+      'reviews',
+      'causality',
+      'hacking',
+      'audit',
+      'bombs',
+      'story',
+      'activeEvent',
+      'eventQueue',
+    ])
+  )
+}
+
+function migrateLegacyRuntimeState(
+  value: unknown,
+  legacyCommandProtocol: LegacyCommandProtocolMetadata,
+  commandProtocol: CommandProtocolMetadata,
+  causality: CausalState,
+): CampaignState | null {
+  if (
+    !isRecord(value) ||
+    !hasOnlyKeys(value, [
+      'saveVersion',
+      'legacyCommandCount',
+      'campaignSeed',
+      'serviceDay',
+      'commandSequence',
+      'clock',
+      'resources',
+      'suspicion',
+      'reputation',
+      'evaluation',
+      'market',
+      'reviews',
+      'causality',
+      'hacking',
+      'audit',
+      'bombs',
+      'story',
+      'activeEvent',
+      'eventQueue',
+      'commandLog',
+      'eventLog',
+    ]) ||
+    value.saveVersion !== legacyCommandProtocol.version ||
+    value.legacyCommandCount !== legacyCommandProtocol.legacyCommandCount
+  ) {
+    return null
+  }
+
+  const runtimeFields = { ...value }
+  delete runtimeFields.saveVersion
+  delete runtimeFields.legacyCommandCount
+  delete runtimeFields.causality
+  const candidate = {
+    ...runtimeFields,
+    commandProtocol,
+    causality,
+  }
+  return validCampaignStateV7(candidate, commandProtocol)
+    ? (candidate as unknown as CampaignState)
+    : null
+}
+
 function contentHash(content: string): string {
   let hash = 0x811c9dc5
   for (let index = 0; index < content.length; index += 1) {
@@ -2695,6 +3244,18 @@ function contentHash(content: string): string {
     hash = Math.imul(hash, 0x01000193)
   }
   return (hash >>> 0).toString(16).padStart(8, '0')
+}
+
+function portableCheckpointHash(
+  version: unknown,
+  commandProtocol: unknown,
+  checkpoint: unknown,
+): string {
+  const integrityPayload =
+    version === SAVE_FORMAT_VERSION
+      ? { commandProtocol, state: checkpoint }
+      : checkpoint
+  return contentHash(JSON.stringify(integrityPayload))
 }
 
 function corrupt(message = '저장 데이터가 손상되었거나 필요한 항목이 없습니다.'): DecodeSaveResult {
@@ -2706,14 +3267,16 @@ export function encodeSave(
   savedAt = new Date().toISOString(),
 ): string {
   const serializedState = portableCheckpoint(state)
+  const commandProtocol: CommandProtocolMetadata = {
+    segments: state.commandProtocol.segments.map((segment) => ({
+      ...segment,
+    })),
+  }
   const commandChunks = journalChunks(state.commandLog).map((chunk) => [...chunk])
   const eventChunks = journalChunks(state.eventLog).map((chunk) => [...chunk])
-  const envelope: PortableSaveV6 = {
+  const envelope: PortableSaveV7 = {
     version: SAVE_FORMAT_VERSION,
-    commandProtocol: {
-      version: SAVE_VERSION,
-      legacyCommandCount: state.legacyCommandCount,
-    },
+    commandProtocol,
     savedAt,
     campaignSeed: state.campaignSeed,
     state: serializedState,
@@ -2729,7 +3292,11 @@ export function encodeSave(
       },
     },
     integrity: {
-      checkpointHash: contentHash(JSON.stringify(serializedState)),
+      checkpointHash: portableCheckpointHash(
+        SAVE_FORMAT_VERSION,
+        commandProtocol,
+        serializedState,
+      ),
       commandChunkHashes: commandChunks.map((chunk) =>
         contentHash(JSON.stringify(chunk)),
       ),
@@ -2743,16 +3310,26 @@ export function encodeSave(
 
 function portableCheckpoint(
   state: CampaignState,
-): Omit<CampaignState, 'commandLog' | 'eventLog'> {
-  const serializedState = {
-    ...state,
-    saveVersion: SAVE_VERSION,
-    commandLog: undefined,
-    eventLog: undefined,
+): PortableCheckpointV7 {
+  return {
+    campaignSeed: state.campaignSeed,
+    serviceDay: state.serviceDay,
+    commandSequence: state.commandSequence,
+    clock: state.clock,
+    resources: state.resources,
+    suspicion: state.suspicion,
+    reputation: state.reputation,
+    evaluation: state.evaluation,
+    market: state.market,
+    reviews: state.reviews,
+    causality: state.causality,
+    hacking: state.hacking,
+    audit: state.audit,
+    bombs: state.bombs,
+    story: state.story,
+    activeEvent: state.activeEvent,
+    eventQueue: state.eventQueue,
   }
-  delete serializedState.commandLog
-  delete serializedState.eventLog
-  return serializedState
 }
 
 function validPortableJournal(value: unknown): value is PortableJournal<unknown> {
@@ -2784,32 +3361,158 @@ function validSavedAt(value: unknown): value is string {
   return Number.isFinite(timestamp) && new Date(timestamp).toISOString() === value
 }
 
-export function decodeSave(serialized: string): DecodeSaveResult {
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(serialized)
-  } catch {
-    return corrupt()
+interface PortableDecodedV7 {
+  version: 7
+  commandProtocol: CommandProtocolMetadata
+  savedAt: string
+  campaignSeed: string
+  commandSequence: number
+  state: CampaignState
+  commands: CommandLogEntry[]
+  events: GameEvent[]
+}
+
+interface LegacyDecodedSave {
+  version: 1 | 2 | 3 | 4 | 5 | 6
+  commandProtocol: CommandProtocolMetadata
+  savedAt: string
+  campaignSeed: string
+  commandSequence: number
+  state: CampaignState
+  commands: CommandLogEntry[]
+  events: GameEvent[]
+}
+
+function validPortableIntegrity(value: Record<string, unknown>): boolean {
+  if (
+    !isRecord(value.journals) ||
+    !hasOnlyKeys(value.journals, ['commands', 'events']) ||
+    !validPortableJournal(value.journals.commands) ||
+    !validPortableJournal(value.journals.events) ||
+    !isRecord(value.state) ||
+    !isRecord(value.integrity) ||
+    !hasOnlyKeys(value.integrity, [
+      'checkpointHash',
+      'commandChunkHashes',
+      'eventChunkHashes',
+    ]) ||
+    !isNonEmptyString(value.integrity.checkpointHash) ||
+    !Array.isArray(value.integrity.commandChunkHashes) ||
+    !value.integrity.commandChunkHashes.every(isNonEmptyString) ||
+    !Array.isArray(value.integrity.eventChunkHashes) ||
+    !value.integrity.eventChunkHashes.every(isNonEmptyString) ||
+    value.integrity.checkpointHash !==
+      portableCheckpointHash(
+        value.version,
+        value.commandProtocol,
+        value.state,
+      ) ||
+    JSON.stringify(value.integrity.commandChunkHashes) !==
+      JSON.stringify(
+        value.journals.commands.chunks.map((chunk) =>
+          contentHash(JSON.stringify(chunk)),
+        ),
+      ) ||
+    JSON.stringify(value.integrity.eventChunkHashes) !==
+      JSON.stringify(
+        value.journals.events.chunks.map((chunk) =>
+          contentHash(JSON.stringify(chunk)),
+        ),
+      )
+  ) {
+    return false
   }
-  if (!isRecord(parsed)) return corrupt()
-  if (!Number.isInteger(parsed.version)) return corrupt()
-  if (![LEGACY_SAVE_VERSION, SAVE_VERSION, 3, 4, 5, SAVE_FORMAT_VERSION].includes(Number(parsed.version) as 1 | 2 | 3 | 4 | 5 | 6)) {
-    return {
-      ok: false,
-      reason: 'INCOMPATIBLE_VERSION',
-      message: `저장 버전 ${String(parsed.version)}은 현재 버전 ${SAVE_FORMAT_VERSION}과 호환되지 않습니다.`,
-      foundVersion: parsed.version as number,
-      supportedVersion: SAVE_FORMAT_VERSION,
-    }
+  return true
+}
+
+function decodePortableSaveV7(value: unknown): PortableDecodedV7 | null {
+  if (
+    !isRecord(value) ||
+    value.version !== SAVE_FORMAT_VERSION ||
+    !hasOnlyKeys(value, [
+      'version',
+      'commandProtocol',
+      'savedAt',
+      'campaignSeed',
+      'state',
+      'commandSequence',
+      'journals',
+      'integrity',
+    ]) ||
+    !validPortableIntegrity(value) ||
+    !validPortableCheckpointV7(value.state) ||
+    !validSavedAt(value.savedAt) ||
+    !isNonEmptyString(value.campaignSeed) ||
+    !isIntegerInRange(value.commandSequence, 0)
+  ) {
+    return null
   }
-  const formatVersion = parsed.version as 1 | 2 | 3 | 4 | 5 | 6
-  let commandProtocol: CommandProtocolMetadata
+
+  const journals = value.journals as {
+    commands: PortableJournal<unknown>
+    events: PortableJournal<unknown>
+  }
+  const commands = flattenPortableJournal(journals.commands)
+  const events = flattenPortableJournal(journals.events)
+  if (
+    !validCommandProtocol(value.commandProtocol, commands.length, {
+      requireCurrent: true,
+    }) ||
+    value.commandSequence !== commands.length
+  ) {
+    return null
+  }
+  const commandProtocol = value.commandProtocol
+  const candidate = {
+    ...value.state,
+    commandProtocol,
+    commandLog: commands,
+    eventLog: events,
+  }
+  if (
+    !validCampaignStateV7(candidate, commandProtocol) ||
+    candidate.campaignSeed !== value.campaignSeed ||
+    candidate.commandSequence !== value.commandSequence
+  ) {
+    return null
+  }
+
+  return {
+    version: 7,
+    commandProtocol,
+    savedAt: value.savedAt,
+    campaignSeed: value.campaignSeed,
+    commandSequence: value.commandSequence,
+    state: candidate as unknown as CampaignState,
+    commands: commands as CommandLogEntry[],
+    events: events as GameEvent[],
+  }
+}
+
+function decodeLegacyPortableSave(value: unknown): LegacyDecodedSave | null {
+  if (
+    !isRecord(value) ||
+    !isIntegerInRange(
+      value.version,
+      MINIMUM_SAVE_FORMAT_VERSION,
+      LAST_LEGACY_SAVE_FORMAT_VERSION,
+    ) ||
+    !validSavedAt(value.savedAt) ||
+    !isNonEmptyString(value.campaignSeed) ||
+    !isIntegerInRange(value.commandSequence, 0)
+  ) {
+    return null
+  }
+
+  const formatVersion = value.version as 1 | 2 | 3 | 4 | 5 | 6
+  let legacyCommandProtocol: LegacyCommandProtocolMetadata
   let rawState: unknown
   let commands: unknown
   let events: unknown
+
   if (formatVersion >= 3) {
     if (
-      !hasOnlyKeys(parsed, [
+      !hasOnlyKeys(value, [
         'version',
         'commandProtocol',
         'savedAt',
@@ -2819,53 +3522,32 @@ export function decodeSave(serialized: string): DecodeSaveResult {
         'journals',
         'integrity',
       ]) ||
-      !isRecord(parsed.commandProtocol) ||
-      !hasOnlyKeys(parsed.commandProtocol, ['version', 'legacyCommandCount']) ||
-      (parsed.commandProtocol.version !== LEGACY_SAVE_VERSION &&
-        parsed.commandProtocol.version !== SAVE_VERSION) ||
-      !Number.isInteger(parsed.commandProtocol.legacyCommandCount) ||
-      !isRecord(parsed.journals) ||
-      !hasOnlyKeys(parsed.journals, ['commands', 'events']) ||
-      !validPortableJournal(parsed.journals.commands) ||
-      !validPortableJournal(parsed.journals.events) ||
-      !isRecord(parsed.state) ||
-      !isRecord(parsed.integrity) ||
-      !hasOnlyKeys(parsed.integrity, [
-        'checkpointHash',
-        'commandChunkHashes',
-        'eventChunkHashes',
-      ]) ||
-      !isNonEmptyString(parsed.integrity.checkpointHash) ||
-      !Array.isArray(parsed.integrity.commandChunkHashes) ||
-      !parsed.integrity.commandChunkHashes.every(isNonEmptyString) ||
-      !Array.isArray(parsed.integrity.eventChunkHashes) ||
-      !parsed.integrity.eventChunkHashes.every(isNonEmptyString) ||
-      parsed.integrity.checkpointHash !==
-        contentHash(JSON.stringify(parsed.state)) ||
-      JSON.stringify(parsed.integrity.commandChunkHashes) !==
-        JSON.stringify(
-          parsed.journals.commands.chunks.map((chunk) =>
-            contentHash(JSON.stringify(chunk)),
-          ),
-        ) ||
-      JSON.stringify(parsed.integrity.eventChunkHashes) !==
-        JSON.stringify(
-          parsed.journals.events.chunks.map((chunk) =>
-            contentHash(JSON.stringify(chunk)),
-          ),
-        ) ||
-      'commandLog' in parsed.state ||
-      'eventLog' in parsed.state
+      !isRecord(value.commandProtocol) ||
+      !hasOnlyKeys(value.commandProtocol, ['version', 'legacyCommandCount']) ||
+      (value.commandProtocol.version !== LEGACY_COMMAND_PROTOCOL_VERSION &&
+        value.commandProtocol.version !== PREVIOUS_COMMAND_PROTOCOL_VERSION) ||
+      !Number.isInteger(value.commandProtocol.legacyCommandCount) ||
+      !validPortableIntegrity(value) ||
+      !isRecord(value.state) ||
+      'commandLog' in value.state ||
+      'eventLog' in value.state
     ) {
-      return corrupt()
+      return null
     }
-    commandProtocol = parsed.commandProtocol as unknown as CommandProtocolMetadata
-    commands = flattenPortableJournal(parsed.journals.commands)
-    events = flattenPortableJournal(parsed.journals.events)
-    rawState = { ...parsed.state, commandLog: commands, eventLog: events }
-  } else if (formatVersion === LEGACY_SAVE_VERSION) {
+    const journals = value.journals as {
+      commands: PortableJournal<unknown>
+      events: PortableJournal<unknown>
+    }
+    commands = flattenPortableJournal(journals.commands)
+    events = flattenPortableJournal(journals.events)
+    rawState = { ...value.state, commandLog: commands, eventLog: events }
+    legacyCommandProtocol = {
+      version: value.commandProtocol.version,
+      legacyCommandCount: Number(value.commandProtocol.legacyCommandCount),
+    }
+  } else if (formatVersion === LEGACY_COMMAND_PROTOCOL_VERSION) {
     if (
-      !hasOnlyKeys(parsed, [
+      !hasOnlyKeys(value, [
         'version',
         'savedAt',
         'campaignSeed',
@@ -2874,20 +3556,20 @@ export function decodeSave(serialized: string): DecodeSaveResult {
         'commands',
         'events',
       ]) ||
-      !Array.isArray(parsed.commands)
+      !Array.isArray(value.commands)
     ) {
-      return corrupt()
+      return null
     }
-    commandProtocol = {
-      version: LEGACY_SAVE_VERSION,
-      legacyCommandCount: parsed.commands.length,
+    commands = value.commands
+    events = value.events
+    rawState = value.state
+    legacyCommandProtocol = {
+      version: LEGACY_COMMAND_PROTOCOL_VERSION,
+      legacyCommandCount: value.commands.length,
     }
-    rawState = parsed.state
-    commands = parsed.commands
-    events = parsed.events
   } else {
     if (
-      !hasOnlyKeys(parsed, [
+      !hasOnlyKeys(value, [
         'version',
         'commandProtocol',
         'savedAt',
@@ -2897,59 +3579,142 @@ export function decodeSave(serialized: string): DecodeSaveResult {
         'commands',
         'events',
       ]) ||
-      !isRecord(parsed.commandProtocol) ||
-      !hasOnlyKeys(parsed.commandProtocol, ['version', 'legacyCommandCount']) ||
-      parsed.commandProtocol.version !== SAVE_VERSION ||
-      !Number.isInteger(parsed.commandProtocol.legacyCommandCount)
+      !isRecord(value.commandProtocol) ||
+      !hasOnlyKeys(value.commandProtocol, ['version', 'legacyCommandCount']) ||
+      value.commandProtocol.version !== PREVIOUS_COMMAND_PROTOCOL_VERSION ||
+      !Number.isInteger(value.commandProtocol.legacyCommandCount)
     ) {
-      return corrupt()
+      return null
     }
-    commandProtocol = parsed.commandProtocol as unknown as CommandProtocolMetadata
-    rawState = parsed.state
-    commands = parsed.commands
-    events = parsed.events
-  }
-  if (formatVersion < 5 && !hasExactLegacyReviewShape(rawState)) {
-    return corrupt()
-  }
-  if (
-    formatVersion < SAVE_FORMAT_VERSION &&
-    isRecord(rawState) &&
-    Object.prototype.hasOwnProperty.call(rawState, 'causality')
-  ) {
-    return corrupt()
-  }
-  const featureMigratedState = formatVersion < 5
-    ? migrateLegacyCampaignState(rawState, commandProtocol)
-    : rawState
-  const state =
-    formatVersion < SAVE_FORMAT_VERSION && isRecord(featureMigratedState)
-      ? { ...featureMigratedState, causality: createEmptyCausalState() }
-      : featureMigratedState
-  if (
-    !validSavedAt(parsed.savedAt) ||
-    typeof parsed.campaignSeed !== 'string' ||
-    !Number.isInteger(parsed.commandSequence) ||
-    !validCommandLog(commands, commandProtocol) ||
-    !Array.isArray(events) ||
-    !events.every(validEvent) ||
-    !isRecord(rawState) ||
-    !Array.isArray(rawState.eventLog) ||
-    JSON.stringify(events) !== JSON.stringify(rawState.eventLog) ||
-    !validCampaignState(state, commandProtocol)
-  ) {
-    return corrupt()
+    commands = value.commands
+    events = value.events
+    rawState = value.state
+    legacyCommandProtocol = {
+      version: PREVIOUS_COMMAND_PROTOCOL_VERSION,
+      legacyCommandCount: Number(value.commandProtocol.legacyCommandCount),
+    }
   }
 
   if (
-    !isRecord(state) ||
-    parsed.campaignSeed !== state.campaignSeed ||
-    parsed.commandSequence !== state.commandSequence ||
+    !Array.isArray(commands) ||
+    !Array.isArray(events) ||
+    value.commandSequence !== commands.length ||
+    (formatVersion < 5 && !hasExactLegacyReviewShape(rawState)) ||
+    (formatVersion < 6 &&
+      isRecord(rawState) &&
+      Object.hasOwn(rawState, 'causality'))
+  ) {
+    return null
+  }
+
+  const commandProtocol = migrateLegacyCommandProtocol(
+    legacyCommandProtocol,
+    commands.length,
+  )
+  if (
+    !commandProtocol ||
+    !validCommandLog(commands, commandProtocol) ||
+    !events.every(validEvent) ||
+    !isRecord(rawState) ||
+    !Array.isArray(rawState.eventLog) ||
+    JSON.stringify(events) !== JSON.stringify(rawState.eventLog)
+  ) {
+    return null
+  }
+
+  const featureMigratedState =
+    formatVersion < 5
+      ? migrateLegacyCampaignState(rawState, legacyCommandProtocol)
+      : rawState
+  if (!isRecord(featureMigratedState)) return null
+
+  let causality: CausalState
+  if (formatVersion === 6) {
+    const market = featureMigratedState.market
+    const competitors = isRecord(market) && Array.isArray(market.competitors)
+      ? market.competitors
+      : []
+    const competitorIds = competitors.flatMap((competitor) =>
+      isRecord(competitor) && isNonEmptyString(competitor.id)
+        ? [competitor.id]
+        : [],
+    )
+    if (
+      !isIntegerInRange(featureMigratedState.serviceDay, 1) ||
+      competitorIds.length !== COMPETITOR_IDS.length ||
+      !validLegacyCausalStateV1(
+        featureMigratedState.causality,
+        Number(featureMigratedState.serviceDay),
+        competitorIds,
+      )
+    ) {
+      return null
+    }
+    causality = migrateCausalStateV1(featureMigratedState.causality)
+  } else {
+    causality = createEmptyCausalState()
+  }
+
+  const legacyStateWithCausality = {
+    ...featureMigratedState,
+    causality:
+      formatVersion === 6 ? featureMigratedState.causality : causality,
+  }
+  const state = migrateLegacyRuntimeState(
+    legacyStateWithCausality,
+    legacyCommandProtocol,
+    commandProtocol,
+    causality,
+  )
+  if (
+    !state ||
+    value.campaignSeed !== state.campaignSeed ||
+    value.commandSequence !== state.commandSequence ||
     JSON.stringify(commands) !== JSON.stringify(state.commandLog)
   ) {
-    return corrupt('저장 데이터의 기록과 현재 상태가 서로 일치하지 않습니다.')
+    return null
   }
-  const plainState = state as unknown as Record<string, unknown>
+
+  return {
+    version: formatVersion,
+    commandProtocol,
+    savedAt: value.savedAt,
+    campaignSeed: value.campaignSeed,
+    commandSequence: value.commandSequence,
+    state,
+    commands: commands as CommandLogEntry[],
+    events: events as GameEvent[],
+  }
+}
+
+export function decodeSave(serialized: string): DecodeSaveResult {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(serialized)
+  } catch {
+    return corrupt()
+  }
+  if (!isRecord(parsed)) return corrupt()
+  if (!Number.isInteger(parsed.version)) return corrupt()
+  if (
+    Number(parsed.version) < MINIMUM_SAVE_FORMAT_VERSION ||
+    Number(parsed.version) > SAVE_FORMAT_VERSION
+  ) {
+    return {
+      ok: false,
+      reason: 'INCOMPATIBLE_VERSION',
+      message: `저장 버전 ${String(parsed.version)}은 현재 버전 ${SAVE_FORMAT_VERSION}과 호환되지 않습니다.`,
+      foundVersion: parsed.version as number,
+      supportedVersion: SAVE_FORMAT_VERSION,
+    }
+  }
+  const decoded =
+    parsed.version === SAVE_FORMAT_VERSION
+      ? decodePortableSaveV7(parsed)
+      : decodeLegacyPortableSave(parsed)
+  if (!decoded) return corrupt()
+
+  const plainState = decoded.state as unknown as Record<string, unknown>
   const runtimeState = {
     ...plainState,
     commandLog: createJournal(plainState.commandLog as CommandLogEntry[]),
@@ -2958,11 +3723,11 @@ export function decodeSave(serialized: string): DecodeSaveResult {
   return {
     ok: true,
     envelope: {
-      version: formatVersion,
-      savedAt: parsed.savedAt as string,
-      campaignSeed: parsed.campaignSeed as string,
-      commandSequence: parsed.commandSequence as number,
-      commandProtocol,
+      version: decoded.version,
+      savedAt: decoded.savedAt,
+      campaignSeed: decoded.campaignSeed,
+      commandSequence: decoded.commandSequence,
+      commandProtocol: decoded.commandProtocol,
       state: runtimeState,
       commands: journalToArray(runtimeState.commandLog),
       events: journalToArray(runtimeState.eventLog),
@@ -2979,6 +3744,7 @@ export const persistenceCodecInternals = {
   isNonEmptyString,
   isRecord,
   portableCheckpoint,
+  portableCheckpointHash,
 }
 
 export function exportSeed(state: CampaignState): string {
@@ -2990,41 +3756,67 @@ export function replayCommands(
   commands: readonly GameCommand[],
   commandProtocol: CommandProtocolMetadata,
 ): ReplayResult {
+  const invalidProtocolBoundary = (
+    state: CampaignState,
+    commandIndex: number,
+  ): ReplayResult => ({
+    ok: false,
+    state,
+    commandIndex,
+    reason: 'INVALID_PROTOCOL_BOUNDARY',
+  })
+  const fallback = createCampaign(seed)
+
   if (
-    !Number.isInteger(commandProtocol.legacyCommandCount) ||
-    commandProtocol.legacyCommandCount < 0 ||
-    commandProtocol.legacyCommandCount > commands.length ||
-    (commandProtocol.version === LEGACY_SAVE_VERSION &&
-      commandProtocol.legacyCommandCount !== commands.length)
+    !validCommandProtocol(commandProtocol, commands.length, {
+      requireCurrent: true,
+    })
   ) {
-    return {
-      ok: false,
-      state: createCampaign(seed),
-      commandIndex: 0,
-      reason: 'INVALID_PROTOCOL_BOUNDARY',
+    return invalidProtocolBoundary(fallback, 0)
+  }
+
+  const segments = commandProtocol.segments
+  const firstSegment = segments[0]
+  let state = createCampaignForProtocol(seed, firstSegment.version)
+  let segmentIndex = 0
+
+  if (firstSegment.version === LEGACY_COMMAND_PROTOCOL_VERSION) {
+    state = {
+      ...state,
+      eventLog: createJournal(
+        journalToArray(state.eventLog).map((event, index) =>
+          index === 0
+            ? { ...event, message: LEGACY_V1_OPENING_MESSAGE }
+            : event,
+        ),
+      ),
     }
+    state = withLegacyReviewFallbacks(state)
   }
-  const created = createCampaign(seed)
-  const hasLegacyPrefix =
-    commandProtocol.version === LEGACY_SAVE_VERSION ||
-    commandProtocol.legacyCommandCount > 0
-  let state: CampaignState = {
-    ...created,
-    saveVersion: commandProtocol.version,
-    legacyCommandCount: commandProtocol.legacyCommandCount,
-    eventLog: hasLegacyPrefix
-      ? createJournal(journalToArray(created.eventLog).map((event, index) =>
-          index === 0 ? { ...event, message: LEGACY_V1_OPENING_MESSAGE } : event,
-        ))
-      : created.eventLog,
+
+  const activateSegment = (
+    current: CampaignState,
+    segment: CommandProtocolSegment,
+  ): CampaignState | null => {
+    const activated = appendCommandProtocolSegment(
+      current.commandProtocol,
+      segment,
+      current.commandSequence + 1,
+    )
+    return activated ? { ...current, commandProtocol: activated } : null
   }
-  if (hasLegacyPrefix) state = withLegacyReviewFallbacks(state)
+
   for (let commandIndex = 0; commandIndex < commands.length; commandIndex += 1) {
+    const sequence = commandIndex + 1
+    while (segments[segmentIndex + 1]?.startsAtSequence === sequence) {
+      segmentIndex += 1
+      const activated = activateSegment(state, segments[segmentIndex])
+      if (!activated) return invalidProtocolBoundary(state, commandIndex)
+      state = activated
+    }
+
+    const protocolVersion = segments[segmentIndex].version
     const command = commands[commandIndex]
-    const protocolVersion =
-      commandIndex < commandProtocol.legacyCommandCount
-        ? LEGACY_SAVE_VERSION
-        : commandProtocol.version
     if (!validCommand(command, protocolVersion)) {
       return {
         ok: false,
@@ -3033,14 +3825,36 @@ export function replayCommands(
         reason: 'INVALID_COMMAND',
       }
     }
+
     const result = applyCommand(state, command, { protocolVersion })
     if (!result.accepted) {
-      return { ok: false, state: result.state, commandIndex, reason: result.reason }
+      return {
+        ok: false,
+        state: result.state,
+        commandIndex,
+        reason: result.reason,
+      }
     }
     state =
-      commandIndex < commandProtocol.legacyCommandCount
+      protocolVersion === LEGACY_COMMAND_PROTOCOL_VERSION
         ? withLegacyReviewFallbacks(result.state)
         : result.state
   }
+
+  const finalSegment = segments[segments.length - 1]
+  if (
+    segmentIndex < segments.length - 1 &&
+    finalSegment.startsAtSequence === commands.length + 1
+  ) {
+    const activated = activateSegment(state, finalSegment)
+    if (!activated) return invalidProtocolBoundary(state, commands.length)
+    state = activated
+    segmentIndex = segments.length - 1
+  }
+
+  if (segmentIndex !== segments.length - 1) {
+    return invalidProtocolBoundary(state, commands.length)
+  }
+
   return { ok: true, state }
 }
