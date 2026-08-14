@@ -27,10 +27,11 @@ pnpm verify
 
 ## 코드 책임 경계
 
-- `src/game/persistence.ts` — 저장 포맷 인코딩·검증·마이그레이션·명령 리플레이와 공유 프로토콜 타입
+- `src/game/persistence.ts` — 저장 포맷 v1~v7 인코딩·정확 검증·마이그레이션과 구간별 명령 리플레이
+- `src/game/commandProtocol.ts` — 명령 프로토콜 v1·v2·v3 타임라인, 구간 검증·활성화·지문과 과거 경계 이관
 - `src/game/campaignStorage.ts` — 브라우저 로컬 저장, Web Locks, 탭 충돌, 증분 저널 캐시
-- `src/game/causality.ts` — 증거 접근, 비공개 진실/공개 귀속 분리, append-only 수정, 평판·시장 효과 멱등성
-- `src/game/progressTransfer.ts` — 클립보드용 `PZ6` 전송과 `.pz6` 파일 입출력 한계; `PZ2`~`PZ5` 가져오기 호환
+- `src/game/causality.ts` — 인과 규칙 v2의 사건 관계, 증거 접근, 비공개 진실/공개 귀속 분리, append-only 수정과 효과 멱등성
+- `src/game/progressTransfer.ts` — 현재 `PZ7`·`.pz7` 출력과 `PZ2`~`PZ6`·`.pz2`~`.pz6` 가져오기 호환 및 전송 한계
 - `src/styles/global.css` — 셸과 기본 작업 화면만 담당하는 공통 스타일
 - `src/styles/connected-details.css`, `hacking.css`, `statistics.css`, `settings.css`, `overlays.css` — 상세 화면별 스타일
 
