@@ -1,0 +1,74 @@
+# Review package: 7ef5cbf..92e655f
+
+## Commits
+92e655f test: cover reusable workflow action pins
+
+## Files changed
+ src/deployWorkflow.test.ts | 17 +++++++++++++----
+ 1 file changed, 13 insertions(+), 4 deletions(-)
+
+## Diff
+diff --git a/src/deployWorkflow.test.ts b/src/deployWorkflow.test.ts
+index 2118665..d455da8 100644
+--- a/src/deployWorkflow.test.ts
++++ b/src/deployWorkflow.test.ts
+@@ -27,25 +27,29 @@ function jobAt(document: Record<string, unknown>, name: string): Record<string,
+   }
+   return jobs[name]
+ }
+ 
+ function allUses(source: string): unknown[] {
+   const jobs = parsedWorkflow(source).jobs
+   if (!isRecord(jobs)) throw new Error('workflow jobs mapping 누락')
+ 
+   return Object.values(jobs).flatMap((job) => {
+     if (!isRecord(job)) throw new Error('workflow job 형식 오류')
+-    if (job.steps === undefined) return []
++    const jobUses = Object.hasOwn(job, 'uses') ? [job.uses] : []
++    if (job.steps === undefined) return jobUses
+     if (!Array.isArray(job.steps)) throw new Error('workflow steps 형식 오류')
+-    return job.steps.flatMap((step) =>
+-      isRecord(step) && Object.hasOwn(step, 'uses') ? [step.uses] : [],
+-    )
++    return [
++      ...jobUses,
++      ...job.steps.flatMap((step) =>
++        isRecord(step) && Object.hasOwn(step, 'uses') ? [step.uses] : [],
++      ),
++    ]
+   })
+ }
+ 
+ const APPROVED_ACTIONS = [
+   {
+     action: 'actions/checkout',
+     sha: 'd23441a48e516b6c34aea4fa41551a30e30af803',
+     tag: 'v6',
+   },
+   {
+@@ -125,20 +129,25 @@ describe('Pages deployment workflow security boundary', () => {
+     ['short release tag', 'actions/checkout@v6'],
+   ])('rejects an extra %s uses entry before pin validation', (_, uses) => {
+     expect(() => expectOnlyApprovedActions(withExtraBuildStep(workflow, uses))).toThrow()
+   })
+ 
+   it('rejects an extra uses entry in another job', () => {
+     const mutated = `${workflow}\n  injected-job:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: attacker/action@main\n`
+     expect(() => expectOnlyApprovedActions(mutated)).toThrow()
+   })
+ 
++  it('rejects an unapproved reusable workflow called directly by a job', () => {
++    const mutated = `${workflow}\n  injected-reusable-workflow:\n    uses: attacker/repo/.github/workflows/payload.yml@main\n`
++    expect(() => expectOnlyApprovedActions(mutated)).toThrow()
++  })
++
+   it.each([
+     [
+       'repository',
+       'actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6',
+       'attacker/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6',
+     ],
+     [
+       'SHA',
+       'actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6',
+       'actions/checkout@023441a48e516b6c34aea4fa41551a30e30af803 # v6',

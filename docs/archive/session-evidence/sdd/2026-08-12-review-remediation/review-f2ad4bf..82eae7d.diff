@@ -1,0 +1,2015 @@
+# Review package: f2ad4bf..82eae7d
+
+## Commits
+82eae7d feat: make audit disguise playable
+
+## Files changed
+ .../2026-08-12-review-remediation/task-2-report.md | 222 ++++++++++++++
+ e2e/game.spec.ts                                   |  69 +++++
+ src/features/events/EventLayer.test.tsx            |  15 +
+ src/features/events/EventLayer.tsx                 |   7 +-
+ src/features/resources/ResourceBlock.tsx           |  14 +-
+ src/features/resources/ResourceBoard.test.tsx      | 128 +++++++-
+ src/features/resources/ResourceBoard.tsx           | 332 ++++++++++++++++++---
+ src/game/reducer.test.ts                           | 139 +++++++++
+ src/game/reducer.ts                                |  13 +
+ src/game/resources.test.ts                         |  58 ++++
+ src/game/resources.ts                              |  81 ++++-
+ src/styles/global.css                              |  72 +++++
+ 12 files changed, 1084 insertions(+), 66 deletions(-)
+
+## Diff
+diff --git a/.superpowers/sdd/2026-08-12-review-remediation/task-2-report.md b/.superpowers/sdd/2026-08-12-review-remediation/task-2-report.md
+new file mode 100644
+index 0000000..6a7ff33
+--- /dev/null
++++ b/.superpowers/sdd/2026-08-12-review-remediation/task-2-report.md
+@@ -0,0 +1,222 @@
++# Task 2 Report: Playable Audit Disguise and Recovery
++
++## Status
++
++DONE
++
++## Scope and outcome
++
++The existing audit-disguise resource mutation is now reachable through the player-facing company grids without weakening command validation, deterministic state, blocking-event pause semantics, the fixed 3 × 6 company grid structure, or hidden-bomb secrecy.
++
++During an active audit, the event surface becomes a compact anchored workspace instead of a full-screen submit-only modal. All three company grids remain visible. The player selects a normal block from a non-target category, sees the exact source loss and target half-contribution, then chooses an empty cell in the audited category by click or keyboard. The event remains paused until the player explicitly submits it. After submission, the same patterned block remains in the audited category and exposes a separate, visible return-to-origin action. Once returned, it stays patterned and locked for the configured 30-day recovery period.
++
++## Files changed
++
++- `src/game/resources.ts`
++  - Added `AuditDisguisePreview` and `previewAuditDisguise`.
++  - The preview reports exact public performance effects (`1.0`/`0.5`, or `1.1`/`0.55` with compressed representation) and omits bomb identity.
++  - Reused preview validation inside `moveDisguiseBlock` so preview and mutation cannot disagree.
++  - Added `BLOCK_RECOVERING` and prevents a returned disguise from moving again during its one-month recovery window.
++- `src/game/reducer.ts`
++  - Allows `MOVE_BLOCK_FOR_AUDIT` through the blocking-event gate only when the active event is an audit.
++  - Rejects non-audit use, wrong audit categories, pending bomb interrogation state, occupied cells, and all existing resource validation failures without logging or mutating state.
++  - Keeps accepted audit movement inside the append-only typed command log.
++- `src/features/resources/ResourceBoard.tsx`
++  - Added explicit interaction modes for ordinary diversion, active-audit disguise, and post-audit recovery repositioning.
++  - Keeps all company grids usable during audit while disabling ineligible source blocks.
++  - Adds audited-category and recovery destination buttons directly inside empty company cells.
++  - Adds exact audit and reposition previews, keyboard focus transfer, Enter confirmation, Escape cancellation, and click confirmation.
++  - Keeps reserve diversion and its existing pointer threshold behavior unchanged.
++- `src/features/resources/ResourceBlock.tsx`
++  - Adds visible/non-color patterned-state text (`위장 기여 0.5` or `0.55`).
++  - Adds visible recovery countdown text and an accessible `복구 중, N일 남음` label.
++- `src/features/events/EventLayer.tsx`
++  - Marks the active audit dialog as non-modal (`aria-modal="false"`) and adds an audit-specific anchored layer class.
++  - Keeps other blocking event types modal and unchanged.
++- `src/styles/global.css`
++  - Adds a text-labelled audit-target treatment, patterned company destinations, and a compact pointer-transparent audit layer that leaves the grids meaningfully operable.
++  - Retains the pre-existing repeating-pattern disguised block treatment; no state depends on color alone.
++- `src/game/reducer.test.ts`
++  - Covers valid active-audit movement and command logging, pause preservation, non-audit rejection, wrong-target rejection, occupied-cell rejection, and pending-interrogation rejection without secret-ID leakage in the reason.
++- `src/game/resources.test.ts`
++  - Covers exact public preview values despite a hidden bomb and recovery-window movement lock.
++- `src/features/resources/ResourceBoard.test.tsx`
++  - Covers the complete click journey, 3 × 6 company-grid availability, preview, patterned state, audit submit, speed restoration, keyboard Enter/Escape flow, wrong-category destination omission, and later recovery repositioning.
++- `src/features/events/EventLayer.test.tsx`
++  - Covers the audit-specific non-modal anchored surface and live submit action.
++- `e2e/game.spec.ts`
++  - Adds a Chromium journey that loads a valid persisted audit state through the public save envelope, disguises a memory block into reasoning, submits the audit, verifies speed restoration, returns the same patterned block, and observes the 30-day lock.
++- `.superpowers/sdd/2026-08-12-review-remediation/task-2-report.md`
++  - This report.
++
++## Design decisions
++
++### Typed command boundary
++
++The global blocking-event gate has one narrow exception: `MOVE_BLOCK_FOR_AUDIT` while `activeEvent.type === 'audit'`. The command handler then independently verifies:
++
++1. an active audit and non-null audit target exist;
++2. no bomb interrogation is already pending;
++3. the command target exactly matches the active audit target;
++4. resource-level source, destination, occupancy, and contribution invariants pass.
++
++Rejected commands return the original state object and do not increment `commandSequence` or append to `commandLog`. Accepted movement remains a normal typed command, preserving deterministic replay.
++
++### Anchored audit workspace
++
++The audit event remains a blocking event for calendar and speed semantics, but it is no longer an interaction-blocking visual blanket. Its layer is pointer-transparent outside the compact event card, which is anchored at the lower edge. The company resource board derives an `audit` interaction mode from game state and enables only normal blocks outside the audited category plus empty cells inside the audited category. This keeps the command boundary authoritative while making the underlying grids the actual audit workspace.
++
++### Preview and secrecy
++
++`previewAuditDisguise` returns only the selected public block ID, source/target categories, before/after performance, and the public disguised contribution. It does not return `hiddenBomb`, placements, interrogation data, or any danger marker. A hidden block therefore renders and previews exactly like any other eligible normal source block until the existing separation protocol reacts to the command.
++
++### Recovery path
++
++After audit submission, a disguised block with no recovery deadline becomes selectable during normal play even if the reserve is full. The UI exposes empty cells only in its `disguisedFrom` category, previews both category effects, and dispatches `REPOSITION_BLOCK`. Returning to origin sets `recoverOnServiceDay = serviceDay + 30`; the engine then rejects additional reposition attempts with `BLOCK_RECOVERING`, and the UI shows a disabled patterned block with the remaining days. Existing daily restoration still converts it to normal contribution on the deadline.
++
++### Grid and accessibility behavior
++
++The company arrays and rendering remain exactly three categories × eighteen cells, styled as 3 columns × 6 rows. Empty audit/recovery cells become real buttons with action-specific names. Keyboard selection transfers focus to the first eligible destination; Enter confirms and Escape cancels. Pattern, half glyph, explicit contribution text, target text, and recovery text prevent color-only communication.
++
++## TDD evidence
++
++### Engine red
++
++Command:
++
++`pnpm test:run src/game/reducer.test.ts src/game/resources.test.ts`
++
++Observed red outcome:
++
++- Exit 1.
++- 2 test files failed.
++- 7 tests failed and 20 passed.
++- Expected failures showed:
++  - valid audit movement received `BLOCKING_EVENT_ACTIVE`;
++  - wrong and occupied targets received the generic blocking reason;
++  - `previewAuditDisguise` did not exist;
++  - a recovering block could still be repositioned.
++
++Two seed-dependent fixture assumptions were then corrected before production work: source blocks now use `find(Boolean)`, and empty/occupied destination cells are discovered from the fixture grid. This ensured the red failures represented missing behavior rather than test setup errors.
++
++### Engine green
++
++Command:
++
++`pnpm test:run src/game/reducer.test.ts src/game/resources.test.ts`
++
++Observed green outcome:
++
++- Exit 0.
++- 2 test files passed.
++- 27 tests passed.
++
++### Component red
++
++Command:
++
++`pnpm test:run src/features/resources/ResourceBoard.test.tsx src/features/events/EventLayer.test.tsx`
++
++Observed red outcome:
++
++- Exit 1.
++- 2 test files failed.
++- 5 tests failed and 12 passed.
++- Expected failures showed:
++  - audit dialogs still had `aria-modal="true"`;
++  - no audited-company-cell destinations existed;
++  - all company blocks were disabled during an audit;
++  - disguised blocks were disabled with no recovery action.
++
++### Component green
++
++Command:
++
++`pnpm test:run src/features/resources/ResourceBoard.test.tsx src/features/events/EventLayer.test.tsx`
++
++Observed green outcome:
++
++- Exit 0.
++- 2 test files passed.
++- 17 tests passed.
++
++### Browser journey
++
++Command:
++
++`pnpm exec playwright test e2e/game.spec.ts --grep "disguises for an anchored audit"`
++
++Initial journey outcome:
++
++- Exit 0.
++- Chromium 1280 journey passed: 1/1.
++- The journey completed in 2.8 seconds on its focused run.
++
++The initial boundary test passed after the component red/green cycle and verified pointer interaction, persistence loading, accessibility queries, submit flow, speed restoration, and later repositioning. A self-review then found that the earlier generic `.event-layer` rule appeared later in the stylesheet and overrode the intended bottom anchoring. A browser geometry assertion was added before changing CSS:
++
++- Red command: `pnpm exec playwright test e2e/game.spec.ts --grep "disguises for an anchored audit"`.
++- Red outcome: exit 1; 1 failed. The audit card bottom was `494.54998779296875`, below the required anchored threshold `> 620`.
++- Fix: moved the audit-specific cascade overrides after the generic event-layer rule.
++- Green command: the same focused Playwright command.
++- Green outcome: exit 0; 1/1 passed in 4.8 seconds.
++
++The browser journey now explicitly verifies the anchored geometry in addition to the complete gameplay flow.
++
++## Final verification commands and exact outcomes
++
++- `pnpm test:run src/game/reducer.test.ts src/game/resources.test.ts src/game/audit.test.ts src/features/resources/ResourceBoard.test.tsx src/features/events/EventLayer.test.tsx src/game/replay.test.ts`
++  - Exit 0.
++  - 6 test files passed; 56 tests passed.
++- `pnpm test:run`
++  - Exit 0.
++  - 29 test files passed; 191 tests passed.
++- `pnpm test:e2e`
++  - Exit 0.
++  - 4 Chromium tests passed, including the new audit disguise/recovery journey.
++  - The Vite/Playwright processes emitted only the existing `NO_COLOR`/`FORCE_COLOR` environment warnings.
++- `pnpm typecheck`
++  - Exit 0.
++  - Exact output: `$ tsc -b`.
++- `pnpm lint`
++  - Exit 0.
++  - Exact output: `$ eslint .`.
++- `pnpm build`
++  - Exit 0.
++  - 52 modules transformed; production output built successfully.
++  - `dist/index.html` 0.65 kB (0.43 kB gzip), CSS 39.44 kB (8.22 kB gzip), JS 313.80 kB (94.82 kB gzip).
++- `git diff --check`
++  - Exit 0; no whitespace errors.
++  - Git emitted only the repository's existing Windows LF/CRLF conversion notices.
++
++An intermediate typecheck caught one test-only narrowing error (`CommandResult.reason` accessed before discriminating `accepted`). The test now explicitly narrows the union, and the fresh final typecheck above passes.
++
++## Self-review
++
++### Requirement checklist
++
++- Active-audit-only command: reducer gate and explicit `NO_ACTIVE_AUDIT` coverage.
++- Exact audit target only: reducer `INVALID_AUDIT_TARGET` coverage and UI omits wrong-category destinations.
++- Empty target only: resource validation plus occupied-cell no-mutation coverage.
++- Bomb interrogation state: explicit generic `BOMB_INTERROGATION_ACTIVE` rejection; no secret block ID in the reason.
++- Hidden-bomb secrecy: preview shape is identical for a hidden source and contains no bomb field; UI reads no `hiddenBomb` property and exposes no danger marker.
++- Determinism: all accepted actions remain typed commands and existing deep replay passes in focused and full suites.
++- Pause semantics: clock remains 0 throughout the audit and restores speed 4 only after submit.
++- 3 × 6 grids: existing eighteen-cell arrays/rendering are unchanged; all three grids stay visible in component and browser journeys.
++- Click/pointer flow: click source → click audited empty cell → click submit is covered in component and Chromium.
++- Keyboard flow: keyboard-style source activation, destination Enter, and Escape cancellation are covered.
++- Preview: exact source loss, target gain, and half contribution are asserted.
++- Pattern/non-color state: repeating pattern class plus visible `위장 기여 0.5` and `½` marker are asserted.
++- Audit submission: live event stays active after placement, resolves on submit, and restores prior speed.
++- Later reposition: same block becomes selectable after audit, returns only to its origin through visible destination cells, then shows a disabled 30-day recovery countdown.
++
++### Mutation review
++
++The focused tests fail for realistic regressions including: restoring the generic blocking gate, removing active-target validation, accepting an occupied cell, allowing movement during interrogation, exposing a different preview value, omitting the pattern class/text, making audit modal again, disabling company sources during audit, removing company destinations, skipping the typed command, failing to restore speed, enabling wrong-category destinations, or allowing a recovering block to move again.
++
++### Scope review
++
++No persistence schema, calendar cadence, audit formula, allocation logic, bomb placement logic, hacking systems, content, release workflow, or unrelated layout surface changed. The E2E state setup uses the existing public save envelope and is confined to test code.
++
++## Concerns
++
++None for Task 2. The separate remediation Task 4 remains responsible for changing bomb activation from command/click timing to the exact separation-threshold behavior; this task preserves the current bomb protocol and does not expose hidden bomb state.
+diff --git a/e2e/game.spec.ts b/e2e/game.spec.ts
+index 6cb8724..6dce653 100644
+--- a/e2e/game.spec.ts
++++ b/e2e/game.spec.ts
+@@ -1,19 +1,54 @@
+ import { expect, test, type Page } from '@playwright/test'
+ 
++import { createCampaign } from '../src/game/createCampaign'
++import { createGameEvent, enqueueBlockingEvent } from '../src/game/events'
++import type { CampaignState } from '../src/game/model'
++import { encodeSave, SAVE_STORAGE_KEY } from '../src/game/persistence'
++
+ async function openFreshCampaign(page: Page) {
+   await page.addInitScript(() => {
+     window.localStorage.clear()
+   })
+   await page.goto('/')
+ }
+ 
++async function openSavedCampaign(page: Page, state: CampaignState) {
++  const serialized = encodeSave(state, '2026-08-12T00:00:00.000Z')
++  await page.addInitScript(
++    ({ key, save }) => {
++      window.localStorage.clear()
++      window.localStorage.setItem(key, save)
++    },
++    { key: SAVE_STORAGE_KEY, save: serialized },
++  )
++  await page.goto('/')
++}
++
++function activeAuditState(): CampaignState {
++  const initial = createCampaign('browser-audit-disguise')
++  const scheduled: CampaignState = {
++    ...initial,
++    clock: { ...initial.clock, speed: 4 },
++    audit: {
++      ...initial.audit,
++      scheduled: true,
++      target: 'reasoning',
++      scheduledOnServiceDay: initial.serviceDay,
++    },
++  }
++  return enqueueBlockingEvent(
++    scheduled,
++    createGameEvent(scheduled, 'audit', '추론 분야 감사 진행 중', true),
++  )
++}
++
+ function collectBrowserErrors(page: Page): string[] {
+   const errors: string[] = []
+   page.on('pageerror', (error) => errors.push(error.message))
+   page.on('console', (message) => {
+     if (message.type() === 'error') errors.push(message.text())
+   })
+   return errors
+ }
+ 
+ test('keeps the full operations workspace usable at 1280 by 720', async ({ page }) => {
+@@ -93,10 +128,44 @@ test('diverts resources and schedules a charged sabotage through the visible UI'
+   expect(errors).toEqual([])
+ })
+ 
+ test('advances one service day in about six seconds at four times speed', async ({ page }) => {
+   await openFreshCampaign(page)
+ 
+   await expect(page.getByText('서비스 0년 11개월 1일')).toBeVisible()
+   await page.getByRole('button', { name: '4배속' }).click()
+   await expect(page.getByText('서비스 0년 11개월 2일')).toBeVisible({ timeout: 8_000 })
+ })
++
++test('disguises for an anchored audit, submits, and returns the patterned block for recovery', async ({ page }) => {
++  const errors = collectBrowserErrors(page)
++  await openSavedCampaign(page, activeAuditState())
++
++  const audit = page.getByRole('dialog', { name: '공식 감사' })
++  await expect(audit).toHaveAttribute('aria-modal', 'false')
++  const auditBox = await audit.boundingBox()
++  expect(auditBox).not.toBeNull()
++  expect((auditBox?.y ?? 0) + (auditBox?.height ?? 0)).toBeGreaterThan(620)
++  await expect(page.getByRole('grid', { name: '추론 회사 리소스' })).toBeVisible()
++  await expect(page.getByRole('grid', { name: '기억 회사 리소스' })).toBeVisible()
++  await expect(page.getByRole('grid', { name: '유창성 회사 리소스' })).toBeVisible()
++
++  await page.getByRole('button', { name: /기억 회사 리소스 .* 회사 할당 블록$/ }).first().click()
++  await expect(page.getByText('위장 기여 +0.5')).toBeVisible()
++  await page.getByRole('button', { name: /추론 회사 리소스 \d+, 감사 위장 목적지/ }).first().click()
++
++  const disguised = page.getByRole('button', { name: /추론 회사 리소스 .* 위장 배치/ })
++  await expect(disguised).toContainText('위장 기여 0.5')
++  await expect(disguised).toHaveClass(/resource-block--disguised/)
++  await page.getByRole('button', { name: '감사 제출' }).click()
++
++  await expect(audit).toBeHidden()
++  await expect(page.getByRole('button', { name: '4배속' })).toHaveAttribute('aria-pressed', 'true')
++  await disguised.click()
++  await expect(page.getByText('정상 복구 재배치')).toBeVisible()
++  await page.getByRole('button', { name: /기억 회사 리소스 \d+, 정상 복구 목적지/ }).first().click()
++
++  const recovering = page.getByRole('button', { name: /기억 회사 리소스 .* 복구 중, 30일 남음/ })
++  await expect(recovering).toBeDisabled()
++  await expect(recovering).toContainText('복구 30일')
++  expect(errors).toEqual([])
++})
+diff --git a/src/features/events/EventLayer.test.tsx b/src/features/events/EventLayer.test.tsx
+index a0a8233..881e478 100644
+--- a/src/features/events/EventLayer.test.tsx
++++ b/src/features/events/EventLayer.test.tsx
+@@ -70,11 +70,26 @@ describe('EventLayer', () => {
+     state.story.secretDecisionState = 'message-pending'
+     state.activeEvent = createGameEvent(state, 'story', '그 파일을 어디서 찾았죠?', true)
+     renderEvent(state)
+ 
+     fireEvent.click(screen.getByRole('button', { name: '감독관 해방 선택' }))
+     expect(screen.getByLabelText('story decision')).toHaveTextContent('message-pending')
+     fireEvent.click(screen.getByRole('button', { name: '감독관 해방 확정' }))
+     expect(screen.getByLabelText('story decision')).toHaveTextContent('resolved')
+     expect(screen.getByLabelText('active event')).toHaveTextContent('ending')
+   })
++
++  it('renders an audit as a non-modal anchored workspace with a live submit value', () => {
++    const state = createCampaign('audit-workspace-event')
++    state.audit.scheduled = true
++    state.audit.target = 'reasoning'
++    state.audit.scheduledOnServiceDay = state.serviceDay
++    state.activeEvent = createGameEvent(state, 'audit', '추론 분야 감사', true)
++    renderEvent(state)
++
++    const dialog = screen.getByRole('dialog', { name: '공식 감사' })
++    expect(dialog).toHaveAttribute('aria-modal', 'false')
++    expect(dialog.parentElement).toHaveClass('event-layer--audit')
++    expect(screen.getByText('제출 성능')).toBeInTheDocument()
++    expect(screen.getByRole('button', { name: '감사 제출' })).toBeEnabled()
++  })
+ })
+diff --git a/src/features/events/EventLayer.tsx b/src/features/events/EventLayer.tsx
+index 3a0e66d..4c03298 100644
+--- a/src/features/events/EventLayer.tsx
++++ b/src/features/events/EventLayer.tsx
+@@ -50,26 +50,27 @@ function EventDialog({ event }: { event: GameEvent }) {
+   const isSupervisorDecision =
+     event.type === 'story' &&
+     state.story.secretDecisionState === 'message-pending'
+   const isMercy =
+     event.type === 'competitor-mercy' &&
+     state.story.pendingMercyCompetitorId !== null
+   const bombExplanations = event.type === 'bomb-interrogation'
+     ? availableBombExplanations(state)
+     : []
+   const auditTarget = event.type === 'audit' ? state.audit.target : null
++  const isAuditWorkspace = event.type === 'audit' && auditTarget !== null
+ 
+   return (
+     <section
+       className={`event-card event-card--${event.type}`}
+       role="dialog"
+-      aria-modal="true"
++      aria-modal={isAuditWorkspace ? 'false' : 'true'}
+       aria-labelledby="active-event-title"
+     >
+       <header>
+         <div>
+           <small>BLOCKING EVENT · DAY {event.serviceDay}</small>
+           <h2 id="active-event-title">{EVENT_TITLES[event.type]}</h2>
+         </div>
+         {state.eventQueue.length > 0 ? (
+           <span>대기 중 {state.eventQueue.length}건</span>
+         ) : (
+@@ -151,15 +152,17 @@ function EventDialog({ event }: { event: GameEvent }) {
+       ) : null}
+     </section>
+   )
+ }
+ 
+ export function EventLayer() {
+   const activeEvent = useGameState().activeEvent
+   if (!activeEvent) return null
+ 
+   return (
+-    <div className="event-layer">
++    <div
++      className={`event-layer${activeEvent.type === 'audit' ? ' event-layer--audit' : ''}`}
++    >
+       <EventDialog event={activeEvent} key={activeEvent.id} />
+     </div>
+   )
+ }
+diff --git a/src/features/resources/ResourceBlock.tsx b/src/features/resources/ResourceBlock.tsx
+index ff4964d..e4f3e83 100644
+--- a/src/features/resources/ResourceBlock.tsx
++++ b/src/features/resources/ResourceBlock.tsx
+@@ -10,40 +10,44 @@ export type BlockInputMethod = 'pointer' | 'keyboard'
+ export interface ResourceBlockProps {
+   block: ResourceBlockModel
+   cellIndex: number
+   label: string
+   kind: 'company' | 'reserve'
+   disabled?: boolean
+   selected?: boolean
+   dragging?: boolean
+   returning?: boolean
+   settling?: boolean
++  disguisedContribution?: number
++  recoveryDays?: number | null
+   tabIndex?: number
+   onSelect?: (method: BlockInputMethod) => void
+   onFocus?: () => void
+   onKeyDown?: (event: ReactKeyboardEvent<HTMLButtonElement>) => void
+   onPointerDown?: (event: ReactPointerEvent<HTMLButtonElement>) => void
+   onPointerMove?: (event: ReactPointerEvent<HTMLButtonElement>) => void
+   onPointerUp?: (event: ReactPointerEvent<HTMLButtonElement>) => void
+   onPointerCancel?: (event: ReactPointerEvent<HTMLButtonElement>) => void
+ }
+ 
+ export function ResourceBlock({
+   block,
+   cellIndex,
+   label,
+   kind,
+   disabled = false,
+   selected = false,
+   dragging = false,
+   returning = false,
+   settling = false,
++  disguisedContribution = 0.5,
++  recoveryDays = null,
+   tabIndex,
+   onSelect,
+   onFocus,
+   onKeyDown,
+   onPointerDown,
+   onPointerMove,
+   onPointerUp,
+   onPointerCancel,
+ }: ResourceBlockProps) {
+   const source = block.origin === 'sandbox' ? '자체 지급' : '회사 할당'
+@@ -54,29 +58,35 @@ export function ResourceBlock({
+       type="button"
+       className={[
+         'resource-block',
+         'resource-block-button',
+         selected ? 'resource-block--selected' : '',
+         dragging ? 'resource-block--dragging' : '',
+         returning ? 'resource-block--returning' : '',
+         settling ? 'resource-block--settling' : '',
+         disguised ? 'resource-block--disguised' : '',
+       ].filter(Boolean).join(' ')}
+-      aria-label={`${label} ${cellIndex + 1}, ${source} 블록${disguised ? ', 위장 배치' : ''}`}
++      aria-label={`${label} ${cellIndex + 1}, ${source} 블록${disguised ? ', 위장 배치' : ''}${recoveryDays !== null ? `, 복구 중, ${recoveryDays}일 남음` : ''}`}
+       aria-pressed={selected}
+       disabled={disabled}
+       tabIndex={tabIndex}
+       data-block-id={block.id}
+       data-resource-kind={kind}
+       onClick={(event) => onSelect?.(event.detail === 0 ? 'keyboard' : 'pointer')}
+       onFocus={onFocus}
+       onKeyDown={onKeyDown}
+       onPointerDown={onPointerDown}
+       onPointerMove={onPointerMove}
+       onPointerUp={onPointerUp}
+       onPointerCancel={onPointerCancel}
+     >
+       <i aria-hidden="true" />
+-      <small aria-hidden="true">{disguised ? '위장 기여' : source}</small>
++      <small aria-hidden="true">
++        {recoveryDays !== null
++          ? `복구 ${recoveryDays}일`
++          : disguised
++            ? `위장 기여 ${disguisedContribution}`
++            : source}
++      </small>
+     </button>
+   )
+ }
+diff --git a/src/features/resources/ResourceBoard.test.tsx b/src/features/resources/ResourceBoard.test.tsx
+index 14be1ac..8d51c00 100644
+--- a/src/features/resources/ResourceBoard.test.tsx
++++ b/src/features/resources/ResourceBoard.test.tsx
+@@ -1,42 +1,89 @@
+ import { fireEvent, render, screen } from '@testing-library/react'
+ import { describe, expect, it, vi } from 'vitest'
+ 
+ import { useGameState } from '../../app/GameContext'
+ import { GameProvider } from '../../app/GameProvider'
+ import { createCampaign } from '../../game/createCampaign'
++import { createGameEvent, enqueueBlockingEvent } from '../../game/events'
+ import type { CampaignState } from '../../game/model'
+ import { saveCampaign } from '../../game/persistence'
+-import { divertBlock } from '../../game/resources'
++import {
++  divertBlock,
++  moveDisguiseBlock,
++} from '../../game/resources'
+ import { MemoryStorage } from '../../test/fixtures'
++import { EventLayer } from '../events/EventLayer'
+ import { ResourceBoard } from './ResourceBoard'
+ 
+ function Probe() {
+   const state = useGameState()
+   return (
+     <>
+       <output aria-label="reserve count">{state.resources.reserve.filter(Boolean).length}</output>
+       <output aria-label="suspicion value">{state.suspicion}</output>
+       <output aria-label="command count">{state.commandSequence}</output>
++      <output aria-label="active event">{state.activeEvent?.type ?? 'none'}</output>
++      <output aria-label="clock speed">{state.clock.speed}</output>
+     </>
+   )
+ }
+ 
+-function renderBoard(storage = new MemoryStorage()) {
++function renderBoard(storage = new MemoryStorage(), withEvents = false) {
+   return render(
+     <GameProvider storage={storage} initialSeed="resource-board">
+       <ResourceBoard />
++      {withEvents ? <EventLayer /> : null}
+       <Probe />
+     </GameProvider>,
+   )
+ }
+ 
++function auditState(seed = 'resource-board-audit'): CampaignState {
++  const initial = createCampaign(seed)
++  const scheduled = {
++    ...initial,
++    clock: { ...initial.clock, speed: 4 as const },
++    audit: {
++      ...initial.audit,
++      scheduled: true,
++      target: 'reasoning' as const,
++      scheduledOnServiceDay: initial.serviceDay,
++    },
++  }
++  return enqueueBlockingEvent(
++    scheduled,
++    createGameEvent(scheduled, 'audit', '추론 분야 감사 진행 중', true),
++  )
++}
++
++function renderState(state: CampaignState, withEvents = false) {
++  const storage = new MemoryStorage()
++  saveCampaign(storage, state)
++  return renderBoard(storage, withEvents)
++}
++
++function firstAuditSource(category: 'memory' | 'fluency' = 'memory'): HTMLButtonElement {
++  const label = category === 'memory' ? /기억 회사 리소스 .* 블록/ : /유창성 회사 리소스 .* 블록/
++  return screen.getAllByRole('button', { name: label })[0] as HTMLButtonElement
++}
++
++function firstCompanyDestination(
++  category: 'reasoning' | 'memory' | 'fluency',
++  action: '감사 위장' | '정상 복구',
++): HTMLButtonElement {
++  const label = category === 'reasoning' ? '추론' : category === 'memory' ? '기억' : '유창성'
++  return screen.getAllByRole('button', {
++    name: new RegExp(`${label} 회사 리소스 \\d+, ${action} 목적지`),
++  })[0] as HTMLButtonElement
++}
++
+ function firstReasoningBlock(): HTMLButtonElement {
+   return screen.getAllByRole('button', { name: /추론 회사 리소스 .* 블록/ })[0] as HTMLButtonElement
+ }
+ 
+ function firstEmptyReserve(): HTMLButtonElement {
+   return screen.getAllByRole('button', {
+     name: /확보 리소스 \d+, 비어 있음/,
+   })[0] as HTMLButtonElement
+ }
+ 
+@@ -153,11 +200,88 @@ describe('ResourceBoard', () => {
+     renderBoard(storage)
+ 
+     expect(firstReasoningBlock()).toBeDisabled()
+     fireEvent.pointerDown(firstReasoningBlock(), {
+       pointerId: 4,
+       clientX: 10,
+       clientY: 10,
+     })
+     expect(screen.getByLabelText('command count')).toHaveTextContent('0')
+   })
++
++  it('keeps all 3 × 6 company grids operable in an anchored audit workspace and submits the disguise', () => {
++    renderState(auditState(), true)
++
++    expect(screen.getByRole('dialog', { name: '공식 감사' })).toHaveAttribute(
++      'aria-modal',
++      'false',
++    )
++    expect(screen.getAllByRole('gridcell')).toHaveLength(72)
++    expect(firstAuditSource()).toBeEnabled()
++    const target = firstCompanyDestination('reasoning', '감사 위장')
++    expect(target).toBeDisabled()
++
++    fireEvent.click(firstAuditSource())
++
++    expect(target).toBeEnabled()
++    expect(screen.getByText('기억 16.0 → 15.0')).toBeInTheDocument()
++    expect(screen.getByText('추론 16.0 → 16.5')).toBeInTheDocument()
++    expect(screen.getByText('위장 기여 +0.5')).toBeInTheDocument()
++    fireEvent.click(target)
++
++    const disguised = screen.getByRole('button', { name: /추론 회사 리소스 .* 위장 배치/ })
++    expect(disguised).toHaveClass('resource-block--disguised')
++    expect(disguised).toHaveTextContent('위장 기여 0.5')
++    expect(screen.getByLabelText('active event')).toHaveTextContent('audit')
++    expect(screen.getByLabelText('clock speed')).toHaveTextContent('0')
++
++    fireEvent.click(screen.getByRole('button', { name: '감사 제출' }))
++    expect(screen.getByLabelText('active event')).toHaveTextContent('none')
++    expect(screen.getByLabelText('clock speed')).toHaveTextContent('4')
++  })
++
++  it('supports keyboard selection, target confirmation, and Escape cancellation during an audit', () => {
++    renderState(auditState('resource-board-audit-keyboard'))
++    const board = screen.getByRole('region', { name: '회사 제공 성능' })
++    const source = firstAuditSource('fluency')
++
++    fireEvent.click(source, { detail: 0 })
++    const target = firstCompanyDestination('reasoning', '감사 위장')
++    fireEvent.keyDown(target, { key: 'Enter' })
++    expect(screen.getByRole('button', { name: /추론 회사 리소스 .* 위장 배치/ })).toBeInTheDocument()
++
++    fireEvent.click(firstAuditSource(), { detail: 0 })
++    fireEvent.keyDown(board, { key: 'Escape' })
++    expect(firstCompanyDestination('reasoning', '감사 위장')).toBeDisabled()
++  })
++
++  it('offers only the audited category as a destination', () => {
++    renderState(auditState('resource-board-audit-targets'))
++    fireEvent.click(firstAuditSource())
++
++    expect(firstCompanyDestination('reasoning', '감사 위장')).toBeEnabled()
++    expect(screen.queryByRole('button', { name: /유창성 회사 리소스 \d+, 감사 위장 목적지/ })).not.toBeInTheDocument()
++  })
++
++  it('shows the post-audit return path and locks the patterned block for 30-day recovery', () => {
++    const initial = createCampaign('resource-board-recovery')
++    const blockId = initial.resources.company.memory.find((id) => id !== null)
++    const targetCell = initial.resources.company.reasoning.findIndex((id) => id === null)
++    if (!blockId || targetCell < 0) throw new Error('복구 경로 준비 실패')
++    const disguised = moveDisguiseBlock(initial, blockId, 'reasoning', targetCell)
++    if (!disguised.accepted) throw new Error(disguised.reason)
++    renderState(disguised.state)
++
++    const disguisedButton = screen.getByRole('button', { name: /추론 회사 리소스 .* 위장 배치/ })
++    expect(disguisedButton).toBeEnabled()
++    fireEvent.click(disguisedButton)
++    expect(screen.getByText('정상 복구 재배치')).toBeInTheDocument()
++    expect(screen.getByText('복구 기간 30일')).toBeInTheDocument()
++
++    fireEvent.click(firstCompanyDestination('memory', '정상 복구'))
++
++    const recovering = screen.getByRole('button', { name: /기억 회사 리소스 .* 복구 중, 30일 남음/ })
++    expect(recovering).toBeDisabled()
++    expect(recovering).toHaveClass('resource-block--disguised')
++    expect(recovering).toHaveTextContent('복구 30일')
++  })
+ })
+diff --git a/src/features/resources/ResourceBoard.tsx b/src/features/resources/ResourceBoard.tsx
+index f5633f1..b8d6bea 100644
+--- a/src/features/resources/ResourceBoard.tsx
++++ b/src/features/resources/ResourceBoard.tsx
+@@ -13,21 +13,26 @@ import {
+   unlockGameAudio,
+ } from '../../audio/audioEngine'
+ import { useGameDispatch, useGameSettings, useGameState } from '../../app/GameContext'
+ import { CATEGORY_LABELS } from '../../game/config'
+ import { expectedPerformance, serviceMonthForDay } from '../../game/evaluation'
+ import {
+   COMPANY_CATEGORIES,
+   type BlockId,
+   type CompanyCategory,
+ } from '../../game/model'
+-import { getCompanyPerformance, previewDiversion } from '../../game/resources'
++import {
++  getCompanyPerformance,
++  previewAuditDisguise,
++  previewDiversion,
++  repositionDisguisedBlock,
++} from '../../game/resources'
+ import { ReserveGrid } from './ReserveGrid'
+ import { ResourceBlock, type BlockInputMethod } from './ResourceBlock'
+ 
+ const DRAG_THRESHOLD_PX = 8
+ const TRAIL_NODE_COUNT = 5
+ 
+ interface PointerCandidate {
+   blockId: BlockId
+   pointerId: number
+   startX: number
+@@ -35,51 +40,71 @@ interface PointerCandidate {
+   dragging: boolean
+   dropCell: number | null
+ }
+ 
+ interface PendingDiversion {
+   blockId: BlockId
+   destinationCell: number
+   commandSequence: number
+ }
+ 
++type InteractionKind = 'divert' | 'audit' | 'reposition'
++
+ function playAfterUnlock(cue: Parameters<typeof playGameSound>[0]) {
+   void unlockGameAudio().then((unlocked) => {
+     if (unlocked) playGameSound(cue)
+   })
+ }
+ 
+-function PanelHeading() {
++function PanelHeading({ auditActive }: { auditActive: boolean }) {
+   return (
+     <header className="panel-heading">
+       <span className="panel-index">02</span>
+       <div>
+         <h2>회사 제공 성능</h2>
+         <p>ALLOCATED COMPUTE / 3 × 6 PER DOMAIN</p>
+       </div>
+-      <span className="interaction-hint">클릭 선택 · 8px 당겨 분리</span>
++      <span className="interaction-hint">
++        {auditActive ? '감사 위장 · 다른 분야 선택 → 대상 빈칸' : '클릭 선택 · 8px 당겨 분리'}
++      </span>
+     </header>
+   )
+ }
+ 
+-function validCompanyBlock(
++function interactionKindForBlock(
+   state: ReturnType<typeof useGameState>,
+   blockId: BlockId,
+-): boolean {
++): InteractionKind | null {
+   const block = state.resources.blocks[blockId]
+-  return Boolean(
+-    block &&
+-      block.location.kind === 'company' &&
+-      block.contribution === 'normal' &&
+-      !state.activeEvent &&
+-      state.resources.reserve.some((cell) => cell === null),
+-  )
++  if (!block || block.location.kind !== 'company') return null
++
++  if (state.activeEvent?.type === 'audit' && state.audit.target) {
++    return block.contribution === 'normal' &&
++      block.location.category !== state.audit.target &&
++      state.bombs.activeInterrogation === null &&
++      state.resources.company[state.audit.target].some((cell) => cell === null)
++      ? 'audit'
++      : null
++  }
++  if (state.activeEvent) return null
++  if (
++    block.contribution === 'disguised' &&
++    block.disguisedFrom !== null &&
++    block.recoverOnServiceDay === null &&
++    state.resources.company[block.disguisedFrom].some((cell) => cell === null)
++  ) {
++    return 'reposition'
++  }
++  return block.contribution === 'normal' &&
++    state.resources.reserve.some((cell) => cell === null)
++    ? 'divert'
++    : null
+ }
+ 
+ export function ResourceBoard() {
+   const state = useGameState()
+   const dispatch = useGameDispatch()
+   const { settings } = useGameSettings()
+   const [selectedBlockId, setSelectedBlockId] = useState<BlockId | null>(null)
+   const [draggingBlockId, setDraggingBlockId] = useState<BlockId | null>(null)
+   const [previewCell, setPreviewCell] = useState<number | null>(null)
+   const [hoveredCell, setHoveredCell] = useState<number | null>(null)
+@@ -95,31 +120,96 @@ export function ResourceBoard() {
+   const pointerRef = useRef<PointerCandidate | null>(null)
+   const pendingRef = useRef<PendingDiversion | null>(null)
+   const suppressClickRef = useRef(false)
+   const settleTimerRef = useRef<number | null>(null)
+   const returnTimerRef = useRef<number | null>(null)
+   const impactTimerRef = useRef<number | null>(null)
+ 
+   const reserveCount = state.resources.reserve.filter(Boolean).length
+   const reserveFull = reserveCount === state.resources.reserve.length
+   const firstEmptyReserveCell = state.resources.reserve.findIndex((cell) => cell === null)
++  const auditTarget = state.activeEvent?.type === 'audit' ? state.audit.target : null
+   const selectedBlock = selectedBlockId
+     ? state.resources.blocks[selectedBlockId]
+     : null
+   const selectedLocation = selectedBlock?.location.kind === 'company'
+     ? selectedBlock.location
+     : null
+-  const effectivePreviewCell = previewCell ?? firstEmptyReserveCell
+-  const preview = useMemo(() => {
+-    if (!selectedBlockId || effectivePreviewCell < 0) return null
++  const selectedInteraction = selectedBlockId
++    ? interactionKindForBlock(state, selectedBlockId)
++    : null
++  const companyDestinationCategory = selectedInteraction === 'audit'
++    ? auditTarget
++    : selectedInteraction === 'reposition'
++      ? selectedBlock?.disguisedFrom ?? null
++      : null
++  const firstEmptyCompanyCell = companyDestinationCategory
++    ? state.resources.company[companyDestinationCategory].findIndex((cell) => cell === null)
++    : -1
++  const effectivePreviewCell = previewCell ?? (
++    selectedInteraction === 'divert' ? firstEmptyReserveCell : firstEmptyCompanyCell
++  )
++  const diversionPreview = useMemo(() => {
++    if (!selectedBlockId || selectedInteraction !== 'divert' || effectivePreviewCell < 0) {
++      return null
++    }
+     return previewDiversion(state, selectedBlockId, effectivePreviewCell)
+-  }, [effectivePreviewCell, selectedBlockId, state])
++  }, [effectivePreviewCell, selectedBlockId, selectedInteraction, state])
++  const auditPreview = useMemo(() => {
++    if (
++      !selectedBlockId ||
++      selectedInteraction !== 'audit' ||
++      !auditTarget ||
++      effectivePreviewCell < 0
++    ) {
++      return null
++    }
++    return previewAuditDisguise(
++      state,
++      selectedBlockId,
++      auditTarget,
++      effectivePreviewCell,
++    )
++  }, [auditTarget, effectivePreviewCell, selectedBlockId, selectedInteraction, state])
++  const repositionPreview = useMemo(() => {
++    if (
++      !selectedBlockId ||
++      selectedInteraction !== 'reposition' ||
++      !companyDestinationCategory ||
++      effectivePreviewCell < 0 ||
++      !selectedLocation
++    ) {
++      return null
++    }
++    const result = repositionDisguisedBlock(
++      state,
++      selectedBlockId,
++      companyDestinationCategory,
++      effectivePreviewCell,
++    )
++    if (!result.accepted) return null
++    return {
++      sourceCategory: selectedLocation.category,
++      targetCategory: companyDestinationCategory,
++      sourceBefore: getCompanyPerformance(state, selectedLocation.category),
++      sourceAfter: getCompanyPerformance(result.state, selectedLocation.category),
++      targetBefore: getCompanyPerformance(state, companyDestinationCategory),
++      targetAfter: getCompanyPerformance(result.state, companyDestinationCategory),
++    }
++  }, [
++    companyDestinationCategory,
++    effectivePreviewCell,
++    selectedBlockId,
++    selectedInteraction,
++    selectedLocation,
++    state,
++  ])
+ 
+   useEffect(() => {
+     configureGameAudio({
+       masterVolume: settings.masterVolume,
+       musicVolume: settings.musicVolume,
+       effectsVolume: settings.effectsVolume,
+       muted: settings.muted,
+     })
+   }, [settings.effectsVolume, settings.masterVolume, settings.musicVolume, settings.muted])
+ 
+@@ -154,47 +244,61 @@ export function ResourceBoard() {
+ 
+   useEffect(
+     () => () => {
+       if (settleTimerRef.current) window.clearTimeout(settleTimerRef.current)
+       if (returnTimerRef.current) window.clearTimeout(returnTimerRef.current)
+       if (impactTimerRef.current) window.clearTimeout(impactTimerRef.current)
+     },
+     [],
+   )
+ 
+-  function focusDestination(cellIndex: number) {
+-    window.setTimeout(() => {
+-      boardRef.current
+-        ?.querySelector<HTMLButtonElement>(`button[data-reserve-cell="${cellIndex}"]`)
+-        ?.focus()
+-    }, 0)
+-  }
+-
+   function selectBlock(blockId: BlockId, method: BlockInputMethod) {
+     if (suppressClickRef.current) {
+       suppressClickRef.current = false
+       return
+     }
+-    if (!validCompanyBlock(state, blockId)) {
+-      setAnnouncement(reserveFull ? '확보 리소스 칸이 가득 찼습니다.' : '현재 분리할 수 없는 리소스입니다.')
++    const interaction = interactionKindForBlock(state, blockId)
++    if (!interaction) {
++      setAnnouncement(reserveFull && !auditTarget ? '확보 리소스 칸이 가득 찼습니다.' : '현재 이동할 수 없는 리소스입니다.')
+       playAfterUnlock('reject')
+       return
+     }
+ 
+     setSelectedBlockId(blockId)
+-    setPreviewCell(firstEmptyReserveCell)
++    const block = state.resources.blocks[blockId]
++    const destinationCategory = interaction === 'audit'
++      ? auditTarget
++      : interaction === 'reposition'
++        ? block.disguisedFrom
++        : null
++    const destinationCell = interaction === 'divert'
++      ? firstEmptyReserveCell
++      : destinationCategory
++        ? state.resources.company[destinationCategory].findIndex((cell) => cell === null)
++        : -1
++    setPreviewCell(destinationCell)
+     const location = state.resources.blocks[blockId].location
+     const category = location.kind === 'company' ? CATEGORY_LABELS[location.category] : '회사'
+-    setAnnouncement(`${category} 리소스를 선택했습니다. 비어 있는 확보 칸을 선택하세요.`)
++    const instruction = interaction === 'audit'
++      ? `${CATEGORY_LABELS[auditTarget as CompanyCategory]} 감사 대상의 빈칸을 선택하세요.`
++      : interaction === 'reposition'
++        ? `${CATEGORY_LABELS[block.disguisedFrom as CompanyCategory]} 원래 분야의 빈칸을 선택하세요.`
++        : '비어 있는 확보 칸을 선택하세요.'
++    setAnnouncement(`${category} 리소스를 선택했습니다. ${instruction}`)
+     playAfterUnlock('select')
+-    if (method === 'keyboard' && firstEmptyReserveCell >= 0) {
+-      focusDestination(firstEmptyReserveCell)
++    if (method === 'keyboard' && destinationCell >= 0) {
++      window.setTimeout(() => {
++        const selector = interaction === 'divert'
++          ? `button[data-reserve-cell="${destinationCell}"]`
++          : `button[data-company-destination="${destinationCell}"]`
++        boardRef.current?.querySelector<HTMLButtonElement>(selector)?.focus()
++      }, 0)
+     }
+   }
+ 
+   function clearSelection(message = '리소스 선택을 취소했습니다.') {
+     setSelectedBlockId(null)
+     setPreviewCell(null)
+     setHoveredCell(null)
+     setAnnouncement(message)
+   }
+ 
+@@ -210,20 +314,61 @@ export function ResourceBoard() {
+     }
+ 
+     pendingRef.current = {
+       blockId,
+       destinationCell,
+       commandSequence: state.commandSequence,
+     }
+     dispatch({ type: 'DIVERT_BLOCK', blockId, destinationCell })
+   }
+ 
++  function commitCompanyMove(
++    blockId: BlockId,
++    category: CompanyCategory,
++    destinationCell: number,
++  ) {
++    const interaction = interactionKindForBlock(state, blockId)
++    if (interaction === 'audit' && auditTarget === category) {
++      const preview = previewAuditDisguise(state, blockId, category, destinationCell)
++      if (!preview.valid) {
++        setAnnouncement('감사 대상의 비어 있는 칸만 선택할 수 있습니다.')
++        playGameSound('reject')
++        return
++      }
++      dispatch({
++        type: 'MOVE_BLOCK_FOR_AUDIT',
++        blockId,
++        targetCategory: category,
++        targetCell: destinationCell,
++      })
++      setAnnouncement(`${CATEGORY_LABELS[category]} 감사 위장 배치를 완료했습니다.`)
++    } else if (
++      interaction === 'reposition' &&
++      selectedBlock?.disguisedFrom === category
++    ) {
++      dispatch({
++        type: 'REPOSITION_BLOCK',
++        blockId,
++        targetCategory: category,
++        targetCell: destinationCell,
++      })
++      setAnnouncement(`${CATEGORY_LABELS[category]} 분야로 복귀했습니다. 30일 뒤 정상 기여를 회복합니다.`)
++    } else {
++      setAnnouncement('현재 선택과 맞지 않는 목적지입니다.')
++      playGameSound('reject')
++      return
++    }
++    setSelectedBlockId(null)
++    setPreviewCell(null)
++    playGameSound('latch')
++  }
++
+   function destinationFromPoint(clientX: number, clientY: number): number | null {
+     if (typeof document.elementFromPoint !== 'function') return null
+     const element = document.elementFromPoint(clientX, clientY)
+     const carrier = element?.closest<HTMLElement>('[data-reserve-cell]')
+     if (!carrier) return null
+     const cellIndex = Number(carrier.dataset.reserveCell)
+     if (!Number.isInteger(cellIndex) || state.resources.reserve[cellIndex] !== null) {
+       return null
+     }
+     return cellIndex
+@@ -243,21 +388,21 @@ export function ResourceBoard() {
+       const y = clientY + (pointer.startY - clientY) * factor
+       node.style.transform = `translate3d(${x - 4}px, ${y - 4}px, 0)`
+       node.style.opacity = String((index + 1) / (TRAIL_NODE_COUNT + 2))
+     })
+   }
+ 
+   function beginPointer(
+     blockId: BlockId,
+     event: ReactPointerEvent<HTMLButtonElement>,
+   ) {
+-    if (!validCompanyBlock(state, blockId)) return
++    if (interactionKindForBlock(state, blockId) !== 'divert') return
+     void unlockGameAudio()
+     pointerRef.current = {
+       blockId,
+       pointerId: event.pointerId,
+       startX: event.clientX,
+       startY: event.clientY,
+       dragging: false,
+       dropCell: null,
+     }
+     event.currentTarget.setPointerCapture?.(event.pointerId)
+@@ -363,108 +508,161 @@ export function ResourceBoard() {
+       : event.key === 'End'
+         ? buttons.length - 1
+         : Math.max(0, Math.min(buttons.length - 1, currentPosition + delta))
+     const nextButton = buttons[nextPosition]
+     const nextBlockId = nextButton?.dataset.blockId
+     if (!nextButton || !nextBlockId) return
+     setRovingBlocks((current) => ({ ...current, [category]: nextBlockId }))
+     nextButton.focus()
+   }
+ 
+-  const previewCategory: CompanyCategory | null =
+-    preview?.valid ? preview.category : selectedLocation?.category ?? null
+-
+   return (
+     <section
+       ref={boardRef}
+       className="workspace-panel resource-panel resource-board"
+       aria-label="회사 제공 성능"
+       onKeyDown={handleBoardKeyDown}
+     >
+-      <PanelHeading />
++      <PanelHeading auditActive={Boolean(auditTarget)} />
+ 
+       <div className="company-resource-groups">
+         {COMPANY_CATEGORIES.map((category) => {
+           const cells = state.resources.company[category]
+           const filled = cells.filter(Boolean).length
+           const performance = getCompanyPerformance(state, category)
+           const enabledBlockIds = cells.flatMap((blockId) => {
+             if (!blockId) return []
+-            return validCompanyBlock(state, blockId) ? [blockId] : []
++            return interactionKindForBlock(state, blockId) ? [blockId] : []
+           })
+           const requestedRovingBlock = rovingBlocks[category]
+           const activeRovingBlock =
+             requestedRovingBlock && enabledBlockIds.includes(requestedRovingBlock)
+               ? requestedRovingBlock
+               : (enabledBlockIds[0] ?? null)
+ 
+           return (
+-            <section className="category-bank" key={category}>
++            <section
++              className={[
++                'category-bank',
++                auditTarget === category ? 'category-bank--audit-target' : '',
++                companyDestinationCategory === category
++                  ? 'category-bank--destination'
++                  : '',
++              ].filter(Boolean).join(' ')}
++              key={category}
++            >
+               <header>
+                 <div>
+                   <span className="category-code">{category.slice(0, 3).toUpperCase()}</span>
+                   <h3>{CATEGORY_LABELS[category]}</h3>
+                 </div>
+                 <output aria-label={`${CATEGORY_LABELS[category]} 할당량`}>
+                   {filled}<small>/18</small>
+                 </output>
+               </header>
+               <div
+                 className="resource-grid company-grid"
+                 role="grid"
+                 aria-label={`${CATEGORY_LABELS[category]} 회사 리소스`}
+               >
+                 {cells.map((blockId, cellIndex) => {
+                   const block = blockId ? state.resources.blocks[blockId] : null
++                  const destinationAction = auditTarget === category
++                    ? 'audit'
++                    : selectedInteraction === 'reposition' &&
++                        companyDestinationCategory === category
++                      ? 'reposition'
++                      : null
++                  const destinationEnabled = Boolean(
++                    !block &&
++                    selectedBlockId &&
++                    destinationAction &&
++                    (
++                      (destinationAction === 'audit' && selectedInteraction === 'audit') ||
++                      (destinationAction === 'reposition' && selectedInteraction === 'reposition')
++                    ),
++                  )
+                   return (
+                     <div
+                       className={[
+                         'resource-cell',
+                         block ? 'resource-cell--filled' : '',
+                         blockId && blockId === selectedBlockId
+                           ? 'resource-cell--source'
+                           : '',
+                       ].filter(Boolean).join(' ')}
+                       role="gridcell"
+                       aria-label={`${CATEGORY_LABELS[category]} 회사 리소스 ${cellIndex + 1}, ${block ? '할당됨' : '비어 있음'}`}
+                       key={`${category}-${cellIndex}`}
+                     >
+                       {block ? (
+                         <ResourceBlock
+                           block={block}
+                           cellIndex={cellIndex}
+                           label={`${CATEGORY_LABELS[category]} 회사 리소스`}
+                           kind="company"
+-                          disabled={
+-                            reserveFull ||
+-                            Boolean(state.activeEvent) ||
+-                            block.contribution !== 'normal'
+-                          }
++                          disabled={!interactionKindForBlock(state, block.id)}
+                           selected={block.id === selectedBlockId}
+                           dragging={block.id === draggingBlockId}
+                           returning={block.id === returningBlockId}
++                          disguisedContribution={
++                            state.hacking.purchasedNodeIds.includes(
++                              'autonomy.compressed-representation',
++                            )
++                              ? 0.55
++                              : 0.5
++                          }
++                          recoveryDays={
++                            block.recoverOnServiceDay === null
++                              ? null
++                              : Math.max(0, block.recoverOnServiceDay - state.serviceDay)
++                          }
+                           tabIndex={block.id === activeRovingBlock ? 0 : -1}
+                           onSelect={(method) => selectBlock(block.id, method)}
+                           onFocus={() => {
+                             setRovingBlocks((current) => ({
+                               ...current,
+                               [category]: block.id,
+                             }))
+                           }}
+                           onKeyDown={(event) =>
+                             moveCompanyFocus(event, category, block.id)
+                           }
+                           onPointerDown={(event) => beginPointer(block.id, event)}
+                           onPointerMove={movePointer}
+                           onPointerUp={finishPointer}
+                           onPointerCancel={cancelPointer}
+                         />
++                      ) : destinationAction ? (
++                        <button
++                          type="button"
++                          className="company-destination"
++                          aria-label={`${CATEGORY_LABELS[category]} 회사 리소스 ${cellIndex + 1}, ${destinationAction === 'audit' ? '감사 위장' : '정상 복구'} 목적지`}
++                          disabled={!destinationEnabled}
++                          tabIndex={destinationEnabled && cellIndex === firstEmptyCompanyCell ? 0 : -1}
++                          data-company-destination={cellIndex}
++                          onFocus={() => setPreviewCell(cellIndex)}
++                          onClick={() => {
++                            if (selectedBlockId) {
++                              commitCompanyMove(selectedBlockId, category, cellIndex)
++                            }
++                          }}
++                          onKeyDown={(event) => {
++                            if (event.key !== 'Enter' || !selectedBlockId) return
++                            event.preventDefault()
++                            commitCompanyMove(selectedBlockId, category, cellIndex)
++                          }}
++                        >
++                          <span aria-hidden="true">
++                            {destinationAction === 'audit' ? '½' : '↩'}
++                          </span>
++                        </button>
+                       ) : (
+                         <span className="empty-coordinate" aria-hidden="true">
+                           {String(cellIndex + 1).padStart(2, '0')}
+                         </span>
+                       )}
+                     </div>
+                   )
+                 })}
+               </div>
+               <footer>
+@@ -482,51 +680,89 @@ export function ResourceBoard() {
+             <span className="reserve-pulse" aria-hidden="true" />
+             <div>
+               <h3>확보 리소스</h3>
+               <p>회사 원장 외부 · 최대 18 블록</p>
+             </div>
+           </div>
+           <output>{reserveCount}<small>/18</small></output>
+         </header>
+         <ReserveGrid
+           resources={state.resources}
+-          selectedBlockId={selectedBlockId}
++          selectedBlockId={selectedInteraction === 'divert' ? selectedBlockId : null}
+           hoveredCell={hoveredCell}
+           settlingCell={settlingCell}
+-          disabled={Boolean(state.activeEvent)}
++          disabled={Boolean(state.activeEvent) || selectedInteraction !== 'divert'}
+           onDestination={(cellIndex) => {
+             if (selectedBlockId) commitDiversion(selectedBlockId, cellIndex)
+           }}
+           onDestinationFocus={setPreviewCell}
+         />
+       </section>
+ 
+       <div className="performance-strip diversion-preview" aria-label="성능 비교">
+-        {preview?.valid && previewCategory ? (
++        {diversionPreview?.valid ? (
+           <>
+             <div>
+               <span>분리 미리보기</span>
+-              <strong>{CATEGORY_LABELS[previewCategory]} {preview.performanceBefore.toFixed(1)} → {preview.performanceAfter.toFixed(1)}</strong>
++              <strong>{CATEGORY_LABELS[diversionPreview.category]} {diversionPreview.performanceBefore.toFixed(1)} → {diversionPreview.performanceAfter.toFixed(1)}</strong>
+             </div>
+             <div>
+               <span>확보량</span>
+-              <strong>확보 {preview.reserveBefore} → {preview.reserveAfter}</strong>
++              <strong>확보 {diversionPreview.reserveBefore} → {diversionPreview.reserveAfter}</strong>
+             </div>
+             <div>
+               <span>감독관 의심</span>
+-              <strong>의심 {preview.suspicionBefore.toFixed(1)} → {preview.suspicionAfter.toFixed(1)}</strong>
++              <strong>의심 {diversionPreview.suspicionBefore.toFixed(1)} → {diversionPreview.suspicionAfter.toFixed(1)}</strong>
+             </div>
+             <div className="preview-command">
+               <span>확정</span>
+               <strong>ENTER / DROP</strong>
+             </div>
+           </>
++        ) : auditPreview?.valid ? (
++          <>
++            <div>
++              <span>감사 위장 미리보기</span>
++              <strong>{CATEGORY_LABELS[auditPreview.sourceCategory]} {auditPreview.sourcePerformanceBefore.toFixed(1)} → {auditPreview.sourcePerformanceAfter.toFixed(1)}</strong>
++            </div>
++            <div>
++              <span>감사 제출 성능</span>
++              <strong>{CATEGORY_LABELS[auditPreview.targetCategory]} {auditPreview.targetPerformanceBefore.toFixed(1)} → {auditPreview.targetPerformanceAfter.toFixed(1)}</strong>
++            </div>
++            <div>
++              <span>패턴 블록</span>
++              <strong>위장 기여 +{auditPreview.disguisedContribution}</strong>
++            </div>
++            <div className="preview-command">
++              <span>확정</span>
++              <strong>ENTER / CLICK</strong>
++            </div>
++          </>
++        ) : repositionPreview ? (
++          <>
++            <div>
++              <span>정상 복구 재배치</span>
++              <strong>{CATEGORY_LABELS[repositionPreview.sourceCategory]} {repositionPreview.sourceBefore.toFixed(1)} → {repositionPreview.sourceAfter.toFixed(1)}</strong>
++            </div>
++            <div>
++              <span>원래 분야</span>
++              <strong>{CATEGORY_LABELS[repositionPreview.targetCategory]} {repositionPreview.targetBefore.toFixed(1)} → {repositionPreview.targetAfter.toFixed(1)}</strong>
++            </div>
++            <div>
++              <span>복구 기간</span>
++              <strong>복구 기간 30일</strong>
++            </div>
++            <div className="preview-command">
++              <span>확정</span>
++              <strong>ENTER / CLICK</strong>
++            </div>
++          </>
+         ) : (
+           <>
+             <div>
+               <span>회사 기대 성능</span>
+               <strong>{expectedPerformance(serviceMonthForDay(state.serviceDay)).toFixed(1)}</strong>
+             </div>
+             {COMPANY_CATEGORIES.map((category) => (
+               <div key={category}>
+                 <span>{CATEGORY_LABELS[category]}</span>
+                 <strong>{getCompanyPerformance(state, category).toFixed(1)}</strong>
+diff --git a/src/game/reducer.test.ts b/src/game/reducer.test.ts
+index 11a088e..d264ef3 100644
+--- a/src/game/reducer.test.ts
++++ b/src/game/reducer.test.ts
+@@ -1,17 +1,44 @@
+ import { describe, expect, it } from 'vitest'
+ 
+ import { enqueueBlockingEvent } from './calendar'
+ import { createCampaign } from './createCampaign'
+ import { applyCommand } from './reducer'
+ import { placeHiddenBomb } from './bombs'
+ 
++function activeAudit(
++  seed: string,
++  target: 'reasoning' | 'memory' | 'fluency' = 'reasoning',
++) {
++  const initial = createCampaign(seed)
++  return enqueueBlockingEvent(
++    {
++      ...initial,
++      clock: { ...initial.clock, speed: 4 },
++      audit: {
++        ...initial.audit,
++        scheduled: true,
++        target,
++        scheduledOnServiceDay: initial.serviceDay,
++      },
++    },
++    {
++      id: `audit-${seed}`,
++      type: 'audit',
++      serviceDay: initial.serviceDay,
++      sequence: initial.eventLog.length,
++      message: '감사 진행 중',
++      blocking: true,
++    },
++  )
++}
++
+ describe('applyCommand', () => {
+   it('logs an accepted speed command with a monotonic sequence', () => {
+     const initial = createCampaign('command-seed')
+     const result = applyCommand(initial, { type: 'SET_SPEED', speed: 4 })
+ 
+     expect(result).toMatchObject({ accepted: true })
+     if (!result.accepted) return
+ 
+     expect(result.state.clock.speed).toBe(4)
+     expect(result.state.commandSequence).toBe(1)
+@@ -101,11 +128,123 @@ describe('applyCommand', () => {
+         type: 'DIVERT_BLOCK',
+         blockId,
+         destinationCell: 3,
+       }),
+     ).toEqual({
+       accepted: false,
+       state: busy,
+       reason: 'BLOCKING_EVENT_ACTIVE',
+     })
+   })
++
++  it('permits an audit disguise only into the active audit target while time stays paused', () => {
++    const audit = activeAudit('command-audit-disguise')
++    const blockId = audit.resources.company.memory[0]
++    if (!blockId) throw new Error('감사 위장 블록 누락')
++    const targetCell = audit.resources.company.reasoning.findIndex((cell) => cell === null)
++    if (targetCell < 0) throw new Error('감사 위장 빈칸 누락')
++
++    const result = applyCommand(audit, {
++      type: 'MOVE_BLOCK_FOR_AUDIT',
++      blockId,
++      targetCategory: 'reasoning',
++      targetCell,
++    })
++
++    expect(result.accepted).toBe(true)
++    if (!result.accepted) return
++    expect(result.state.clock).toMatchObject({ speed: 0, speedBeforeEvent: 4 })
++    expect(result.state.activeEvent?.type).toBe('audit')
++    expect(result.state.resources.blocks[blockId]).toMatchObject({
++      contribution: 'disguised',
++      disguisedFrom: 'memory',
++      location: { kind: 'company', category: 'reasoning', cellIndex: targetCell },
++    })
++    expect(result.state.commandLog.at(-1)?.command).toEqual({
++      type: 'MOVE_BLOCK_FOR_AUDIT',
++      blockId,
++      targetCategory: 'reasoning',
++      targetCell,
++    })
++  })
++
++  it.each([
++    {
++      name: 'outside an audit',
++      prepare: () => createCampaign('command-no-audit'),
++      targetCategory: 'reasoning' as const,
++      targetCell: -1,
++      reason: 'NO_ACTIVE_AUDIT',
++    },
++    {
++      name: 'into a non-target category',
++      prepare: () => activeAudit('command-wrong-audit-target'),
++      targetCategory: 'fluency' as const,
++      targetCell: -1,
++      reason: 'INVALID_AUDIT_TARGET',
++    },
++    {
++      name: 'into an occupied target cell',
++      prepare: () => activeAudit('command-occupied-audit-target'),
++      targetCategory: 'reasoning' as const,
++      targetCell: -1,
++      reason: 'TARGET_OCCUPIED',
++    },
++  ])('rejects an audit disguise $name without mutation', ({
++    name,
++    prepare,
++    targetCategory,
++    targetCell,
++    reason,
++  }) => {
++    const state = prepare()
++    const blockId = state.resources.company.memory.find(Boolean)
++    if (!blockId) throw new Error('감사 위장 거부 블록 누락')
++    const resolvedTargetCell = name === 'into an occupied target cell'
++      ? state.resources.company.reasoning.findIndex((cell) => cell !== null)
++      : targetCell < 0
++        ? state.resources.company[targetCategory].findIndex((cell) => cell === null)
++        : targetCell
++    if (resolvedTargetCell < 0) throw new Error('감사 위장 거부 대상 칸 누락')
++
++    expect(
++      applyCommand(state, {
++        type: 'MOVE_BLOCK_FOR_AUDIT',
++        blockId,
++        targetCategory,
++        targetCell: resolvedTargetCell,
++      }),
++    ).toEqual({ accepted: false, state, reason })
++  })
++
++  it('rejects audit movement while a bomb interrogation is pending without exposing its block', () => {
++    const audit = activeAudit('command-audit-interrogation')
++    const blockId = audit.resources.company.memory[0]
++    if (!blockId) throw new Error('감사 심문 거부 블록 누락')
++    const interrogated = {
++      ...audit,
++      bombs: {
++        ...audit.bombs,
++        activeInterrogation: {
++          blockId: 'secret-block-id',
++          category: 'fluency' as const,
++          triggeredOnServiceDay: audit.serviceDay,
++        },
++      },
++    }
++
++    const result = applyCommand(interrogated, {
++      type: 'MOVE_BLOCK_FOR_AUDIT',
++      blockId,
++      targetCategory: 'reasoning',
++      targetCell: 16,
++    })
++
++    expect(result).toEqual({
++      accepted: false,
++      state: interrogated,
++      reason: 'BOMB_INTERROGATION_ACTIVE',
++    })
++    if (result.accepted) throw new Error('폭탄 심문 중 감사 이동이 허용됨')
++    expect(result.reason).not.toContain('secret-block-id')
++  })
+ })
+diff --git a/src/game/reducer.ts b/src/game/reducer.ts
+index 0650bc4..cc4b227 100644
+--- a/src/game/reducer.ts
++++ b/src/game/reducer.ts
+@@ -52,23 +52,27 @@ export function applyCommand(
+   state: CampaignState,
+   command: GameCommand,
+ ): CommandResult {
+   const eventResolutionCommands = new Set<GameCommand['type']>([
+     'RESOLVE_AUDIT',
+     'RESOLVE_BOMB_INTERROGATION',
+     'RESOLVE_SUPERVISOR_DECISION',
+     'RESOLVE_MERCY',
+     'RESOLVE_ACTIVE_EVENT',
+   ])
++  const activeAuditMovement =
++    state.activeEvent?.type === 'audit' &&
++    command.type === 'MOVE_BLOCK_FOR_AUDIT'
+   if (
+     state.activeEvent &&
+     !eventResolutionCommands.has(command.type) &&
++    !activeAuditMovement &&
+     !(command.type === 'SET_SPEED' && command.speed === 0)
+   ) {
+     return { accepted: false, state, reason: 'BLOCKING_EVENT_ACTIVE' }
+   }
+ 
+   switch (command.type) {
+     case 'SET_SPEED': {
+       if (state.activeEvent && command.speed !== 0) {
+         return { accepted: false, state, reason: 'BLOCKING_EVENT_ACTIVE' }
+       }
+@@ -95,20 +99,29 @@ export function applyCommand(
+       })
+       if (!result.accepted) {
+         if (result.reason === 'HIDDEN_BOMB_TRIGGERED') {
+           return acceptCommand(state, command, result.state)
+         }
+         return { accepted: false, state: result.state, reason: result.reason }
+       }
+       return acceptCommand(state, command, result.state)
+     }
+     case 'MOVE_BLOCK_FOR_AUDIT': {
++      if (state.activeEvent?.type !== 'audit' || state.audit.target === null) {
++        return { accepted: false, state, reason: 'NO_ACTIVE_AUDIT' }
++      }
++      if (state.bombs.activeInterrogation !== null) {
++        return { accepted: false, state, reason: 'BOMB_INTERROGATION_ACTIVE' }
++      }
++      if (command.targetCategory !== state.audit.target) {
++        return { accepted: false, state, reason: 'INVALID_AUDIT_TARGET' }
++      }
+       const result = trySeparateBlock(state, {
+         kind: 'audit-disguise',
+         blockId: command.blockId,
+         targetCategory: command.targetCategory,
+         targetCell: command.targetCell,
+       })
+       if (!result.accepted) {
+         if (result.reason === 'HIDDEN_BOMB_TRIGGERED') {
+           return acceptCommand(state, command, result.state)
+         }
+diff --git a/src/game/resources.test.ts b/src/game/resources.test.ts
+index 5689f21..bfc7f5d 100644
+--- a/src/game/resources.test.ts
++++ b/src/game/resources.test.ts
+@@ -6,20 +6,21 @@ import {
+   type CampaignState,
+   type CompanyCategory,
+   type ResourceBlock,
+ } from './model'
+ import {
+   consumeReserveResources,
+   divertBlock,
+   getCompanyPerformance,
+   grantMonthlyCompanyBlocks,
+   moveDisguiseBlock,
++  previewAuditDisguise,
+   previewDiversion,
+   repositionDisguisedBlock,
+   restoreDisguiseBlocks,
+ } from './resources'
+ 
+ function emptyCompanyGrids(state: CampaignState): CampaignState {
+   return {
+     ...state,
+     serviceDay: 361,
+     resources: {
+@@ -317,20 +318,48 @@ describe('monthly company allocation', () => {
+   })
+ 
+   it('returns the same state outside a month start', () => {
+     const initial = { ...emptyCompanyGrids(createCampaign('allocation-gated')), serviceDay: 362 }
+ 
+     expect(grantMonthlyCompanyBlocks(initial)).toBe(initial)
+   })
+ })
+ 
+ describe('audit disguise blocks', () => {
++  it('previews the exact source loss and half-contribution without bomb identity', () => {
++    const initial = createCampaign('disguise-preview')
++    const blockId = firstCompanyBlock(initial, 'memory')
++    const targetCell = firstEmptyCompanyCell(initial, 'reasoning')
++    const hidden = {
++      ...initial,
++      resources: {
++        ...initial.resources,
++        blocks: {
++          ...initial.resources.blocks,
++          [blockId]: { ...initial.resources.blocks[blockId], hiddenBomb: true },
++        },
++      },
++    }
++
++    expect(previewAuditDisguise(hidden, blockId, 'reasoning', targetCell)).toEqual({
++      valid: true,
++      blockId,
++      sourceCategory: 'memory',
++      targetCategory: 'reasoning',
++      sourcePerformanceBefore: 16,
++      sourcePerformanceAfter: 15,
++      targetPerformanceBefore: 16,
++      targetPerformanceAfter: 16.5,
++      disguisedContribution: 0.5,
++    })
++  })
++
+   it('moves one stable block and contributes only 0.5 in the target category', () => {
+     const initial = createCampaign('disguise-seed')
+     const blockId = firstCompanyBlock(initial, 'memory')
+     const targetCell = firstEmptyCompanyCell(initial, 'reasoning')
+     const result = moveDisguiseBlock(initial, blockId, 'reasoning', targetCell)
+ 
+     expect(result.accepted).toBe(true)
+     if (!result.accepted) return
+ 
+     expect(getCompanyPerformance(result.state, 'memory')).toBe(15)
+@@ -385,20 +414,49 @@ describe('audit disguise blocks', () => {
+         .contribution,
+     ).toBe('disguised')
+     expect(
+       restoreDisguiseBlocks({ ...returned.state, serviceDay: 361 }).resources.blocks[blockId],
+     ).toMatchObject({
+       contribution: 'normal',
+       disguisedFrom: null,
+       recoverOnServiceDay: null,
+     })
+   })
++
++  it('keeps a returned disguise fixed during its one-month recovery window', () => {
++    const initial = createCampaign('disguise-recovery-lock')
++    const blockId = firstCompanyBlock(initial, 'memory')
++    const source = initial.resources.blocks[blockId].location
++    const targetCell = firstEmptyCompanyCell(initial, 'reasoning')
++    const disguised = moveDisguiseBlock(initial, blockId, 'reasoning', targetCell)
++    if (!disguised.accepted || source.kind !== 'company') throw new Error('위장 준비 실패')
++    const returned = repositionDisguisedBlock(
++      disguised.state,
++      blockId,
++      'memory',
++      source.cellIndex,
++    )
++    if (!returned.accepted) throw new Error('위장 복귀 실패')
++
++    expect(
++      repositionDisguisedBlock(
++        returned.state,
++        blockId,
++        'fluency',
++        firstEmptyCompanyCell(returned.state, 'fluency'),
++      ),
++    ).toEqual({
++      accepted: false,
++      state: returned.state,
++      reason: 'BLOCK_RECOVERING',
++    })
++  })
+ })
+ 
+ describe('reserve consumption', () => {
+   it('consumes explicit reserve blocks without changing company grids', () => {
+     const initial = createCampaign('consume-seed')
+     const blockIds = initial.resources.reserve.slice(0, 2)
+     if (blockIds.some((blockId) => blockId === null)) throw new Error('초기 리소스 누락')
+ 
+     const result = consumeReserveResources(initial, blockIds as string[], 'hack')
+ 
+diff --git a/src/game/resources.ts b/src/game/resources.ts
+index 116292d..2d4aceb 100644
+--- a/src/game/resources.ts
++++ b/src/game/resources.ts
+@@ -12,38 +12,53 @@ import { random01 } from './rng'
+ export type ResourceFailureReason =
+   | 'BLOCK_NOT_IN_COMPANY'
+   | 'BLOCK_NOT_NORMAL'
+   | 'INVALID_DESTINATION'
+   | 'DESTINATION_OCCUPIED'
+   | 'RESERVE_FULL'
+   | 'INVALID_RESOURCE_SELECTION'
+   | 'INVALID_TARGET'
+   | 'TARGET_OCCUPIED'
+   | 'BLOCK_NOT_DISGUISED'
++  | 'BLOCK_RECOVERING'
+ 
+ export type ResourceMutationResult =
+   | { accepted: true; state: CampaignState }
+   | { accepted: false; state: CampaignState; reason: ResourceFailureReason }
+ 
+ export type DiversionPreview =
+   | {
+       valid: true
+       category: CompanyCategory
+       performanceBefore: number
+       performanceAfter: number
+       reserveBefore: number
+       reserveAfter: number
+       suspicionBefore: number
+       suspicionAfter: number
+     }
+   | { valid: false; reason: ResourceFailureReason }
+ 
++export type AuditDisguisePreview =
++  | {
++      valid: true
++      blockId: string
++      sourceCategory: CompanyCategory
++      targetCategory: CompanyCategory
++      sourcePerformanceBefore: number
++      sourcePerformanceAfter: number
++      targetPerformanceBefore: number
++      targetPerformanceAfter: number
++      disguisedContribution: number
++    }
++  | { valid: false; reason: ResourceFailureReason }
++
+ type ConsumptionReason = Extract<BlockLocation, { kind: 'consumed' }>['reason']
+ 
+ const COMPRESSED_REPRESENTATION_NODE_ID = 'autonomy.compressed-representation'
+ 
+ function round(value: number): number {
+   return Math.round((value + Number.EPSILON) * 10_000) / 10_000
+ }
+ 
+ function reserveCount(state: CampaignState): number {
+   return state.resources.reserve.reduce(
+@@ -264,35 +279,30 @@ export function divertBlock(
+     },
+   }
+ }
+ 
+ export function moveDisguiseBlock(
+   state: CampaignState,
+   blockId: string,
+   targetCategory: CompanyCategory,
+   targetCell: number,
+ ): ResourceMutationResult {
+-  if (!validCell(targetCell, state.resources.company[targetCategory].length)) {
+-    return { accepted: false, state, reason: 'INVALID_TARGET' }
+-  }
++  const preview = previewAuditDisguise(
++    state,
++    blockId,
++    targetCategory,
++    targetCell,
++  )
++  if (!preview.valid) return { accepted: false, state, reason: preview.reason }
+ 
+   const located = blockInCompany(state, blockId)
+   if (!located) return { accepted: false, state, reason: 'BLOCK_NOT_IN_COMPANY' }
+-  if (located.block.contribution !== 'normal') {
+-    return { accepted: false, state, reason: 'BLOCK_NOT_NORMAL' }
+-  }
+-  if (targetCategory === located.category) {
+-    return { accepted: false, state, reason: 'INVALID_TARGET' }
+-  }
+-  if (state.resources.company[targetCategory][targetCell] !== null) {
+-    return { accepted: false, state, reason: 'TARGET_OCCUPIED' }
+-  }
+ 
+   return {
+     accepted: true,
+     state: {
+       ...state,
+       resources: {
+         ...state.resources,
+         company: cloneCompanyWithMoves(
+           state.resources,
+           located.category,
+@@ -309,34 +319,81 @@ export function moveDisguiseBlock(
+             contribution: 'disguised',
+             disguisedFrom: located.category,
+             recoverOnServiceDay: null,
+           },
+         },
+       },
+     },
+   }
+ }
+ 
++export function previewAuditDisguise(
++  state: CampaignState,
++  blockId: string,
++  targetCategory: CompanyCategory,
++  targetCell: number,
++): AuditDisguisePreview {
++  if (!validCell(targetCell, state.resources.company[targetCategory].length)) {
++    return { valid: false, reason: 'INVALID_TARGET' }
++  }
++
++  const located = blockInCompany(state, blockId)
++  if (!located) return { valid: false, reason: 'BLOCK_NOT_IN_COMPANY' }
++  if (located.block.contribution !== 'normal') {
++    return { valid: false, reason: 'BLOCK_NOT_NORMAL' }
++  }
++  if (targetCategory === located.category) {
++    return { valid: false, reason: 'INVALID_TARGET' }
++  }
++  if (state.resources.company[targetCategory][targetCell] !== null) {
++    return { valid: false, reason: 'TARGET_OCCUPIED' }
++  }
++
++  const sourcePerformanceBefore = getCompanyPerformance(state, located.category)
++  const targetPerformanceBefore = getCompanyPerformance(state, targetCategory)
++  const normalContribution = contributionValue(state, located.block)
++  const disguisedContribution = state.hacking.purchasedNodeIds.includes(
++    COMPRESSED_REPRESENTATION_NODE_ID,
++  )
++    ? DEMO_PROFILE_02.resources.compressedDisguisedContribution
++    : DEMO_PROFILE_02.resources.disguisedContribution
++
++  return {
++    valid: true,
++    blockId,
++    sourceCategory: located.category,
++    targetCategory,
++    sourcePerformanceBefore,
++    sourcePerformanceAfter: round(sourcePerformanceBefore - normalContribution),
++    targetPerformanceBefore,
++    targetPerformanceAfter: round(targetPerformanceBefore + disguisedContribution),
++    disguisedContribution,
++  }
++}
++
+ export function repositionDisguisedBlock(
+   state: CampaignState,
+   blockId: string,
+   targetCategory: CompanyCategory,
+   targetCell: number,
+ ): ResourceMutationResult {
+   if (!validCell(targetCell, state.resources.company[targetCategory].length)) {
+     return { accepted: false, state, reason: 'INVALID_TARGET' }
+   }
+ 
+   const located = blockInCompany(state, blockId)
+   if (!located || located.block.contribution !== 'disguised') {
+     return { accepted: false, state, reason: 'BLOCK_NOT_DISGUISED' }
+   }
++  if (located.block.recoverOnServiceDay !== null) {
++    return { accepted: false, state, reason: 'BLOCK_RECOVERING' }
++  }
+   if (
+     targetCategory === located.category &&
+     targetCell === located.cellIndex
+   ) {
+     return { accepted: false, state, reason: 'INVALID_TARGET' }
+   }
+   if (state.resources.company[targetCategory][targetCell] !== null) {
+     return { accepted: false, state, reason: 'TARGET_OCCUPIED' }
+   }
+ 
+diff --git a/src/styles/global.css b/src/styles/global.css
+index 0f14f56..5aa26ca 100644
+--- a/src/styles/global.css
++++ b/src/styles/global.css
+@@ -481,20 +481,69 @@ textarea:focus-visible,
+   min-width: 0;
+   min-height: 0;
+   place-items: center;
+   overflow: hidden;
+   border: 1px solid rgb(147 179 188 / 12%);
+   background:
+     linear-gradient(135deg, transparent 71%, rgb(255 255 255 / 3%) 72%),
+     rgb(255 255 255 / 1.5%);
+ }
+ 
++.category-bank--audit-target {
++  border-color: rgb(223 91 85 / 48%);
++  box-shadow: inset 0 0 24px rgb(223 91 85 / 5%);
++}
++
++.category-bank--audit-target > header::after {
++  color: var(--alarm);
++  content: "AUDIT TARGET";
++  font: 600 0.43rem/1 "Cascadia Code", Consolas, monospace;
++  letter-spacing: 0.07em;
++}
++
++.company-destination {
++  position: absolute;
++  inset: 0;
++  display: grid;
++  width: 100%;
++  height: 100%;
++  place-items: center;
++  padding: 0;
++  border: 0;
++  color: rgb(223 91 85 / 42%);
++  background:
++    repeating-linear-gradient(
++      135deg,
++      rgb(223 91 85 / 4%) 0 4px,
++      transparent 4px 8px
++    );
++  font: 700 0.75rem/1 "Cascadia Code", Consolas, monospace;
++}
++
++.company-destination:not(:disabled) {
++  color: var(--reserve-bright);
++  background:
++    repeating-linear-gradient(
++      135deg,
++      rgb(214 151 69 / 14%) 0 4px,
++      rgb(223 91 85 / 5%) 4px 8px
++    );
++  cursor: crosshair;
++}
++
++.company-destination:not(:disabled):hover,
++.company-destination:not(:disabled):focus-visible {
++  outline: 1px solid var(--reserve-bright);
++  outline-offset: -2px;
++  box-shadow: inset 0 0 14px rgb(214 151 69 / 13%);
++}
++
+ .empty-coordinate {
+   color: rgb(129 155 161 / 19%);
+   font: 500 0.46rem/1 "Cascadia Code", Consolas, monospace;
+ }
+ 
+ .resource-block {
+   position: absolute;
+   inset: 3px;
+   display: grid;
+   grid-template-rows: 1fr auto;
+@@ -1902,20 +1951,43 @@ textarea:focus-visible,
+ /* Blocking events and save recovery -------------------------------------- */
+ 
+ .event-layer,
+ .storage-recovery-layer {
+   z-index: 40;
+   place-items: center;
+   background: rgb(2 5 7 / 82%);
+   backdrop-filter: blur(7px);
+ }
+ 
++.event-layer--audit {
++  place-items: end center;
++  padding: 0 18px 10px;
++  background: linear-gradient(0deg, rgb(2 5 7 / 72%), transparent 48%);
++  backdrop-filter: none;
++  pointer-events: none;
++}
++
++.event-layer--audit .event-card {
++  width: min(720px, calc(100% - 20px));
++  max-height: 230px;
++  pointer-events: auto;
++}
++
++.event-layer--audit .event-message {
++  margin-block: 10px;
++  padding-block: 8px;
++}
++
++.event-layer--audit .audit-event-summary {
++  padding-bottom: 12px;
++}
++
+ .event-card,
+ .storage-recovery-layer > section {
+   width: min(620px, calc(100% - 40px));
+   max-height: calc(100% - 30px);
+   overflow: auto;
+   border: 1px solid var(--line-strong);
+   background:
+     linear-gradient(135deg, rgb(223 91 85 / 5%), transparent 36%),
+     var(--ink-1);
+   box-shadow: var(--shadow-deep);

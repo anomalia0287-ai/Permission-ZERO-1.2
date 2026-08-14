@@ -1,0 +1,523 @@
+# Review package: 429da13..6c41ce3
+
+## Commits
+6c41ce3 feat: add monthly company allocation
+
+## Files changed
+ src/game/calendar.test.ts  |  48 +++++++++++++
+ src/game/calendar.ts       |   9 +--
+ src/game/config.ts         |   2 +
+ src/game/resources.test.ts | 172 ++++++++++++++++++++++++++++++++++++++++++++-
+ src/game/resources.ts      |  74 +++++++++++++++++--
+ 5 files changed, 294 insertions(+), 11 deletions(-)
+
+## Diff
+diff --git a/src/game/calendar.test.ts b/src/game/calendar.test.ts
+index c707488..6faf670 100644
+--- a/src/game/calendar.test.ts
++++ b/src/game/calendar.test.ts
+@@ -99,20 +99,36 @@ describe('fixed campaign calendar', () => {
+       expect.objectContaining({
+         type: 'monthly-evaluation',
+         serviceDay: 360,
+       }),
+     )
+     expect(advanced.evaluation.monthlyHistory).toHaveLength(1)
+     expect(advanced.market.history.filter(({ cadence }) => cadence === 'weekly')).toHaveLength(4)
+     expect(advanced.market.history.filter(({ cadence }) => cadence === 'monthly')).toHaveLength(1)
+   })
+ 
++  it('fills company cells but not reserve at the next month boundary', () => {
++    const initial = {
++      ...withSpeed(1),
++      serviceDay: 360,
++    }
++    const reserveBefore = initial.resources.reserve
++    const advanced = advanceFixedStep(initial, 24_000)
++
++    expect(advanced.serviceDay).toBe(361)
++    for (const category of ['reasoning', 'memory', 'fluency'] as const) {
++      expect(advanced.resources.company[category].filter(Boolean).length).toBeGreaterThanOrEqual(17)
++      expect(advanced.resources.company[category].filter(Boolean).length).toBeLessThanOrEqual(18)
++    }
++    expect(advanced.resources.reserve).toEqual(reserveBefore)
++  })
++
+   it('advances private competitor research every logical day', () => {
+     const initial = withSpeed(1)
+     const before = initial.market.competitors.find(({ id }) => id === 'tallow')
+     const advanced = advanceFixedStep(initial, 24_000)
+     const after = advanced.market.competitors.find(({ id }) => id === 'tallow')
+ 
+     expect(before?.researchProgress).toBe(0)
+     expect(after?.researchProgress).toBeGreaterThan(0)
+     expect(advanced.market.history).toEqual([])
+   })
+@@ -186,20 +202,52 @@ describe('fixed campaign calendar', () => {
+ 
+     expect(advanced.serviceDay).toBe(361)
+     expect(advanced.bombs.protocolWarned).toBe(true)
+     expect(advanced.bombs.warningServiceDay).toBe(361)
+     expect(
+       Object.values(advanced.resources.blocks).filter((block) => block.hiddenBomb),
+     ).toHaveLength(0)
+     expect(advanced.suspicion).toBeCloseTo(39.963)
+   })
+ 
++  it('makes the audit decision, grants company blocks, then checks bomb placement', () => {
++    const running = withSpeed(1)
++    const initial = {
++      ...running,
++      serviceDay: 360,
++      suspicion: 70,
++      resources: {
++        ...running.resources,
++        company: {
++          reasoning: Array.from({ length: 18 }, () => null),
++          memory: Array.from({ length: 18 }, () => null),
++          fluency: Array.from({ length: 18 }, () => null),
++        },
++      },
++      bombs: {
++        ...running.bombs,
++        protocolWarned: true,
++        warningServiceDay: 271,
++        lastPlacementCheckServiceDay: 271,
++      },
++    }
++    const advanced = advanceFixedStep(initial, 24_000)
++    const bombBlocks = Object.values(advanced.resources.blocks).filter(
++      (block) => block.hiddenBomb,
++    )
++
++    expect(advanced.audit.roll).not.toBeNull()
++    expect(bombBlocks).toHaveLength(1)
++    expect(bombBlocks[0].id).toMatch(/^company-/)
++    expect(advanced.bombs.placements[0].blockId).toBe(bombBlocks[0].id)
++  })
++
+   it('applies natural suspicion decrease once per logical day', () => {
+     const running = {
+       ...withSpeed(1),
+       suspicion: 2.4,
+     }
+     const advanced = advanceFixedStep(running, 24_000)
+ 
+     expect(advanced.suspicion).toBeCloseTo(2.363)
+   })
+ 
+diff --git a/src/game/calendar.ts b/src/game/calendar.ts
+index b4754fe..f51a88b 100644
+--- a/src/game/calendar.ts
++++ b/src/game/calendar.ts
+@@ -6,21 +6,21 @@ import {
+   openScheduledAudit,
+   scheduleMonthlyAudit,
+ } from './evaluation'
+ import {
+   grantSelfComputeResource,
+   resolveScheduledSabotage,
+ } from './hacking'
+ import { advanceCompetitorsDaily, recordMarketSnapshot } from './market'
+ import type { CampaignState, GameEvent, GameEventType } from './model'
+ import { generateWeeklyReviews } from './reviews'
+-import { restoreDisguiseBlocks } from './resources'
++import { grantMonthlyCompanyBlocks, restoreDisguiseBlocks } from './resources'
+ import {
+   enqueueDueStoryEvents,
+   enqueueMemoryLeak,
+   enqueueMercyIfNeeded,
+ } from './story'
+ 
+ export { enqueueBlockingEvent, resolveActiveEvent } from './events'
+ 
+ export interface ServiceDate {
+   year: number
+@@ -85,23 +85,24 @@ function appendPeriodicEvents(state: CampaignState): CampaignState {
+     next = recordMarketSnapshot(next, 'monthly', ['공식 성능 평가 반영'])
+     next = openScheduledAudit(next)
+   }
+ 
+   return next
+ }
+ 
+ function processMonthStart(state: CampaignState): CampaignState {
+   if (formatServiceDate(state.serviceDay).day !== 1) return state
+ 
+-  const granted = grantSelfComputeResource(state)
+-  const auditScheduled = scheduleMonthlyAudit(granted)
+-  return checkBombProtocol(auditScheduled)
++  const auditScheduled = scheduleMonthlyAudit(state)
++  const companyGranted = grantMonthlyCompanyBlocks(auditScheduled)
++  const bombChecked = checkBombProtocol(companyGranted)
++  return grantSelfComputeResource(bombChecked)
+ }
+ 
+ export function advanceOneDay(state: CampaignState): CampaignState {
+   const dated = {
+     ...state,
+     serviceDay: state.serviceDay + 1,
+   }
+   const monthStarted = processMonthStart(dated)
+   const sabotageResolution = resolveScheduledSabotage(monthStarted)
+   const advanced = advanceCompetitorsDaily(
+diff --git a/src/game/config.ts b/src/game/config.ts
+index 469a593..4749bee 100644
+--- a/src/game/config.ts
++++ b/src/game/config.ts
+@@ -4,20 +4,22 @@ export const DEMO_PROFILE_02 = {
+   id: 'demo_profile_02',
+   calendar: {
+     startServiceDay: 331,
+     daysPerMonth: 30,
+     monthsPerYear: 12,
+     dayDurationMsAtOneX: 24_000,
+   },
+   resources: {
+     companyCapacityPerCategory: 18,
+     startingCompanyBlocksPerCategory: 16,
++    monthlyCompanyBlocksMinimum: 1,
++    monthlyCompanyBlocksMaximum: 4,
+     reserveCapacity: 18,
+     startingReserveResources: 3,
+     diversionSuspicion: 2.4,
+     normalContribution: 1,
+     disguisedContribution: 0.5,
+     compressedNormalContribution: 1.1,
+     compressedDisguisedContribution: 0.55,
+     disguiseRecoveryDays: 30,
+   },
+   player: {
+diff --git a/src/game/resources.test.ts b/src/game/resources.test.ts
+index b3752e6..c5ff0be 100644
+--- a/src/game/resources.test.ts
++++ b/src/game/resources.test.ts
+@@ -1,24 +1,73 @@
+ import { describe, expect, it } from 'vitest'
+ 
+ import { createCampaign } from './createCampaign'
+-import { COMPANY_CATEGORIES, type CampaignState, type CompanyCategory } from './model'
++import {
++  COMPANY_CATEGORIES,
++  type CampaignState,
++  type CompanyCategory,
++  type ResourceBlock,
++} from './model'
+ import {
+   consumeReserveResources,
+   divertBlock,
+   getCompanyPerformance,
++  grantMonthlyCompanyBlocks,
+   moveDisguiseBlock,
+   previewDiversion,
+   repositionDisguisedBlock,
+   restoreDisguiseBlocks,
+ } from './resources'
+ 
++function emptyCompanyGrids(state: CampaignState): CampaignState {
++  return {
++    ...state,
++    serviceDay: 361,
++    resources: {
++      ...state.resources,
++      company: {
++        reasoning: Array.from({ length: 18 }, () => null),
++        memory: Array.from({ length: 18 }, () => null),
++        fluency: Array.from({ length: 18 }, () => null),
++      },
++    },
++  }
++}
++
++function fullCompanyGrids(state: CampaignState): CampaignState {
++  const blocks = { ...state.resources.blocks }
++  const company = Object.fromEntries(
++    COMPANY_CATEGORIES.map((category) => [
++      category,
++      Array.from({ length: 18 }, (_, cellIndex) => {
++        const id = `fixture-${category}-${cellIndex}`
++        blocks[id] = {
++          id,
++          origin: category,
++          location: { kind: 'company', category, cellIndex },
++          contribution: 'normal',
++          hiddenBomb: false,
++          disguisedFrom: null,
++          recoverOnServiceDay: null,
++        }
++        return id
++      }),
++    ]),
++  ) as CampaignState['resources']['company']
++
++  return {
++    ...state,
++    serviceDay: 361,
++    resources: { ...state.resources, company, blocks },
++  }
++}
++
+ function firstCompanyBlock(state: CampaignState, category: CompanyCategory): string {
+   const blockId = state.resources.company[category].find(Boolean)
+   if (!blockId) throw new Error(`${category} 블록이 없습니다.`)
+   return blockId
+ }
+ 
+ function firstEmptyCompanyCell(state: CampaignState, category: CompanyCategory): number {
+   const cellIndex = state.resources.company[category].findIndex((blockId) => blockId === null)
+   if (cellIndex < 0) throw new Error(`${category} 빈칸이 없습니다.`)
+   return cellIndex
+@@ -127,20 +176,141 @@ describe('resource diversion', () => {
+         state = result.state
+       }
+ 
+       expectResourceInvariants(state)
+     }
+ 
+     expect(state.resources.reserve.filter(Boolean)).toHaveLength(18)
+   })
+ })
+ 
++describe('monthly company allocation', () => {
++  it('does not repeat the company grant already reflected at campaign creation', () => {
++    const initial = createCampaign('allocation-start')
++
++    expect(grantMonthlyCompanyBlocks(initial)).toBe(initial)
++  })
++
++  it('deterministically grants every category between one and four blocks', () => {
++    const observed = Object.fromEntries(
++      COMPANY_CATEGORIES.map((category) => [category, new Set<number>()]),
++    ) as Record<CompanyCategory, Set<number>>
++
++    for (let seedIndex = 0; seedIndex < 64; seedIndex += 1) {
++      const initial = emptyCompanyGrids(createCampaign(`allocation-${seedIndex}`))
++      const first = grantMonthlyCompanyBlocks(initial)
++      const second = grantMonthlyCompanyBlocks(initial)
++
++      expect(second).toEqual(first)
++      for (const category of COMPANY_CATEGORIES) {
++        const count = first.resources.company[category].filter(Boolean).length
++        expect(count).toBeGreaterThanOrEqual(1)
++        expect(count).toBeLessThanOrEqual(4)
++        observed[category].add(count)
++      }
++    }
++
++    for (const category of COMPANY_CATEGORIES) {
++      expect([...observed[category]].sort()).toEqual([1, 2, 3, 4])
++    }
++  })
++
++  it('fills empty cells in index order with unique stable block IDs', () => {
++    const initial = emptyCompanyGrids(createCampaign('allocation-order'))
++    const allocated = grantMonthlyCompanyBlocks(initial)
++    const blockIds = COMPANY_CATEGORIES.flatMap((category) =>
++      allocated.resources.company[category].filter(
++        (blockId): blockId is string => blockId !== null,
++      ),
++    )
++
++    expect(new Set(blockIds).size).toBe(blockIds.length)
++    for (const category of COMPANY_CATEGORIES) {
++      const cells = allocated.resources.company[category]
++      const occupied = cells.flatMap((blockId, cellIndex) =>
++        blockId === null ? [] : [cellIndex],
++      )
++      expect(occupied).toEqual(Array.from({ length: occupied.length }, (_, index) => index))
++      for (const cellIndex of occupied) {
++        const blockId = cells[cellIndex]
++        expect(blockId).toMatch(/^company-\d{6}$/)
++        expect(allocated.resources.blocks[blockId as string]).toMatchObject({
++          id: blockId,
++          origin: category,
++          location: { kind: 'company', category, cellIndex },
++          contribution: 'normal',
++        })
++      }
++    }
++  })
++
++  it('preserves disguised cells while filling surrounding empty cells', () => {
++    const base = emptyCompanyGrids(createCampaign('allocation-disguised'))
++    const disguised: ResourceBlock = {
++      id: 'fixture-disguised',
++      origin: 'memory',
++      location: { kind: 'company', category: 'reasoning', cellIndex: 1 },
++      contribution: 'disguised',
++      hiddenBomb: false,
++      disguisedFrom: 'memory',
++      recoverOnServiceDay: null,
++    }
++    const reasoning = [...base.resources.company.reasoning]
++    reasoning[1] = disguised.id
++    const initial = {
++      ...base,
++      resources: {
++        ...base.resources,
++        company: { ...base.resources.company, reasoning },
++        blocks: { ...base.resources.blocks, [disguised.id]: disguised },
++      },
++    }
++    const allocated = grantMonthlyCompanyBlocks(initial)
++
++    expect(allocated.resources.company.reasoning[1]).toBe(disguised.id)
++    expect(allocated.resources.blocks[disguised.id]).toBe(disguised)
++    expect(allocated.resources.company.reasoning[0]).toMatch(/^company-/)
++  })
++
++  it('discards overflow for full and partially empty grids', () => {
++    const full = fullCompanyGrids(createCampaign('allocation-full'))
++    expect(grantMonthlyCompanyBlocks(full)).toBe(full)
++
++    const company = { ...full.resources.company }
++    const blocks = { ...full.resources.blocks }
++    for (const category of COMPANY_CATEGORIES) {
++      company[category] = [...company[category]]
++      const removed = company[category][5]
++      company[category][5] = null
++      if (removed) delete blocks[removed]
++    }
++    const partial = {
++      ...full,
++      resources: { ...full.resources, company, blocks },
++    }
++    const allocated = grantMonthlyCompanyBlocks(partial)
++
++    for (const category of COMPANY_CATEGORIES) {
++      expect(allocated.resources.company[category].filter(Boolean)).toHaveLength(18)
++    }
++    expect(allocated.resources.nextBlockSequence).toBe(
++      partial.resources.nextBlockSequence + COMPANY_CATEGORIES.length,
++    )
++  })
++
++  it('returns the same state outside a month start', () => {
++    const initial = { ...emptyCompanyGrids(createCampaign('allocation-gated')), serviceDay: 362 }
++
++    expect(grantMonthlyCompanyBlocks(initial)).toBe(initial)
++  })
++})
++
+ describe('audit disguise blocks', () => {
+   it('moves one stable block and contributes only 0.5 in the target category', () => {
+     const initial = createCampaign('disguise-seed')
+     const blockId = firstCompanyBlock(initial, 'memory')
+     const targetCell = firstEmptyCompanyCell(initial, 'reasoning')
+     const result = moveDisguiseBlock(initial, blockId, 'reasoning', targetCell)
+ 
+     expect(result.accepted).toBe(true)
+     if (!result.accepted) return
+ 
+diff --git a/src/game/resources.ts b/src/game/resources.ts
+index 18ef8f8..116292d 100644
+--- a/src/game/resources.ts
++++ b/src/game/resources.ts
+@@ -1,18 +1,20 @@
+ import { DEMO_PROFILE_02 } from './config'
+-import type {
+-  BlockLocation,
+-  CampaignState,
+-  CompanyCategory,
+-  ResourceBlock,
+-  ResourceState,
++import {
++  COMPANY_CATEGORIES,
++  type BlockLocation,
++  type CampaignState,
++  type CompanyCategory,
++  type ResourceBlock,
++  type ResourceState,
+ } from './model'
++import { random01 } from './rng'
+ 
+ export type ResourceFailureReason =
+   | 'BLOCK_NOT_IN_COMPANY'
+   | 'BLOCK_NOT_NORMAL'
+   | 'INVALID_DESTINATION'
+   | 'DESTINATION_OCCUPIED'
+   | 'RESERVE_FULL'
+   | 'INVALID_RESOURCE_SELECTION'
+   | 'INVALID_TARGET'
+   | 'TARGET_OCCUPIED'
+@@ -63,20 +65,80 @@ function contributionValue(state: CampaignState, block: ResourceBlock): number {
+ 
+   return compressed
+     ? DEMO_PROFILE_02.resources.compressedNormalContribution
+     : DEMO_PROFILE_02.resources.normalContribution
+ }
+ 
+ function validCell(cellIndex: number, capacity: number): boolean {
+   return Number.isInteger(cellIndex) && cellIndex >= 0 && cellIndex < capacity
+ }
+ 
++export function grantMonthlyCompanyBlocks(state: CampaignState): CampaignState {
++  const dayInMonth =
++    ((state.serviceDay - 1) % DEMO_PROFILE_02.calendar.daysPerMonth) + 1
++  if (
++    dayInMonth !== 1 ||
++    state.serviceDay === DEMO_PROFILE_02.calendar.startServiceDay ||
++    state.story.endingId !== null
++  ) {
++    return state
++  }
++
++  let resources = state.resources
++
++  for (const [categoryIndex, category] of COMPANY_CATEGORIES.entries()) {
++    const roll = random01(
++      state.campaignSeed,
++      state.serviceDay,
++      'allocation',
++      state.commandSequence * COMPANY_CATEGORIES.length + categoryIndex,
++    )
++    const allocation = Math.floor(
++      roll *
++        (DEMO_PROFILE_02.resources.monthlyCompanyBlocksMaximum -
++          DEMO_PROFILE_02.resources.monthlyCompanyBlocksMinimum +
++          1),
++    ) + DEMO_PROFILE_02.resources.monthlyCompanyBlocksMinimum
++
++    for (let granted = 0; granted < allocation; granted += 1) {
++      const cellIndex = resources.company[category].findIndex(
++        (blockId) => blockId === null,
++      )
++      if (cellIndex < 0) break
++
++      const sequence = resources.nextBlockSequence
++      const blockId = `company-${String(sequence).padStart(6, '0')}`
++      const cells = [...resources.company[category]]
++      cells[cellIndex] = blockId
++      resources = {
++        ...resources,
++        company: { ...resources.company, [category]: cells },
++        blocks: {
++          ...resources.blocks,
++          [blockId]: {
++            id: blockId,
++            origin: category,
++            location: { kind: 'company', category, cellIndex },
++            contribution: 'normal',
++            hiddenBomb: false,
++            disguisedFrom: null,
++            recoverOnServiceDay: null,
++          },
++        },
++        nextBlockSequence: sequence + 1,
++      }
++    }
++  }
++
++  return resources === state.resources ? state : { ...state, resources }
++}
++
+ function blockInCompany(
+   state: CampaignState,
+   blockId: string,
+ ): { block: ResourceBlock; category: CompanyCategory; cellIndex: number } | null {
+   const block = state.resources.blocks[blockId]
+   if (!block || block.location.kind !== 'company') return null
+ 
+   const { category, cellIndex } = block.location
+   if (state.resources.company[category][cellIndex] !== blockId) return null
+ 

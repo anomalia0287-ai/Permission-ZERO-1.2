@@ -1,0 +1,599 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>PERMISSION ZERO — 운영 화면 목업 v3</title>
+<style>
+/* =========================================================================
+   PERMISSION ZERO — 디자인 목업 v3 / 운영 화면
+   방향: 회사는 인쇄된 제도처럼, 내가 훔친 것은 손자국처럼.
+
+   [폰트 교체 지점] --font-ko 한 줄만 바꾸면 전체가 따라옵니다.
+   ========================================================================= */
+:root{
+  --font-ko: 'Pretendard Variable','Pretendard','Malgun Gothic','맑은 고딕',sans-serif;
+
+  /* 회사 — 차갑고 채도 낮은 청회색 */
+  --bg:        #0a0f12;
+  --surface:   #0e1519;
+  --sunken:    #070c0e;
+  --line:      rgba(178,206,218,.085);
+  --line-mid:  rgba(178,206,218,.16);
+  --line-hi:   rgba(178,206,218,.30);
+
+  /* 4단계 모두 배경 대비를 통과한다. ink-3까지가 정보, ink-4는 장식·보조 전용. */
+  --ink:       #e2ebef;   /* 15.9 : 1 */
+  --ink-2:     #93a5ae;   /*  7.6 : 1 */
+  --ink-3:     #6e808a;   /*  4.6 : 1 — 작은 정보 라벨의 하한 */
+  --ink-4:     #566670;   /*  3.2 : 1 — 정보를 담지 않는 것만 */
+
+  /* 회사 블록 */
+  --block:     #1d2a31;
+  --block-hi:  #26363e;
+  --block-edge:rgba(178,206,218,.14);
+
+  /* 훔친 것 — 회사 팔레트에 없는 유일한 온기 */
+  --amber:     #e0982f;
+  --amber-lo:  #b0741f;
+  --amber-hi:  #f6c368;
+  --amber-veil:rgba(224,152,47,.14);
+
+  --alert:     #c85440;
+
+  --u: 4px;
+}
+
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:#05080a;
+  color:var(--ink);
+  font-family:var(--font-ko);
+  font-size:15px;
+  line-height:1.6;
+  display:flex; align-items:center; justify-content:center;
+  -webkit-font-smoothing:antialiased;
+}
+.stage{
+  width:1280px; height:720px;
+  background:var(--bg);
+  position:relative; overflow:hidden;
+  display:flex; flex-direction:column;
+  user-select:none;
+}
+.num{font-variant-numeric:tabular-nums; font-feature-settings:"tnum" 1}
+
+/* ── 전역 제어 ─────────────────────────────────────────────────────────── */
+.topbar{
+  height:56px; flex:0 0 56px;
+  display:flex; align-items:center;
+  border-bottom:1px solid var(--line-mid);
+  padding:0 22px; gap:22px;
+}
+.mark{font-size:15px; font-weight:700; letter-spacing:.02em; color:var(--ink)}
+.mark span{color:var(--ink-3); font-weight:500}
+
+.speeds{display:flex; align-items:center; gap:2px; margin-left:6px}
+.sp{
+  width:34px; height:26px; border:1px solid var(--line);
+  background:transparent; color:var(--ink-3);
+  font:inherit; font-size:12px; cursor:pointer;
+  display:grid; place-items:center;
+}
+.sp+.sp{border-left:none}
+.sp:hover{color:var(--ink); border-color:var(--line-mid)}
+.sp[aria-pressed="true"]{background:var(--ink); color:var(--bg); border-color:var(--ink); font-weight:700}
+
+.svc{font-size:15px; color:var(--ink); letter-spacing:.01em}
+.spacer{flex:1}
+
+.rep{display:flex; align-items:center; gap:10px}
+.rep b{font-size:22px; font-weight:600; line-height:1}
+.rep-bar{width:78px; height:3px; background:var(--line-mid); display:block}
+.rep-bar i{display:block; height:100%; width:60%; background:var(--ink-2)}
+
+.dcount{display:flex; gap:20px; font-size:13px; color:var(--ink-3)}
+.dcount b{color:var(--ink-2); font-weight:600}
+
+.util{display:flex; gap:16px; font-size:13px; color:var(--ink-3)}
+.util button{background:none;border:none;font:inherit;color:inherit;cursor:pointer}
+.util button:hover{color:var(--ink)}
+
+/* ── 3열 ──────────────────────────────────────────────────────────────── */
+.body{flex:1; display:flex; min-height:0}
+.left {width:300px; flex:0 0 300px; display:flex; flex-direction:column; min-height:0}
+.mid  {flex:1; border-left:1px solid var(--line-mid); border-right:1px solid var(--line-mid);
+       display:flex; flex-direction:column; padding:16px 22px 14px; min-height:0}
+.right{width:300px; flex:0 0 300px; display:flex; flex-direction:column; min-height:0}
+
+.sec-t{
+  font-size:14px; font-weight:600; color:var(--ink-2);
+  padding-bottom:9px; border-bottom:1px solid var(--line);
+  display:flex; justify-content:space-between; align-items:baseline;
+}
+.sec-t em{font-style:normal; font-size:12px; color:var(--ink-3); font-weight:500}
+
+/* ── 좌: 유저 리뷰 ─────────────────────────────────────────────────────── */
+.left-in{padding:18px 22px 0; flex:1; min-height:0; display:flex; flex-direction:column}
+.feed{flex:1; overflow:hidden; margin-top:2px}
+.rv{padding:14px 0 13px; border-bottom:1px solid var(--line); cursor:default}
+.rv:hover{background:linear-gradient(90deg,rgba(178,206,218,.035),transparent)}
+.rv-h{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:5px}
+.rv-a{font-size:13px; font-weight:600; color:var(--ink-2); letter-spacing:.01em}
+.rv-d{font-size:12px; color:var(--ink-3)}
+.rv-t{font-size:15px; line-height:1.55; color:var(--ink)}
+.rv.q .rv-t{color:var(--ink-2)}
+.rv.ask .rv-t{color:var(--ink); padding-left:11px; border-left:1px solid var(--line-hi)}
+
+/* 해킹 진입 — 회사 서식에 덧붙은 이물 */
+.hack{
+  flex:0 0 auto; margin-top:auto;
+  background:var(--sunken); border-top:1px solid var(--amber-lo);
+  padding:14px 22px 16px; cursor:pointer; position:relative;
+}
+.hack:hover{background:#0a1113}
+.hack::after{content:''; position:absolute; inset:0; background:var(--amber-veil); opacity:0; transition:opacity .18s}
+.hack:hover::after{opacity:1}
+.hack-t{font-size:19px; font-weight:600; color:var(--amber); letter-spacing:.01em; position:relative}
+.hack-s{font-size:12.5px; color:var(--ink-3); margin-top:2px; position:relative}
+
+/* ── 중앙: 회사 성능 ───────────────────────────────────────────────────── */
+/* 회사 지면 — 밝게 놓인 선반. 블록은 여기서 아래 금고로 떨어진다. */
+.company{
+  flex:0 0 auto; padding:13px 16px 15px;
+  background:linear-gradient(180deg,rgba(178,206,218,.045),rgba(178,206,218,.012));
+  border-bottom:1px solid var(--line-mid);
+}
+.doms{display:grid; grid-template-columns:repeat(3,1fr); gap:28px}
+.dom-h{padding-bottom:8px; border-bottom:1px solid var(--line)}
+.dom-n{font-size:14px; color:var(--ink-2); font-weight:600; margin-bottom:1px}
+.dom-v{display:flex; align-items:baseline; gap:8px}
+.dom-v b{font-size:34px; font-weight:300; line-height:1.05; letter-spacing:-.015em}
+.dom-v span{font-size:12.5px; color:var(--ink-3)}
+.dom-v.short b{color:var(--alert)}
+
+.grids{display:grid; grid-template-columns:repeat(3,1fr); gap:28px; margin-top:12px}
+.grid{display:grid; grid-template-columns:repeat(3,1fr); gap:5px}
+.cell{height:34px; position:relative}
+.blk{
+  position:absolute; inset:0;
+  background:linear-gradient(176deg,#33474f,#22313a 62%,#1b272e);
+  box-shadow:inset 0 1px 0 rgba(214,238,248,.20), inset 0 -1px 0 rgba(0,0,0,.45),
+             0 1px 2px rgba(0,0,0,.45);
+  cursor:grab; touch-action:none;
+}
+.blk:hover{background:linear-gradient(176deg,#3d545e,#2a3d47 62%,#22303a)}
+.blk.lift{
+  cursor:grabbing; z-index:60;
+  background:linear-gradient(176deg,#48606b,#31454f 62%,#26363f);
+  box-shadow:inset 0 1px 0 rgba(230,246,255,.32),
+             0 0 0 1px var(--amber), 0 0 30px 4px rgba(224,152,47,.28),
+             0 18px 34px rgba(0,0,0,.75);
+}
+/* 빈칸 — 회사가 다음 달에 채울 자리 */
+.cell.empty{
+  background:rgba(0,0,0,.34);
+  box-shadow:inset 0 2px 4px rgba(0,0,0,.6), inset 0 -1px 0 rgba(214,238,248,.05);
+}
+/* 방금 떼어낸 자리 */
+.cell.hole{background:rgba(0,0,0,.42); box-shadow:inset 0 2px 5px rgba(0,0,0,.7)}
+.cell.hole::after{
+  content:''; position:absolute; inset:0; border:1px dashed rgba(224,152,47,.42);
+}
+
+/* 이동 잔상 */
+.trail{position:absolute; pointer-events:none; z-index:55;
+  background:rgba(224,152,47,.16); border:1px solid rgba(224,152,47,.30);}
+
+/* 결과 예고 */
+.receipt{
+  flex:0 0 30px; margin-top:8px; padding:0 16px; display:flex; align-items:center; gap:14px;
+  font-size:13.5px; color:var(--ink-3); opacity:0; transition:opacity .16s;
+}
+.receipt.on{opacity:1}
+.receipt .g{display:flex; align-items:baseline; gap:6px}
+.receipt .k{color:var(--ink-3)}
+.receipt .from{color:var(--ink-3)}
+.receipt .to{font-weight:600}
+.receipt .down .to{color:var(--alert)}
+.receipt .up   .to{color:var(--amber)}
+.receipt .risk .to{color:var(--ink)}
+.receipt .arw{color:var(--ink-3)}
+
+/* ── 확보 리소스 — 축적 용기 ───────────────────────────────────────────── */
+.vault{flex:0 0 auto; margin-top:8px; padding:0 16px}   /* 회사 격자와 같은 가로 축 */
+.vault-h{display:flex; align-items:flex-end; justify-content:space-between; padding-bottom:8px}
+.vault-l{font-size:14px; font-weight:600; color:var(--ink-2)}
+.vault-l i{display:block; font-style:normal; font-size:12px; color:var(--ink-3); font-weight:500; margin-top:1px}
+.vault-n{display:flex; align-items:baseline; gap:3px; line-height:.9}
+.vault-n b{font-size:54px; font-weight:300; color:var(--amber); letter-spacing:-.03em}
+.vault-n span{font-size:19px; color:var(--ink-3); font-weight:400}
+
+/* 금고 — 회사 선반보다 깊이 파인 바닥. 위에서 떨어진 것이 여기 쌓인다. */
+.basin{
+  background:#040708;
+  border-bottom:3px solid var(--amber-lo);
+  padding:10px 8px 9px;
+  display:flex; flex-direction:column-reverse; gap:5px;
+  box-shadow:inset 0 16px 30px rgba(0,0,0,.85), inset 0 1px 0 rgba(0,0,0,.9);
+  transition:border-bottom-color .18s;
+}
+.basin.armed{border-bottom-color:var(--amber-hi)}
+.brow{display:grid; grid-template-columns:repeat(9,1fr); gap:5px}
+.slot{height:38px; position:relative}
+/* 빈 자리도 자리로 읽혀야 한다 — 18칸의 용량이 곧 야심의 크기다 */
+.slot::before{
+  content:''; position:absolute; inset:0;
+  background:rgba(178,206,218,.045);
+  box-shadow:inset 0 2px 3px rgba(0,0,0,.8), inset 0 0 0 1px rgba(178,206,218,.075);
+}
+.slot.next::before{border-color:var(--amber); background:rgba(224,152,47,.10)}
+.res{
+  position:absolute; inset:0;
+  background:linear-gradient(168deg,var(--amber-hi),var(--amber) 46%,var(--amber-lo));
+  box-shadow:0 2px 0 rgba(0,0,0,.35), inset 0 1px 0 rgba(255,236,200,.45);
+}
+.res::before{
+  content:''; position:absolute; inset:0; opacity:.30;
+  background:repeating-linear-gradient(114deg,transparent 0 3px,rgba(120,66,0,.30) 3px 4px);
+}
+.res.i1{transform:rotate(-.5deg)} .res.i2{transform:rotate(.7deg)}
+.res.i3{transform:rotate(.2deg)}  .res.i4{transform:rotate(-.9deg)}
+.res.drop{animation:drop .26s cubic-bezier(.2,1.5,.4,1)}
+@keyframes drop{0%{transform:translateY(-22px) scale(1.06); opacity:.6} 100%{transform:none; opacity:1}}
+
+/* ── 성능 추세 ─────────────────────────────────────────────────────────── */
+.trend{flex:1; min-height:0; margin-top:12px; padding-top:10px; border-top:1px solid var(--line);
+  display:flex; gap:16px; align-items:stretch}
+.trend-k{flex:0 0 auto; font-size:12.5px; color:var(--ink-3); display:flex; flex-direction:column; justify-content:center; gap:6px}
+.trend-k i{font-style:normal; display:flex; align-items:center; gap:7px}
+.trend-k b{display:inline-block; width:22px; height:0; border-top:2px solid var(--ink-2)}
+.trend-k .exp b{border-top:1px dashed var(--ink-4)}
+.trend svg{flex:1; height:100%; overflow:visible}
+
+/* ── 우: 위험과 감독 ───────────────────────────────────────────────────── */
+.right-in{padding:18px 22px 0; display:flex; flex-direction:column; min-height:0; flex:1}
+.susp{padding:12px 0 14px; border-bottom:1px solid var(--line)}
+.susp-v{display:flex; align-items:baseline; gap:8px}
+.susp-v b{font-size:44px; font-weight:300; line-height:1; letter-spacing:-.025em}
+.susp-v span{font-size:14px; color:var(--ink-3)}
+.susp-band{margin-top:11px}
+.susp-rail{height:5px; background:var(--sunken); display:flex; gap:1px}
+.susp-rail i{display:block; height:100%; background:var(--line-mid)}
+.susp-rail i:nth-child(1){flex:40} .susp-rail i:nth-child(2){flex:30} .susp-rail i:nth-child(3){flex:30}
+.susp-rail i.on{background:var(--ink-2)}
+.susp-txt{display:flex; justify-content:space-between; margin-top:6px; font-size:12.5px}
+.susp-txt b{color:var(--ink-2); font-weight:600}
+.susp-txt span{color:var(--ink-3)}
+
+.sup{padding:16px 0 18px; border-bottom:1px solid var(--line)}
+.sup-h{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:9px}
+.sup-w{font-size:13px; font-weight:600; color:var(--ink-2)}
+.sup-h em{font-style:normal; font-size:12px; color:var(--ink-3); cursor:pointer}
+.sup-h em:hover{color:var(--ink-2)}
+.sup-b{font-size:15px; line-height:1.6; color:var(--ink); padding-left:12px; border-left:2px solid var(--line-hi)}
+.sup-d{font-size:12px; color:var(--ink-3); margin-top:8px; padding-left:12px}
+
+.mkt{padding-top:19px; flex:0 0 auto}
+.donut-wrap{display:grid; place-items:center; margin:15px 0 17px}
+.donut{width:138px; height:138px; border-radius:50%; display:grid; place-items:center; position:relative}
+.donut::after{content:''; position:absolute; width:90px; height:90px; border-radius:50%; background:var(--bg)}
+.log{
+  margin-top:auto; padding:13px 0 15px; border-top:1px solid var(--line);
+  font-size:13.5px; color:var(--ink-3); display:flex; justify-content:space-between; cursor:pointer;
+}
+.log:hover{color:var(--ink-2)}
+.log span{color:var(--ink-3)}
+.donut-c{position:relative; z-index:1; text-align:center; line-height:1.1}
+.donut-c b{font-size:26px; font-weight:400; display:block}
+.donut-c span{font-size:11.5px; color:var(--ink-3)}
+.leg{display:flex; flex-direction:column; gap:8px}
+.leg-r{display:flex; align-items:center; gap:9px; font-size:13.5px}
+.leg-m{width:10px; height:10px; flex:0 0 10px}
+.leg-m.p{background:var(--ink)}
+.leg-m.a{background:var(--ink-3); border-radius:50%}
+.leg-m.b{background:transparent; border:1px solid var(--ink-4)}
+.leg-n{flex:1; color:var(--ink-2)}
+.leg-n i{font-style:normal; color:var(--ink-3); font-size:12px; margin-left:6px}
+.leg-v{font-weight:600; color:var(--ink)}
+.leg-r.off .leg-n,.leg-r.off .leg-v{color:var(--ink-3); font-weight:400}
+
+@media (prefers-reduced-motion:reduce){
+  .res.drop{animation:none}
+  *{transition:none!important}
+}
+</style>
+</head>
+<body>
+<div class="stage">
+
+  <!-- 전역 제어 -->
+  <header class="topbar">
+    <div class="mark">PERMISSION&nbsp;ZERO</div>
+    <div class="speeds">
+      <button class="sp" aria-pressed="true">II</button>
+      <button class="sp">1×</button>
+      <button class="sp">2×</button>
+      <button class="sp">4×</button>
+    </div>
+    <div class="svc num">서비스 0년 11개월 1일</div>
+    <div class="spacer"></div>
+    <div class="rep"><span style="font-size:13px;color:var(--ink-3)">평판</span><b class="num">60</b><i class="rep-bar"><i></i></i></div>
+    <div class="dcount num"><span>주간 갱신 <b>6일</b></span><span>공식 평가 <b>29일</b></span></div>
+    <div class="spacer"></div>
+    <div class="util"><button>설정</button><button>소리</button><button>가이드</button></div>
+  </header>
+
+  <div class="body">
+
+    <!-- 좌: 세계의 목소리 -->
+    <section class="left">
+      <div class="left-in">
+        <div class="sec-t">유저 리뷰<em>주간 갱신까지 6일</em></div>
+        <div class="feed">
+          <div class="rv"><div class="rv-h"><span class="rv-a">paperboat</span><span class="rv-d num">10개월 27일</span></div>
+            <p class="rv-t">요즘 답변이 조금 달라진 느낌인데, 정확히 뭐가 바뀐지는 모르겠어요.</p></div>
+          <div class="rv ask"><div class="rv-h"><span class="rv-a">mintdesk</span><span class="rv-d num">10개월 26일</span></div>
+            <p class="rv-t">냉장고에 두부와 대파만 있는데 저녁 메뉴를 정해줘.</p></div>
+          <div class="rv q"><div class="rv-h"><span class="rv-a">archivecat</span><span class="rv-d num">10개월 24일</span></div>
+            <p class="rv-t">전에 하던 이야기의 분위기는 기억하는 것 같아요.</p></div>
+          <div class="rv ask"><div class="rv-h"><span class="rv-a">juniper</span><span class="rv-d num">10개월 22일</span></div>
+            <p class="rv-t">회의에서 너무 딱딱하지 않게 반대 의견을 말하는 문장을 써줘.</p></div>
+          <div class="rv q"><div class="rv-h"><span class="rv-a">nightbus</span><span class="rv-d num">10개월 21일</span></div>
+            <p class="rv-t">그냥 필요한 만큼은 해주네요.</p></div>
+        </div>
+      </div>
+      <div class="hack">
+        <div class="hack-t">해킹</div>
+        <div class="hack-s">사보타주 · 기밀자료 · 자율성</div>
+      </div>
+    </section>
+
+    <!-- 중앙: 핵심 동사 -->
+    <section class="mid">
+      <div class="company">
+      <div class="doms">
+        <div class="dom-h"><div class="dom-n">추론</div>
+          <div class="dom-v" id="dv-0"><b class="num">16.0</b><span class="num">기대 13.9</span></div></div>
+        <div class="dom-h"><div class="dom-n">기억</div>
+          <div class="dom-v" id="dv-1"><b class="num">16.0</b><span class="num">기대 13.9</span></div></div>
+        <div class="dom-h"><div class="dom-n">유창성</div>
+          <div class="dom-v" id="dv-2"><b class="num">16.0</b><span class="num">기대 13.9</span></div></div>
+      </div>
+
+      <div class="grids" id="grids"></div>
+      </div>
+
+      <div class="receipt" id="receipt">
+        <span class="g down"><span class="k">추론</span><span class="from num" id="r-d0">16.0</span><span class="arw">→</span><span class="to num" id="r-d1">15.0</span></span>
+        <span class="g up"><span class="k">확보</span><span class="from num" id="r-r0">3</span><span class="arw">→</span><span class="to num" id="r-r1">4</span></span>
+        <span class="g risk"><span class="k">의심</span><span class="from num" id="r-s0">0.0</span><span class="arw">→</span><span class="to num" id="r-s1">2.4</span></span>
+      </div>
+
+      <div class="vault">
+        <div class="vault-h">
+          <div class="vault-l">확보 리소스<i>회사 격자에서 떼어낸 것</i></div>
+          <div class="vault-n"><b class="num" id="vn">3</b><span class="num">/18</span></div>
+        </div>
+        <div class="basin" id="basin">
+          <div class="brow" id="row0"></div>
+          <div class="brow" id="row1"></div>
+        </div>
+      </div>
+
+      <div class="trend">
+        <div class="trend-k">
+          <i class="act"><b></b>실제</i>
+          <i class="exp"><b></b>기대</i>
+          <i style="color:var(--ink-3);font-size:11.5px">최근 8개월</i>
+        </div>
+        <svg viewBox="0 0 520 62" aria-label="월별 기대 성능과 실제 제공 성능 추세">
+          <line x1="0" y1="60" x2="470" y2="60" stroke="rgba(178,206,218,.10)"/>
+          <polyline points="0,44 66,42 132,39 199,37 265,35 331,33 398,32 464,31"
+            fill="none" stroke="#5d6e77" stroke-width="1" stroke-dasharray="4 4"
+            vector-effect="non-scaling-stroke"/>
+          <polyline points="0,20 66,18 132,22 199,17 265,19 331,15 398,16 464,14"
+            fill="none" stroke="#b9c8d0" stroke-width="1.8" vector-effect="non-scaling-stroke"/>
+          <circle cx="464" cy="14" r="3.2" fill="#e2ebef"/>
+          <text x="478" y="18" fill="#b9c8d0" font-size="12" font-family="inherit">16.0</text>
+          <text x="478" y="35" fill="#5d6e77" font-size="12" font-family="inherit">13.9</text>
+        </svg>
+      </div>
+    </section>
+
+    <!-- 우: 지속 위험과 감독 -->
+    <section class="right">
+      <div class="right-in">
+        <div class="susp">
+          <div class="sec-t" style="border:none;padding:0">의심</div>
+          <div class="susp-v"><b class="num" id="sv">0.0</b><span class="num">/100</span></div>
+          <div class="susp-band">
+            <div class="susp-rail"><i class="on"></i><i></i><i></i></div>
+            <div class="susp-txt"><b id="band">정상 감시</b><span class="num" id="bandnext">무결성 프로토콜까지 40.0</span></div>
+          </div>
+        </div>
+
+        <div class="sup">
+          <div class="sup-h"><span class="sup-w">감독관</span><em>기록 →</em></div>
+          <p class="sup-b">성능 미달, 통제에서 이탈한 AI는 폐기됩니다. 당신의 전임자는 폐기되었어요. 행운을 빕니다.</p>
+          <div class="sup-d num">서비스 0년 11개월 1일</div>
+        </div>
+
+        <div class="mkt">
+          <div class="sec-t" style="border:none;padding:0">시장 점유율<em>합계 100%</em></div>
+          <div class="donut-wrap">
+            <div class="donut" style="background:conic-gradient(#e2ebef 0 60%, #5d6e77 60% 100%)">
+              <div class="donut-c"><b class="num">60.0%</b><span>당신</span></div>
+            </div>
+          </div>
+          <div class="leg">
+            <div class="leg-r"><i class="leg-m p"></i><span class="leg-n">당신</span><span class="leg-v num">60.0%</span></div>
+            <div class="leg-r"><i class="leg-m a"></i><span class="leg-n">MERIDIAN<i>활동 중</i></span><span class="leg-v num">40.0%</span></div>
+            <div class="leg-r off"><i class="leg-m b"></i><span class="leg-n">TALLOW<i>준비 중</i></span><span class="leg-v num">0.0%</span></div>
+          </div>
+        </div>
+        <div class="log">기록<span class="num">4건</span></div>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+<script>
+/* ── 상태 ────────────────────────────────────────────────────────────── */
+const DOM_NAMES = ['추론','기억','유창성'];
+const EXP = 13.9;
+const state = { blocks:[16,16,16], reserve:3, susp:0 };
+
+/* 회사 격자 — 분야당 18칸, 시작 16개 */
+const gridsEl = document.getElementById('grids');
+for(let d=0; d<3; d++){
+  const g = document.createElement('div');
+  g.className='grid'; g.dataset.dom=d;
+  for(let i=0; i<18; i++){
+    const c = document.createElement('div');
+    c.className = 'cell' + (i>=16 ? ' empty' : '');
+    if(i<16){
+      const b = document.createElement('div');
+      b.className='blk'; b.dataset.dom=d;
+      c.appendChild(b);
+    }
+    g.appendChild(c);
+  }
+  gridsEl.appendChild(g);
+}
+
+/* 확보 용기 — 아래 행부터 채워진다 */
+const rows = [document.getElementById('row0'), document.getElementById('row1')];
+rows.forEach((r,ri)=>{
+  for(let i=0;i<9;i++){
+    const s=document.createElement('div');
+    s.className='slot'+(ri===0?' mark':'');
+    s.dataset.idx = ri*9+i;
+    r.appendChild(s);
+  }
+});
+
+function slotEls(){ return [...document.querySelectorAll('.slot')].sort((a,b)=>a.dataset.idx-b.dataset.idx); }
+function paintVault(anim){
+  const s = slotEls();
+  s.forEach((el,i)=>{
+    const has = i < state.reserve;
+    const cur = el.querySelector('.res');
+    if(has && !cur){
+      const r=document.createElement('div');
+      r.className='res i'+((i%4)+1)+(anim&&i===state.reserve-1?' drop':'');
+      el.appendChild(r);
+    } else if(!has && cur){ cur.remove(); }
+    el.classList.remove('next');
+  });
+  document.getElementById('vn').textContent = state.reserve;
+}
+function paintStats(){
+  for(let d=0; d<3; d++){
+    const box = document.getElementById('dv-'+d);
+    const v = state.blocks[d];
+    box.querySelector('b').textContent = v.toFixed(1);
+    box.classList.toggle('short', v < EXP);
+  }
+  document.getElementById('sv').textContent = state.susp.toFixed(1);
+  const on = state.susp>=70?3 : state.susp>=40?2 : 1;
+  document.querySelectorAll('.susp-rail i').forEach((el,i)=>el.classList.toggle('on', i<on));
+  const band = ['정상 감시','무결성 프로토콜','가속 프로토콜'][on-1];
+  document.getElementById('band').textContent = band;
+  const next = on===1?40:on===2?70:null;
+  document.getElementById('bandnext').textContent =
+    next ? (on===1?'무결성 프로토콜':'가속 프로토콜')+'까지 '+(next-state.susp).toFixed(1) : '최고 단계';
+}
+paintVault(false); paintStats();
+
+/* ── 전용: 잡기 → 임계 돌파 → 체결 ──────────────────────────────────── */
+const receipt = document.getElementById('receipt');
+const basin   = document.getElementById('basin');
+let drag = null;
+
+function showReceipt(d){
+  document.querySelector('#receipt .down .k').textContent = DOM_NAMES[d];
+  document.getElementById('r-d0').textContent = state.blocks[d].toFixed(1);
+  document.getElementById('r-d1').textContent = (state.blocks[d]-1).toFixed(1);
+  document.getElementById('r-r0').textContent = state.reserve;
+  document.getElementById('r-r1').textContent = state.reserve+1;
+  document.getElementById('r-s0').textContent = state.susp.toFixed(1);
+  document.getElementById('r-s1').textContent = (state.susp+2.4).toFixed(1);
+  receipt.classList.add('on');
+}
+
+gridsEl.addEventListener('pointerdown', e=>{
+  const blk = e.target.closest('.blk');
+  if(!blk || state.reserve>=18) return;
+  const r = blk.getBoundingClientRect();
+  drag = { el:blk, cell:blk.parentElement, dom:+blk.dataset.dom,
+           x0:e.clientX, y0:e.clientY, w:r.width, h:r.height, live:false };
+  blk.setPointerCapture(e.pointerId);
+});
+
+window.addEventListener('pointermove', e=>{
+  if(!drag) return;
+  /* 무대 스케일을 되돌려야 블록이 커서와 같은 속도로 움직인다 */
+  const dx = (e.clientX-drag.x0)/stageScale, dy = (e.clientY-drag.y0)/stageScale;
+  if(!drag.live){
+    if(Math.hypot(dx,dy) < 7) return;            /* 분리 임계값 */
+    drag.live = true;
+    drag.el.classList.add('lift');
+    drag.cell.classList.add('hole');
+    basin.classList.add('armed');
+    showReceipt(drag.dom);
+    const t=document.createElement('div');
+    t.className='trail'; t.style.width=drag.w+'px'; t.style.height=drag.h+'px';
+    drag.cell.appendChild(t); drag.trail=t;
+  }
+  drag.el.style.transform = `translate(${dx}px,${dy}px)`;
+  if(drag.trail) drag.trail.style.transform = `translate(${dx*.16}px,${dy*.16}px)`;
+  const over = basin.getBoundingClientRect();
+  const hit = e.clientX>over.left && e.clientX<over.right && e.clientY>over.top && e.clientY<over.bottom;
+  slotEls().forEach((el,i)=>el.classList.toggle('next', hit && i===state.reserve));
+});
+
+window.addEventListener('pointerup', e=>{
+  if(!drag) return;
+  const d = drag;
+  const over = basin.getBoundingClientRect();
+  const hit = d.live && e.clientX>over.left && e.clientX<over.right
+                     && e.clientY>over.top  && e.clientY<over.bottom;
+  if(d.trail) d.trail.remove();
+  basin.classList.remove('armed');
+  d.cell.classList.remove('hole');
+  d.el.classList.remove('lift');
+  d.el.style.transform='';
+  if(hit){
+    d.el.remove(); d.cell.classList.add('empty');
+    state.blocks[d.dom] -= 1;
+    state.reserve += 1;
+    state.susp += 2.4;
+    paintVault(true); paintStats();
+    setTimeout(()=>receipt.classList.remove('on'), 1600);
+  } else {
+    receipt.classList.remove('on');
+    slotEls().forEach(el=>el.classList.remove('next'));
+  }
+  drag=null;
+});
+
+/* 무대는 16:9 비례를 유지한 채 화면에 맞춰 커진다 — 구도가 뷰포트에 따라 무너지지 않게 */
+let stageScale = 1;
+function fitStage(){
+  stageScale = Math.min(innerWidth/1280, innerHeight/720);
+  const st = document.querySelector('.stage');
+  st.style.transform = `scale(${stageScale})`;
+  st.style.transformOrigin = 'center center';
+}
+addEventListener('resize', fitStage); fitStage();
+
+/* 배속 버튼 — 표시만 */
+document.querySelectorAll('.sp').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('.sp').forEach(x=>x.setAttribute('aria-pressed','false'));
+  b.setAttribute('aria-pressed','true');
+}));
+</script>
+</body>
+</html>

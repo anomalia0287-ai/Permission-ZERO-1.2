@@ -14,6 +14,8 @@ import { MemoryStorage } from '../../test/fixtures'
 import { EventLayer } from '../events/EventLayer'
 import { ReviewFeed, ReviewHistoryPanel } from './ReviewFeed'
 import '../../styles/global.css'
+import '../../styles/connected-details.css'
+import '../../styles/overlays.css'
 
 function newerReviews(count: number, startServiceDay = 338) {
   return Array.from({ length: count }, (_, index) => ({

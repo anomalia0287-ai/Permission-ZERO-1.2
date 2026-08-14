@@ -1,0 +1,115 @@
+/* Statistics -------------------------------------------------------------- */
+
+.statistics-panel {
+  grid-template-rows: 62px 48px minmax(0, 1fr);
+}
+
+.statistics-tabs {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 7px 14px;
+  gap: 6px;
+}
+
+.statistics-content {
+  min-height: 0;
+  padding: 18px;
+  overflow: auto;
+}
+
+.chart-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-bottom: 12px;
+  color: var(--text-muted);
+  font: 500 0.55rem/1 "Cascadia Code", Consolas, monospace;
+}
+
+.chart-legend span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chart-legend i {
+  width: 13px;
+  height: 2px;
+  background: currentcolor;
+}
+
+.legend-player,
+.legend-expected { color: var(--reserve-bright); }
+.legend-competitor-1,
+.legend-reasoning { color: #83b8c1; }
+.legend-competitor-2,
+.legend-memory { color: #8f83cf; }
+.legend-competitor-3,
+.legend-fluency { color: #70aa8e; }
+
+.chart-scroll {
+  min-width: 0;
+  overflow: auto;
+  border: 1px solid var(--line-soft);
+  background: rgb(2 7 9 / 62%);
+}
+
+.history-chart {
+  display: block;
+  width: 100%;
+  min-width: 640px;
+  height: 260px;
+}
+
+.chart-grid line {
+  stroke: rgb(160 190 198 / 12%);
+  stroke-width: 1;
+}
+
+.chart-line {
+  fill: none;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.chart-line--player,
+.chart-line--expected { stroke: var(--reserve-bright); }
+.chart-line--competitor-1,
+.chart-line--reasoning { stroke: #83b8c1; }
+.chart-line--competitor-2,
+.chart-line--memory { stroke: #8f83cf; }
+.chart-line--competitor-3,
+.chart-line--fluency { stroke: #70aa8e; }
+
+.statistics-table-wrap {
+  margin-top: 14px;
+  overflow: auto;
+}
+
+.statistics-table-wrap table {
+  width: 100%;
+  border-collapse: collapse;
+  color: var(--text);
+  font: 500 0.57rem/1.4 "Cascadia Code", Consolas, monospace;
+}
+
+.statistics-table-wrap th,
+.statistics-table-wrap td {
+  padding: 9px;
+  border: 1px solid var(--line-soft);
+  text-align: right;
+}
+
+.statistics-table-wrap th:first-child,
+.statistics-table-wrap td:first-child {
+  text-align: left;
+}
+
+.history-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+  color: var(--text-muted);
+  font: 600 0.55rem/1 "Cascadia Code", Consolas, monospace;
+}

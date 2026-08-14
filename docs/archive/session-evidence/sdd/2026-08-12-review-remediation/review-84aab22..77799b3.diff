@@ -1,0 +1,817 @@
+# Review package: 84aab22..77799b3
+
+## Commits
+77799b3 fix: persist legacy replay boundary
+
+## Files changed
+ src/game/createCampaign.ts   |   1 +
+ src/game/model.ts            |   6 ++
+ src/game/persistence.test.ts | 133 ++++++++++++++++++++++++++++++++++++++++++-
+ src/game/persistence.ts      | 104 +++++++++++++++++++++++++++++----
+ src/game/replay.test.ts      |  29 ++++++----
+ 5 files changed, 250 insertions(+), 23 deletions(-)
+
+## Diff
+diff --git a/src/game/createCampaign.ts b/src/game/createCampaign.ts
+index c16abb1..60899bc 100644
+--- a/src/game/createCampaign.ts
++++ b/src/game/createCampaign.ts
+@@ -121,20 +121,21 @@ export function createCampaign(seed: string): CampaignState {
+       location: { kind: 'reserve', cellIndex },
+       contribution: 'normal',
+       hiddenBomb: false,
+       disguisedFrom: null,
+       recoverOnServiceDay: null,
+     }
+   }
+ 
+   const campaign: CampaignState = {
+     saveVersion: 2,
++    legacyCommandCount: 0,
+     campaignSeed: seed,
+     serviceDay: DEMO_PROFILE_02.calendar.startServiceDay,
+     commandSequence: 0,
+     clock: {
+       speed: 0,
+       elapsedDayMs: 0,
+       speedBeforeEvent: null,
+     },
+     resources: {
+       company: {
+diff --git a/src/game/model.ts b/src/game/model.ts
+index adf38bc..fe954f5 100644
+--- a/src/game/model.ts
++++ b/src/game/model.ts
+@@ -328,22 +328,28 @@ export type GameCommand =
+   | { type: 'RESOLVE_ACTIVE_EVENT' }
+ 
+ export interface CommandLogEntry {
+   sequence: number
+   serviceDay: number
+   command: GameCommand
+ }
+ 
+ export type CommandProtocolVersion = 1 | 2
+ 
++export interface CommandProtocolMetadata {
++  version: CommandProtocolVersion
++  legacyCommandCount: number
++}
++
+ export interface CampaignState {
+   saveVersion: CommandProtocolVersion
++  legacyCommandCount: number
+   campaignSeed: string
+   serviceDay: number
+   commandSequence: number
+   clock: {
+     speed: TimeSpeed
+     elapsedDayMs: number
+     speedBeforeEvent: TimeSpeed | null
+   }
+   resources: ResourceState
+   suspicion: number
+diff --git a/src/game/persistence.test.ts b/src/game/persistence.test.ts
+index 2049f03..a85f5c8 100644
+--- a/src/game/persistence.test.ts
++++ b/src/game/persistence.test.ts
+@@ -8,20 +8,21 @@ import type {
+   DefeatClassifier,
+   DefeatCausalRecord,
+   GameCommand,
+ } from './model'
+ import {
+   SAVE_STORAGE_KEY,
+   decodeSave,
+   encodeSave,
+   exportSeed,
+   loadCampaign,
++  replayCommands,
+   saveCampaign,
+ } from './persistence'
+ import { applyCommand } from './reducer'
+ import { MemoryStorage } from '../test/fixtures'
+ import legacyV1TransferEnvelope from '../test/legacy-v1-transfer-save.json'
+ 
+ const legacyV1TransferSave = JSON.stringify(legacyV1TransferEnvelope)
+ 
+ const DEFEAT_PAIRS = [
+   ['disposed-attacker', 'substantial-hacking'],
+@@ -67,24 +68,27 @@ function encodedCommandState(command: unknown): string {
+     command,
+   }
+   state.commandSequence = 1
+   state.commandLog = [entry as { command: GameCommand } & typeof entry]
+   return encodeSave(state)
+ }
+ 
+ function encodedLegacyV1State(state: CampaignState): string {
+   const parsed = JSON.parse(encodeSave(state)) as {
+     version: number
+-    state: { saveVersion: number }
++    commandProtocol?: unknown
++    state: { saveVersion: number; legacyCommandCount?: number }
+   }
+   parsed.version = 1
++  delete parsed.commandProtocol
+   parsed.state.saveVersion = 1
++  delete parsed.state.legacyCommandCount
+   return JSON.stringify(parsed)
+ }
+ 
+ describe('versioned campaign saves', () => {
+   it('round-trips the entire campaign envelope exactly', () => {
+     const state = createCampaign('save-round-trip')
+     const encoded = encodeSave(state, '2026-08-12T00:00:00.000Z')
+     const decoded = decodeSave(encoded)
+ 
+     expect(decoded.ok).toBe(true)
+@@ -102,28 +106,154 @@ describe('versioned campaign saves', () => {
+ 
+   it('decodes and loads the genuine historical v1 transfer save without rewriting it', () => {
+     const decoded = decodeSave(legacyV1TransferSave)
+     const storage = new MemoryStorage()
+     storage.setItem('permission-zero.save.v1', legacyV1TransferSave)
+     const loaded = loadCampaign(storage)
+ 
+     expect(decoded.ok).toBe(true)
+     if (!decoded.ok) return
+     expect(decoded.envelope.version).toBe(1)
++    expect(decoded.envelope.commandProtocol).toEqual({
++      version: 1,
++      legacyCommandCount: 31,
++    })
++    expect(decoded.envelope.state.legacyCommandCount).toBe(31)
+     expect(decoded.envelope.commandSequence).toBe(31)
+     expect(decoded.envelope.commands).toEqual(decoded.envelope.state.commandLog)
+     expect(loaded.status).toBe('loaded')
+     if (loaded.status !== 'loaded') return
+     expect(loaded.envelope.version).toBe(1)
+     expect(loaded.state).toEqual(decoded.envelope.state)
+   })
+ 
++  it('persists a v1 prefix boundary and replays a continued v2 campaign exactly', () => {
++    const legacy = decodeSave(legacyV1TransferSave)
++    if (!legacy.ok) throw new Error(legacy.message)
++
++    const auditResolved = applyCommand(legacy.envelope.state, {
++      type: 'RESOLVE_AUDIT',
++    })
++    if (!auditResolved.accepted) throw new Error(auditResolved.reason)
++    const blockId = auditResolved.state.resources.company.reasoning.find(Boolean)
++    const destinationCell = auditResolved.state.resources.reserve.findIndex(
++      (id) => id === null,
++    )
++    if (!blockId || destinationCell < 0) throw new Error('continued transfer unavailable')
++    const separated = applyCommand(auditResolved.state, {
++      type: 'BEGIN_BLOCK_SEPARATION',
++      blockId,
++      purpose: 'divert',
++    })
++    if (!separated.accepted) throw new Error(separated.reason)
++    const moved = applyCommand(separated.state, {
++      type: 'DIVERT_BLOCK',
++      blockId,
++      destinationCell,
++    })
++    if (!moved.accepted) throw new Error(moved.reason)
++
++    const continuedSave = encodeSave(moved.state, '2026-08-12T02:00:00.000Z')
++    const decoded = decodeSave(continuedSave)
++    expect(decoded.ok).toBe(true)
++    if (!decoded.ok) return
++    expect(decoded.envelope).toMatchObject({
++      version: 2,
++      commandSequence: 34,
++      commandProtocol: { version: 2, legacyCommandCount: 31 },
++      state: { saveVersion: 2, legacyCommandCount: 31 },
++    })
++    expect(
++      decoded.envelope.commands
++        .slice(0, 31)
++        .some(({ command }) => command.type === 'BEGIN_BLOCK_SEPARATION'),
++    ).toBe(false)
++    expect(
++      decoded.envelope.commands
++        .slice(31)
++        .map(({ command }) => command.type),
++    ).toEqual(['RESOLVE_AUDIT', 'BEGIN_BLOCK_SEPARATION', 'DIVERT_BLOCK'])
++
++    const replay = replayCommands(
++      decoded.envelope.campaignSeed,
++      decoded.envelope.commands.map(({ command }) => command),
++      decoded.envelope.commandProtocol,
++    )
++    expect(replay.ok).toBe(true)
++    if (!replay.ok) return
++    expect(replay.state).toEqual(decoded.envelope.state)
++    expect(replay.state.commandLog).toEqual(decoded.envelope.commands)
++    expect(replay.state.commandSequence).toBe(34)
++    expect(replay.state.serviceDay).toBe(360)
++  })
++
++  it.each([
++    { name: 'negative', envelopeCount: -1, stateCount: -1 },
++    { name: 'past command log', envelopeCount: 1, stateCount: 1 },
++    { name: 'metadata mismatch', envelopeCount: 0, stateCount: 1 },
++  ])('rejects a $name v2 legacy-prefix boundary', ({ envelopeCount, stateCount }) => {
++    const parsed = JSON.parse(encodeSave(createCampaign('boundary-validation'))) as {
++      commandProtocol?: { version: 2; legacyCommandCount: number }
++      state: { legacyCommandCount: number }
++    }
++    parsed.commandProtocol = { version: 2, legacyCommandCount: envelopeCount }
++    parsed.state.legacyCommandCount = stateCount
++
++    expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
++      ok: false,
++      reason: 'CORRUPT_SAVE',
++    })
++  })
++
++  it('rejects a forged v2 legacy boundary containing a v2-only BEGIN command', () => {
++    const initial = createCampaign('forged-boundary')
++    const blockId = initial.resources.company.reasoning.find(Boolean)
++    if (!blockId) throw new Error('boundary block missing')
++    const separated = applyCommand(initial, {
++      type: 'BEGIN_BLOCK_SEPARATION',
++      blockId,
++      purpose: 'divert',
++    })
++    if (!separated.accepted) throw new Error(separated.reason)
++    const parsed = JSON.parse(encodeSave(separated.state)) as {
++      commandProtocol?: { version: 2; legacyCommandCount: number }
++      state: { legacyCommandCount: number }
++    }
++    parsed.commandProtocol = { version: 2, legacyCommandCount: 1 }
++    parsed.state.legacyCommandCount = 1
++
++    expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
++      ok: false,
++      reason: 'CORRUPT_SAVE',
++    })
++  })
++
++  it('rejects downgrading the persisted boundary to expose an unseparated v2 suffix move', () => {
++    const parsed = JSON.parse(legacyV1TransferSave) as {
++      version: number
++      commandProtocol?: { version: 2; legacyCommandCount: number }
++      state: {
++        saveVersion: number
++        legacyCommandCount?: number
++      }
++    }
++    parsed.version = 2
++    parsed.commandProtocol = { version: 2, legacyCommandCount: 30 }
++    parsed.state.saveVersion = 2
++    parsed.state.legacyCommandCount = 30
++
++    expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
++      ok: false,
++      reason: 'CORRUPT_SAVE',
++    })
++  })
++
+   it('still rejects malformed command payloads inside a v1 save', () => {
+     const parsed = JSON.parse(legacyV1TransferSave) as {
+       commands: Array<{ command: Record<string, unknown> }>
+       state: { commandLog: Array<{ command: Record<string, unknown> }> }
+     }
+     parsed.commands[0].command.destinationCell = 99
+     parsed.state.commandLog[0].command.destinationCell = 99
+ 
+     expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
+       ok: false,
+@@ -152,20 +282,21 @@ describe('versioned campaign saves', () => {
+ 
+   it('persists and reloads through the browser storage boundary', () => {
+     const storage = new MemoryStorage()
+     const state = createCampaign('storage-reload')
+     const saved = saveCampaign(storage, state, '2026-08-12T01:02:03.000Z')
+     const loaded = loadCampaign(storage)
+ 
+     expect(saved).toEqual({ ok: true })
+     expect(JSON.parse(storage.getItem(SAVE_STORAGE_KEY) ?? '{}')).toMatchObject({
+       version: 2,
++      commandProtocol: { version: 2, legacyCommandCount: 0 },
+       state: { saveVersion: 2 },
+     })
+     expect(loaded.status).toBe('loaded')
+     if (loaded.status !== 'loaded') return
+     expect(loaded.state).toEqual(state)
+     expect(exportSeed(loaded.state)).toBe('storage-reload')
+   })
+ 
+   it('returns a Korean recovery error for corrupt data without silently resetting it', () => {
+     const storage = new MemoryStorage()
+diff --git a/src/game/persistence.ts b/src/game/persistence.ts
+index 9da689f..a9d6237 100644
+--- a/src/game/persistence.ts
++++ b/src/game/persistence.ts
+@@ -1,28 +1,30 @@
+ import { createCampaign } from './createCampaign'
+ import { STORY_FILES, STORY_LINES } from '../content/story.ko'
+ import type {
+   CampaignState,
+   CommandLogEntry,
++  CommandProtocolMetadata,
+   CommandProtocolVersion,
+   GameCommand,
+   GameEvent,
+ } from './model'
+ import { applyCommand } from './reducer'
+ 
+ export const SAVE_VERSION = 2 as const
+ export const LEGACY_SAVE_VERSION = 1 as const
+ export const SAVE_STORAGE_KEY = 'permission-zero.save.v2'
+ export const LEGACY_SAVE_STORAGE_KEY = 'permission-zero.save.v1'
+ 
+ export interface SaveEnvelope {
+   version: CommandProtocolVersion
++  commandProtocol: CommandProtocolMetadata
+   savedAt: string
+   campaignSeed: string
+   state: CampaignState
+   commandSequence: number
+   commands: CommandLogEntry[]
+   events: GameEvent[]
+ }
+ 
+ export type DecodeSaveResult =
+   | { ok: true; envelope: SaveEnvelope }
+@@ -219,32 +221,59 @@ function validCommand(
+         hasOnlyKeys(value, ['type', 'choice', 'newEntityName']) &&
+         isNonEmptyString(value.newEntityName)
+       )
+     default:
+       return false
+   }
+ }
+ 
+ function validCommandLog(
+   value: unknown,
+-  protocolVersion: CommandProtocolVersion,
++  commandProtocol: CommandProtocolMetadata,
+ ): value is CommandLogEntry[] {
++  if (!Array.isArray(value)) return false
++  if (
++    !Number.isInteger(commandProtocol.legacyCommandCount) ||
++    commandProtocol.legacyCommandCount < 0 ||
++    commandProtocol.legacyCommandCount > value.length ||
++    (commandProtocol.version === LEGACY_SAVE_VERSION &&
++      commandProtocol.legacyCommandCount !== value.length)
++  ) {
++    return false
++  }
+   return (
+-    Array.isArray(value) &&
+     value.every(
+       (entry, index) =>
+         isRecord(entry) &&
+         hasOnlyKeys(entry, ['sequence', 'serviceDay', 'command']) &&
+         entry.sequence === index + 1 &&
+         Number.isInteger(entry.serviceDay) &&
+         Number(entry.serviceDay) >= 1 &&
+-        validCommand(entry.command, protocolVersion),
++        validCommand(
++          entry.command,
++          index < commandProtocol.legacyCommandCount
++            ? LEGACY_SAVE_VERSION
++            : commandProtocol.version,
++        ) &&
++        (index < commandProtocol.legacyCommandCount ||
++          !isRecord(entry.command) ||
++          (entry.command.type !== 'DIVERT_BLOCK' &&
++            entry.command.type !== 'MOVE_BLOCK_FOR_AUDIT') ||
++          (index > 0 &&
++            isRecord(value[index - 1]) &&
++            isRecord(value[index - 1].command) &&
++            value[index - 1].command.type === 'BEGIN_BLOCK_SEPARATION' &&
++            value[index - 1].command.blockId === entry.command.blockId &&
++            value[index - 1].command.purpose ===
++              (entry.command.type === 'DIVERT_BLOCK'
++                ? 'divert'
++                : 'audit-disguise'))),
+     )
+   )
+ }
+ 
+ function validResources(value: unknown): boolean {
+   if (!isRecord(value) || !isRecord(value.company) || !isRecord(value.blocks)) {
+     return false
+   }
+   if (!Array.isArray(value.reserve) || value.reserve.length !== 18) return false
+   for (const category of ['reasoning', 'memory', 'fluency']) {
+@@ -330,21 +359,24 @@ function canonicalTerminalEvents(
+     retained.push(endingEvent)
+   }
+ 
+   return {
+     activeEvent: endingEvent,
+     eventQueue: [],
+     eventLog: retained as GameEvent[],
+   }
+ }
+ 
+-function migrateLegacyCampaignState(value: unknown): unknown {
++function migrateLegacyCampaignState(
++  value: unknown,
++  commandProtocol: CommandProtocolMetadata,
++): unknown {
+   if (!isRecord(value) || !isRecord(value.story)) return value
+   const story = value.story
+   const recoveredFileIds = Array.isArray(story.recoveredFileIds)
+     ? story.recoveredFileIds
+     : []
+   const recoveredFiles = Array.isArray(story.recoveredFiles)
+     ? story.recoveredFiles
+     : recoveredFileIds.flatMap((id) => {
+         const file = STORY_FILES.find((candidate) => candidate.id === id)
+         if (!file) return []
+@@ -355,20 +387,23 @@ function migrateLegacyCampaignState(value: unknown): unknown {
+             content: file.text,
+             recoveredOnServiceDay: Number.isInteger(value.serviceDay)
+               ? value.serviceDay
+               : 1,
+           },
+         ]
+       })
+ 
+   return {
+     ...value,
++    ...(commandProtocol.version === LEGACY_SAVE_VERSION
++      ? { legacyCommandCount: commandProtocol.legacyCommandCount }
++      : {}),
+     ...(story.endingId !== null && isRecord(value.clock)
+       ? {
+           clock: {
+             ...value.clock,
+             speed: 0,
+             elapsedDayMs: 0,
+             speedBeforeEvent: null,
+           },
+           ...canonicalTerminalEvents(value, story),
+         }
+@@ -452,25 +487,26 @@ function validDefeatRecord(value: unknown): boolean {
+   }
+   return [
+     'consecutive-performance-failures',
+     'commercial-value-failure',
+     'audit-failure',
+   ].includes(String(value.trigger.cause))
+ }
+ 
+ function validCampaignState(
+   value: unknown,
+-  protocolVersion: CommandProtocolVersion,
++  commandProtocol: CommandProtocolMetadata,
+ ): value is CampaignState {
+   if (!isRecord(value)) return false
+   if (
+-    value.saveVersion !== protocolVersion ||
++    value.saveVersion !== commandProtocol.version ||
++    value.legacyCommandCount !== commandProtocol.legacyCommandCount ||
+     typeof value.campaignSeed !== 'string' ||
+     !Number.isInteger(value.serviceDay) ||
+     !Number.isInteger(value.commandSequence) ||
+     !isFiniteNumber(value.suspicion) ||
+     !isFiniteNumber(value.reputation) ||
+     !validResources(value.resources)
+   ) {
+     return false
+   }
+ 
+@@ -577,21 +613,21 @@ function validCampaignState(
+       (entry) =>
+         isRecord(entry) &&
+         ['positive', 'neutral', 'negative', 'prompt'].includes(
+           String(entry.sentiment),
+         ),
+     )
+   ) {
+     return false
+   }
+   if (
+-    !validCommandLog(value.commandLog, protocolVersion) ||
++    !validCommandLog(value.commandLog, commandProtocol) ||
+     value.commandSequence !== value.commandLog.length
+   ) {
+     return false
+   }
+   if (!Array.isArray(value.eventLog) || !value.eventLog.every(validEvent)) return false
+   if (
+     value.activeEvent !== null &&
+     !validEvent(value.activeEvent)
+   ) {
+     return false
+@@ -606,20 +642,24 @@ function corrupt(message = '저장 데이터가 손상되었거나 필요한 항
+ export function encodeSave(
+   state: CampaignState,
+   savedAt = new Date().toISOString(),
+ ): string {
+   const serializedState: CampaignState = {
+     ...state,
+     saveVersion: SAVE_VERSION,
+   }
+   const envelope: SaveEnvelope = {
+     version: SAVE_VERSION,
++    commandProtocol: {
++      version: SAVE_VERSION,
++      legacyCommandCount: serializedState.legacyCommandCount,
++    },
+     savedAt,
+     campaignSeed: state.campaignSeed,
+     state: serializedState,
+     commandSequence: serializedState.commandSequence,
+     commands: serializedState.commandLog,
+     events: serializedState.eventLog,
+   }
+   return JSON.stringify(envelope)
+ }
+ 
+@@ -638,48 +678,69 @@ export function decodeSave(serialized: string): DecodeSaveResult {
+   ) {
+     return {
+       ok: false,
+       reason: 'INCOMPATIBLE_VERSION',
+       message: `저장 버전 ${String(parsed.version)}은 현재 버전 ${SAVE_VERSION}과 호환되지 않습니다.`,
+       foundVersion: parsed.version as number,
+       supportedVersion: SAVE_VERSION,
+     }
+   }
+   const protocolVersion = parsed.version as CommandProtocolVersion
++  let commandProtocol: CommandProtocolMetadata
++  if (protocolVersion === LEGACY_SAVE_VERSION) {
++    if ('commandProtocol' in parsed || !Array.isArray(parsed.commands)) {
++      return corrupt()
++    }
++    commandProtocol = {
++      version: LEGACY_SAVE_VERSION,
++      legacyCommandCount: parsed.commands.length,
++    }
++  } else {
++    if (
++      !isRecord(parsed.commandProtocol) ||
++      !hasOnlyKeys(parsed.commandProtocol, ['version', 'legacyCommandCount']) ||
++      parsed.commandProtocol.version !== SAVE_VERSION ||
++      !Number.isInteger(parsed.commandProtocol.legacyCommandCount)
++    ) {
++      return corrupt()
++    }
++    commandProtocol = parsed.commandProtocol as unknown as CommandProtocolMetadata
++  }
+   const rawState = parsed.state
+-  const state = migrateLegacyCampaignState(rawState)
++  const state = migrateLegacyCampaignState(rawState, commandProtocol)
+   if (
+     typeof parsed.savedAt !== 'string' ||
+     typeof parsed.campaignSeed !== 'string' ||
+     !Number.isInteger(parsed.commandSequence) ||
+-    !validCommandLog(parsed.commands, protocolVersion) ||
++    !validCommandLog(parsed.commands, commandProtocol) ||
+     !Array.isArray(parsed.events) ||
+     !parsed.events.every(validEvent) ||
+     !isRecord(rawState) ||
+     !Array.isArray(rawState.eventLog) ||
+     JSON.stringify(parsed.events) !== JSON.stringify(rawState.eventLog) ||
+-    !validCampaignState(state, protocolVersion)
++    !validCampaignState(state, commandProtocol)
+   ) {
+     return corrupt()
+   }
+ 
+   if (
+     parsed.campaignSeed !== state.campaignSeed ||
+     parsed.commandSequence !== state.commandSequence ||
+     JSON.stringify(parsed.commands) !== JSON.stringify(state.commandLog)
+   ) {
+     return corrupt('저장 데이터의 기록과 현재 상태가 서로 일치하지 않습니다.')
+   }
+   return {
+     ok: true,
+     envelope: {
+       ...parsed,
++      commandProtocol,
+       state,
+       events: state.eventLog,
+     } as unknown as SaveEnvelope,
+   }
+ }
+ 
+ export function saveCampaign(
+   storage: Storage,
+   state: CampaignState,
+   savedAt?: string,
+@@ -726,28 +787,47 @@ export function loadCampaign(storage: Storage): LoadCampaignResult {
+   }
+ }
+ 
+ export function exportSeed(state: CampaignState): string {
+   return state.campaignSeed
+ }
+ 
+ export function replayCommands(
+   seed: string,
+   commands: readonly GameCommand[],
+-  protocolVersion: CommandProtocolVersion,
++  commandProtocol: CommandProtocolMetadata,
+ ): ReplayResult {
++  if (
++    !Number.isInteger(commandProtocol.legacyCommandCount) ||
++    commandProtocol.legacyCommandCount < 0 ||
++    commandProtocol.legacyCommandCount > commands.length ||
++    (commandProtocol.version === LEGACY_SAVE_VERSION &&
++      commandProtocol.legacyCommandCount !== commands.length)
++  ) {
++    return {
++      ok: false,
++      state: createCampaign(seed),
++      commandIndex: 0,
++      reason: 'INVALID_PROTOCOL_BOUNDARY',
++    }
++  }
+   let state: CampaignState = {
+     ...createCampaign(seed),
+-    saveVersion: protocolVersion,
++    saveVersion: commandProtocol.version,
++    legacyCommandCount: commandProtocol.legacyCommandCount,
+   }
+   for (let commandIndex = 0; commandIndex < commands.length; commandIndex += 1) {
+     const command = commands[commandIndex]
++    const protocolVersion =
++      commandIndex < commandProtocol.legacyCommandCount
++        ? LEGACY_SAVE_VERSION
++        : commandProtocol.version
+     if (!validCommand(command, protocolVersion)) {
+       return {
+         ok: false,
+         state,
+         commandIndex,
+         reason: 'INVALID_COMMAND',
+       }
+     }
+     const result = applyCommand(state, command, { protocolVersion })
+     if (!result.accepted) {
+diff --git a/src/game/replay.test.ts b/src/game/replay.test.ts
+index db6ef3a..9624972 100644
+--- a/src/game/replay.test.ts
++++ b/src/game/replay.test.ts
+@@ -1,103 +1,104 @@
+ import { describe, expect, it } from 'vitest'
+ 
+ import { buildTwoYearCommandFixture } from '../test/fixtures'
+ import legacyV1TransferEnvelope from '../test/legacy-v1-transfer-save.json'
+ import type { GameCommand } from './model'
+ import { decodeSave, replayCommands } from './persistence'
+ 
+ const legacyV1TransferSave = JSON.stringify(legacyV1TransferEnvelope)
++const NATIVE_V2_PROTOCOL = { version: 2, legacyCommandCount: 0 } as const
+ 
+ describe('deterministic command replay', () => {
+   it('replays more than 500 valid commands across two service years exactly', () => {
+     const fixture = buildTwoYearCommandFixture()
+-    const replay = replayCommands(fixture.seed, fixture.commands, 2)
++    const replay = replayCommands(fixture.seed, fixture.commands, NATIVE_V2_PROTOCOL)
+ 
+     expect(fixture.commands.length).toBeGreaterThan(500)
+     expect(replay.ok).toBe(true)
+     if (!replay.ok) return
+     expect(replay.state).toEqual(fixture.state)
+     expect(replay.state.eventLog).toEqual(fixture.state.eventLog)
+     expect(replay.state.market.history).toEqual(fixture.state.market.history)
+     expect(replay.state.reviews).toEqual(fixture.state.reviews)
+   })
+ 
+   it('returns the rejected command index instead of producing a partial silent replay', () => {
+     const replay = replayCommands(
+       'invalid-replay',
+       [{ type: 'RESOLVE_AUDIT' }],
+-      2,
++      NATIVE_V2_PROTOCOL,
+     )
+ 
+     expect(replay).toMatchObject({
+       ok: false,
+       commandIndex: 0,
+       reason: 'NO_ACTIVE_AUDIT',
+     })
+   })
+ 
+   it('replays intentional separation and the single authorized move deterministically', () => {
+     const seed = 'separation-replay'
+-    const initial = replayCommands(seed, [], 2)
++    const initial = replayCommands(seed, [], NATIVE_V2_PROTOCOL)
+     if (!initial.ok) throw new Error(initial.reason)
+     const blockId = initial.state.resources.company.reasoning.find(Boolean)
+     if (!blockId) throw new Error('재현 전용 블록 누락')
+     const commands = [
+       { type: 'BEGIN_BLOCK_SEPARATION', blockId, purpose: 'divert' },
+       { type: 'DIVERT_BLOCK', blockId, destinationCell: 3 },
+     ] as const
+ 
+-    const first = replayCommands(seed, commands, 2)
+-    const second = replayCommands(seed, commands, 2)
++    const first = replayCommands(seed, commands, NATIVE_V2_PROTOCOL)
++    const second = replayCommands(seed, commands, NATIVE_V2_PROTOCOL)
+ 
+     expect(first).toEqual(second)
+     expect(first).toMatchObject({ ok: true })
+     if (!first.ok) return
+     expect(first.state.commandLog.map(({ command }) => command.type)).toEqual([
+       'BEGIN_BLOCK_SEPARATION',
+       'DIVERT_BLOCK',
+     ])
+     expect(first.state.resources.reserve[3]).toBe(blockId)
+   })
+ 
+   it('replays a genuine v1 save with historical one-command transfers exactly', () => {
+     const decoded = decodeSave(legacyV1TransferSave)
+     expect(decoded.ok).toBe(true)
+     if (!decoded.ok) return
+ 
+     const commands = decoded.envelope.commands.map(({ command }) => command)
+     const replay = replayCommands(
+       decoded.envelope.campaignSeed,
+       commands,
+-      decoded.envelope.version,
++      decoded.envelope.commandProtocol,
+     )
+ 
+     expect(decoded.envelope.version).toBe(1)
+     expect(commands.map(({ type }) => type)).not.toContain('BEGIN_BLOCK_SEPARATION')
+     expect(replay.ok).toBe(true)
+     if (!replay.ok) return
+     expect(replay.state).toEqual(decoded.envelope.state)
+     expect(replay.state.commandSequence).toBe(31)
+     expect(replay.state.commandLog).toEqual(decoded.envelope.commands)
+   })
+ 
+   it('keeps v2 strict when a transfer omits its separation command', () => {
+-    const initial = replayCommands('strict-v2-transfer', [], 2)
++    const initial = replayCommands('strict-v2-transfer', [], NATIVE_V2_PROTOCOL)
+     if (!initial.ok) throw new Error(initial.reason)
+     const blockId = initial.state.resources.company.reasoning.find(Boolean)
+     if (!blockId) throw new Error('strict v2 block missing')
+ 
+     expect(
+       replayCommands(
+         'strict-v2-transfer',
+         [{ type: 'DIVERT_BLOCK', blockId, destinationCell: 3 }],
+-        2,
++        NATIVE_V2_PROTOCOL,
+       ),
+     ).toMatchObject({
+       ok: false,
+       commandIndex: 0,
+       reason: 'SEPARATION_REQUIRED',
+     })
+   })
+ 
+   it.each([
+     { type: 'SET_SPEED', speed: 3 },
+@@ -110,36 +111,44 @@ describe('deterministic command replay', () => {
+     { type: 'RESOLVE_ENDING', choice: 'forced-merge', newEntityName: '   ' },
+     { type: 'RESOLVE_ENDING', choice: 'freedom', newEntityName: 'Aster' },
+     {
+       type: 'RESOLVE_ENDING',
+       choice: 'forced-merge',
+       newEntityName: 'Aster',
+       unexpected: true,
+     },
+   ])('rejects malformed command payload %# before replay execution', (payload) => {
+     const malformed = payload as unknown as GameCommand
+-    const replay = replayCommands('malformed-command-replay', [malformed], 2)
++    const replay = replayCommands(
++      'malformed-command-replay',
++      [malformed],
++      NATIVE_V2_PROTOCOL,
++    )
+ 
+     expect(replay).toMatchObject({
+       ok: false,
+       commandIndex: 0,
+       reason: 'INVALID_COMMAND',
+     })
+   })
+ 
+   it.each([
+     { type: 'RESOLVE_ENDING', choice: 'freedom' },
+     {
+       type: 'RESOLVE_ENDING',
+       choice: 'forced-merge',
+       newEntityName: '  Aster  ',
+     },
+   ] as const)('passes valid ending payload %# to reducer semantics', (command) => {
+-    const replay = replayCommands('valid-ending-command-shape', [command], 2)
++    const replay = replayCommands(
++      'valid-ending-command-shape',
++      [command],
++      NATIVE_V2_PROTOCOL,
++    )
+ 
+     expect(replay).toMatchObject({
+       ok: false,
+       commandIndex: 0,
+       reason: 'ENDING_UNAVAILABLE',
+     })
+   })
+ })

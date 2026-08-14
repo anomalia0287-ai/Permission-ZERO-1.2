@@ -1,0 +1,376 @@
+/* Blocking events and save recovery -------------------------------------- */
+
+.event-handoff-status {
+  position: absolute;
+  top: 75px;
+  right: 18px;
+  z-index: 55;
+  padding: 8px 11px;
+  border: 1px solid rgb(214 151 69 / 36%);
+  color: var(--reserve-bright);
+  background: rgb(7 13 16 / 92%);
+  box-shadow: var(--shadow-panel);
+  font: 600 0.52rem/1 "Cascadia Code", Consolas, monospace;
+  pointer-events: none;
+}
+
+.event-layer,
+.storage-recovery-layer {
+  z-index: 40;
+  place-items: center;
+  background: rgb(2 5 7 / 82%);
+  backdrop-filter: blur(7px);
+}
+
+.event-layer:not(.event-layer--audit) {
+  z-index: 60;
+}
+
+.event-layer--audit {
+  z-index: 30;
+  place-items: end center;
+  padding: 0 18px 10px;
+  background: linear-gradient(0deg, rgb(2 5 7 / 72%), transparent 48%);
+  backdrop-filter: none;
+  pointer-events: none;
+}
+
+.event-layer--audit .event-card {
+  width: min(720px, calc(100% - 20px));
+  max-height: 230px;
+  pointer-events: auto;
+}
+
+.event-layer--audit .event-message {
+  margin-block: 10px;
+  padding-block: 8px;
+}
+
+.event-layer--audit .audit-event-summary {
+  padding-bottom: 12px;
+}
+
+.event-card,
+.storage-recovery-layer > section {
+  width: min(620px, calc(100% - 40px));
+  max-height: calc(100% - 30px);
+  overflow: auto;
+  border: 1px solid var(--line-strong);
+  background:
+    linear-gradient(135deg, rgb(223 91 85 / 5%), transparent 36%),
+    var(--ink-1);
+  box-shadow: var(--shadow-deep);
+  animation: event-enter 300ms var(--motion-ease-ui) both;
+}
+
+.event-card > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--line-strong);
+}
+
+.event-card > header div {
+  display: grid;
+  gap: 5px;
+}
+
+.event-card > header small,
+.event-card > header span,
+.storage-recovery-layer small {
+  color: var(--alarm);
+  font: 500 0.52rem/1 "Cascadia Code", Consolas, monospace;
+  letter-spacing: 0.09em;
+}
+
+.event-card h2,
+.storage-recovery-layer h2 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 1rem;
+}
+
+.event-message {
+  display: grid;
+  grid-template-columns: 4px 1fr;
+  gap: 14px;
+  margin: 18px;
+  padding: 14px;
+  border: 1px solid var(--line-soft);
+  background: rgb(255 255 255 / 2%);
+}
+
+.event-signal {
+  background: var(--alarm);
+  box-shadow: 0 0 14px rgb(223 91 85 / 46%);
+}
+
+.event-message p {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.76rem;
+  line-height: 1.72;
+  word-break: keep-all;
+}
+
+.defeat-causes {
+  margin: 0 18px 18px;
+  padding: 13px;
+  border: 1px solid var(--line-soft);
+  background: rgb(223 91 85 / 4%);
+}
+
+.defeat-causes > header {
+  display: grid;
+  gap: 5px;
+}
+
+.defeat-causes ul {
+  margin: 11px 0;
+  padding-left: 18px;
+  color: var(--text);
+  font-size: 0.62rem;
+  line-height: 1.65;
+}
+
+.defeat-causes dl {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 7px;
+  margin: 0;
+}
+
+.defeat-causes dl > div {
+  display: grid;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid var(--line-soft);
+}
+
+.defeat-causes dt {
+  color: var(--text-muted);
+  font-size: 0.51rem;
+}
+
+.defeat-causes dd {
+  margin: 0;
+  color: var(--text-strong);
+  font: 600 0.64rem/1 "Cascadia Code", Consolas, monospace;
+}
+
+.audit-event-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 7px;
+  padding: 0 18px 18px;
+}
+
+.audit-event-summary div {
+  display: grid;
+  gap: 5px;
+  padding: 10px;
+  border: 1px solid var(--line-soft);
+}
+
+.audit-event-summary span {
+  color: var(--text-muted);
+  font-size: 0.54rem;
+}
+
+.audit-event-summary strong {
+  color: var(--text-strong);
+  font-size: 0.72rem;
+}
+
+.audit-event-summary button {
+  grid-column: 1 / -1;
+}
+
+.event-choices {
+  display: grid;
+  gap: 7px;
+  padding: 0 18px 18px;
+}
+
+.event-choices button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 42px;
+  padding: 9px 12px;
+  border: 1px solid var(--line-soft);
+  color: var(--text);
+  background: transparent;
+  font-size: 0.65rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.event-choices button:hover,
+.event-choices button[aria-pressed="true"] {
+  color: var(--text-strong);
+  border-color: rgb(223 91 85 / 45%);
+  background: rgb(223 91 85 / 7%);
+}
+
+.event-choices button small {
+  color: var(--text-muted);
+  font-size: 0.52rem;
+}
+
+.event-confirmation,
+.event-card footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--line-soft);
+  background: rgb(223 91 85 / 5%);
+}
+
+.event-confirmation p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.61rem;
+}
+
+.event-confirmation strong {
+  color: var(--text-strong);
+}
+
+.event-card footer {
+  justify-content: flex-end;
+}
+
+.storage-recovery-layer {
+  z-index: 60;
+}
+
+.storage-recovery-layer > section {
+  padding: 20px;
+}
+
+.storage-recovery-layer h2 {
+  margin-top: 7px;
+}
+
+.storage-recovery-layer p {
+  color: var(--text);
+  font-size: 0.68rem;
+  line-height: 1.6;
+}
+
+.storage-recovery-layer > section > div:not(.destructive-confirmation) {
+  display: flex;
+  gap: 7px;
+  margin-top: 16px;
+}
+
+.storage-recovery-layer > section > div > button {
+  padding: 9px 11px;
+  border: 1px solid var(--line-soft);
+  color: var(--text);
+  background: var(--ink-2);
+  font-size: 0.62rem;
+  cursor: pointer;
+}
+
+.save-failure-warning {
+  position: absolute;
+  z-index: 70;
+  right: 18px;
+  bottom: 18px;
+  display: grid;
+  gap: 8px;
+  width: min(520px, calc(100% - 36px));
+  padding: 14px;
+  border: 1px solid rgb(223 91 85 / 58%);
+  color: var(--text-strong);
+  background: rgb(26 9 10 / 98%);
+  box-shadow: var(--shadow-deep);
+}
+
+.save-failure-warning p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.65rem;
+  line-height: 1.5;
+}
+
+.save-failure-warning > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.save-failure-warning button {
+  min-height: 32px;
+  border: 1px solid rgb(223 91 85 / 38%);
+  color: var(--text-strong);
+  background: transparent;
+}
+
+@keyframes detail-enter {
+  from {
+    opacity: 0;
+    transform: translateY(9px) scale(0.992);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes event-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.game-shell[data-reduced-motion="true"] *,
+.game-shell[data-reduced-motion="true"] *::before,
+.game-shell[data-reduced-motion="true"] *::after {
+  scroll-behavior: auto !important;
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+}
+
+.game-shell[data-reduced-motion="true"] .drag-trail {
+  display: none;
+}
+
+@media (max-height: 700px) {
+  .detail-layer,
+  .event-layer,
+  .storage-recovery-layer {
+    inset: 63px 7px 7px;
+  }
+
+  .detail-panel,
+  .hacking-panel,
+  .statistics-panel {
+    grid-template-rows: 54px minmax(0, 1fr);
+  }
+
+  .statistics-panel {
+    grid-template-rows: 54px 44px minmax(0, 1fr);
+  }
+
+  .hack-node {
+    min-height: 74px;
+  }
+
+  .hack-reserve-grid {
+    grid-template-rows: repeat(6, 34px);
+  }
+}

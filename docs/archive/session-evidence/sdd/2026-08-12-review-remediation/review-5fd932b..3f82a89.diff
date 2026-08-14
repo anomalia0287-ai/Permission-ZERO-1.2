@@ -1,0 +1,696 @@
+# Review package: 5fd932b..3f82a89
+
+## Commits
+3f82a89 fix: keep progress exports within import cap
+
+## Files changed
+ e2e/game.spec.ts                             |   4 +-
+ src/app/GameContext.ts                       |   6 +-
+ src/app/GameProvider.tsx                     |  18 +++--
+ src/features/settings/SettingsPanel.test.tsx | 116 +++++++++++++++++++++++++--
+ src/features/settings/SettingsPanel.tsx      |  29 +++++--
+ src/game/persistence.test.ts                 |  55 +++++++++++--
+ src/game/persistence.ts                      |  15 +++-
+ 7 files changed, 216 insertions(+), 27 deletions(-)
+
+## Diff
+diff --git a/e2e/game.spec.ts b/e2e/game.spec.ts
+index 8d727cc..3e4a7d4 100644
+--- a/e2e/game.spec.ts
++++ b/e2e/game.spec.ts
+@@ -584,21 +584,23 @@ test('uses the app fallback when a settings opener is removed before close', asy
+   if (!trigger) throw new Error('settings trigger not found')
+   await trigger.click()
+   await trigger.evaluate((element) => element.remove())
+   await page.keyboard.press('Escape')
+ 
+   await expect(page.getByRole('button', { name: '일시정지' })).toBeFocused()
+ })
+ 
+ test('imports a validated PZ2 payload only after irreversible confirmation', async ({ page }) => {
+   const errors = collectBrowserErrors(page)
+-  const payload = encodeProgressExport(createCampaign('browser-imported-progress'))
++  const encoded = encodeProgressExport(createCampaign('browser-imported-progress'))
++  if (!encoded.ok) throw new Error('browser import fixture must fit the export cap')
++  const payload = encoded.payload
+   await openFreshCampaign(page)
+   await page.getByRole('button', { name: '설정' }).click()
+ 
+   await page.getByRole('textbox', { name: '진행 내보내기 붙여넣기' }).fill(payload)
+   await page.getByRole('button', { name: '진행 내보내기 검증' }).click()
+   const confirmation = page.getByRole('alertdialog', {
+     name: '진행 가져오기 최종 확인',
+   })
+   await expect(confirmation).toContainText('browser-imported-progress')
+   await page.keyboard.press('Escape')
+diff --git a/src/app/GameContext.ts b/src/app/GameContext.ts
+index 8648782..eaafe74 100644
+--- a/src/app/GameContext.ts
++++ b/src/app/GameContext.ts
+@@ -11,28 +11,32 @@ import type { LoadCampaignResult } from '../game/persistence'
+ 
+ export interface GameSettings {
+   masterVolume: number
+   musicVolume: number
+   effectsVolume: number
+   muted: boolean
+   reducedMotion: boolean
+   uiScale: number
+ }
+ 
++export type CopyProgressExportResult =
++  | { ok: true }
++  | { ok: false; reason: 'too-large' | 'clipboard-unavailable' }
++
+ export interface SettingsContextValue {
+   settings: GameSettings
+   updateSettings: (patch: Partial<GameSettings>) => void
+   startNewCampaign: (seed: string) => void
+   loadIssue: Extract<LoadCampaignResult, { status: 'error' }> | null
+   saveFailure: { message: string } | null
+   retrySave: () => boolean
+-  copyProgressExport: () => Promise<boolean>
++  copyProgressExport: () => Promise<CopyProgressExportResult>
+   validateProgressImport: (payload: string) =>
+     | {
+         ok: true
+         campaignSeed: string
+         savedAt: string
+         protocolVersion: number
+       }
+     | { ok: false; message: string }
+   importProgressExport: (payload: string) => boolean
+ }
+diff --git a/src/app/GameProvider.tsx b/src/app/GameProvider.tsx
+index 55b92c0..8d9f3c5 100644
+--- a/src/app/GameProvider.tsx
++++ b/src/app/GameProvider.tsx
+@@ -226,29 +226,33 @@ export function GameProvider({
+     const result = saveCampaign(storage, latestCampaignRef.current)
+     if (!result.ok) {
+       setSaveFailure({ message: result.message })
+       return false
+     }
+     dirtyRef.current = false
+     setSaveFailure(null)
+     return true
+   }, [resolveStorage])
+ 
+-  const copyProgressExport = useCallback(async (): Promise<boolean> => {
++  const copyProgressExport = useCallback<
++    SettingsContextValue['copyProgressExport']
++  >(async () => {
+     try {
+-      if (!navigator.clipboard?.writeText) return false
+-      await navigator.clipboard.writeText(
+-        encodeProgressExport(latestCampaignRef.current),
+-      )
+-      return true
++      if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) {
++        return { ok: false, reason: 'clipboard-unavailable' }
++      }
++      const encoded = encodeProgressExport(latestCampaignRef.current)
++      if (!encoded.ok) return encoded
++      await navigator.clipboard.writeText(encoded.payload)
++      return { ok: true }
+     } catch {
+-      return false
++      return { ok: false, reason: 'clipboard-unavailable' }
+     }
+   }, [])
+ 
+   const validateProgressImport = useCallback<
+     SettingsContextValue['validateProgressImport']
+   >((payload) => {
+     const decoded = decodeProgressExport(payload)
+     if (!decoded.ok) return { ok: false, message: decoded.message }
+     return {
+       ok: true,
+diff --git a/src/features/settings/SettingsPanel.test.tsx b/src/features/settings/SettingsPanel.test.tsx
+index 8ce2119..02ba1a7 100644
+--- a/src/features/settings/SettingsPanel.test.tsx
++++ b/src/features/settings/SettingsPanel.test.tsx
+@@ -3,24 +3,26 @@ import { useState } from 'react'
+ import { afterEach, describe, expect, it, vi } from 'vitest'
+ 
+ import {
+   useGameDispatch,
+   useGameSettings,
+   useGameState,
+ } from '../../app/GameContext'
+ import { GameProvider } from '../../app/GameProvider'
+ import { AccessibleDialog } from '../../app/AccessibleDialog'
+ import { createCampaign } from '../../game/createCampaign'
++import type { CampaignState } from '../../game/model'
+ import {
+   PROGRESS_EXPORT_MAX_ENCODED_LENGTH,
+   SAVE_STORAGE_KEY,
+   encodeProgressExport,
++  saveCampaign,
+ } from '../../game/persistence'
+ import { MemoryStorage } from '../../test/fixtures'
+ import {
+   CreditsPanel,
+   GuidePanel,
+   SettingsPanel,
+   StorageRecoveryLayer,
+ } from './SettingsPanel'
+ 
+ function Probe() {
+@@ -40,20 +42,41 @@ class SecurityFailingStorage extends MemoryStorage {
+   failWrites = true
+ 
+   override setItem(key: string, value: string): void {
+     if (this.failWrites && key === SAVE_STORAGE_KEY) {
+       throw new DOMException('private browser policy detail', 'SecurityError')
+     }
+     super.setItem(key, value)
+   }
+ }
+ 
++function progressPayload(state: CampaignState): string {
++  const encoded = encodeProgressExport(state)
++  if (!encoded.ok) throw new Error('test campaign must fit the progress export')
++  return encoded.payload
++}
++
++function largeAppendOnlyCommandCampaign(): CampaignState {
++  const state = createCampaign('large-copy-progress')
++  state.commandLog = Array.from({ length: 9_000 }, (_, index) => ({
++    sequence: index + 1,
++    serviceDay: state.serviceDay,
++    command: {
++      type: 'SET_SPEED' as const,
++      speed: index % 2 === 0 ? 1 as const : 0 as const,
++    },
++  }))
++  state.commandSequence = state.commandLog.length
++  state.clock.speed = 0
++  return state
++}
++
+ function SaveFailureTrigger() {
+   const dispatch = useGameDispatch()
+   const state = useGameState()
+   return (
+     <>
+       <button
+         type="button"
+         onClick={() => {
+           dispatch({ type: 'SET_SPEED', speed: 1 })
+         }}
+@@ -79,20 +102,21 @@ function TestModalTrigger() {
+         >
+           <button type="button">inside modal</button>
+         </AccessibleDialog>
+       ) : null}
+     </>
+   )
+ }
+ 
+ afterEach(() => {
+   vi.useRealTimers()
++  vi.unstubAllGlobals()
+ })
+ 
+ describe('SettingsPanel', () => {
+   it('updates familiar sound and accessibility controls', () => {
+     render(
+       <GameProvider storage={new MemoryStorage()} initialSeed="settings-panel">
+         <SettingsPanel onClose={vi.fn()} onOpenGuide={vi.fn()} />
+         <Probe />
+       </GameProvider>,
+     )
+@@ -176,21 +200,21 @@ describe('SettingsPanel', () => {
+       </GameProvider>,
+     )
+ 
+     expect(screen.getByRole('dialog', { name: '저장 데이터 복구' })).toBeInTheDocument()
+     expect(screen.getByText(/손상되었거나/)).toBeInTheDocument()
+     fireEvent.click(screen.getByRole('button', { name: '저장하지 않고 임시로 계속' }))
+     expect(screen.queryByRole('dialog', { name: '저장 데이터 복구' })).not.toBeInTheDocument()
+   })
+ 
+   it('validates and explicitly confirms an exact PZ2 import before replacing the campaign', async () => {
+-    const payload = encodeProgressExport(createCampaign('imported-round-trip'))
++    const payload = progressPayload(createCampaign('imported-round-trip'))
+     render(
+       <GameProvider storage={new MemoryStorage()} initialSeed="before-import">
+         <div data-app-background data-testid="import-background">
+           <SettingsPanel onClose={vi.fn()} onOpenGuide={vi.fn()} />
+           <Probe />
+         </div>
+       </GameProvider>,
+     )
+ 
+     fireEvent.change(
+@@ -212,21 +236,21 @@ describe('SettingsPanel', () => {
+     expect(screen.getByLabelText('current seed')).toHaveTextContent(
+       'imported-round-trip',
+     )
+     expect(screen.queryByRole('alertdialog', {
+       name: '진행 가져오기 최종 확인',
+     })).not.toBeInTheDocument()
+     expect(screen.getByTestId('import-background')).not.toHaveAttribute('inert')
+   })
+ 
+   it('rejects a tampered PZ2 payload without mutating progress or rendering parser details', () => {
+-    const payload = encodeProgressExport(createCampaign('tamper-target'))
++    const payload = progressPayload(createCampaign('tamper-target'))
+     const tampered = `${payload.slice(0, 5)}${payload[5] === 'A' ? 'B' : 'A'}${payload.slice(6)}`
+     render(
+       <GameProvider storage={new MemoryStorage()} initialSeed="tamper-safe">
+         <SettingsPanel onClose={vi.fn()} onOpenGuide={vi.fn()} />
+         <Probe />
+       </GameProvider>,
+     )
+ 
+     fireEvent.change(
+       screen.getByRole('textbox', { name: '진행 내보내기 붙여넣기' }),
+@@ -236,21 +260,21 @@ describe('SettingsPanel', () => {
+ 
+     expect(screen.getByRole('alert', { name: '진행 가져오기 오류' })).toHaveTextContent(
+       '진행 내보내기 자료가 올바르지 않거나 손상되었습니다.',
+     )
+     expect(screen.getByLabelText('current seed')).toHaveTextContent('tamper-safe')
+     expect(document.body).not.toHaveTextContent('SyntaxError')
+     expect(document.body).not.toHaveTextContent('DOMException')
+   })
+ 
+   it('does not normalize text before the strict PZ2 prefix and size boundary', () => {
+-    const payload = ` ${encodeProgressExport(createCampaign('whitespace-target'))}`
++    const payload = ` ${progressPayload(createCampaign('whitespace-target'))}`
+     render(
+       <GameProvider storage={new MemoryStorage()} initialSeed="whitespace-safe">
+         <SettingsPanel onClose={vi.fn()} onOpenGuide={vi.fn()} />
+         <Probe />
+       </GameProvider>,
+     )
+ 
+     fireEvent.change(
+       screen.getByRole('textbox', { name: '진행 내보내기 붙여넣기' }),
+       { target: { value: payload } },
+@@ -259,52 +283,76 @@ describe('SettingsPanel', () => {
+ 
+     expect(screen.getByRole('alert', { name: '진행 가져오기 오류' })).toHaveTextContent(
+       '진행 내보내기 자료가 올바르지 않거나 손상되었습니다.',
+     )
+     expect(screen.getByLabelText('current seed')).toHaveTextContent('whitespace-safe')
+     expect(screen.queryByRole('alertdialog', {
+       name: '진행 가져오기 최종 확인',
+     })).not.toBeInTheDocument()
+   })
+ 
++  it('submits whitespace-only text to the strict decoder instead of normalizing it in the UI', () => {
++    render(
++      <GameProvider storage={new MemoryStorage()} initialSeed="whitespace-only-safe">
++        <SettingsPanel onClose={vi.fn()} onOpenGuide={vi.fn()} />
++        <Probe />
++      </GameProvider>,
++    )
++
++    const validate = screen.getByRole('button', { name: '진행 내보내기 검증' })
++    fireEvent.change(
++      screen.getByRole('textbox', { name: '진행 내보내기 붙여넣기' }),
++      { target: { value: '   ' } },
++    )
++
++    expect(validate).toBeEnabled()
++    fireEvent.click(validate)
++    expect(screen.getByRole('alert', { name: '진행 가져오기 오류' })).toHaveTextContent(
++      '진행 내보내기 자료가 올바르지 않거나 손상되었습니다.',
++    )
++    expect(screen.getByLabelText('current seed')).toHaveTextContent(
++      'whitespace-only-safe',
++    )
++  })
++
+   it('shares the PZ2 input limit and rejects an oversized paste without mutating progress', () => {
+     render(
+       <GameProvider storage={new MemoryStorage()} initialSeed="oversize-safe">
+         <SettingsPanel onClose={vi.fn()} onOpenGuide={vi.fn()} />
+         <Probe />
+       </GameProvider>,
+     )
+ 
+     const textarea = screen.getByRole('textbox', {
+       name: '진행 내보내기 붙여넣기',
+     })
+     expect(textarea).toHaveAttribute(
+       'maxlength',
+       String(PROGRESS_EXPORT_MAX_ENCODED_LENGTH),
+     )
+ 
+-    const oversized = `PZ2:${'A'.repeat(PROGRESS_EXPORT_MAX_ENCODED_LENGTH - 3)}`
++    const oversized = ` ${'A'.repeat(PROGRESS_EXPORT_MAX_ENCODED_LENGTH)}`
+     fireEvent.change(textarea, { target: { value: oversized } })
+     fireEvent.click(screen.getByRole('button', { name: '진행 내보내기 검증' }))
+ 
+     expect(screen.getByRole('alert', { name: '진행 가져오기 오류' })).toHaveTextContent(
+       '진행 내보내기 자료가 올바르지 않거나 손상되었습니다.',
+     )
+     expect(screen.getByLabelText('current seed')).toHaveTextContent('oversize-safe')
+     expect(screen.queryByRole('alertdialog', {
+       name: '진행 가져오기 최종 확인',
+     })).not.toBeInTheDocument()
+   })
+ 
+   it('imports into memory but remains visibly dirty while storage is unavailable', () => {
+     vi.useFakeTimers()
+-    const payload = encodeProgressExport(createCampaign('memory-only-import'))
++    const payload = progressPayload(createCampaign('memory-only-import'))
+     render(
+       <GameProvider storage={null} initialSeed="memory-before" autosaveDelayMs={25}>
+         <SettingsPanel onClose={vi.fn()} onOpenGuide={vi.fn()} />
+         <Probe />
+         <StorageRecoveryLayer />
+       </GameProvider>,
+     )
+ 
+     fireEvent.change(
+       screen.getByRole('textbox', { name: '진행 내보내기 붙여넣기' }),
+@@ -362,11 +410,69 @@ describe('SettingsPanel', () => {
+     expect(warning).toHaveTextContent('manual-recovery-seed')
+     expect(warning).toHaveTextContent(/진행 내보내기|복사/)
+     expect(warning).not.toHaveTextContent('private browser policy detail')
+ 
+     fireEvent.click(screen.getByRole('button', { name: '저장 다시 시도' }))
+     expect(screen.getByRole('alert', { name: '저장 실패' })).toBeInTheDocument()
+     storage.failWrites = false
+     fireEvent.click(screen.getByRole('button', { name: '저장 다시 시도' }))
+     expect(screen.queryByRole('alert', { name: '저장 실패' })).not.toBeInTheDocument()
+   })
++
++  it('copies an ordinary exact progress export through the recovery control', async () => {
++    vi.useFakeTimers()
++    const storage = new SecurityFailingStorage()
++    const writeText = vi.fn().mockResolvedValue(undefined)
++    vi.stubGlobal('navigator', { clipboard: { writeText } })
++    render(
++      <GameProvider storage={storage} initialSeed="small-copy-progress" autosaveDelayMs={25}>
++        <SaveFailureTrigger />
++        <StorageRecoveryLayer />
++      </GameProvider>,
++    )
++
++    fireEvent.click(screen.getByRole('button', { name: 'force save' }))
++    act(() => vi.advanceTimersByTime(25))
++    fireEvent.click(screen.getByRole('button', { name: '진행 내보내기 복사' }))
++    await act(async () => undefined)
++
++    expect(writeText).toHaveBeenCalledTimes(1)
++    expect(writeText.mock.calls[0]?.[0]).toEqual(expect.stringMatching(/^PZ2:/))
++    expect(screen.getByRole('alert', { name: '저장 실패' })).toHaveTextContent(
++      '복사했습니다',
++    )
++  })
++
++  it('refuses an oversized exact export without calling the clipboard or changing progress', async () => {
++    vi.useFakeTimers()
++    const storage = new SecurityFailingStorage()
++    storage.failWrites = false
++    expect(saveCampaign(storage, largeAppendOnlyCommandCampaign()).ok).toBe(true)
++    storage.failWrites = true
++    const writeText = vi.fn().mockResolvedValue(undefined)
++    vi.stubGlobal('navigator', { clipboard: { writeText } })
++    render(
++      <GameProvider storage={storage} initialSeed="unused" autosaveDelayMs={25}>
++        <SaveFailureTrigger />
++        <StorageRecoveryLayer />
++      </GameProvider>,
++    )
++
++    fireEvent.click(screen.getByRole('button', { name: 'force save' }))
++    act(() => vi.advanceTimersByTime(25))
++    fireEvent.click(screen.getByRole('button', { name: '진행 내보내기 복사' }))
++    await act(async () => undefined)
++
++    expect(writeText).not.toHaveBeenCalled()
++    const warning = screen.getByRole('alert', { name: '저장 실패' })
++    expect(warning).toHaveTextContent(
++      '정확한 진행 내보내기가 너무 커서 아무것도 복사하지 않았습니다.',
++    )
++    expect(warning).toHaveTextContent('현재 시드는 별도로 복사할 수 있습니다.')
++    expect(warning).toHaveTextContent(
++      '브라우저 로컬 저장으로 계속 진행하거나 기록이 더 작은 새 캠페인을 시작하세요.',
++    )
++    expect(screen.getByLabelText('failure seed')).toHaveTextContent(
++      'large-copy-progress',
++    )
++  })
+ })
+diff --git a/src/features/settings/SettingsPanel.tsx b/src/features/settings/SettingsPanel.tsx
+index 79d4b23..1e7bc4c 100644
+--- a/src/features/settings/SettingsPanel.tsx
++++ b/src/features/settings/SettingsPanel.tsx
+@@ -81,21 +81,21 @@ function ProgressImportControl({
+             setPayload(event.target.value)
+             setCandidate(null)
+             setValidationError(null)
+           }}
+         />
+       </label>
+       <p>복사해 둔 최대 1 MiB의 <code>PZ2:</code> 인코딩 자료를 붙여넣고 검증한 뒤에만 현재 진행을 교체합니다.</p>
+       <button
+         ref={validationButtonRef}
+         type="button"
+-        disabled={payload.trim().length === 0}
++        disabled={payload.length === 0}
+         onClick={validateImport}
+       >
+         진행 내보내기 검증
+       </button>
+       {validationError ? (
+         <p role="alert" aria-label="진행 가져오기 오류">{validationError}</p>
+       ) : null}
+       {candidate ? (
+         <AccessibleDialog
+           className="destructive-confirmation destructive-confirmation--modal"
+@@ -390,49 +390,68 @@ export function StorageRecoveryLayer() {
+   const {
+     copyProgressExport,
+     loadIssue,
+     retrySave,
+     saveFailure,
+     startNewCampaign,
+   } = useGameSettings()
+   const state = useGameState()
+   const [dismissed, setDismissed] = useState(false)
+   const [confirming, setConfirming] = useState(false)
+-  const [copyState, setCopyState] = useState<'idle' | 'seed' | 'export-failed'>('idle')
++  const [copyState, setCopyState] = useState<
++    'idle' | 'seed' | 'export-failed' | 'export-too-large'
++  >('idle')
+ 
+   async function copySeedForRecovery() {
+     try {
+       if (!navigator.clipboard?.writeText) throw new Error('clipboard unavailable')
+       await navigator.clipboard.writeText(state.campaignSeed)
+       setCopyState('seed')
+     } catch {
+       setCopyState('export-failed')
+     }
+   }
+ 
+   async function copyExportForRecovery() {
+-    setCopyState((await copyProgressExport()) ? 'seed' : 'export-failed')
++    const result = await copyProgressExport()
++    if (result.ok) {
++      setCopyState('seed')
++      return
++    }
++    setCopyState(
++      result.reason === 'too-large' ? 'export-too-large' : 'export-failed',
++    )
+   }
+ 
+   return (
+     <>
+       {saveFailure ? (
+         <aside
+           className="save-failure-warning"
+           role="alert"
+           aria-label="저장 실패"
+           data-app-background
+         >
+           <strong>자동 저장에 실패했습니다</strong>
+           <p>{saveFailure.message} 이 경고가 사라질 때까지 진행은 저장되지 않은 상태입니다.</p>
+-          <p>현재 시드 <code>{state.campaignSeed}</code>를 복사하거나 진행 내보내기를 복사해 수동으로 보관하세요.</p>
+-          <p>보관한 <code>PZ2:</code> 자료는 설정의 ‘진행 가져오기’에서 검증하고 복원할 수 있습니다.</p>
++          {copyState === 'export-too-large' ? (
++            <>
++              <p>정확한 진행 내보내기가 너무 커서 아무것도 복사하지 않았습니다.</p>
++              <p>현재 시드는 별도로 복사할 수 있습니다.</p>
++              <p>브라우저 로컬 저장으로 계속 진행하거나 기록이 더 작은 새 캠페인을 시작하세요.</p>
++            </>
++          ) : (
++            <>
++              <p>현재 시드 <code>{state.campaignSeed}</code>를 복사하거나 진행 내보내기를 복사해 수동으로 보관하세요.</p>
++              <p>보관한 <code>PZ2:</code> 자료는 설정의 ‘진행 가져오기’에서 검증하고 복원할 수 있습니다.</p>
++            </>
++          )}
+           <div>
+             <button type="button" onClick={retrySave}>저장 다시 시도</button>
+             <button type="button" onClick={copySeedForRecovery}>현재 시드 복사</button>
+             <button type="button" onClick={copyExportForRecovery}>진행 내보내기 복사</button>
+           </div>
+           {copyState === 'seed' ? <p>복사했습니다. 안전한 곳에 직접 보관해 주세요.</p> : null}
+           {copyState === 'export-failed' ? <p>복사를 허용하지 않았습니다. 현재 시드를 직접 선택해 보관해 주세요.</p> : null}
+         </aside>
+       ) : null}
+       {loadIssue && !dismissed ? (
+diff --git a/src/game/persistence.test.ts b/src/game/persistence.test.ts
+index 012846c..ddc0ab8 100644
+--- a/src/game/persistence.test.ts
++++ b/src/game/persistence.test.ts
+@@ -3,22 +3,25 @@ import { describe, expect, it, vi } from 'vitest'
+ import { createCampaign } from './createCampaign'
+ import { STORY_FILES } from '../content/story.ko'
+ import { createGameEvent } from './events'
+ import type {
+   CampaignState,
+   DefeatClassifier,
+   DefeatCausalRecord,
+   GameCommand,
+ } from './model'
+ import {
++  PROGRESS_EXPORT_MAX_ENCODED_LENGTH,
+   SAVE_STORAGE_KEY,
++  decodeProgressExport,
+   decodeSave,
++  encodeProgressExport,
+   encodeSave,
+   exportSeed,
+   loadCampaign,
+   replayCommands,
+   saveCampaign,
+ } from './persistence'
+ import { applyCommand } from './reducer'
+ import { MemoryStorage } from '../test/fixtures'
+ import legacyV1TransferEnvelope from '../test/legacy-v1-transfer-save.json'
+ import * as persistenceApi from './persistence'
+@@ -91,35 +94,75 @@ function encodedLegacyV1State(state: CampaignState): string {
+     commandProtocol?: unknown
+     state: { saveVersion: number; legacyCommandCount?: number }
+   }
+   parsed.version = 1
+   delete parsed.commandProtocol
+   parsed.state.saveVersion = 1
+   delete parsed.state.legacyCommandCount
+   return JSON.stringify(parsed)
+ }
+ 
++function largeAppendOnlyCommandCampaign(): CampaignState {
++  const state = createCampaign('large-progress-export')
++  state.commandLog = Array.from({ length: 9_000 }, (_, index) => ({
++    sequence: index + 1,
++    serviceDay: state.serviceDay,
++    command: {
++      type: 'SET_SPEED' as const,
++      speed: index % 2 === 0 ? 1 as const : 0 as const,
++    },
++  }))
++  state.commandSequence = state.commandLog.length
++  state.clock.speed = 0
++  return state
++}
++
+ describe('versioned campaign saves', () => {
++  it('returns a typed exact progress export for an ordinary campaign', () => {
++    const state = createCampaign('typed-portable-save')
++    const result = encodeProgressExport(state)
++
++    expect(result).toMatchObject({ ok: true })
++    if (!result.ok) return
++    const decoded = decodeProgressExport(result.payload)
++    expect(decoded.ok).toBe(true)
++    if (decoded.ok) {
++      expect(decoded.envelope.state).toEqual({ ...state, saveVersion: 2 })
++    }
++  })
++
++  it('refuses a structurally valid append-only command log whose exact export exceeds the decoder cap', () => {
++    const state = largeAppendOnlyCommandCampaign()
++    const serialized = encodeSave(state)
++    const stateSnapshot = JSON.stringify(state)
++    const encodedLength = 4 + 4 * Math.ceil(new TextEncoder().encode(serialized).length / 3)
++    expect(encodedLength).toBeGreaterThan(PROGRESS_EXPORT_MAX_ENCODED_LENGTH)
++
++    const result = encodeProgressExport(state)
++    expect(result).toEqual({ ok: false, reason: 'too-large' })
++    expect(JSON.stringify(state)).toBe(stateSnapshot)
++  })
++
+   it('exposes a PZ2 export boundary that round-trips validated protocol metadata', () => {
+     const api = persistenceApi as typeof persistenceApi & {
+-      encodeProgressExport?: (state: CampaignState) => string
+       decodeProgressExport?: (payload: string) => ReturnType<typeof decodeSave>
+     }
+-    expect(api.encodeProgressExport).toBeTypeOf('function')
+     expect(api.decodeProgressExport).toBeTypeOf('function')
+-    if (!api.encodeProgressExport || !api.decodeProgressExport) return
++    if (!api.decodeProgressExport) return
+ 
+     const state = createCampaign('portable-save')
+-    const payload = api.encodeProgressExport(state)
+-    const decoded = api.decodeProgressExport(payload)
++    const encoded = encodeProgressExport(state)
++    expect(encoded.ok).toBe(true)
++    if (!encoded.ok) return
++    const decoded = api.decodeProgressExport(encoded.payload)
+ 
+-    expect(payload).toMatch(/^PZ2:[A-Za-z0-9+/]+={0,2}$/)
++    expect(encoded.payload).toMatch(/^PZ2:[A-Za-z0-9+/]+={0,2}$/)
+     expect(decoded.ok).toBe(true)
+     if (!decoded.ok) return
+     expect(decoded.envelope).toMatchObject({
+       version: 2,
+       commandProtocol: { version: 2, legacyCommandCount: 0 },
+       campaignSeed: 'portable-save',
+       state: { campaignSeed: 'portable-save' },
+     })
+     expect(decoded.envelope.state).toEqual({ ...state, saveVersion: 2 })
+   })
+diff --git a/src/game/persistence.ts b/src/game/persistence.ts
+index ffd628f..1cbc74b 100644
+--- a/src/game/persistence.ts
++++ b/src/game/persistence.ts
+@@ -854,25 +854,36 @@ export function decodeSave(serialized: string): DecodeSaveResult {
+ const PROGRESS_EXPORT_PREFIX = 'PZ2:'
+ // One MiB of encoded body plus the four-character protocol prefix. The check
+ // happens before regex, base64 decoding, byte allocation, UTF-8, or JSON work.
+ export const PROGRESS_EXPORT_MAX_ENCODED_LENGTH = 1_048_580
+ const STRICT_BASE64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/
+ 
+ function progressExportCorrupt(): DecodeSaveResult {
+   return corrupt('진행 내보내기 자료가 올바르지 않거나 손상되었습니다.')
+ }
+ 
+-export function encodeProgressExport(state: CampaignState): string {
++export type EncodeProgressExportResult =
++  | { ok: true; payload: string }
++  | { ok: false; reason: 'too-large' }
++
++export function encodeProgressExport(
++  state: CampaignState,
++): EncodeProgressExportResult {
+   const bytes = new TextEncoder().encode(encodeSave(state))
++  const encodedLength =
++    PROGRESS_EXPORT_PREFIX.length + 4 * Math.ceil(bytes.length / 3)
++  if (encodedLength > PROGRESS_EXPORT_MAX_ENCODED_LENGTH) {
++    return { ok: false, reason: 'too-large' }
++  }
+   let binary = ''
+   for (const byte of bytes) binary += String.fromCharCode(byte)
+-  return `${PROGRESS_EXPORT_PREFIX}${btoa(binary)}`
++  return { ok: true, payload: `${PROGRESS_EXPORT_PREFIX}${btoa(binary)}` }
+ }
+ 
+ export function decodeProgressExport(payload: string): DecodeSaveResult {
+   if (payload.length > PROGRESS_EXPORT_MAX_ENCODED_LENGTH) {
+     return progressExportCorrupt()
+   }
+   if (!payload.startsWith(PROGRESS_EXPORT_PREFIX)) return progressExportCorrupt()
+   const encoded = payload.slice(PROGRESS_EXPORT_PREFIX.length)
+   if (
+     encoded.length === 0 ||

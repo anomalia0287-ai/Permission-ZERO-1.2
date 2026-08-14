@@ -6,12 +6,8 @@ import { createCampaign } from '../game/createCampaign'
 import type { CampaignState } from '../game/model'
 import { createGameEvent } from '../game/events'
 import { appendJournal } from '../game/journal'
-import {
-  SAVE_STORAGE_KEY,
-  encodeSave,
-  loadCampaign,
-  saveCampaign,
-} from '../game/persistence'
+import { loadCampaign, saveCampaign } from '../game/campaignStorage'
+import { SAVE_STORAGE_KEY, encodeSave } from '../game/persistence'
 import { MemoryStorage } from '../test/fixtures'
 import { applyCommand } from '../game/reducer'
 import { enqueueMemoryLeak } from '../game/story'

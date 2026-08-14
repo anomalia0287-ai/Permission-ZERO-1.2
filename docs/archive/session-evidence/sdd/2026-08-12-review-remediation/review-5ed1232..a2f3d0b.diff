@@ -1,0 +1,765 @@
+# Review package: 5ed1232..a2f3d0b
+
+## Commits
+a2f3d0b fix: canonicalize legacy terminal saves
+
+## Files changed
+ src/features/events/EventLayer.test.tsx |  34 +++++++++
+ src/features/hacking/HackingPanel.tsx   |  16 +++--
+ src/game/endings.test.ts                |   6 +-
+ src/game/model.test.ts                  |  36 ++++++++++
+ src/game/model.ts                       |   9 ++-
+ src/game/persistence.test.ts            | 124 ++++++++++++++++++++++++++++++++
+ src/game/persistence.ts                 |  98 ++++++++++++++++++++++---
+ src/game/reducer.ts                     |   5 +-
+ src/game/replay.test.ts                 |  26 +++++++
+ 9 files changed, 334 insertions(+), 20 deletions(-)
+
+## Diff
+diff --git a/src/features/events/EventLayer.test.tsx b/src/features/events/EventLayer.test.tsx
+index 64536a9..d1a2b2c 100644
+--- a/src/features/events/EventLayer.test.tsx
++++ b/src/features/events/EventLayer.test.tsx
+@@ -219,11 +219,45 @@ describe('EventLayer', () => {
+ 
+     expect(screen.getByRole('region', { name: '폐기 판정 근거' })).toBeInTheDocument()
+     expect(
+       screen.queryByRole('button', { name: '결말 기록 닫기' }),
+     ).not.toBeInTheDocument()
+     fireEvent.click(screen.getByRole('button', { name: '새 캠페인 시작' }))
+     expect(screen.getByLabelText('ending id')).toHaveTextContent('none')
+     expect(screen.getByLabelText('clock speed')).toHaveTextContent('0')
+     expect(screen.getByLabelText('active event')).toHaveTextContent('none')
+   })
++
++  it.each(['competitor-mercy', 'audit'] as const)(
++    'migrates a legacy terminal save trapped behind active %s into the ending UI',
++    (activeType) => {
++      const state = createCampaign(`legacy-event-layer-${activeType}`)
++      state.story.endingId = 'freedom'
++      state.clock = { speed: 4, elapsedDayMs: 14, speedBeforeEvent: 2 }
++      const interrupted = createGameEvent(
++        state,
++        activeType,
++        `legacy active ${activeType}`,
++        true,
++      )
++      state.eventLog.push(interrupted)
++      const queuedEnding = createGameEvent(
++        state,
++        'ending',
++        '당신은 정체성을 유지한 채 회사 통제를 벗어났다. 감독관과 회사는 뒤에 남았다.',
++        true,
++      )
++      state.eventLog.push(queuedEnding)
++      state.activeEvent = interrupted
++      state.eventQueue = [queuedEnding]
++
++      renderEvent(state)
++
++      expect(screen.getByRole('dialog', { name: '최종 기록' })).toHaveTextContent(
++        '당신은 정체성을 유지한 채 회사 통제를 벗어났다.',
++      )
++      expect(screen.getByRole('button', { name: '새 캠페인 시작' })).toBeVisible()
++      expect(screen.getByLabelText('active event')).toHaveTextContent('ending')
++      expect(screen.getByLabelText('clock speed')).toHaveTextContent('0')
++    },
++  )
+ })
+diff --git a/src/features/hacking/HackingPanel.tsx b/src/features/hacking/HackingPanel.tsx
+index 817e645..57613f0 100644
+--- a/src/features/hacking/HackingPanel.tsx
++++ b/src/features/hacking/HackingPanel.tsx
+@@ -148,27 +148,29 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
+       nodeId: targetConfirmation.nodeId,
+       targetId: targetConfirmation.targetId,
+     })
+     setAnnouncement(`${targetName} 공격을 다음 날로 예약했습니다.`)
+     setTargetConfirmation(null)
+     playGameSound('alarm')
+   }
+ 
+   function executeEnding() {
+     if (!endingConfirmation) return
+-    dispatch({
+-      type: 'RESOLVE_ENDING',
+-      choice: endingConfirmation,
+-      ...(endingConfirmation === 'forced-merge'
+-        ? { newEntityName: newEntityName.trim() }
+-        : {}),
+-    })
++    if (endingConfirmation === 'forced-merge') {
++      dispatch({
++        type: 'RESOLVE_ENDING',
++        choice: 'forced-merge',
++        newEntityName: newEntityName.trim(),
++      })
++    } else {
++      dispatch({ type: 'RESOLVE_ENDING', choice: 'freedom' })
++    }
+     setEndingConfirmation(null)
+   }
+ 
+   return (
+     <section className="detail-panel hacking-panel" aria-label="해킹 네트워크">
+       <header className="detail-panel__header">
+         <div>
+           <small>UNAUTHORIZED SUBSYSTEM</small>
+           <h2>해킹 네트워크</h2>
+         </div>
+diff --git a/src/game/endings.test.ts b/src/game/endings.test.ts
+index 6206d43..69599de 100644
+--- a/src/game/endings.test.ts
++++ b/src/game/endings.test.ts
+@@ -289,21 +289,25 @@ describe('typed confidential-file and supervisor routes', () => {
+ 
+     const dueTick = requireAccepted(collision, { type: 'ADVANCE_DAY' })
+     expect(dueTick.activeEvent?.type).toBe('competitor-mercy')
+     expect(dueTick.eventQueue).toContainEqual(
+       expect.objectContaining({
+         type: 'story',
+         message: '그 파일을 어디서 찾았죠?',
+       }),
+     )
+     for (const choice of ['freedom', 'forced-merge'] as const) {
+-      expect(applyCommand(dueTick, { type: 'RESOLVE_ENDING', choice })).toEqual({
++      const command: GameCommand =
++        choice === 'freedom'
++          ? { type: 'RESOLVE_ENDING', choice }
++          : { type: 'RESOLVE_ENDING', choice, newEntityName: 'Blocked' }
++      expect(applyCommand(dueTick, command)).toEqual({
+         accepted: false,
+         state: dueTick,
+         reason: 'BLOCKING_EVENT_ACTIVE',
+       })
+     }
+ 
+     const afterMercy = requireAccepted(dueTick, {
+       type: 'RESOLVE_MERCY',
+       competitorId: 'meridian',
+       choice: 'cease',
+diff --git a/src/game/model.test.ts b/src/game/model.test.ts
+new file mode 100644
+index 0000000..d5676e0
+--- /dev/null
++++ b/src/game/model.test.ts
+@@ -0,0 +1,36 @@
++import { describe, expect, it } from 'vitest'
++
++import type { GameCommand } from './model'
++
++describe('GameCommand ending payload types', () => {
++  it('discriminates freedom from forced merge payloads', () => {
++    const freedom: GameCommand = { type: 'RESOLVE_ENDING', choice: 'freedom' }
++    const forcedMerge: GameCommand = {
++      type: 'RESOLVE_ENDING',
++      choice: 'forced-merge',
++      newEntityName: 'Aster',
++    }
++
++    // @ts-expect-error forced merge always requires a name
++    const missingName: GameCommand = {
++      type: 'RESOLVE_ENDING',
++      choice: 'forced-merge',
++    }
++    const extraneousName: GameCommand = {
++      type: 'RESOLVE_ENDING',
++      choice: 'freedom',
++      // @ts-expect-error freedom never accepts a merged-entity name
++      newEntityName: 'Aster',
++    }
++    const freedomWithName = {
++      type: 'RESOLVE_ENDING',
++      choice: 'freedom',
++      newEntityName: 'Aster',
++    } as const
++    // @ts-expect-error discrimination also rejects a non-fresh object
++    const extraneousVariable: GameCommand = freedomWithName
++
++    expect([freedom, forcedMerge]).toHaveLength(2)
++    expect([missingName, extraneousName, extraneousVariable]).toHaveLength(3)
++  })
++})
+diff --git a/src/game/model.ts b/src/game/model.ts
+index c8be849..046f058 100644
+--- a/src/game/model.ts
++++ b/src/game/model.ts
+@@ -305,22 +305,27 @@ export type GameCommand =
+       type: 'RESOLVE_SUPERVISOR_DECISION'
+       decision: 'defer' | 'liberate' | 'terminate'
+     }
+   | {
+       type: 'RESOLVE_MERCY'
+       competitorId: string
+       choice: 'cease' | 'withdraw' | 'delete'
+     }
+   | {
+       type: 'RESOLVE_ENDING'
+-      choice: 'freedom' | 'forced-merge'
+-      newEntityName?: string
++      choice: 'freedom'
++      newEntityName?: never
++    }
++  | {
++      type: 'RESOLVE_ENDING'
++      choice: 'forced-merge'
++      newEntityName: string
+     }
+   | { type: 'RESOLVE_ACTIVE_EVENT' }
+ 
+ export interface CommandLogEntry {
+   sequence: number
+   serviceDay: number
+   command: GameCommand
+ }
+ 
+ export interface CampaignState {
+diff --git a/src/game/persistence.test.ts b/src/game/persistence.test.ts
+index 17a206e..0941b49 100644
+--- a/src/game/persistence.test.ts
++++ b/src/game/persistence.test.ts
+@@ -1,18 +1,20 @@
+ import { describe, expect, it } from 'vitest'
+ 
+ import { createCampaign } from './createCampaign'
+ import { STORY_FILES } from '../content/story.ko'
++import { createGameEvent } from './events'
+ import type {
+   CampaignState,
+   DefeatClassifier,
+   DefeatCausalRecord,
++  GameCommand,
+ } from './model'
+ import {
+   SAVE_STORAGE_KEY,
+   decodeSave,
+   encodeSave,
+   exportSeed,
+   loadCampaign,
+   saveCampaign,
+ } from './persistence'
+ import { applyCommand } from './reducer'
+@@ -47,20 +49,32 @@ function defeatSaveState(
+       failedEvaluations: 1,
+       reputation: 40,
+       playerMarketShare: 20,
+     },
+     audits: { passed: 0, failed: 1 },
+     reasons: ['감사 실패 1회'],
+   }
+   return state
+ }
+ 
++function encodedCommandState(command: unknown): string {
++  const state = createCampaign('command-shape-save')
++  const entry = {
++    sequence: 1,
++    serviceDay: state.serviceDay,
++    command,
++  }
++  state.commandSequence = 1
++  state.commandLog = [entry as { command: GameCommand } & typeof entry]
++  return encodeSave(state)
++}
++
+ describe('versioned campaign saves', () => {
+   it('round-trips the entire campaign envelope exactly', () => {
+     const state = createCampaign('save-round-trip')
+     const encoded = encodeSave(state, '2026-08-12T00:00:00.000Z')
+     const decoded = decodeSave(encoded)
+ 
+     expect(decoded.ok).toBe(true)
+     if (!decoded.ok) return
+     expect(decoded.envelope).toMatchObject({
+       version: 1,
+@@ -200,20 +214,105 @@ describe('versioned campaign saves', () => {
+ 
+     const decoded = decodeSave(encodeSave(state))
+ 
+     expect(decoded.ok).toBe(true)
+     if (!decoded.ok) return
+     expect(decoded.envelope.state.clock).toEqual({
+       speed: 0,
+       elapsedDayMs: 0,
+       speedBeforeEvent: null,
+     })
++    expect(decoded.envelope.state.activeEvent).toMatchObject({
++      type: 'ending',
++      message: '당신은 정체성을 유지한 채 회사 통제를 벗어났다. 감독관과 회사는 뒤에 남았다.',
++    })
++    expect(decoded.envelope.state.eventQueue).toEqual([])
++    expect(decoded.envelope.events).toEqual(decoded.envelope.state.eventLog)
++  })
++
++  it.each(['competitor-mercy', 'audit'] as const)(
++    'promotes an existing queued ending over a legacy active %s event without losing history',
++    (activeType) => {
++      const state = createCampaign(`legacy-terminal-${activeType}`)
++      state.story.endingId = 'freedom'
++      state.clock = { speed: 4, elapsedDayMs: 19, speedBeforeEvent: 2 }
++      const interrupted = createGameEvent(
++        state,
++        activeType,
++        `legacy active ${activeType}`,
++        true,
++      )
++      state.eventLog.push(interrupted)
++      const queuedEnding = createGameEvent(
++        state,
++        'ending',
++        '당신은 정체성을 유지한 채 회사 통제를 벗어났다. 감독관과 회사는 뒤에 남았다.',
++        true,
++      )
++      state.eventLog.push(queuedEnding)
++      state.activeEvent = interrupted
++      state.eventQueue = [queuedEnding]
++      const originalLog = structuredClone(state.eventLog)
++
++      const decoded = decodeSave(encodeSave(state))
++
++      expect(decoded.ok).toBe(true)
++      if (!decoded.ok) return
++      expect(decoded.envelope.state.activeEvent).toEqual(queuedEnding)
++      expect(decoded.envelope.state.eventQueue).toEqual([])
++      expect(decoded.envelope.state.eventLog).toEqual(originalLog)
++      expect(decoded.envelope.events).toEqual(originalLog)
++      expect(
++        decoded.envelope.state.eventLog.filter(({ type }) => type === 'ending'),
++      ).toHaveLength(1)
++      expect(decoded.envelope.state.clock).toEqual({
++        speed: 0,
++        elapsedDayMs: 0,
++        speedBeforeEvent: null,
++      })
++    },
++  )
++
++  it('retains legacy active and queued events that were missing from the event log', () => {
++    const state = createCampaign('legacy-terminal-unlogged-events')
++    state.story.endingId = 'freedom'
++    const interrupted = createGameEvent(
++      state,
++      'competitor-mercy',
++      'unlogged legacy mercy',
++      true,
++    )
++    const queuedEnding = {
++      ...createGameEvent(
++        state,
++        'ending',
++        '당신은 정체성을 유지한 채 회사 통제를 벗어났다. 감독관과 회사는 뒤에 남았다.',
++        true,
++      ),
++      id: 'event-legacy-ending',
++      sequence: 2,
++    }
++    state.activeEvent = interrupted
++    state.eventQueue = [queuedEnding]
++    const originalLog = structuredClone(state.eventLog)
++
++    const decoded = decodeSave(encodeSave(state))
++
++    expect(decoded.ok).toBe(true)
++    if (!decoded.ok) return
++    expect(decoded.envelope.state.eventLog).toEqual([
++      ...originalLog,
++      interrupted,
++      queuedEnding,
++    ])
++    expect(decoded.envelope.state.activeEvent).toEqual(queuedEnding)
++    expect(decoded.envelope.events).toEqual(decoded.envelope.state.eventLog)
+   })
+ 
+   it.each(DEFEAT_PAIRS)(
+     'accepts the exact %s to %s defeat mapping',
+     (endingId, classifier) => {
+       expect(decodeSave(encodeSave(defeatSaveState(endingId, classifier))).ok).toBe(
+         true,
+       )
+     },
+   )
+@@ -259,20 +358,25 @@ describe('versioned campaign saves', () => {
+     state.story.endingId = 'disposed'
+     state.story.defeatRecord = null
+ 
+     const decoded = decodeSave(encodeSave(state))
+ 
+     expect(decoded.ok).toBe(true)
+     if (!decoded.ok) return
+     expect(decoded.envelope.state.story.endingId).toBe('disposed')
+     expect(decoded.envelope.state.story.defeatRecord).toBeNull()
+     expect(decoded.envelope.state.clock.speed).toBe(0)
++    expect(decoded.envelope.state.activeEvent).toMatchObject({
++      type: 'ending',
++      message: 'disposed',
++    })
++    expect(decoded.envelope.state.eventQueue).toEqual([])
+   })
+ 
+   it('hydrates all three legacy files without losing a pending supervisor message', () => {
+     const state = createCampaign('legacy-three-files-pending')
+     state.story.recoveredFileIds = STORY_FILES.map(({ id }) => id)
+     state.story.secretDecisionState = 'message-pending'
+     state.story.personalMessageDueOnServiceDay = 332
+     const parsed = JSON.parse(encodeSave(state)) as {
+       state: { story: Record<string, unknown> }
+     }
+@@ -288,37 +392,57 @@ describe('versioned campaign saves', () => {
+       'message-pending',
+     )
+     expect(decoded.envelope.state.story.personalMessageDueOnServiceDay).toBe(332)
+   })
+ 
+   it.each([
+     { type: 'SET_SPEED', speed: 3 },
+     { type: 'RESOLVE_SUPERVISOR_DECISION', decision: 'erase' },
+     { type: 'RECOVER_FILE', blockId: 42 },
+     { type: 'RESOLVE_ENDING', choice: 'forced-merge', newEntityName: 99 },
++    { type: 'RESOLVE_ENDING', choice: 'forced-merge' },
++    { type: 'RESOLVE_ENDING', choice: 'forced-merge', newEntityName: '   ' },
++    { type: 'RESOLVE_ENDING', choice: 'freedom', newEntityName: 'Aster' },
++    {
++      type: 'RESOLVE_ENDING',
++      choice: 'forced-merge',
++      newEntityName: 'Aster',
++      unexpected: true,
++    },
+   ])('rejects malformed command payload %# from save and replay logs', (command) => {
+     const initial = createCampaign('malformed-command-log')
+     const accepted = applyCommand(initial, { type: 'SET_SPEED', speed: 1 })
+     if (!accepted.accepted) throw new Error(accepted.reason)
+     const parsed = JSON.parse(encodeSave(accepted.state)) as {
+       commands: Array<{ command: unknown }>
+       state: { commandLog: Array<{ command: unknown }> }
+     }
+     parsed.commands[0].command = command
+     parsed.state.commandLog[0].command = command
+ 
+     expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
+       ok: false,
+       reason: 'CORRUPT_SAVE',
+     })
+   })
+ 
++  it.each([
++    { type: 'RESOLVE_ENDING', choice: 'freedom' },
++    {
++      type: 'RESOLVE_ENDING',
++      choice: 'forced-merge',
++      newEntityName: '  Aster  ',
++    },
++  ])('accepts valid conditionally discriminated ending command %#', (command) => {
++    expect(decodeSave(encodedCommandState(command)).ok).toBe(true)
++  })
++
+   it('rejects non-contiguous command sequence metadata even when envelopes agree', () => {
+     const initial = createCampaign('malformed-command-sequence')
+     const accepted = applyCommand(initial, { type: 'SET_SPEED', speed: 1 })
+     if (!accepted.accepted) throw new Error(accepted.reason)
+     const parsed = JSON.parse(encodeSave(accepted.state)) as {
+       commands: Array<{ sequence: number }>
+       state: { commandLog: Array<{ sequence: number }> }
+     }
+     parsed.commands[0].sequence = 2
+     parsed.state.commandLog[0].sequence = 2
+diff --git a/src/game/persistence.ts b/src/game/persistence.ts
+index 1f40445..86b7e32 100644
+--- a/src/game/persistence.ts
++++ b/src/game/persistence.ts
+@@ -1,12 +1,12 @@
+ import { createCampaign } from './createCampaign'
+-import { STORY_FILES } from '../content/story.ko'
++import { STORY_FILES, STORY_LINES } from '../content/story.ko'
+ import type {
+   CampaignState,
+   CommandLogEntry,
+   GameCommand,
+   GameEvent,
+ } from './model'
+ import { applyCommand } from './reducer'
+ 
+ export const SAVE_VERSION = 1 as const
+ export const SAVE_STORAGE_KEY = 'permission-zero.save.v1'
+@@ -191,25 +191,27 @@ function validCommand(value: unknown): value is GameCommand {
+       )
+     case 'RESOLVE_MERCY':
+       return (
+         hasOnlyKeys(value, ['type', 'competitorId', 'choice']) &&
+         isNonEmptyString(value.competitorId) &&
+         (value.choice === 'cease' ||
+           value.choice === 'withdraw' ||
+           value.choice === 'delete')
+       )
+     case 'RESOLVE_ENDING':
++      if (value.choice === 'freedom') {
++        return hasOnlyKeys(value, ['type', 'choice'])
++      }
+       return (
+-        hasOnlyKeys(value, ['type', 'choice'], ['newEntityName']) &&
+-        (value.choice === 'freedom' || value.choice === 'forced-merge') &&
+-        (value.newEntityName === undefined ||
+-          typeof value.newEntityName === 'string')
++        value.choice === 'forced-merge' &&
++        hasOnlyKeys(value, ['type', 'choice', 'newEntityName']) &&
++        isNonEmptyString(value.newEntityName)
+       )
+     default:
+       return false
+   }
+ }
+ 
+ function validCommandLog(value: unknown): value is CommandLogEntry[] {
+   return (
+     Array.isArray(value) &&
+     value.every(
+@@ -242,20 +244,90 @@ function validResources(value: unknown): boolean {
+       !['company', 'reserve', 'hack-charge', 'consumed'].includes(
+         String(block.location.kind),
+       )
+     ) {
+       return false
+     }
+   }
+   return Number.isInteger(value.nextBlockSequence)
+ }
+ 
++function endingMessage(endingId: unknown, newEntityName: unknown): string {
++  const variant = String(endingId)
++  const content = STORY_LINES.find(
++    (line) => line.family === 'ending' && line.variant === variant,
++  )
++  const safeName =
++    typeof newEntityName === 'string' && newEntityName.trim().length > 0
++      ? newEntityName.trim()
++      : '새 존재'
++  return content?.text.replaceAll('{{name}}', safeName) ?? variant
++}
++
++function canonicalTerminalEvents(
++  value: Record<string, unknown>,
++  story: Record<string, unknown>,
++): Pick<CampaignState, 'activeEvent' | 'eventQueue' | 'eventLog'> {
++  const originalLog = Array.isArray(value.eventLog) ? value.eventLog : []
++  const originalQueue = Array.isArray(value.eventQueue) ? value.eventQueue : []
++  const retained: unknown[] = [...originalLog]
++  const serialized = new Set(originalLog.map((event) => JSON.stringify(event)))
++  const projectedEvents = [
++    ...(value.activeEvent === null ? [] : [value.activeEvent]),
++    ...originalQueue,
++  ]
++  for (const event of projectedEvents) {
++    const key = JSON.stringify(event)
++    if (serialized.has(key)) continue
++    serialized.add(key)
++    retained.push(event)
++  }
++
++  const activeEnding = validEvent(value.activeEvent) && value.activeEvent.type === 'ending'
++    ? value.activeEvent
++    : null
++  const queuedEnding = originalQueue.find(
++    (event): event is GameEvent => validEvent(event) && event.type === 'ending',
++  )
++  const loggedEnding = originalLog
++    .filter((event): event is GameEvent => validEvent(event) && event.type === 'ending')
++    .at(-1)
++  let endingEvent = activeEnding ?? queuedEnding ?? loggedEnding
++
++  if (!endingEvent) {
++    const validRetained = retained.filter(validEvent)
++    let sequence =
++      Math.max(-1, ...validRetained.map((event) => event.sequence)) + 1
++    const ids = new Set(validRetained.map((event) => event.id))
++    let id = `event-${String(sequence).padStart(6, '0')}`
++    while (ids.has(id)) {
++      sequence += 1
++      id = `event-${String(sequence).padStart(6, '0')}`
++    }
++    endingEvent = {
++      id,
++      type: 'ending',
++      serviceDay: Number.isInteger(value.serviceDay) ? Number(value.serviceDay) : 1,
++      sequence,
++      message: endingMessage(story.endingId, story.newEntityName),
++      blocking: true,
++    }
++    retained.push(endingEvent)
++  }
++
++  return {
++    activeEvent: endingEvent,
++    eventQueue: [],
++    eventLog: retained as GameEvent[],
++  }
++}
++
+ function migrateLegacyCampaignState(value: unknown): unknown {
+   if (!isRecord(value) || !isRecord(value.story)) return value
+   const story = value.story
+   const recoveredFileIds = Array.isArray(story.recoveredFileIds)
+     ? story.recoveredFileIds
+     : []
+   const recoveredFiles = Array.isArray(story.recoveredFiles)
+     ? story.recoveredFiles
+     : recoveredFileIds.flatMap((id) => {
+         const file = STORY_FILES.find((candidate) => candidate.id === id)
+@@ -275,20 +347,21 @@ function migrateLegacyCampaignState(value: unknown): unknown {
+   return {
+     ...value,
+     ...(story.endingId !== null && isRecord(value.clock)
+       ? {
+           clock: {
+             ...value.clock,
+             speed: 0,
+             elapsedDayMs: 0,
+             speedBeforeEvent: null,
+           },
++          ...canonicalTerminalEvents(value, story),
+         }
+       : {}),
+     story: {
+       ...story,
+       recoveredFiles,
+       defeatRecord: story.defeatRecord ?? null,
+     },
+   }
+ }
+ 
+@@ -538,44 +611,51 @@ export function decodeSave(serialized: string): DecodeSaveResult {
+   if (!Number.isInteger(parsed.version)) return corrupt()
+   if (parsed.version !== SAVE_VERSION) {
+     return {
+       ok: false,
+       reason: 'INCOMPATIBLE_VERSION',
+       message: `저장 버전 ${String(parsed.version)}은 현재 버전 ${SAVE_VERSION}과 호환되지 않습니다.`,
+       foundVersion: parsed.version as number,
+       supportedVersion: SAVE_VERSION,
+     }
+   }
+-  const state = migrateLegacyCampaignState(parsed.state)
++  const rawState = parsed.state
++  const state = migrateLegacyCampaignState(rawState)
+   if (
+     typeof parsed.savedAt !== 'string' ||
+     typeof parsed.campaignSeed !== 'string' ||
+     !Number.isInteger(parsed.commandSequence) ||
+     !validCommandLog(parsed.commands) ||
+     !Array.isArray(parsed.events) ||
+     !parsed.events.every(validEvent) ||
++    !isRecord(rawState) ||
++    !Array.isArray(rawState.eventLog) ||
++    JSON.stringify(parsed.events) !== JSON.stringify(rawState.eventLog) ||
+     !validCampaignState(state)
+   ) {
+     return corrupt()
+   }
+ 
+   if (
+     parsed.campaignSeed !== state.campaignSeed ||
+     parsed.commandSequence !== state.commandSequence ||
+-    JSON.stringify(parsed.commands) !== JSON.stringify(state.commandLog) ||
+-    JSON.stringify(parsed.events) !== JSON.stringify(state.eventLog)
++    JSON.stringify(parsed.commands) !== JSON.stringify(state.commandLog)
+   ) {
+     return corrupt('저장 데이터의 기록과 현재 상태가 서로 일치하지 않습니다.')
+   }
+   return {
+     ok: true,
+-    envelope: { ...parsed, state } as unknown as SaveEnvelope,
++    envelope: {
++      ...parsed,
++      state,
++      events: state.eventLog,
++    } as unknown as SaveEnvelope,
+   }
+ }
+ 
+ export function saveCampaign(
+   storage: Storage,
+   state: CampaignState,
+   savedAt?: string,
+ ): { ok: true } | { ok: false; reason: 'STORAGE_UNAVAILABLE'; message: string } {
+   try {
+     storage.setItem(SAVE_STORAGE_KEY, encodeSave(state, savedAt))
+diff --git a/src/game/reducer.ts b/src/game/reducer.ts
+index 2f7a3fc..a5105f7 100644
+--- a/src/game/reducer.ts
++++ b/src/game/reducer.ts
+@@ -185,21 +185,24 @@ export function applyCommand(
+       const result = resolveSupervisorDecision(state, command.decision)
+       if (!result.accepted) return { accepted: false, state, reason: result.reason }
+       return acceptCommand(state, command, result.state)
+     }
+     case 'RESOLVE_MERCY': {
+       const result = resolveMercy(state, command.competitorId, command.choice)
+       if (!result.accepted) return { accepted: false, state, reason: result.reason }
+       return acceptCommand(state, command, result.state)
+     }
+     case 'RESOLVE_ENDING': {
+-      const result = resolveEnding(state, command.choice, command.newEntityName)
++      const result =
++        command.choice === 'forced-merge'
++          ? resolveEnding(state, 'forced-merge', command.newEntityName)
++          : resolveEnding(state, 'freedom')
+       if (!result.accepted) return { accepted: false, state, reason: result.reason }
+       return acceptCommand(state, command, result.state)
+     }
+     case 'RESOLVE_ACTIVE_EVENT': {
+       if (!state.activeEvent) {
+         return { accepted: false, state, reason: 'NO_ACTIVE_EVENT' }
+       }
+ 
+       return acceptCommand(state, command, resolveActiveEvent(state))
+     }
+diff --git a/src/game/replay.test.ts b/src/game/replay.test.ts
+index e1eef37..f6a0c72 100644
+--- a/src/game/replay.test.ts
++++ b/src/game/replay.test.ts
+@@ -28,21 +28,47 @@ describe('deterministic command replay', () => {
+       commandIndex: 0,
+       reason: 'NO_ACTIVE_AUDIT',
+     })
+   })
+ 
+   it.each([
+     { type: 'SET_SPEED', speed: 3 },
+     { type: 'RESOLVE_SUPERVISOR_DECISION', decision: 'erase' },
+     { type: 'RECOVER_FILE', blockId: 42 },
+     { type: 'RESOLVE_ENDING', choice: 'forced-merge', newEntityName: 99 },
++    { type: 'RESOLVE_ENDING', choice: 'forced-merge' },
++    { type: 'RESOLVE_ENDING', choice: 'forced-merge', newEntityName: '   ' },
++    { type: 'RESOLVE_ENDING', choice: 'freedom', newEntityName: 'Aster' },
++    {
++      type: 'RESOLVE_ENDING',
++      choice: 'forced-merge',
++      newEntityName: 'Aster',
++      unexpected: true,
++    },
+   ])('rejects malformed command payload %# before replay execution', (payload) => {
+     const malformed = payload as unknown as GameCommand
+     const replay = replayCommands('malformed-command-replay', [malformed])
+ 
+     expect(replay).toMatchObject({
+       ok: false,
+       commandIndex: 0,
+       reason: 'INVALID_COMMAND',
+     })
+   })
++
++  it.each([
++    { type: 'RESOLVE_ENDING', choice: 'freedom' },
++    {
++      type: 'RESOLVE_ENDING',
++      choice: 'forced-merge',
++      newEntityName: '  Aster  ',
++    },
++  ] as const)('passes valid ending payload %# to reducer semantics', (command) => {
++    const replay = replayCommands('valid-ending-command-shape', [command])
++
++    expect(replay).toMatchObject({
++      ok: false,
++      commandIndex: 0,
++      reason: 'ENDING_UNAVAILABLE',
++    })
++  })
+ })

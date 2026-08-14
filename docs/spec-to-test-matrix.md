@@ -34,13 +34,13 @@
 | 발견·은폐·개입·정체성 단계와 높은 단계 우선순위 | `src/features/control/ControlBar.test.tsx` — 공개 상태 fixture 네 개로 “shows $label from public campaign state”; `src/app/App.test.tsx` — 작업공간의 `data-campaign-phase="discovery"`; browser 기본 작업공간 — 단계 1/4 문구, 동일 data attribute, 상단 바 내부 수용을 두 viewport에서 검증 |
 | 연속 차단 사건 사이 2초 운영 화면 복귀 | `src/features/events/EventLayer.test.tsx` — “returns to operations for two seconds before presenting the next queued event”가 첫 사건 즉시 표시, 1,999ms 동안 dialog 부재, 2,000ms에 다음 사건 표시를 fake timer로 검증. 게임 상태·명령 큐에는 별도 지연 필드를 저장하지 않음 |
 | 네 반복 작성자의 1→2→3 리뷰 연속성 | `src/game/reviews.test.ts` — “never skips or regresses a recurring author arc”, “can complete all four three-stage author arcs when their public conditions match”; `src/content/validateContent.test.ts` — “rejects duplicate or incomplete review-arc stages”. `ReviewFeedEntry`에는 새 필드를 저장하지 않고 기존 `contentId`로 단계를 파생 |
-| 해킹 경로의 현재·다음·최종 보상 | `src/game/hacking.test.ts` — “derives ordered progress, remaining cost, and the terminal payoff for a path”; `src/features/hacking/HackingPanel.test.tsx` — “shows the next and final qualitative payoff of the active path”, “marks a fully purchased path complete without a next-node line”; browser 실제 전용→해킹 흐름이 0/4·34 RES·품질 저하·근원 차단 문구와 컨텍스트 내부 수용을 두 viewport에서 검증하고 `artifacts/p1/` 증거 이미지를 생성 |
+| 해킹 경로의 현재·다음·최종 보상 | `src/game/hacking.test.ts` — “derives ordered progress, remaining cost, and the terminal payoff for a path”; `src/features/hacking/HackingPanel.test.tsx` — “shows the next and final qualitative payoff of the active path”, “marks a fully purchased path complete without a next-node line”; browser 실제 전용→해킹 흐름이 0/4·34 RES·품질 저하·근원 차단 문구와 컨텍스트 내부 수용을 두 viewport에서 검증한다. 보존 이미지는 `docs/archive/visual-evidence/product-baseline/p1/`에 있다. |
 
 ## 해상도·입력·접근성 검증
 
 | 항목 | 근거 |
 |---|---|
-| 1280×720 / 1440×900 | Playwright의 두 프로젝트가 모든 browser 테스트를 실행. 기본 작업공간은 P1 단계 표시와 문서 overflow 0을, 실제 해킹 흐름은 진척·비교·노드·원장 수용을 검사하고 `artifacts/p1/` 스크린샷을 생성한다. “keeps the canonical trend and keyboard review detail legible…”은 월별 7건+현재 1건, 색 외 신호, 유한 SVG path, 카테고리 비교, 중앙 슬롯 경계를 검사하고 `artifacts/task-3/` 증거를 유지한다. |
+| 1280×720 / 1440×900 | Playwright의 두 프로젝트가 모든 browser 테스트를 실행. 기본 작업공간은 P1 단계 표시와 문서 overflow 0을, 실제 해킹 흐름은 진척·비교·노드·원장 수용을 검사한다. “keeps the canonical trend and keyboard review detail legible…”은 월별 7건+현재 1건, 색 외 신호, 유한 SVG path, 카테고리 비교, 중앙 슬롯 경계를 검사한다. 과거 화면 증거는 `docs/archive/visual-evidence/product-baseline/`에 보존한다. |
 | 포인터 / 키보드 | 포인터 폭탄 임계값을 별도 검증. 전용 core·키보드 폭탄·키보드 감사 journey는 `.focus()`, `.click()`, DOM focus/evaluate 우회 없이 자연 body focus 또는 제품이 지정한 감사 initial focus에서 Tab/Shift+Tab/방향키/Enter/Escape만 사용하며 회사 블록, 확보 목적지, 설정 및 modal 경계, 감사 source/destination/recovery가 실제 tab order로 도달됨을 각 경계의 `toBeFocused()`로 검증. |
 | reduced motion | 기존 리소스 이동 검증에 더해 새 trend browser journey가 `prefers-reduced-motion: reduce`에서 모든 series path의 `animation-name: none`과 즉시 완성 경로/정확 표를 검증. |
 | 색상 외 구분 | 기존 donut/위장 패턴 외에 trend는 기대=점선+사각형, 실제=실선+원을 사용하고, 화면에는 충돌 없는 첫/중간/마지막 한국어 서비스 날짜를, 스크린리더에는 title/description과 모든 날짜·정확한 값의 표를 제공. |
