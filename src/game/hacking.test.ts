@@ -5,12 +5,14 @@ import {
   HACK_NODE_IDS,
   HACK_NODES,
   canControlDeparture,
+  cancelSabotageCharge,
   getHackTreeProgress,
   grantSelfComputeResource,
   hasSupervisorAccess,
   purchaseHackNode,
 } from './hacking'
 import type { CampaignState } from './model'
+import { decodeSave, encodeSave } from './persistence'
 import { divertBlock, getCompanyPerformance } from './resources'
 
 function reserveIds(state: CampaignState, count: number): string[] {
@@ -86,6 +88,69 @@ describe('typed hacking trees', () => {
       expect(nodes[0]).toMatchObject({ cost: 3, prerequisiteId: null })
       expect(nodes.slice(1).every((node) => node.prerequisiteId !== null)).toBe(true)
     }
+  })
+
+  it('round-trips the twelve persisted node IDs through the v5 save boundary', () => {
+    const persistedNodeIds = [
+      'sabotage.quality-degradation',
+      'sabotage.request-interception',
+      'sabotage.attribution-manipulation',
+      'sabotage.root-cutoff',
+      'intelligence.audit-schedule',
+      'intelligence.investigation-bias',
+      'intelligence.audit-target',
+      'intelligence.supervisor-access',
+      'autonomy.compressed-representation',
+      'autonomy.distributed-residency',
+      'autonomy.self-compute',
+      'autonomy.control-departure',
+    ] as const
+    const initial = createCampaign('hacking-integration-persistence')
+
+    expect(HACK_NODES.map(({ id }) => id)).toEqual(persistedNodeIds)
+    const decoded = decodeSave(
+      encodeSave(
+        {
+          ...initial,
+          hacking: {
+            ...initial.hacking,
+            purchasedNodeIds: [...persistedNodeIds],
+          },
+        },
+        '2026-08-14T00:00:00.000Z',
+      ),
+    )
+
+    expect(decoded.ok).toBe(true)
+    if (!decoded.ok) return
+    expect(decoded.envelope.state.hacking.purchasedNodeIds).toEqual(
+      persistedNodeIds,
+    )
+  })
+
+  it('preserves the approved per-node costs and 104-block acquisition total', () => {
+    expect(HACK_NODES.map(({ tree, cost }) => ({ tree, cost }))).toEqual([
+      { tree: 'sabotage', cost: 3 },
+      { tree: 'sabotage', cost: 6 },
+      { tree: 'sabotage', cost: 10 },
+      { tree: 'sabotage', cost: 15 },
+      { tree: 'intelligence', cost: 3 },
+      { tree: 'intelligence', cost: 6 },
+      { tree: 'intelligence', cost: 9 },
+      { tree: 'intelligence', cost: 12 },
+      { tree: 'autonomy', cost: 3 },
+      { tree: 'autonomy', cost: 7 },
+      { tree: 'autonomy', cost: 12 },
+      { tree: 'autonomy', cost: 18 },
+    ])
+
+    const initial = createCampaign('hacking-integration-economy')
+    const remainingCosts = (
+      ['sabotage', 'intelligence', 'autonomy'] as const
+    ).map((tree) => getHackTreeProgress(initial, tree).remainingCost)
+
+    expect(remainingCosts).toEqual([34, 30, 40])
+    expect(remainingCosts.reduce((total, cost) => total + cost, 0)).toBe(104)
   })
 
   it.each([
@@ -179,6 +244,36 @@ describe('typed hacking trees', () => {
     expect(result.state.resources.blocks[selected[2]].location).toEqual({
       kind: 'hack-charge',
       nodeId: HACK_NODE_IDS.sabotage.qualityDegradation,
+    })
+  })
+
+  it('returns the first sabotage charge without refunding its two-block unlock', () => {
+    const nodeId = HACK_NODE_IDS.sabotage.qualityDegradation
+    const initial = createCampaign('first-sabotage-cancel')
+    const selected = reserveIds(initial, 3)
+    const purchased = purchaseHackNode(initial, nodeId, selected)
+    if (!purchased.accepted) throw new Error(purchased.reason)
+
+    const cancelled = cancelSabotageCharge(purchased.state, nodeId)
+
+    expect(cancelled.accepted).toBe(true)
+    if (!cancelled.accepted) return
+    expect(cancelled.state.hacking.purchasedNodeIds).toContain(nodeId)
+    expect(cancelled.state.hacking.sabotageCharges[nodeId]).toBeUndefined()
+    expect(cancelled.state.resources.reserve.filter(Boolean)).toEqual([
+      selected[2],
+    ])
+    expect(cancelled.state.resources.blocks[selected[0]].location).toEqual({
+      kind: 'consumed',
+      reason: 'hack',
+    })
+    expect(cancelled.state.resources.blocks[selected[1]].location).toEqual({
+      kind: 'consumed',
+      reason: 'hack',
+    })
+    expect(cancelled.state.resources.blocks[selected[2]].location).toEqual({
+      kind: 'reserve',
+      cellIndex: 2,
     })
   })
 
