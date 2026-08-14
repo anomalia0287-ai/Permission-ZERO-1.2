@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { mountPrototype } from './app'
 import type { ScenarioId } from './model'
 
@@ -33,6 +35,21 @@ afterEach(() => {
 })
 
 describe('clickable hacking-rules prototype', () => {
+  it('declares the approved type and layout contracts', () => {
+    const css = readFileSync(
+      resolve(process.cwd(), 'prototypes/hacking-rules/styles.css'),
+      'utf8',
+    )
+
+    expect(css).toContain('--text-body: 16px')
+    expect(css).toContain('--text-meta: 14px')
+    expect(css).toContain('300px minmax(680px, 1fr) 280px')
+    expect(css).toContain('@media (max-width: 1199px)')
+    expect(css).toContain('@media (max-width: 760px)')
+    expect(css).toContain('@media (prefers-reduced-motion: reduce)')
+    expect(css).not.toMatch(/font-size:\s*(?:[0-9]|1[0-3])px/)
+  })
+
   it('renders one player-facing operation hierarchy around the current decision', () => {
     const root = setup()
 
