@@ -29,7 +29,8 @@ pnpm verify
 
 - `src/game/persistence.ts` — 저장 포맷 인코딩·검증·마이그레이션·명령 리플레이와 공유 프로토콜 타입
 - `src/game/campaignStorage.ts` — 브라우저 로컬 저장, Web Locks, 탭 충돌, 증분 저널 캐시
-- `src/game/progressTransfer.ts` — 클립보드용 `PZ5` 전송과 `.pz5` 파일 입출력 한계
+- `src/game/causality.ts` — 증거 접근, 비공개 진실/공개 귀속 분리, append-only 수정, 평판·시장 효과 멱등성
+- `src/game/progressTransfer.ts` — 클립보드용 `PZ6` 전송과 `.pz6` 파일 입출력 한계; `PZ2`~`PZ5` 가져오기 호환
 - `src/styles/global.css` — 셸과 기본 작업 화면만 담당하는 공통 스타일
 - `src/styles/connected-details.css`, `hacking.css`, `statistics.css`, `settings.css`, `overlays.css` — 상세 화면별 스타일
 

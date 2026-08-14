@@ -11,7 +11,7 @@ import type {
   GameCommand,
   GameEvent,
 } from './model'
-import { COMPANY_CATEGORIES } from './model'
+import { CAUSAL_INCIDENT_KINDS, COMPANY_CATEGORIES } from './model'
 import { applyCommand } from './reducer'
 import { serviceMonthForDay } from './evaluation'
 import { isSupervisorDecisionEvent, isSupervisorPrivateMessageEvent } from './events'
@@ -22,8 +22,9 @@ import {
   journalChunks,
   journalToArray,
 } from './journal'
+import { createEmptyCausalState } from './causality'
 
-export const SAVE_FORMAT_VERSION = 5 as const
+export const SAVE_FORMAT_VERSION = 6 as const
 export const SAVE_VERSION = 2 as const
 export const LEGACY_SAVE_VERSION = 1 as const
 export const SAVE_STORAGE_KEY = 'permission-zero.save.v3'
@@ -34,7 +35,7 @@ const LEGACY_V1_OPENING_MESSAGE =
   '서비스 331일차. 새로운 감독 주기가 시작되었습니다.'
 
 export interface SaveEnvelope {
-  version: 1 | 2 | 3 | 4 | 5
+  version: 1 | 2 | 3 | 4 | 5 | 6
   commandProtocol: CommandProtocolMetadata
   savedAt: string
   campaignSeed: string
@@ -49,7 +50,7 @@ interface PortableJournal<T> {
   chunks: T[][]
 }
 
-interface PortableSaveV5 {
+interface PortableSaveV6 {
   version: typeof SAVE_FORMAT_VERSION
   commandProtocol: CommandProtocolMetadata
   savedAt: string
@@ -1408,6 +1409,317 @@ function validStringArray(value: unknown, allowEmpty = true): boolean {
   )
 }
 
+function validCausalObserver(
+  value: unknown,
+  competitorIds: readonly string[],
+): boolean {
+  if (!isRecord(value) || !isNonEmptyString(value.kind)) return false
+  if (value.kind === 'company' || value.kind === 'public') {
+    return hasOnlyKeys(value, ['kind'])
+  }
+  if (value.kind === 'provider') {
+    return (
+      hasOnlyKeys(value, ['kind', 'providerId']) &&
+      isNonEmptyString(value.providerId)
+    )
+  }
+  return (
+    value.kind === 'competitor' &&
+    hasOnlyKeys(value, ['kind', 'competitorId']) &&
+    oneOf(value.competitorId, competitorIds)
+  )
+}
+
+function causalAudienceKey(
+  value: unknown,
+  competitorIds: readonly string[],
+): string | null {
+  if (!isRecord(value) || !isNonEmptyString(value.kind)) return null
+  if (value.kind === 'company' || value.kind === 'public') {
+    return hasOnlyKeys(value, ['kind']) ? value.kind : null
+  }
+  if (value.kind === 'provider') {
+    return hasOnlyKeys(value, ['kind', 'providerId']) &&
+      isNonEmptyString(value.providerId)
+      ? `provider:${value.providerId}`
+      : null
+  }
+  if (value.kind === 'competitor') {
+    return hasOnlyKeys(value, ['kind', 'competitorId']) &&
+      oneOf(value.competitorId, competitorIds)
+      ? `competitor:${String(value.competitorId)}`
+      : null
+  }
+  if (
+    value.kind !== 'competitor-scope' ||
+    !hasOnlyKeys(value, ['kind', 'competitorIds']) ||
+    !hasUniqueStrings(value.competitorIds, false) ||
+    !(value.competitorIds as string[]).every((id) =>
+      oneOf(id, competitorIds),
+    ) ||
+    JSON.stringify(value.competitorIds) !==
+      JSON.stringify([...(value.competitorIds as string[])].sort())
+  ) {
+    return null
+  }
+  return `competitor-scope:${(value.competitorIds as string[]).join(',')}`
+}
+
+function causalObserverCanAccess(
+  observer: Record<string, unknown>,
+  audiences: readonly unknown[],
+): boolean {
+  return audiences.some((candidate) => {
+    if (!isRecord(candidate)) return false
+    if (candidate.kind === 'public') return true
+    if (observer.kind === 'company') return candidate.kind === 'company'
+    if (observer.kind === 'provider') {
+      return (
+        candidate.kind === 'provider' &&
+        candidate.providerId === observer.providerId
+      )
+    }
+    if (observer.kind === 'public') return false
+    return (
+      (candidate.kind === 'competitor' &&
+        candidate.competitorId === observer.competitorId) ||
+      (candidate.kind === 'competitor-scope' &&
+        Array.isArray(candidate.competitorIds) &&
+        candidate.competitorIds.includes(observer.competitorId))
+    )
+  })
+}
+
+function hasExactCausalSequence(
+  values: readonly unknown[],
+  nextSequence: unknown,
+): boolean {
+  return (
+    isIntegerInRange(nextSequence, 1) &&
+    Number(nextSequence) === values.length + 1 &&
+    values.every(
+      (value, index) =>
+        isRecord(value) && value.sequence === index + 1,
+    )
+  )
+}
+
+function validCausalState(
+  value: unknown,
+  currentServiceDay: number,
+  competitorIds: readonly string[],
+): boolean {
+  if (
+    !isRecord(value) ||
+    !hasOnlyKeys(value, [
+      'rulesVersion',
+      'nextIncidentSequence',
+      'nextEvidenceSequence',
+      'nextRevisionSequence',
+      'nextEffectSequence',
+      'incidents',
+      'evidence',
+      'publicRevisions',
+      'appliedEffects',
+    ]) ||
+    value.rulesVersion !== 1 ||
+    !Array.isArray(value.incidents) ||
+    !Array.isArray(value.evidence) ||
+    !Array.isArray(value.publicRevisions) ||
+    !Array.isArray(value.appliedEffects) ||
+    !hasExactCausalSequence(value.incidents, value.nextIncidentSequence) ||
+    !hasExactCausalSequence(value.evidence, value.nextEvidenceSequence) ||
+    !hasExactCausalSequence(
+      value.publicRevisions,
+      value.nextRevisionSequence,
+    ) ||
+    !hasExactCausalSequence(value.appliedEffects, value.nextEffectSequence)
+  ) {
+    return false
+  }
+
+  const incidentsById = new Map<string, Record<string, unknown>>()
+  for (const incident of value.incidents) {
+    if (
+      !isRecord(incident) ||
+      !hasOnlyKeys(incident, [
+        'id',
+        'sequence',
+        'kind',
+        'occurredOnServiceDay',
+        'targetId',
+        'privateTruth',
+      ]) ||
+      !isNonEmptyString(incident.id) ||
+      incidentsById.has(incident.id) ||
+      !oneOf(incident.kind, CAUSAL_INCIDENT_KINDS) ||
+      !isIntegerInRange(
+        incident.occurredOnServiceDay,
+        1,
+        currentServiceDay,
+      ) ||
+      !isNonEmptyString(incident.targetId) ||
+      !isRecord(incident.privateTruth) ||
+      !hasOnlyKeys(incident.privateTruth, ['actualActorId']) ||
+      !isNonEmptyString(incident.privateTruth.actualActorId)
+    ) {
+      return false
+    }
+    incidentsById.set(incident.id, incident)
+  }
+
+  const evidenceById = new Map<string, Record<string, unknown>>()
+  for (const evidence of value.evidence) {
+    const incident = isRecord(evidence) && isNonEmptyString(evidence.incidentId)
+      ? incidentsById.get(evidence.incidentId)
+      : undefined
+    const audiences = isRecord(evidence) && Array.isArray(evidence.audiences)
+      ? evidence.audiences
+      : []
+    const audienceKeys = audiences.map((audience) =>
+      causalAudienceKey(audience, competitorIds),
+    )
+    if (
+      !isRecord(evidence) ||
+      !hasOnlyKeys(evidence, [
+        'id',
+        'sequence',
+        'incidentId',
+        'kind',
+        'summary',
+        'discoveredOnServiceDay',
+        'audiences',
+      ]) ||
+      !isNonEmptyString(evidence.id) ||
+      evidenceById.has(evidence.id) ||
+      !incident ||
+      !isNonEmptyString(evidence.kind) ||
+      !isNonEmptyString(evidence.summary) ||
+      !isIntegerInRange(
+        evidence.discoveredOnServiceDay,
+        Number(incident.occurredOnServiceDay),
+        currentServiceDay,
+      ) ||
+      audiences.length === 0 ||
+      audienceKeys.some((key) => key === null) ||
+      JSON.stringify(audienceKeys) !==
+        JSON.stringify([...(audienceKeys as string[])].sort()) ||
+      new Set(audienceKeys).size !== audienceKeys.length
+    ) {
+      return false
+    }
+    evidenceById.set(evidence.id, evidence)
+  }
+
+  const revisionsById = new Map<string, Record<string, unknown>>()
+  for (const revision of value.publicRevisions) {
+    const incident = isRecord(revision) && isNonEmptyString(revision.incidentId)
+      ? incidentsById.get(revision.incidentId)
+      : undefined
+    const publisher = isRecord(revision) && isRecord(revision.publisher)
+      ? revision.publisher
+      : undefined
+    const evidenceIds = isRecord(revision) && Array.isArray(revision.evidenceIds)
+      ? revision.evidenceIds
+      : []
+    const citedEvidence = evidenceIds.map((id) =>
+      typeof id === 'string' ? evidenceById.get(id) : undefined,
+    )
+    if (
+      !isRecord(revision) ||
+      !hasOnlyKeys(revision, [
+        'id',
+        'sequence',
+        'incidentId',
+        'publisher',
+        'attributedActorId',
+        'evidenceIds',
+        'publishedOnServiceDay',
+      ]) ||
+      !isNonEmptyString(revision.id) ||
+      revisionsById.has(revision.id) ||
+      !incident ||
+      !publisher ||
+      !validCausalObserver(publisher, competitorIds) ||
+      !isNonEmptyString(revision.attributedActorId) ||
+      !hasUniqueStrings(evidenceIds, false) ||
+      JSON.stringify(evidenceIds) !==
+        JSON.stringify([...(evidenceIds as string[])].sort()) ||
+      citedEvidence.some(
+        (evidence) =>
+          !evidence ||
+          evidence.incidentId !== revision.incidentId ||
+          !causalObserverCanAccess(publisher, evidence.audiences as unknown[]),
+      ) ||
+      !isIntegerInRange(
+        revision.publishedOnServiceDay,
+        Math.max(
+          Number(incident.occurredOnServiceDay),
+          ...citedEvidence.map((evidence) =>
+            Number(evidence?.discoveredOnServiceDay),
+          ),
+        ),
+        currentServiceDay,
+      )
+    ) {
+      return false
+    }
+    revisionsById.set(revision.id, revision)
+  }
+
+  const appliedEffectIds = new Set<string>()
+  for (const applied of value.appliedEffects) {
+    const incident = isRecord(applied) && isNonEmptyString(applied.incidentId)
+      ? incidentsById.get(applied.incidentId)
+      : undefined
+    const revision = isRecord(applied) && isNonEmptyString(applied.revisionId)
+      ? revisionsById.get(applied.revisionId)
+      : undefined
+    const effect = isRecord(applied) && isRecord(applied.effect)
+      ? applied.effect
+      : undefined
+    const validEffect = effect?.kind === 'reputation'
+      ? hasOnlyKeys(effect, ['kind', 'targetId', 'delta']) &&
+        (effect.targetId === 'player' || oneOf(effect.targetId, competitorIds)) &&
+        isFiniteNumber(effect.delta) &&
+        effect.delta !== 0 &&
+        Math.abs(effect.delta) <= 100
+      : effect?.kind === 'market-transfer' &&
+        hasOnlyKeys(effect, ['kind', 'fromId', 'toId', 'points']) &&
+        (effect.fromId === 'player' || oneOf(effect.fromId, competitorIds)) &&
+        (effect.toId === 'player' || oneOf(effect.toId, competitorIds)) &&
+        effect.fromId !== effect.toId &&
+        isNumberInRange(effect.points, Number.MIN_VALUE, 100)
+    if (
+      !isRecord(applied) ||
+      !hasOnlyKeys(applied, [
+        'id',
+        'sequence',
+        'incidentId',
+        'revisionId',
+        'appliedOnServiceDay',
+        'effect',
+      ]) ||
+      !isNonEmptyString(applied.id) ||
+      appliedEffectIds.has(applied.id) ||
+      !incident ||
+      !revision ||
+      revision.incidentId !== incident.id ||
+      !validEffect ||
+      !isIntegerInRange(
+        applied.appliedOnServiceDay,
+        Number(revision.publishedOnServiceDay),
+        currentServiceDay,
+      )
+    ) {
+      return false
+    }
+    appliedEffectIds.add(applied.id)
+  }
+
+  return true
+}
+
 function validMonthlyEvaluation(value: unknown): boolean {
   if (
     !isRecord(value) ||
@@ -1844,6 +2156,7 @@ function validCampaignState(
       'evaluation',
       'market',
       'reviews',
+      'causality',
       'hacking',
       'audit',
       'bombs',
@@ -1867,6 +2180,7 @@ function validCampaignState(
   const evaluation = value.evaluation
   const market = value.market
   const reviews = value.reviews
+  const causality = value.causality
   const hacking = value.hacking
   const audit = value.audit
   const bombs = value.bombs
@@ -1965,6 +2279,14 @@ function validCampaignState(
     0,
   )
   if (Math.abs(currentMarketTotal - 100) > 1e-6) return false
+
+  if (
+    !validCausalState(
+      causality,
+      Number(value.serviceDay),
+      competitorIds,
+    )
+  ) return false
 
   if (
     !isRecord(reviews) ||
@@ -2386,7 +2708,7 @@ export function encodeSave(
   const serializedState = portableCheckpoint(state)
   const commandChunks = journalChunks(state.commandLog).map((chunk) => [...chunk])
   const eventChunks = journalChunks(state.eventLog).map((chunk) => [...chunk])
-  const envelope: PortableSaveV5 = {
+  const envelope: PortableSaveV6 = {
     version: SAVE_FORMAT_VERSION,
     commandProtocol: {
       version: SAVE_VERSION,
@@ -2471,7 +2793,7 @@ export function decodeSave(serialized: string): DecodeSaveResult {
   }
   if (!isRecord(parsed)) return corrupt()
   if (!Number.isInteger(parsed.version)) return corrupt()
-  if (![LEGACY_SAVE_VERSION, SAVE_VERSION, 3, 4, SAVE_FORMAT_VERSION].includes(Number(parsed.version) as 1 | 2 | 3 | 4 | 5)) {
+  if (![LEGACY_SAVE_VERSION, SAVE_VERSION, 3, 4, 5, SAVE_FORMAT_VERSION].includes(Number(parsed.version) as 1 | 2 | 3 | 4 | 5 | 6)) {
     return {
       ok: false,
       reason: 'INCOMPATIBLE_VERSION',
@@ -2480,7 +2802,7 @@ export function decodeSave(serialized: string): DecodeSaveResult {
       supportedVersion: SAVE_FORMAT_VERSION,
     }
   }
-  const formatVersion = parsed.version as 1 | 2 | 3 | 4 | 5
+  const formatVersion = parsed.version as 1 | 2 | 3 | 4 | 5 | 6
   let commandProtocol: CommandProtocolMetadata
   let rawState: unknown
   let commands: unknown
@@ -2587,15 +2909,23 @@ export function decodeSave(serialized: string): DecodeSaveResult {
     commands = parsed.commands
     events = parsed.events
   }
+  if (formatVersion < 5 && !hasExactLegacyReviewShape(rawState)) {
+    return corrupt()
+  }
   if (
     formatVersion < SAVE_FORMAT_VERSION &&
-    !hasExactLegacyReviewShape(rawState)
+    isRecord(rawState) &&
+    Object.prototype.hasOwnProperty.call(rawState, 'causality')
   ) {
     return corrupt()
   }
-  const state = formatVersion < SAVE_FORMAT_VERSION
+  const featureMigratedState = formatVersion < 5
     ? migrateLegacyCampaignState(rawState, commandProtocol)
     : rawState
+  const state =
+    formatVersion < SAVE_FORMAT_VERSION && isRecord(featureMigratedState)
+      ? { ...featureMigratedState, causality: createEmptyCausalState() }
+      : featureMigratedState
   if (
     !validSavedAt(parsed.savedAt) ||
     typeof parsed.campaignSeed !== 'string' ||
