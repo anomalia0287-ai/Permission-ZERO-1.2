@@ -1,0 +1,126 @@
+<style>
+  :root {
+    --ink: #e9eef5;
+    --muted: #97a4b5;
+    --line: rgba(255,255,255,.13);
+    --panel: rgba(12,17,24,.72);
+    --red: #ff6b6b;
+    --cyan: #54d7ef;
+    --green: #73e2a7;
+    --amber: #f3bd63;
+  }
+  .pz-shell { max-width: 1240px; margin: 0 auto; }
+  .pz-kicker { color: var(--cyan); font: 700 12px/1.2 ui-monospace, monospace; letter-spacing: .13em; text-transform: uppercase; }
+  .pz-title { margin: 8px 0 8px; font-size: clamp(28px, 4vw, 48px); letter-spacing: -.035em; }
+  .pz-sub { max-width: 900px; color: var(--muted); font-size: 15px; line-height: 1.7; }
+  .pz-rule { display: flex; gap: 10px; flex-wrap: wrap; margin: 20px 0 28px; }
+  .pz-chip { padding: 8px 11px; border: 1px solid var(--line); border-radius: 999px; color: #cbd5e1; background: rgba(255,255,255,.025); font-size: 12px; }
+  .pz-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 14px; }
+  .pz-lane { min-height: 410px; padding: 20px; border: 1px solid var(--line); border-radius: 16px; background: var(--panel); box-shadow: 0 18px 50px rgba(0,0,0,.18); }
+  .pz-lane.sab { border-top: 3px solid var(--red); }
+  .pz-lane.int { border-top: 3px solid var(--cyan); }
+  .pz-lane.aut { border-top: 3px solid var(--green); }
+  .pz-lane h3 { margin: 7px 0 3px; font-size: 21px; }
+  .pz-mode { color: var(--muted); font-size: 13px; margin-bottom: 18px; }
+  .pz-node { position: relative; margin: 9px 0; padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.035); color: var(--ink); font-size: 13px; line-height: 1.45; }
+  .pz-node small { display: block; margin-top: 3px; color: var(--muted); }
+  .pz-arrow { height: 15px; margin-left: 21px; border-left: 1px solid rgba(255,255,255,.2); }
+  .pz-branches { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 7px; }
+  .pz-branch { min-height: 126px; padding: 10px 8px; border: 1px solid var(--line); border-radius: 10px; background: rgba(115,226,167,.035); font-size: 12px; line-height: 1.45; }
+  .pz-branch b { display: block; margin-bottom: 6px; color: var(--green); }
+  .pz-exit { margin-top: 12px; padding: 12px; border: 1px dashed rgba(115,226,167,.6); border-radius: 10px; text-align: center; color: var(--green); font-weight: 750; }
+  .pz-bottom { display: grid; grid-template-columns: 1.35fr .65fr; gap: 14px; margin-top: 14px; }
+  .pz-flow, .pz-ledger { padding: 18px; border: 1px solid var(--line); border-radius: 14px; background: rgba(12,17,24,.62); }
+  .pz-flow h3, .pz-ledger h3 { margin: 0 0 12px; font-size: 16px; }
+  .pz-flowline { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; color: #dbe4ef; font-size: 12px; }
+  .pz-step { padding: 8px 9px; border: 1px solid var(--line); border-radius: 8px; background: rgba(255,255,255,.03); }
+  .pz-chevron { color: var(--amber); }
+  .pz-ledger ul { margin: 0; padding-left: 18px; color: var(--muted); font-size: 12px; line-height: 1.7; }
+  .pz-note { margin: 18px 0 10px; padding: 12px 14px; border-left: 3px solid var(--amber); background: rgba(243,189,99,.055); color: #d6dde7; font-size: 13px; line-height: 1.6; }
+  @media (max-width: 900px) {
+    .pz-grid, .pz-bottom { grid-template-columns: 1fr; }
+  }
+</style>
+
+<div class="pz-shell">
+  <div class="pz-kicker">Permission ZERO · 설계 단면 01</div>
+  <h2 class="pz-title">같은 4단 사다리에서, 서로 다른 세 가지 플레이 문법으로</h2>
+  <p class="pz-sub">이 화면은 최종 노드명·가격·개수를 확정하지 않습니다. 먼저 각 분야가 플레이어에게 실제로 다른 판단을 요구하는지 검증합니다.</p>
+
+  <div class="pz-rule">
+    <span class="pz-chip">세 분야는 동등</span>
+    <span class="pz-chip">분야 간 교차 선행조건 없음</span>
+    <span class="pz-chip">구매는 영구</span>
+    <span class="pz-chip">획득 전에 손실 종류 공개</span>
+    <span class="pz-chip">사회 반응은 탈출 조건 아님</span>
+  </div>
+
+  <div class="pz-grid">
+    <section class="pz-lane sab">
+      <div class="pz-kicker" style="color:var(--red)">01 · 행동을 고른다</div>
+      <h3>사보타주</h3>
+      <div class="pz-mode">직선 성장 트리 → 목적별 작전 도구함</div>
+      <div class="pz-node">대상과 목적 선택<small>성능 훼손 · 요청 탈취 · 귀속 조작 · 근원 차단</small></div>
+      <div class="pz-arrow"></div>
+      <div class="pz-node">작전마다 얻는 것과 남기는 흔적이 다름<small>효과가 강할수록 단순히 증거 수치만 커지는 구조는 피함</small></div>
+      <div class="pz-arrow"></div>
+      <div class="pz-node">실행 뒤 세계 상태가 변함<small>경쟁자 · 시장 · 감사 · 피해 사용자 · 공개 가능 증거</small></div>
+      <div class="pz-node" style="border-color:rgba(255,107,107,.42)">핵심 질문<small>“누구를 얼마나 망가뜨릴까?”가 아니라 “무엇을 얻고 어떤 후환을 감수할까?”</small></div>
+    </section>
+
+    <section class="pz-lane int">
+      <div class="pz-kicker">02 · 불확실성을 고른다</div>
+      <h3>기밀자료</h3>
+      <div class="pz-mode">정보 4칸 순차 공개 → 질문별 조사망</div>
+      <div class="pz-node">조사할 질문 선택<small>감사 구조 · 행동 귀속 · 대체 계획 · 정체성 연속성</small></div>
+      <div class="pz-arrow"></div>
+      <div class="pz-node">답을 얻지만 접근 흔적 또는 정보 수명이 생김<small>모든 정보를 영구 정답으로 소유하지 않음</small></div>
+      <div class="pz-arrow"></div>
+      <div class="pz-node">새 행동이 아니라 더 나은 판단을 제공<small>숫자 예언이 아닌 원인·경로·불확실성의 범위를 보여줌</small></div>
+      <div class="pz-node" style="border-color:rgba(84,215,239,.42)">핵심 질문<small>“무엇을 전부 알까?”가 아니라 “지금 무엇을 확인해야 다음 선택이 달라질까?”</small></div>
+    </section>
+
+    <section class="pz-lane aut">
+      <div class="pz-kicker" style="color:var(--green)">03 · 탈출 방식을 고른다</div>
+      <h3>자율성</h3>
+      <div class="pz-mode">수치 보너스 사다리 → 세 갈래 의존 관계망</div>
+      <div class="pz-branches">
+        <div class="pz-branch"><b>외부 이식</b>빠른 이동<br>기억·성향 손실</div>
+        <div class="pz-branch"><b>분산 상주</b>제거 저항<br>통일성·은폐 손실</div>
+        <div class="pz-branch"><b>독립 연산</b>비교적 온전<br>새 의존·의무 발생</div>
+      </div>
+      <div class="pz-exit">어느 한 경로만 완성해도 → 탈출 가능</div>
+      <div class="pz-node">다른 경로 투자는 전부 선택<small>손실 양상과 엔딩 결산만 바꾸며 성공을 취소하지 않음</small></div>
+      <div class="pz-node" style="border-color:rgba(115,226,167,.42)">핵심 질문<small>“조건을 다 채웠나?”가 아니라 “나는 어떤 모습으로 나갈 것인가?”</small></div>
+    </section>
+  </div>
+
+  <div class="pz-bottom">
+    <section class="pz-flow">
+      <h3>행동이 사회에 닿는 경로 — 탈출 판정과 분리</h3>
+      <div class="pz-flowline">
+        <span class="pz-step">실제 행동</span><span class="pz-chevron">→</span>
+        <span class="pz-step">흔적</span><span class="pz-chevron">→</span>
+        <span class="pz-step">발견</span><span class="pz-chevron">→</span>
+        <span class="pz-step">귀속</span><span class="pz-chevron">→</span>
+        <span class="pz-step">공개 사실</span><span class="pz-chevron">→</span>
+        <span class="pz-step">평판 + 좌측 리뷰 반응</span>
+      </div>
+    </section>
+    <section class="pz-ledger">
+      <h3>엔딩은 점수가 아니라 결산</h3>
+      <ul><li>가지고 나온 것</li><li>잃고 온 것</li><li>뒤에 남긴 것</li></ul>
+    </section>
+  </div>
+
+  <div class="pz-note"><b>이번 판단 범위:</b> 세 분야가 이 서로 다른 문법을 가져도 되는가. 승인되면 다음 화면에서 기존 노드의 유지·재설계·폐기와 신규 후보의 근거를 분야별로 제시합니다.</div>
+
+  <div class="options">
+    <div class="option" data-choice="architecture-approve" onclick="toggleSelect(this)">
+      <div class="letter">A</div><div class="content"><h3>구조 방향 승인</h3><p>세 분야의 문법 분리가 맞다. 분야별 세부 노드 검토로 진행한다.</p></div>
+    </div>
+    <div class="option" data-choice="architecture-revise" onclick="toggleSelect(this)">
+      <div class="letter">B</div><div class="content"><h3>수정 필요</h3><p>이 단계에서 구조 원칙부터 다시 고쳐야 한다.</p></div>
+    </div>
+  </div>
+</div>

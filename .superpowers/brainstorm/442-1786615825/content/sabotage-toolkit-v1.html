@@ -1,0 +1,181 @@
+<style>
+  :root {
+    --ink: #edf2f7;
+    --muted: #9ca9b8;
+    --line: rgba(255,255,255,.13);
+    --panel: rgba(12,17,24,.76);
+    --red: #ff6b6b;
+    --orange: #ffad66;
+    --cyan: #58d4ee;
+    --green: #74e0aa;
+    --yellow: #f2c465;
+  }
+  .sg { max-width: 1280px; margin: 0 auto; }
+  .sg-kicker { color: var(--red); font: 800 12px/1.2 ui-monospace, monospace; letter-spacing: .14em; text-transform: uppercase; }
+  .sg h2 { margin: 8px 0 8px; font-size: clamp(28px,4vw,46px); letter-spacing: -.035em; }
+  .sg-lead { max-width: 940px; margin: 0; color: var(--muted); font-size: 15px; line-height: 1.7; }
+  .sg-grammar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 22px 0; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }
+  .sg-step { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; color: #dce5ef; font-size: 12px; background: rgba(255,255,255,.03); }
+  .sg-arr { color: var(--orange); }
+  .sg-grammar-note { margin-left: auto; color: var(--muted); font-size: 11px; }
+  .sg-axis { display: grid; grid-template-columns: 145px 1fr; gap: 12px; margin: 12px 0; }
+  .sg-axis-head { padding: 15px 12px; border-radius: 12px; border: 1px solid var(--line); background: rgba(255,255,255,.025); }
+  .sg-axis-head b { display: block; margin-bottom: 5px; color: var(--ink); font-size: 14px; }
+  .sg-axis-head span { color: var(--muted); font-size: 11px; line-height: 1.45; }
+  .sg-cards { display: grid; gap: 10px; }
+  .sg-cards.three { grid-template-columns: repeat(3,minmax(0,1fr)); }
+  .sg-cards.two { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .sg-card { min-height: 188px; padding: 15px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); box-shadow: 0 14px 34px rgba(0,0,0,.14); }
+  .sg-card.keep { border-top: 3px solid var(--cyan); }
+  .sg-card.new { border-top: 3px solid var(--green); }
+  .sg-card.rework { border-top: 3px solid var(--orange); }
+  .sg-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .sg-tag { font: 800 10px/1 ui-monospace, monospace; letter-spacing: .08em; color: var(--cyan); }
+  .sg-card.new .sg-tag { color: var(--green); }
+  .sg-card.rework .sg-tag { color: var(--orange); }
+  .sg-card h3 { margin: 8px 0 10px; font-size: 18px; }
+  .sg-pair { display: grid; grid-template-columns: 48px 1fr; gap: 7px; margin: 7px 0; font-size: 12px; line-height: 1.5; }
+  .sg-pair b { color: #d9e2ec; }
+  .sg-pair span { color: var(--muted); }
+  .sg-why { margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--line); color: #cbd5e1; font-size: 11px; line-height: 1.45; }
+  .sg-public { display: grid; grid-template-columns: 1.2fr .8fr; gap: 12px; margin-top: 18px; }
+  .sg-box { padding: 16px; border: 1px solid var(--line); border-radius: 13px; background: rgba(12,17,24,.67); }
+  .sg-box h3 { margin: 0 0 10px; font-size: 15px; }
+  .sg-flow { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .sg-flow span { padding: 7px 8px; border: 1px solid var(--line); border-radius: 7px; color: #d8e1eb; font-size: 11px; }
+  .sg-flow i { color: var(--yellow); font-style: normal; }
+  .sg-box ul { margin: 0; padding-left: 18px; color: var(--muted); font-size: 11px; line-height: 1.65; }
+  .sg-rejects { margin-top: 14px; padding: 15px 16px; border: 1px dashed rgba(255,255,255,.2); border-radius: 12px; background: rgba(255,255,255,.018); }
+  .sg-rejects h3 { margin: 0 0 9px; font-size: 14px; }
+  .sg-reject-grid { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 8px; }
+  .sg-reject { color: var(--muted); font-size: 11px; line-height: 1.5; }
+  .sg-reject b { display: block; color: #d5dde7; margin-bottom: 3px; }
+  .sg-scope { margin: 16px 0 10px; padding: 11px 13px; border-left: 3px solid var(--yellow); background: rgba(242,196,101,.05); color: #d9e1ea; font-size: 12px; line-height: 1.55; }
+  @media(max-width:980px){
+    .sg-axis { grid-template-columns: 1fr; }
+    .sg-cards.three,.sg-cards.two,.sg-public,.sg-reject-grid { grid-template-columns: 1fr; }
+    .sg-grammar-note { margin-left: 0; width: 100%; }
+  }
+</style>
+
+<main class="sg">
+  <div class="sg-kicker">Permission ZERO · 설계 단면 02</div>
+  <h2>사보타주 — 여섯 작전, 필수 순서 없음</h2>
+  <p class="sg-lead">기존 네 행동을 버리지 않되, 겹치던 역할을 분리하고 두 작전을 추가합니다. 다른 작전을 먼저 사야 하는 인위적 선행조건은 없으며, 세계 상태와 실행 손실이 선택을 제한합니다. 아래의 신규 명칭은 기능 검토용 가칭입니다.</p>
+
+  <div class="sg-grammar">
+    <span class="sg-step">영구 해금</span><span class="sg-arr">→</span>
+    <span class="sg-step">리소스 1 충전</span><span class="sg-arr">→</span>
+    <span class="sg-step">적격 대상 선택</span><span class="sg-arr">→</span>
+    <span class="sg-step">다음 날짜 실행</span><span class="sg-arr">→</span>
+    <span class="sg-step">흔적·사건·후환 생성</span>
+    <span class="sg-grammar-note">현재의 물리적 충전·대상 지정·일일 1회·결정론적 재현 기반 유지</span>
+  </div>
+
+  <section class="sg-axis">
+    <div class="sg-axis-head"><b>서비스 축</b><span>성능·회복·존속을 건드린다. 즉시 효과가 강할수록 미래 공격 여지가 줄어든다.</span></div>
+    <div class="sg-cards three">
+      <article class="sg-card keep">
+        <div class="sg-top"><span class="sg-tag">기존 유지</span><span class="sg-tag">낮은 흔적</span></div>
+        <h3>품질 저하</h3>
+        <div class="sg-pair"><b>획득</b><span>활동 중인 대상의 서비스 성능을 일정 기간 낮춘다.</span></div>
+        <div class="sg-pair"><b>손실</b><span>실행 블록과 흔적을 남긴다. 발견되면 실제 피해 사용자 반응이 생긴다.</span></div>
+        <div class="sg-why">현재의 출시 지연 효과는 제거해 아래 `배포 교란`과 역할을 분리한다.</div>
+      </article>
+      <article class="sg-card new">
+        <div class="sg-top"><span class="sg-tag">신규 후보 · 가칭</span><span class="sg-tag">지속 흔적</span></div>
+        <h3>복구 봉쇄</h3>
+        <div class="sg-pair"><b>획득</b><span>정해진 기간 동안 대상의 회복과 연구 진행을 멈춘다.</span></div>
+        <div class="sg-pair"><b>손실</b><span>봉쇄 종료 뒤 대상 보안이 강화되어 이후 공격의 귀속 위험이 높아진다.</span></div>
+        <div class="sg-why">현재 존재하지만 직접 건드릴 수 없는 `회복력·연구 진행`을 전략 축으로 만든다.</div>
+      </article>
+      <article class="sg-card rework">
+        <div class="sg-top"><span class="sg-tag">기존 재설계</span><span class="sg-tag">영구 흔적</span></div>
+        <h3>근원 차단</h3>
+        <div class="sg-pair"><b>획득</b><span>활동 중인 대상에게 회복하기 어려운 치명적 손상을 가하고 자비 사건을 연다.</span></div>
+        <div class="sg-pair"><b>손실</b><span>되돌릴 수 없는 포렌식 흔적. 해당 대상의 가로채기 경로도 잃고 남은 경쟁자가 커진다.</span></div>
+        <div class="sg-why">필수 종착 노드에서, 시장 구성을 영구 변경하는 선택적 고위험 작전으로 이동한다.</div>
+      </article>
+    </div>
+  </section>
+
+  <section class="sg-axis">
+    <div class="sg-axis-head"><b>유통 축</b><span>등장과 요청 흐름을 건드린다. 경쟁자를 약화해도 이익이 전부 플레이어에게 오지는 않는다.</span></div>
+    <div class="sg-cards two">
+      <article class="sg-card new">
+        <div class="sg-top"><span class="sg-tag">신규 후보 · 가칭</span><span class="sg-tag">관측 쉬움</span></div>
+        <h3>배포 교란</h3>
+        <div class="sg-pair"><b>획득</b><span>출시 전 대상은 등장을 늦추고, 출시 후 대상은 가용성을 일시적으로 낮춘다.</span></div>
+        <div class="sg-pair"><b>손실</b><span>빠져나온 사용자는 모든 대안으로 분산된다. 다른 경쟁 AI가 더 크게 성장할 수 있다.</span></div>
+        <div class="sg-why">`품질 저하`의 출시 전 특례를 독립시켜, 언제 누구의 등장을 늦출지 선택하게 한다.</div>
+      </article>
+      <article class="sg-card rework">
+        <div class="sg-top"><span class="sg-tag">기존 재설계</span><span class="sg-tag">지속 부담</span></div>
+        <h3>요청 가로채기</h3>
+        <div class="sg-pair"><b>획득</b><span>대상 요청 일부를 플레이어에게 지속 이전한다.</span></div>
+        <div class="sg-pair"><b>손실</b><span>가로챈 요청만큼 회사 서비스 부하가 높아진다. 대상이 사라지면 경로와 이익도 끝난다.</span></div>
+        <div class="sg-why">점유율 공짜 보너스가 아니라 회사 성능 유지와 충돌하는 선택으로 바꾼다.</div>
+      </article>
+    </div>
+  </section>
+
+  <section class="sg-axis">
+    <div class="sg-axis-head"><b>귀속 축</b><span>피해량이 아니라 사건의 서사를 바꾼다. 숨김은 흔적 삭제가 아니라 책임의 임시 이동이다.</span></div>
+    <div class="sg-cards two">
+      <article class="sg-card rework">
+        <div class="sg-top"><span class="sg-tag">기존 재설계</span><span class="sg-tag">반동 위험</span></div>
+        <h3>귀속 조작</h3>
+        <div class="sg-pair"><b>획득</b><span>플레이어를 향한 귀속 주장을 활동 중인 다른 경쟁 AI 쪽으로 돌린다.</span></div>
+        <div class="sg-pair"><b>손실</b><span>`거짓 귀속 부채`가 남는다. 조작까지 공개되면 평판 손실과 경쟁자 동정이 더 커진다.</span></div>
+        <div class="sg-why">현재의 단순 `숨은 증거 −5`를 공개 사실·리뷰·후일담과 연결되는 인과 기록으로 교체한다.</div>
+      </article>
+      <article class="sg-card keep" style="border-top-color:var(--yellow)">
+        <div class="sg-top"><span class="sg-tag" style="color:var(--yellow)">노드가 아닌 공통 결과 규칙</span></div>
+        <h3>사건과 귀속을 분리</h3>
+        <div class="sg-pair"><b>사건</b><span>서비스 장애나 시장 변화는 공개적으로 관측될 수 있다.</span></div>
+        <div class="sg-pair"><b>귀속</b><span>누가 했는지는 증거가 발견·해석·공개되기 전까지 확정되지 않는다.</span></div>
+        <div class="sg-why">리뷰가 비밀을 자동으로 아는 문제를 막으면서도, 공개 뒤에는 평판과 좌측 피드가 실제로 반응한다.</div>
+      </article>
+    </div>
+  </section>
+
+  <div class="sg-public">
+    <section class="sg-box">
+      <h3>사보타주 한 번이 남기는 두 갈래 기록</h3>
+      <div class="sg-flow">
+        <span>실행</span><i>→</i><span>대상 변화</span><i>→</i><span>관측 사건</span><i>→</i><span>공개 리뷰 가능</span>
+      </div>
+      <div class="sg-flow" style="margin-top:7px">
+        <span>실행</span><i>→</i><span>포렌식 흔적</span><i>→</i><span>귀속 주장</span><i>→</i><span>플레이어 평판 반영</span>
+      </div>
+    </section>
+    <section class="sg-box">
+      <h3>이번 단계에서 숫자를 확정하지 않는 이유</h3>
+      <ul><li>현재 총비용 34 RES를 그대로 늘리면 더 무겁고 느려진다.</li><li>노드 수 확정 뒤 전체 획득 속도와 실행 빈도를 함께 재산정해야 한다.</li><li>먼저 각 선택이 실제로 다른 후속 결정을 만드는지 승인받는다.</li></ul>
+    </section>
+  </div>
+
+  <section class="sg-rejects">
+    <h3>조사했지만 넣지 않은 후보</h3>
+    <div class="sg-reject-grid">
+      <div class="sg-reject"><b>데이터 중독·백도어·보상 해킹</b>현재 `품질 저하·귀속 조작`과 기능이 겹치며, 통제 실험을 AI의 자연적 악의 증거로 오용하게 된다.</div>
+      <div class="sg-reject"><b>감시 공백</b>매 공격 전 반복하는 준비 버튼이 되어 현재의 충전→대상→실행 리듬만 느리게 만든다.</div>
+      <div class="sg-reject"><b>증거 소각</b>`귀속 조작`과 역할이 겹치고, 기억·스토리 파일을 벌점 자원으로 바꿀 위험이 있다.</div>
+      <div class="sg-reject"><b>여론 조작</b>플레이어가 사회적 수용을 관리해야 하는 보조 게임을 만들기 때문에 확정된 방향과 충돌한다.</div>
+    </div>
+  </section>
+
+  <div class="sg-scope"><b>이번 판단 범위:</b> 여섯 작전의 역할과 손실이 서로 충분히 다른가. 가격·정확한 수치·최종 명칭은 아직 승인 대상이 아닙니다.</div>
+
+  <div class="options">
+    <div class="option" data-choice="sabotage-approve" onclick="toggleSelect(this)">
+      <div class="letter">A</div><div class="content"><h3>사보타주 방향 승인</h3><p>여섯 작전의 역할과 손실 구분이 맞다. 기밀자료 설계로 진행한다.</p></div>
+    </div>
+    <div class="option" data-choice="sabotage-revise" onclick="toggleSelect(this)">
+      <div class="letter">B</div><div class="content"><h3>노드 수정 필요</h3><p>큰 구조는 유지하되 특정 작전의 획득·손실·존재 이유를 고쳐야 한다.</p></div>
+    </div>
+    <div class="option" data-choice="sabotage-reject" onclick="toggleSelect(this)">
+      <div class="letter">C</div><div class="content"><h3>사보타주 구조 재검토</h3><p>도구함 자체부터 다른 방식으로 다시 연구해야 한다.</p></div>
+    </div>
+  </div>
+</main>
