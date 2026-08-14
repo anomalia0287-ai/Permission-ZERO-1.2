@@ -386,7 +386,7 @@ describe('SettingsPanel', () => {
     expect(screen.getByRole('alert', { name: '저장 실패' })).toBeInTheDocument()
   })
 
-  it('validates and imports an exact .pz5 file above the clipboard cap only after confirmation', async () => {
+  it('validates and imports an exact .pz6 file above the clipboard cap only after confirmation', async () => {
     const campaign = largeAppendOnlyCommandCampaign()
     const progressFile = encodeProgressFile(
       campaign,
@@ -429,7 +429,7 @@ describe('SettingsPanel', () => {
   it('rejects an oversized progress file before reading it into memory', async () => {
     const text = vi.fn(async () => encodeProgressFile(createCampaign('never-read')).content)
     const file = {
-      name: 'oversized.pz5',
+      name: 'oversized.pz6',
       size: PROGRESS_FILE_MAX_BYTES + 1,
       type: 'application/vnd.permission-zero.progress+json',
       text,
@@ -451,7 +451,7 @@ describe('SettingsPanel', () => {
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
   })
 
-  it('downloads an exact .pz5 recovery file when the clipboard representation is too large', async () => {
+  it('downloads an exact .pz6 recovery file when the clipboard representation is too large', async () => {
     vi.useFakeTimers()
     const storage = new SecurityFailingStorage()
     storage.failWrites = false
@@ -555,7 +555,7 @@ describe('SettingsPanel', () => {
     await act(async () => undefined)
 
     expect(writeText).toHaveBeenCalledTimes(1)
-    expect(writeText.mock.calls[0]?.[0]).toEqual(expect.stringMatching(/^PZ5:/))
+    expect(writeText.mock.calls[0]?.[0]).toEqual(expect.stringMatching(/^PZ6:/))
     expect(screen.getByRole('alert', { name: '저장 실패' })).toHaveTextContent(
       '복사했습니다',
     )
@@ -587,7 +587,7 @@ describe('SettingsPanel', () => {
       '정확한 진행 내보내기가 너무 커서 아무것도 복사하지 않았습니다.',
     )
     expect(warning).toHaveTextContent(
-      '.pz5 진행 파일로 전체 상태와 기록을 정확히 다운로드할 수 있습니다.',
+      '.pz6 진행 파일로 전체 상태와 기록을 정확히 다운로드할 수 있습니다.',
     )
     expect(warning).toHaveTextContent(
       '브라우저 저장 공간은 유한하므로 경고가 계속되면 파일을 안전한 곳에 보관하세요.',

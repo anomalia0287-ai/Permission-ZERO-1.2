@@ -16,6 +16,15 @@
 - 제품 워크트리의 보고서와 화면 증거는 `docs/archive/`로 옮겼다.
 - 아래의 옛 `.worktrees/...` 경로는 당시 사실을 설명할 때만 유효하다.
 
+## 2026-08-14 해킹 통합 수정 2단계 A 부록
+
+- 제품 상태에 사건·증거·접근 audience·비공개 실제 행위자·공개 귀속 수정·적용 효과를 분리한 공개 인과 기반을 추가했다.
+- 공개 귀속은 유효하고 게시자가 접근 가능한 증거를 반드시 인용하며, 수정 기록은 단조 증가 sequence를 가진 append-only 배열로 보존한다.
+- 평판·시장 효과는 안정적인 effect ID로 멱등 적용하고, 시장 효과는 기존 100% 총량을 보존하는 당사자 간 이전으로 제한한다.
+- 현재 저장 포맷은 v6, 전송 경계는 PZ6/`.pz6`다. v1~v5 저장과 PZ2~PZ5 입력은 명시적인 빈 인과 상태로 마이그레이션한다.
+- 명령 프로토콜은 v2를 유지한다. 해킹 12개 노드 ID, 3~18 비용, 확보 상한 18, 전용 의심 +2.4, 압축 표현 +5%를 바꾸지 않았다.
+- 프로토타입 엔진·경제를 병합하지 않았고, 이 단계에서는 인과 기반과 영속 경계만 제품 코드로 재구현했다.
+
 
 ## 0. 가장 먼저 지킬 계약
 
@@ -388,11 +397,12 @@ ID, 주제, 조건, 단계 같은 메타데이터는 엔진이 쓰므로 문장�
 - 주간 리뷰, 반복 작성자 호, 공개 상태 스냅샷
 - 감독관 기억 누출, 기밀 파일, 자비 선택, 결말·패배 분류
 - 도메인 사건을 일반 계속 명령이 우회하지 못하게 하는 상태 소유권
+- 증거 접근, 비공개 진실/공개 귀속 분리, append-only 수정, 평판·시장 효과 멱등성을 갖춘 공개 인과 기반
 
 ### 6.2 저장·복구
 
-- 현재 저장 포맷 v5와 PZ5/`.pz5`
-- v1~v4 명시적 마이그레이션
+- 현재 저장 포맷 v6와 PZ6/`.pz6`
+- v1~v5 명시적 마이그레이션과 PZ2~PZ5 입력 호환
 - bounded immutable journal
 - linked chunk와 체크포인트 해시 검증
 - Web Locks 기반 다중 탭 저장 직렬화와 stale writer 충돌
@@ -493,6 +503,18 @@ ID, 주제, 조건, 단계 같은 메타데이터는 엔진이 쓰므로 문장�
 - 음악이 긴 세션에서 피로하지 않은가
 
 이 항목을 자동 테스트 개수로 대체하지 않는다.
+
+### 7.5 해킹 통합 수정 2단계 A 작업 브랜치
+
+2026-08-14 `codex/hacking-integration-stage-2a`에서 변경분 전수 감사 뒤 실행한 fresh `pnpm verify`:
+
+- TypeScript PASS
+- ESLint PASS
+- Vitest 41 files / 650 tests PASS
+- Vite production build 73 modules PASS
+- Playwright 58/58 PASS, 1280×720·1440×900
+
+실행 환경은 저장소 선언 기준 Node.js 24.14.0이 아니라 24.19.0이어서 pnpm engine 경고가 있었다. 모든 관문은 종료 코드 0이었지만, 정확한 도구체인 재현이 필요한 릴리스 관문에서는 24.14.0으로 다시 확인한다. 이 증거는 인과 기반과 저장 v6의 기능 회귀를 보증할 뿐 시각 완성도·게임성·콘텐츠 승인을 뜻하지 않는다.
 
 ---
 
@@ -728,7 +750,7 @@ V가 화면별 목업을 직접 보고 승인하기 전에는 제품 브랜치�
 
 - 승인된 목업의 구조를 제품 컴포넌트에 옮김
 - 엔진 상태를 UI 편의를 위해 변조하지 않음
-- 저장 v5·legacy migration·deterministic replay 유지
+- 저장 v6·v1~v5 migration·deterministic replay 유지
 - dirty 크레딧 변경 보존
 
 ### Gate C — 자동 회귀
@@ -938,6 +960,7 @@ Frostpunk 2, IXION, Hacknet 등의 이름을 언급했으나 어떤 화면에서
 | 감독관·기밀·결말 | `src/game/story.ts`, `src/game/endings.test.ts` |
 | 사건 분류·소유권 | `src/game/events.ts`, `src/features/events/EventLayer.tsx` |
 | 결정론 RNG | `src/game/rng.ts` |
+| 공개 인과 기반 | `src/game/causality.ts` |
 | 저장·마이그레이션 | `src/game/persistence.ts` |
 | bounded journal | `src/game/journal.ts` |
 | 공개 플레이어 라벨 | `src/game/publicLabels.ts` |
@@ -1038,7 +1061,7 @@ Frostpunk 2, IXION, Hacknet 등의 이름을 언급했으나 어떤 화면에서
 | --- | --- | --- |
 | 핵심 명세 | 확정 | 통합 명세와 V의 대화 결정 |
 | 엔진 규칙 | 강한 자동 증거 | 제품 P0/P1 HEAD의 unit/replay/E2E |
-| 저장·복구 | 강한 자동 증거, 환경 한계 있음 | v5, Web Locks, 20k stress, migration tests |
+| 저장·복구 | 강한 자동 증거, 환경 한계 있음 | v6, v1~v5 migration, Web Locks, 20k stress |
 | 접근성 기반 | 자동 증거 있음 | keyboard/modal/reduced motion tests |
 | 캠페인 리듬 | 구현·자동 검증됨, 사람 검증 미완 | P0/P1 commits, 608 tests/58 browser 기록 |
 | 시각 디자인 | **실패·미승인** | 제품 캡처와 목업 V2 사용자 거부 |

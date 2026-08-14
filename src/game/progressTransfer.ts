@@ -5,8 +5,13 @@ import {
   type DecodeSaveResult,
 } from './persistence'
 
-const PROGRESS_EXPORT_PREFIX = 'PZ5:'
-const LEGACY_PROGRESS_EXPORT_PREFIXES = ['PZ4:', 'PZ3:', 'PZ2:'] as const
+const PROGRESS_EXPORT_PREFIX = 'PZ6:'
+const LEGACY_PROGRESS_EXPORT_PREFIXES = [
+  'PZ5:',
+  'PZ4:',
+  'PZ3:',
+  'PZ2:',
+] as const
 
 // One MiB of encoded body plus the four-character protocol prefix. The check
 // happens before regex, base64 decoding, byte allocation, UTF-8, or JSON work.
@@ -83,7 +88,7 @@ export function encodeProgressFile(
 ): ProgressFile {
   const safeTimestamp = savedAt.replaceAll(':', '-').replaceAll('.', '-')
   return {
-    fileName: `permission-zero-${safeTimestamp}.pz5`,
+    fileName: `permission-zero-${safeTimestamp}.pz6`,
     mimeType: 'application/vnd.permission-zero.progress+json',
     content: encodeSave(state, savedAt),
   }

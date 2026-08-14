@@ -13,6 +13,10 @@ export type RandomStream =
   | 'market'
   | 'competitor'
   | 'story'
+  | 'causal-incident'
+  | 'causal-evidence'
+  | 'causal-revision'
+  | 'causal-effect'
 
 export type BlockId = string
 export type TimeSpeed = 0 | 1 | 2 | 4
@@ -397,6 +401,132 @@ export interface CommandProtocolMetadata {
   legacyCommandCount: number
 }
 
+export const CAUSAL_INCIDENT_KINDS = [
+  'sabotage',
+  'competitor-response',
+  'service-disruption',
+] as const
+
+export type CausalIncidentKind = (typeof CAUSAL_INCIDENT_KINDS)[number]
+
+export type CausalIdStream = Extract<
+  RandomStream,
+  | 'causal-incident'
+  | 'causal-evidence'
+  | 'causal-revision'
+  | 'causal-effect'
+>
+
+export type EvidenceAudience =
+  | { kind: 'company' }
+  | { kind: 'provider'; providerId: string }
+  | { kind: 'public' }
+  | { kind: 'competitor'; competitorId: CompetitorState['id'] }
+  | {
+      kind: 'competitor-scope'
+      competitorIds: CompetitorState['id'][]
+    }
+
+export type CausalObserver = Exclude<
+  EvidenceAudience,
+  { kind: 'competitor-scope' }
+>
+
+export interface CausalIncident {
+  id: string
+  sequence: number
+  kind: CausalIncidentKind
+  occurredOnServiceDay: number
+  targetId: string
+  privateTruth: {
+    actualActorId: string
+  }
+}
+
+export interface CausalEvidence {
+  id: string
+  sequence: number
+  incidentId: string
+  kind: string
+  summary: string
+  discoveredOnServiceDay: number
+  audiences: EvidenceAudience[]
+}
+
+export interface PublicAttributionRevision {
+  id: string
+  sequence: number
+  incidentId: string
+  publisher: CausalObserver
+  attributedActorId: string
+  evidenceIds: string[]
+  publishedOnServiceDay: number
+}
+
+export type CausalEffect =
+  | {
+      kind: 'reputation'
+      targetId: 'player' | CompetitorState['id']
+      delta: number
+    }
+  | {
+      kind: 'market-transfer'
+      fromId: 'player' | CompetitorState['id']
+      toId: 'player' | CompetitorState['id']
+      points: number
+    }
+
+export interface AppliedCausalEffect {
+  id: string
+  sequence: number
+  incidentId: string
+  revisionId: string
+  appliedOnServiceDay: number
+  effect: CausalEffect
+}
+
+export interface CausalState {
+  rulesVersion: 1
+  nextIncidentSequence: number
+  nextEvidenceSequence: number
+  nextRevisionSequence: number
+  nextEffectSequence: number
+  incidents: CausalIncident[]
+  evidence: CausalEvidence[]
+  publicRevisions: PublicAttributionRevision[]
+  appliedEffects: AppliedCausalEffect[]
+}
+
+export interface CausalIncidentKnowledge {
+  id: string
+  sequence: number
+  kind: CausalIncidentKind
+  occurredOnServiceDay: number
+  targetId: string
+  latestPublicAttribution: {
+    revisionId: string
+    revisionSequence: number
+    attributedActorId: string
+  } | null
+}
+
+export interface CausalEvidenceKnowledge {
+  id: string
+  sequence: number
+  incidentId: string
+  kind: string
+  summary: string
+  discoveredOnServiceDay: number
+}
+
+export interface CausalKnowledgeProjection {
+  rulesVersion: CausalState['rulesVersion']
+  observer: CausalObserver
+  incidents: CausalIncidentKnowledge[]
+  evidence: CausalEvidenceKnowledge[]
+  publicRevisions: PublicAttributionRevision[]
+}
+
 export interface CampaignState {
   saveVersion: CommandProtocolVersion
   legacyCommandCount: number
@@ -422,6 +552,7 @@ export interface CampaignState {
   }
   market: MarketState
   reviews: ReviewState
+  causality: CausalState
   hacking: {
     purchasedNodeIds: string[]
     hiddenEvidence: number

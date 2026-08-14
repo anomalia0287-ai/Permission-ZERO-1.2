@@ -12,6 +12,7 @@ import {
 } from './model'
 import { random01 } from './rng'
 import { createJournal } from './journal'
+import { createEmptyCausalState } from './causality'
 
 interface CategoryResources {
   cells: Array<BlockId | null>
@@ -177,6 +178,7 @@ export function createCampaign(seed: string): CampaignState {
       })),
       generationSequence: 0,
     },
+    causality: createEmptyCausalState(),
     hacking: {
       purchasedNodeIds: [],
       hiddenEvidence: 0,

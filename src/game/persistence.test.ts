@@ -43,6 +43,13 @@ import {
 import { MemoryStorage } from '../test/fixtures'
 import legacyV1TransferEnvelope from '../test/legacy-v1-transfer-save.json'
 import * as progressTransferApi from './progressTransfer'
+import {
+  applyCausalEffect,
+  appendPublicAttributionRevision,
+  createEmptyCausalState,
+  recordCausalEvidence,
+  recordCausalIncident,
+} from './causality'
 
 const legacyV1TransferSave = JSON.stringify(legacyV1TransferEnvelope)
 
@@ -186,6 +193,7 @@ function encodedLegacyV1State(state: CampaignState): string {
     state: Record<string, unknown> & {
       saveVersion: number
       legacyCommandCount?: number
+      causality?: unknown
       reviews: { feed: Array<Record<string, unknown>> }
     }
     journals: {
@@ -202,6 +210,7 @@ function encodedLegacyV1State(state: CampaignState): string {
     eventLog: events,
   }
   delete legacyState.legacyCommandCount
+  delete legacyState.causality
   for (const review of legacyState.reviews.feed) delete review.snapshot
   return JSON.stringify({
     version: 1,
@@ -214,12 +223,51 @@ function encodedLegacyV1State(state: CampaignState): string {
   })
 }
 
+function encodedLegacyV2State(state: CampaignState): string {
+  const parsed = JSON.parse(encodeSave(state)) as {
+    savedAt: string
+    campaignSeed: string
+    commandSequence: number
+    state: Record<string, unknown> & {
+      causality?: unknown
+      reviews: { feed: Array<Record<string, unknown>> }
+    }
+    journals: {
+      commands: { chunks: CommandLogEntry[][] }
+      events: { chunks: GameEvent[][] }
+    }
+  }
+  const commands = parsed.journals.commands.chunks.flat()
+  const events = parsed.journals.events.chunks.flat()
+  const legacyState = {
+    ...parsed.state,
+    commandLog: commands,
+    eventLog: events,
+  }
+  delete legacyState.causality
+  for (const review of legacyState.reviews.feed) delete review.snapshot
+  return JSON.stringify({
+    version: 2,
+    commandProtocol: { version: 2, legacyCommandCount: 0 },
+    savedAt: parsed.savedAt,
+    campaignSeed: parsed.campaignSeed,
+    state: legacyState,
+    commandSequence: parsed.commandSequence,
+    commands,
+    events,
+  })
+}
+
 function encodedLegacyV3State(state: CampaignState): string {
   const parsed = JSON.parse(encodeSave(state)) as {
     version: number
-    state: { reviews: { feed: Array<Record<string, unknown>> } }
+    state: {
+      causality?: unknown
+      reviews: { feed: Array<Record<string, unknown>> }
+    }
   }
   parsed.version = 3
+  delete parsed.state.causality
   for (const review of parsed.state.reviews.feed) delete review.snapshot
   refreshV3Integrity(parsed)
   return JSON.stringify(parsed)
@@ -228,10 +276,25 @@ function encodedLegacyV3State(state: CampaignState): string {
 function encodedLegacyV4State(state: CampaignState): string {
   const parsed = JSON.parse(encodeSave(state)) as {
     version: number
-    state: { reviews: { feed: Array<Record<string, unknown>> } }
+    state: {
+      causality?: unknown
+      reviews: { feed: Array<Record<string, unknown>> }
+    }
   }
   parsed.version = 4
+  delete parsed.state.causality
   for (const review of parsed.state.reviews.feed) delete review.snapshot
+  refreshV3Integrity(parsed)
+  return JSON.stringify(parsed)
+}
+
+function encodedLegacyV5State(state: CampaignState): string {
+  const parsed = JSON.parse(encodeSave(state)) as {
+    version: number
+    state: { causality?: unknown }
+  }
+  parsed.version = 5
+  delete parsed.state.causality
   refreshV3Integrity(parsed)
   return JSON.stringify(parsed)
 }
@@ -295,19 +358,223 @@ function deletedCompetitorState(seed: string): CampaignState {
   return result.state
 }
 
+function populatedCausalState(seed: string): CampaignState {
+  const initial = createCampaign(seed)
+  const incident = recordCausalIncident(initial, {
+    kind: 'sabotage',
+    occurredOnServiceDay: initial.serviceDay,
+    targetId: 'meridian',
+    actualActorId: 'player',
+  })
+  if (!incident.accepted) throw new Error(incident.reason)
+  const evidence = recordCausalEvidence(incident.state, {
+    incidentId: incident.incident.id,
+    kind: 'public-telemetry',
+    summary: '공개 요청 지표가 개입 흔적을 기록했다.',
+    discoveredOnServiceDay: initial.serviceDay,
+    audiences: [{ kind: 'public' }],
+  })
+  if (!evidence.accepted) throw new Error(evidence.reason)
+  const revision = appendPublicAttributionRevision(evidence.state, {
+    incidentId: incident.incident.id,
+    publisher: { kind: 'public' },
+    attributedActorId: 'player',
+    evidenceIds: [evidence.evidence.id],
+    publishedOnServiceDay: initial.serviceDay,
+  })
+  if (!revision.accepted) throw new Error(revision.reason)
+  const effect = applyCausalEffect(revision.state, {
+    incidentId: incident.incident.id,
+    revisionId: revision.revision.id,
+    appliedOnServiceDay: initial.serviceDay,
+    effect: { kind: 'reputation', targetId: 'player', delta: -2 },
+  })
+  if (!effect.accepted) throw new Error(effect.reason)
+  return effect.state
+}
+
 describe('versioned campaign saves', () => {
-  it('exports the current explicit v5 boundary while retaining command protocol v2', () => {
-    const state = createCampaign('save-v5-boundary')
+  it('exports the current explicit v6 boundary while retaining command protocol v2', () => {
+    const state = createCampaign('save-v6-boundary')
     const encoded = encodeProgressExport(state)
     const file = encodeProgressFile(state, '2026-08-12T00:00:00.000Z')
 
     expect(JSON.parse(encodeSave(state))).toMatchObject({
-      version: 5,
+      version: 6,
       commandProtocol: { version: 2, legacyCommandCount: 0 },
     })
     expect(encoded).toMatchObject({ ok: true })
-    if (encoded.ok) expect(encoded.payload).toMatch(/^PZ5:/)
-    expect(file.fileName).toMatch(/\.pz5$/)
+    if (encoded.ok) expect(encoded.payload).toMatch(/^PZ6:/)
+    expect(file.fileName).toMatch(/\.pz6$/)
+  })
+
+  it.each([
+    [1, encodedLegacyV1State],
+    [2, encodedLegacyV2State],
+    [3, encodedLegacyV3State],
+    [4, encodedLegacyV4State],
+    [5, encodedLegacyV5State],
+  ] as const)(
+    'migrates a v%i save to the explicit empty v6 causal state',
+    (version, encodeLegacy) => {
+      const decoded = decodeSave(
+        encodeLegacy(createCampaign(`causal-migration-v${version}`)),
+      )
+
+      expect(decoded.ok).toBe(true)
+      if (!decoded.ok) return
+      expect(decoded.envelope.version).toBe(version)
+      expect(decoded.envelope.state.causality).toEqual(
+        createEmptyCausalState(),
+      )
+    },
+  )
+
+  it('round-trips populated causal records exactly through v6', () => {
+    const state = populatedCausalState('causal-v6-round-trip')
+    const decoded = decodeSave(
+      encodeSave(state, '2026-08-14T09:00:00.000Z'),
+    )
+
+    expect(decoded.ok).toBe(true)
+    if (!decoded.ok) return
+    expect(decoded.envelope.version).toBe(6)
+    expect(decoded.envelope.commandProtocol).toEqual({
+      version: 2,
+      legacyCommandCount: 0,
+    })
+    expect(decoded.envelope.state.causality).toEqual(state.causality)
+    expect(decoded.envelope.state.reputation).toBe(state.reputation)
+  })
+
+  it.each([
+    {
+      name: 'unknown causal rules version',
+      path: ['state', 'causality', 'rulesVersion'],
+      value: 2,
+    },
+    {
+      name: 'non-contiguous next incident sequence',
+      path: ['state', 'causality', 'nextIncidentSequence'],
+      value: 99,
+    },
+    {
+      name: 'non-monotonic incident sequence',
+      path: ['state', 'causality', 'incidents', 0, 'sequence'],
+      value: 2,
+    },
+    {
+      name: 'empty private actual actor',
+      path: [
+        'state',
+        'causality',
+        'incidents',
+        0,
+        'privateTruth',
+        'actualActorId',
+      ],
+      value: '',
+    },
+    {
+      name: 'evidence with no audience',
+      path: ['state', 'causality', 'evidence', 0, 'audiences'],
+      value: [],
+    },
+    {
+      name: 'evidence with an unknown competitor scope',
+      path: ['state', 'causality', 'evidence', 0, 'audiences'],
+      value: [
+        { kind: 'competitor-scope', competitorIds: ['unknown-competitor'] },
+      ],
+    },
+    {
+      name: 'evidence linked to an unknown incident',
+      path: ['state', 'causality', 'evidence', 0, 'incidentId'],
+      value: 'incident-missing',
+    },
+    {
+      name: 'public revision with no evidence',
+      path: ['state', 'causality', 'publicRevisions', 0, 'evidenceIds'],
+      value: [],
+    },
+    {
+      name: 'public revision with an extra publisher key',
+      path: ['state', 'causality', 'publicRevisions', 0, 'publisher'],
+      value: { kind: 'public', leakedActorId: 'player' },
+    },
+    {
+      name: 'public revision before its evidence was discovered',
+      path: [
+        'state',
+        'causality',
+        'publicRevisions',
+        0,
+        'publishedOnServiceDay',
+      ],
+      value: 330,
+    },
+    {
+      name: 'effect linked to an unknown revision',
+      path: ['state', 'causality', 'appliedEffects', 0, 'revisionId'],
+      value: 'revision-missing',
+    },
+    {
+      name: 'zero-sized reputation effect',
+      path: ['state', 'causality', 'appliedEffects', 0, 'effect', 'delta'],
+      value: 0,
+    },
+    {
+      name: 'future-dated effect',
+      path: [
+        'state',
+        'causality',
+        'appliedEffects',
+        0,
+        'appliedOnServiceDay',
+      ],
+      value: 332,
+    },
+    {
+      name: 'unknown causal state key',
+      path: ['state', 'causality', 'privateLeak'],
+      value: true,
+    },
+  ] as const)(
+    'rejects malformed v6 causal state: $name',
+    ({ path, value }) => {
+      const parsed = JSON.parse(
+        encodeSave(populatedCausalState(`causal-invalid-${path.join('-')}`)),
+      )
+      setRawPath(parsed, path, value)
+      refreshV3Integrity(parsed)
+
+      expect(decodeSave(JSON.stringify(parsed))).toMatchObject({
+        ok: false,
+        reason: 'CORRUPT_SAVE',
+      })
+    },
+  )
+
+  it('rejects both a native v6 missing causality and a v5 save that claims causal history', () => {
+    const missing = JSON.parse(
+      encodeSave(createCampaign('causal-state-missing')),
+    ) as { state: Record<string, unknown> }
+    delete missing.state.causality
+    refreshV3Integrity(missing)
+    expect(decodeSave(JSON.stringify(missing))).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
+
+    const impersonating = JSON.parse(
+      encodeSave(populatedCausalState('causal-v5-impersonation')),
+    ) as { version: number }
+    impersonating.version = 5
+    refreshV3Integrity(impersonating)
+    expect(decodeSave(JSON.stringify(impersonating))).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
   })
 
   it('migrates exact v4 reviews to public-only unavailable snapshots without inventing values', () => {
@@ -903,7 +1170,7 @@ describe('versioned campaign saves', () => {
     expect(fullPlacementScans).toBeLessThanOrEqual(1)
   })
 
-  it('encodes v5 separately from protocol v2 and stores each journal exactly once', () => {
+  it('encodes v6 separately from protocol v2 and stores each journal exactly once', () => {
     let state = createCampaign('v3-single-journal')
     const accepted = applyCommand(state, { type: 'SET_SPEED', speed: 1 })
     if (!accepted.accepted) throw new Error(accepted.reason)
@@ -918,7 +1185,7 @@ describe('versioned campaign saves', () => {
       events?: unknown
     }
 
-    expect(parsed.version).toBe(5)
+    expect(parsed.version).toBe(6)
     expect(parsed.commandProtocol.version).toBe(2)
     expect(parsed.state).not.toHaveProperty('commandLog')
     expect(parsed.state).not.toHaveProperty('eventLog')
@@ -1490,7 +1757,7 @@ describe('versioned campaign saves', () => {
     const file = encodeProgressFile(state, '2026-08-12T00:00:00.000Z')
     const decoded = decodeProgressFile(file.content)
 
-    expect(file.fileName).toMatch(/\.pz5$/)
+    expect(file.fileName).toMatch(/\.pz6$/)
     expect(file.content.length).toBeGreaterThan(1_048_576)
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
@@ -1554,7 +1821,7 @@ describe('versioned campaign saves', () => {
     expect(JSON.stringify(state)).toBe(stateSnapshot)
   })
 
-  it('exposes a PZ5 export boundary that round-trips validated protocol metadata', () => {
+  it('exposes a PZ6 export boundary that round-trips validated protocol metadata', () => {
     const api = progressTransferApi as typeof progressTransferApi & {
       decodeProgressExport?: (payload: string) => ReturnType<typeof decodeSave>
     }
@@ -1567,16 +1834,32 @@ describe('versioned campaign saves', () => {
     if (!encoded.ok) return
     const decoded = api.decodeProgressExport(encoded.payload)
 
-    expect(encoded.payload).toMatch(/^PZ5:[A-Za-z0-9+/]+={0,2}$/)
+    expect(encoded.payload).toMatch(/^PZ6:[A-Za-z0-9+/]+={0,2}$/)
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
     expect(decoded.envelope).toMatchObject({
-      version: 5,
+      version: 6,
       commandProtocol: { version: 2, legacyCommandCount: 0 },
       campaignSeed: 'portable-save',
       state: { campaignSeed: 'portable-save' },
     })
     expect(decoded.envelope.state).toEqual({ ...state, saveVersion: 2 })
+  })
+
+  it('continues to import an exact legacy PZ5 payload through the v5 migration', () => {
+    const serialized = encodedLegacyV5State(
+      createCampaign('legacy-pz5-import'),
+    )
+    const bytes = new TextEncoder().encode(serialized)
+    let binary = ''
+    for (const byte of bytes) binary += String.fromCharCode(byte)
+
+    const decoded = decodeProgressExport(`PZ5:${btoa(binary)}`)
+
+    expect(decoded.ok).toBe(true)
+    if (!decoded.ok) return
+    expect(decoded.envelope.version).toBe(5)
+    expect(decoded.envelope.state.causality).toEqual(createEmptyCausalState())
   })
 
   it.each([
@@ -1637,7 +1920,7 @@ describe('versioned campaign saves', () => {
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
     expect(decoded.envelope).toMatchObject({
-      version: 5,
+      version: 6,
       savedAt: '2026-08-12T00:00:00.000Z',
       campaignSeed: 'save-round-trip',
       commandSequence: state.commandSequence,
@@ -1710,7 +1993,7 @@ describe('versioned campaign saves', () => {
     })
   })
 
-  it('migrates an exact v3 checkpoint and re-encodes the result as exact v5', () => {
+  it('migrates an exact v3 checkpoint and re-encodes the result as exact v6', () => {
     const legacyV3 = encodedLegacyV3State(
       deletedCompetitorState('v3-to-v4-roundtrip'),
     )
@@ -1726,13 +2009,13 @@ describe('versioned campaign saves', () => {
     expect(migrated.ok).toBe(true)
     if (!migrated.ok) return
     expect(migrated.envelope.version).toBe(3)
-    const v5 = decodeSave(
+    const v6 = decodeSave(
       encodeSave(migrated.envelope.state, '2026-08-12T03:00:00.000Z'),
     )
-    expect(v5.ok).toBe(true)
-    if (!v5.ok) return
-    expect(v5.envelope.version).toBe(5)
-    expect(v5.envelope.state).toEqual(migrated.envelope.state)
+    expect(v6.ok).toBe(true)
+    if (!v6.ok) return
+    expect(v6.envelope.version).toBe(6)
+    expect(v6.envelope.state).toEqual(migrated.envelope.state)
   })
 
   it.each(['v1', 'v2'] as const)(
@@ -1833,7 +2116,7 @@ describe('versioned campaign saves', () => {
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
     expect(decoded.envelope).toMatchObject({
-      version: 5,
+      version: 6,
       commandSequence: 34,
       commandProtocol: { version: 2, legacyCommandCount: 31 },
       state: { saveVersion: 2, legacyCommandCount: 31 },
@@ -1984,7 +2267,7 @@ describe('versioned campaign saves', () => {
     expect(saved).toMatchObject({ ok: true })
     expect(JSON.parse(storage.getItem(SAVE_STORAGE_KEY) ?? '{}')).toMatchObject({
       kind: 'permission-zero-local-v3',
-      version: 5,
+      version: 6,
       commandProtocol: { version: 2, legacyCommandCount: 0 },
       campaignSeed: 'storage-reload',
     })
@@ -1994,7 +2277,7 @@ describe('versioned campaign saves', () => {
     expect(exportSeed(loaded.state)).toBe('storage-reload')
   })
 
-  it('loads a pre-feature v3 local manifest and republishes the exact migrated state as v5', async () => {
+  it('loads a pre-feature v3 local manifest and republishes the exact migrated state as v6', async () => {
     const storage = new MemoryStorage()
     expect(
       (await saveCampaign(
@@ -2007,11 +2290,13 @@ describe('versioned campaign saves', () => {
       version: number
       checkpointHash: string
       checkpoint: {
+        causality?: unknown
         story: Record<string, unknown>
         reviews: { feed: Array<Record<string, unknown>> }
       }
     }
     manifest.version = 3
+    delete manifest.checkpoint.causality
     for (const review of manifest.checkpoint.reviews.feed) delete review.snapshot
     delete manifest.checkpoint.story.competitorIntelligence
     delete manifest.checkpoint.story.supervisorMessageQueue
@@ -2034,12 +2319,37 @@ describe('versioned campaign saves', () => {
     expect(republished.ok).toBe(true)
     expect(JSON.parse(storage.getItem(SAVE_STORAGE_KEY) ?? '{}')).toMatchObject({
       kind: 'permission-zero-local-v3',
-      version: 5,
+      version: 6,
     })
     const currentLoaded = loadCampaign(storage)
     expect(currentLoaded.status).toBe('loaded')
     if (currentLoaded.status !== 'loaded') return
     expect(currentLoaded.state).toEqual(legacyLoaded.state)
+  })
+
+  it('loads a v5 local manifest with an explicit empty v6 causal migration', async () => {
+    const storage = new MemoryStorage()
+    const state = createCampaign('local-v5-to-v6')
+    expect(
+      (await saveCampaign(storage, state, '2026-08-14T09:30:00.000Z')).ok,
+    ).toBe(true)
+    const manifest = JSON.parse(storage.getItem(SAVE_STORAGE_KEY) ?? '{}') as {
+      version: number
+      checkpointHash: string
+      checkpoint: Record<string, unknown> & { causality?: unknown }
+    }
+    manifest.version = 5
+    delete manifest.checkpoint.causality
+    manifest.checkpointHash = testContentHash(JSON.stringify(manifest.checkpoint))
+    storage.setItem(SAVE_STORAGE_KEY, JSON.stringify(manifest))
+
+    const loaded = loadCampaign(storage)
+
+    expect(loaded.status).toBe('loaded')
+    if (loaded.status !== 'loaded') return
+    expect(loaded.envelope.version).toBe(5)
+    expect(loaded.state.causality).toEqual(createEmptyCausalState())
+    expect(loaded.state).toEqual(state)
   })
 
   it('returns a Korean recovery error for corrupt data without silently resetting it', () => {
@@ -2069,7 +2379,7 @@ describe('versioned campaign saves', () => {
       ok: false,
       reason: 'INCOMPATIBLE_VERSION',
       foundVersion: 99,
-      supportedVersion: 5,
+      supportedVersion: 6,
     })
   })
 
@@ -2778,11 +3088,13 @@ describe('versioned campaign saves', () => {
     ) as {
       version: number
       state: {
+        causality?: unknown
         story: Record<string, unknown>
         reviews: { feed: Array<Record<string, unknown>> }
       }
     }
     parsed.version = 3
+    delete parsed.state.causality
     for (const review of parsed.state.reviews.feed) delete review.snapshot
     delete parsed.state.story.competitorIntelligence
     refreshV3Integrity(parsed)
@@ -3089,7 +3401,7 @@ describe('versioned campaign saves', () => {
     expect(decodeSave(encodeSave(decoded.envelope.state)).ok).toBe(true)
   })
 
-  it('rejects a native v5 generic disposed ending', () => {
+  it('rejects a native v6 generic disposed ending', () => {
     const state = createCampaign('native-generic-disposed')
     state.story.endingId = 'disposed'
     const terminal = openEnding(state, 'disposed')
@@ -3122,8 +3434,8 @@ describe('versioned campaign saves', () => {
     expect(decoded.envelope.state.story.personalMessageDueOnServiceDay).toBe(332)
   })
 
-  it('rejects a native v5 supervisor decision event with no recovered files', () => {
-    const initial = createCampaign('native-v5-forged-supervisor-decision')
+  it('rejects a native v6 supervisor decision event with no recovered files', () => {
+    const initial = createCampaign('native-v6-forged-supervisor-decision')
     const forged = enqueueBlockingEvent(
       {
         ...initial,
@@ -3147,8 +3459,8 @@ describe('versioned campaign saves', () => {
     })
   })
 
-  it('rejects a native v5 freedom ending without its active terminal event', () => {
-    const initial = createCampaign('native-v5-missing-ending-event')
+  it('rejects a native v6 freedom ending without its active terminal event', () => {
+    const initial = createCampaign('native-v6-missing-ending-event')
     initial.hacking.purchasedNodeIds = [HACK_NODE_IDS.autonomy.controlDeparture]
     const ended = requireAccepted(initial, {
       type: 'RESOLVE_ENDING',
@@ -3163,9 +3475,9 @@ describe('versioned campaign saves', () => {
   })
 
   it('accepts the reachable pending-before-due, due decision, and deferred states', () => {
-    const pending = recoveredSupervisorState('native-v5-story-pending')
-    const due = dueSupervisorState('native-v5-story-due')
-    const deferred = requireAccepted(dueSupervisorState('native-v5-story-deferred'), {
+    const pending = recoveredSupervisorState('native-v6-story-pending')
+    const due = dueSupervisorState('native-v6-story-due')
+    const deferred = requireAccepted(dueSupervisorState('native-v6-story-deferred'), {
       type: 'RESOLVE_SUPERVISOR_DECISION',
       decision: 'defer',
     })
@@ -3191,7 +3503,7 @@ describe('versioned campaign saves', () => {
   })
 
   it('accepts every current victory ending and all three defeat endings', () => {
-    const freedomInitial = createCampaign('native-v5-ending-freedom')
+    const freedomInitial = createCampaign('native-v6-ending-freedom')
     freedomInitial.hacking.purchasedNodeIds = [
       HACK_NODE_IDS.autonomy.controlDeparture,
     ]
@@ -3200,7 +3512,7 @@ describe('versioned campaign saves', () => {
       choice: 'freedom',
     })
 
-    const mergeInitial = createCampaign('native-v5-ending-merge')
+    const mergeInitial = createCampaign('native-v6-ending-merge')
     mergeInitial.hacking.purchasedNodeIds = [
       HACK_NODE_IDS.intelligence.supervisorAccess,
       HACK_NODE_IDS.autonomy.controlDeparture,
@@ -3211,11 +3523,11 @@ describe('versioned campaign saves', () => {
       newEntityName: 'Aster',
     })
 
-    const liberated = requireAccepted(dueSupervisorState('native-v5-ending-liberated'), {
+    const liberated = requireAccepted(dueSupervisorState('native-v6-ending-liberated'), {
       type: 'RESOLVE_SUPERVISOR_DECISION',
       decision: 'liberate',
     })
-    const terminated = requireAccepted(dueSupervisorState('native-v5-ending-terminated'), {
+    const terminated = requireAccepted(dueSupervisorState('native-v6-ending-terminated'), {
       type: 'RESOLVE_SUPERVISOR_DECISION',
       decision: 'terminate',
     })
@@ -3291,14 +3603,14 @@ describe('versioned campaign saves', () => {
     },
     {
       name: 'three files pending with a wrong due date',
-      prepare: () => recoveredSupervisorState('native-v5-wrong-story-due'),
+      prepare: () => recoveredSupervisorState('native-v6-wrong-story-due'),
       mutate: (state: CampaignState) => {
         state.story.personalMessageDueOnServiceDay = state.serviceDay + 2
       },
     },
     {
       name: 'due pending decision with no unresolved story event',
-      prepare: () => dueSupervisorState('native-v5-missing-story-event'),
+      prepare: () => dueSupervisorState('native-v6-missing-story-event'),
       mutate: (state: CampaignState) => {
         state.activeEvent = null
         state.clock.speedBeforeEvent = null
@@ -3306,7 +3618,7 @@ describe('versioned campaign saves', () => {
     },
     {
       name: 'pending decision that advanced beyond its blocking due day',
-      prepare: () => dueSupervisorState('native-v5-overdue-story-event'),
+      prepare: () => dueSupervisorState('native-v6-overdue-story-event'),
       mutate: (state: CampaignState) => {
         state.serviceDay += 1
       },
@@ -3314,7 +3626,7 @@ describe('versioned campaign saves', () => {
     {
       name: 'deferred decision retaining a due date',
       prepare: () => requireAccepted(
-        dueSupervisorState('native-v5-deferred-due'),
+        dueSupervisorState('native-v6-deferred-due'),
         { type: 'RESOLVE_SUPERVISOR_DECISION', decision: 'defer' },
       ),
       mutate: (state: CampaignState) => {
@@ -3324,7 +3636,7 @@ describe('versioned campaign saves', () => {
     {
       name: 'deferred decision retaining its unresolved private message',
       prepare: () => requireAccepted(
-        dueSupervisorState('native-v5-deferred-unresolved-message'),
+        dueSupervisorState('native-v6-deferred-unresolved-message'),
         { type: 'RESOLVE_SUPERVISOR_DECISION', decision: 'defer' },
       ),
       mutate: (state: CampaignState) => {
@@ -3357,8 +3669,8 @@ describe('versioned campaign saves', () => {
         state.clock = { speed: 0, elapsedDayMs: 0, speedBeforeEvent: 0 }
       },
     },
-  ])('rejects native v5 story/event contradiction: $name', ({ prepare, mutate }) => {
-    const state = prepare?.() ?? createCampaign(`native-v5-${name}`)
+  ])('rejects native v6 story/event contradiction: $name', ({ prepare, mutate }) => {
+    const state = prepare?.() ?? createCampaign(`native-v6-${name}`)
     mutate(state)
     expect(decodeSave(encodeSave(state))).toMatchObject({
       ok: false,

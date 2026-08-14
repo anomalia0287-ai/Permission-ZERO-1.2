@@ -90,7 +90,7 @@ describe('typed hacking trees', () => {
     }
   })
 
-  it('round-trips the twelve persisted node IDs through the v5 save boundary', () => {
+  it('round-trips the twelve persisted node IDs through the v6 save boundary', () => {
     const persistedNodeIds = [
       'sabotage.quality-degradation',
       'sabotage.request-interception',

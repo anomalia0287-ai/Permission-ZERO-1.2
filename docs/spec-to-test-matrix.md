@@ -24,7 +24,7 @@
 | 16 | 파일 3개, 유예, 해방/소멸, 장악 변주 | `src/game/endings.test.ts` — 파일 스냅샷, 다음 날 메시지, 유예, 해방/소멸 명령 분기; browser — “recovers all confidential files, defers the message, and rereads the permanent archive”, “terminates the supervisor into takeover and remains terminal until a new campaign” |
 | 17 | 자유, 강제 병합, 새 존재 이름 | `src/game/story.test.ts` — “offers freedom with control departure and merge only while the supervisor exists”, “creates a named third existence on forced merge and preserves identity on freedom”; `src/game/endings.test.ts` — typed freedom/merge 경로; browser confidential journey의 강제 병합 확인 UI |
 | 18 | 좌우 스크롤 시장 시계열 | `src/features/statistics/StatisticsPanel.test.tsx` — “draws an exact labeled market history and exposes the same values as a table”; browser 기본 작업공간 테스트가 통계 패널을 열고 닫음 |
-| 19 | 자동 저장·이어하기·시드 복사·입력 | `src/app/GameProvider.test.tsx` — load/autosave/new-campaign/save-failure 테스트; `src/game/persistence.test.ts` — storage round-trip/PZ2/v1 경계; `src/features/settings/SettingsPanel.test.tsx` — PZ2 확인 및 새 캠페인 확인; browser — autosave reload, v1→v2 reload, PZ2 reload |
+| 19 | 자동 저장·이어하기·시드 복사·입력 | `src/app/GameProvider.test.tsx` — load/autosave/new-campaign/save-failure 테스트; `src/game/persistence.test.ts` — storage round-trip, 현재 PZ6 및 PZ2~PZ5 legacy 경계; `src/features/settings/SettingsPanel.test.tsx` — 현재 `.pz6`/PZ6와 legacy PZ2 확인 및 새 캠페인 확인; browser — autosave reload, legacy save reload, 진행 가져오기 reload |
 | 20 | 같은 시드·명령의 완전 재현 | `src/game/replay.test.ts` — “replays more than 500 valid commands across two service years exactly”, v1/v2/분리 명령 재현; `src/game/reviews.test.ts` — 동일 리뷰 재현; browser — “replays a seeded weekly boundary identically and changes seeded output for another seed”가 336일 fixture에서 실제 UI의 4×로 337일 주간 경계를 넘고, 같은 시드의 exact resources/reviews/market/events/audit/bombs/story를 deep-equal하며 다른 알려진 시드의 주간 reviews/market/events 중 하나 이상이 달라짐을 검증 |
 
 ## P1 캠페인 리듬·연속성
@@ -54,6 +54,7 @@
 | 4×에서도 메시지 읽기 | browser confidential journey가 4×에서 다음 날 메시지를 기다려 읽고 선택. 메시지 큐는 논리 배속과 독립. 실제 사람이 느끼는 읽기 편안함은 플레이테스트 항목이다. |
 | 무행동 리뷰 지속 | `reviews.test.ts`의 12주 무변화 생성과 2년 연속성 테스트. |
 | 리뷰가 숨은 원인을 추측하지 않음 | `reviews.test.ts` — “never exposes hidden diversion, bomb, or sabotage causes in generated text”. |
+| 수정 2단계 A 공개 인과 기반 | `src/game/causality.test.ts`가 증거 없는 귀속 거절, 구체 경쟁자 audience 접근, private truth 비노출, append-only 수정 sequence, 사건·수정·효과 ID 재시도 멱등성, 평판·100% 보존 시장 이전, audience 정규화, 같은 시드·규칙·프로토콜 구간의 상태와 고정 시각 저장 바이트 재현을 공개 API만으로 검증한다. `src/game/persistence.test.ts`는 v6 strict round-trip과 v1~v5 빈 인과 상태 마이그레이션을, 기존 `hacking`/`resources`/`sabotage` 회귀는 12개 ID와 경제 수치 불변을 검증한다. 상대 대응 사슬·리뷰 효과·점진 공개 UI는 이 단계 범위가 아니다. |
 | 공개 출력의 내부 ID 차단 | `src/game/publicLabels.test.ts`가 분야·자비 선택·해킹 node·처분 원인·패배 분류·event type·경쟁 상태·리뷰 감정의 중앙 한국어 표와 새로 생성된 event prose token scan을 검증한다. `EventLayer.test.tsx`는 classifier/cause/node ID가 causal UI에서 한국어로만 보임을, `SupervisorPanel.test.tsx`는 legacy snapshot을 저장값 변경 없이 표시 경계에서 정제하고 intelligence UI에 hidden evidence/schema 숫자가 없음을 검증한다. |
 | 폭탄 사전 피드백 동일 | `bombs.test.ts` — “presents exactly the same visual data for a bomb and a normal block”; `ResourceBoard.test.tsx` — “keeps bomb and normal selection previews indistinguishable before separation”. |
 | 설정·감사·심문 뒤 배속 복원 | `App.test.tsx` settings ownership; `audit.test.ts` prior-speed restore; `bombs.test.ts` interrogation restore; browser 작업공간/감사 테스트. |
@@ -66,9 +67,9 @@
 | 계약 | 자동화 근거 |
 |---|---|
 | 모든 저장 상태를 렌더 전 검증 | `src/game/persistence.test.ts`의 leaf/union/collection mutation table과 cross-field mutation 표가 잘못된 키, 유한·범위 수, enum, ID 참조, 명령·사건 payload, 리소스·시장·리뷰·감사·폭탄·결말 관계를 거부한다. browser “recovers from malformed persisted state without rendering raw state or page errors”는 한국어 복구 화면과 `pageerror` 0건을 검증한다. |
-| save format v5와 command protocol v1/v2 분리 | `src/game/persistence.test.ts`가 현재 v5/PZ5/`.pz5`와 protocol v1/v2를 독립 경계로 검증. v1–v4 review는 snapshot 키 자체가 없는 exact legacy shape만 받아 문장·작성자·날짜를 그대로 보존하고 수치를 발명하지 않는 `legacy-save` 공개 snapshot 불가 표시로 이동한다. v5→v4 version만 낮춘 사칭, v4의 current-only snapshot 키, v5 snapshot 누락을 거부한다. v5는 secret-bearing/duplicate/future/topic·competitor 불일치 외에 명시적 complete/subset 시장 범위, 표시 합계, 철수·삭제 점유율 교차 불변식을 검증. root/lock/journal 키는 변경 없고 PZ2/PZ3/PZ4 가져오기를 유지. |
+| save format v6와 command protocol v1/v2 분리 | `src/game/persistence.test.ts`가 현재 v6/PZ6/`.pz6`와 protocol v1/v2를 독립 경계로 검증한다. v1–v4 review는 snapshot 키 자체가 없는 exact legacy shape만 받아 문장·작성자·날짜를 그대로 보존하고 수치를 발명하지 않는 `legacy-save` 공개 snapshot 불가 표시로 이동한다. v5의 공개 snapshot은 그대로 보존하며, v1–v5에는 명시적 빈 인과 상태를 추가한다. v6은 증거 audience, private truth, 공개 수정, 효과 ID·순서·참조·날짜를 strict 검증하고 과거 버전의 인과 기록 사칭을 거부한다. command protocol은 v1/v2를 유지하고 PZ2/PZ3/PZ4/PZ5 가져오기를 유지한다. |
 | bounded append와 atomic local save | `src/game/journal.test.ts`는 append마다 최대 128개 tail만 복사하고 sealed chunk를 공유함을 검증한다. `src/game/persistence.test.ts`는 content-addressed linked journal chunk를 atomic checkpoint manifest보다 먼저 쓰고, missing/corrupt/hash-mismatch object를 복구 오류로 처리하며, 20,000개 명령을 156개 sealed chunk와 최대 128개 tail로 exact load/replay한다. 이어지는 20,001번째 autosave는 기존 sealed node, storage key, sealed chunk를 모두 0회 순회·조회한다. 두 탭의 object write가 interleave되어도 미공개 object를 삭제하지 않으며 최종 manifest가 exact load된다. 브라우저 저장 공간이 물리적으로 무제한이라는 주장은 하지 않는다. |
-| 대용량 exact export/import | `src/game/persistence.test.ts`와 `src/features/settings/SettingsPanel.test.tsx`가 clipboard 한도를 넘는 20,000-command 캠페인을 현재 `.pz5` 파일로 exact round-trip하고, strict validation 뒤 destructive confirmation을 거쳐 가져오며 raw 상태를 화면에 노출하지 않음을 검증. 일반 PZ2/PZ3/PZ4/PZ5 clipboard 경로와 64 MiB 파일 상한을 유지. |
+| 대용량 exact export/import | `src/game/persistence.test.ts`와 `src/features/settings/SettingsPanel.test.tsx`가 clipboard 한도를 넘는 20,000-command 캠페인을 현재 `.pz6` 파일로 exact round-trip하고, strict validation 뒤 destructive confirmation을 거쳐 가져오며 raw 상태를 화면에 노출하지 않음을 검증. PZ2/PZ3/PZ4/PZ5/PZ6 clipboard 경로와 64 MiB 파일 상한을 유지. |
 | 부분 일자 진행 복원 | `src/app/useGameClock.test.tsx`와 `src/app/GameProvider.test.tsx`가 23초 저장 후 남은 1초만 진행하고, 2초 cadence보다 자주 autosave하지 않으며, visibility/pagehide/beforeunload에서 flush하고 hidden 시간을 제외함을 검증한다. |
 | 비명령 실시간 표시와 replay 분리 | 기억 누출의 permanent semantic catalog(`id`, `stage`, original/correction event ID/sequence/service day)는 reducer/command replay 결과에 포함되어 exact 비교된다. `supervisorPresentationRuntime.itemStage/phase/remainingDwellMs`만 wall-clock checkpoint 상태이며 command log에 위장하지 않는다. v4 exact-key/range/cross-field validation, v3 legacy migration, reload continuity는 `persistence.test.ts`, Provider checkpoint와 save flush는 hook/component/browser tests가 검증한다. |
 | 저장 history를 삭제하지 않는 bounded UI | `ReviewFeed.test.tsx`, `SupervisorPanel.test.tsx`, `StatisticsPanel.test.tsx`가 한 페이지 최대 50개 DOM row, 이전 page 접근, 1,000개 stored snapshot 보존, chart 최대 240점 downsample을 검증한다. |
@@ -80,7 +81,7 @@
 - `e2e/`는 `tsconfig.app.json`의 `src` 컴파일 그래프 밖이며 Vite 앱 진입점에서 import하지 않는다.
 - 프로덕션 `pnpm build` 산출물에는 fixture 함수나 fixture route가 포함되지 않는다.
 - UI, URL query, hash, 전역 production API로 fixture를 활성화할 방법이 없다.
-- 브라우저가 읽는 자료는 실제 v1/v2/v3/v4/v5 저장 decoder를 통과한다. PZ2/PZ3/PZ4/PZ5는 실제 설정 UI의 검증·확인 경로를 사용한다.
+- 브라우저가 읽는 자료는 실제 v1/v2/v3/v4/v5/v6 저장 decoder를 통과한다. PZ2/PZ3/PZ4/PZ5/PZ6는 실제 설정 UI의 검증·확인 경로를 사용한다.
 - 따라서 이 가속은 Playwright test runner가 소유한 test-build 경계이며 일반 배포에서 접근할 수 없다.
 
 ## 자동화가 주장하지 않는 것

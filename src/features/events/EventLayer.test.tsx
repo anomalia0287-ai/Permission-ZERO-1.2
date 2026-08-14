@@ -69,7 +69,8 @@ function renderEvent(
   }
   const storage = new MemoryStorage()
   const saveState = legacyFormat
-    ? ({
+    ? (() => {
+      const legacy = {
         ...persisted,
         reviews: {
           ...persisted.reviews,
@@ -83,7 +84,10 @@ function renderEvent(
             text: review.text,
           })),
         },
-      } as unknown as typeof persisted)
+      } as unknown as Record<string, unknown>
+      delete legacy.causality
+      return legacy as unknown as typeof persisted
+    })()
     : persisted
   const encoded = JSON.parse(encodeSave(saveState)) as Record<string, unknown>
   if (legacyFormat) encoded.version = 3
