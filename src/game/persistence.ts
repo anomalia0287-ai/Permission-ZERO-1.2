@@ -2021,6 +2021,9 @@ function validCausalStateV2(
     const nativeIncident =
       incident !== undefined &&
       oneOf(incident.actionId, NATIVE_CAUSAL_ACTION_IDS)
+    const validSummaryBoundary = nativeIncident
+      ? evidence.legacySummary === null
+      : isNonEmptyString(evidence.legacySummary)
 
     if (
       !isRecord(evidence) ||
@@ -2029,7 +2032,7 @@ function validCausalStateV2(
         'sequence',
         'incidentId',
         'kind',
-        'summary',
+        'legacySummary',
         'discoveredOnServiceDay',
         'audiences',
       ]) ||
@@ -2037,7 +2040,7 @@ function validCausalStateV2(
       evidenceById.has(evidence.id) ||
       !incident ||
       !isNonEmptyString(evidence.kind) ||
-      !isNonEmptyString(evidence.summary) ||
+      !validSummaryBoundary ||
       !isIntegerInRange(
         evidence.discoveredOnServiceDay,
         Number(incident.occurredOnServiceDay),
@@ -2147,6 +2150,10 @@ function validCausalStateV2(
   )
 }
 
+type LegacyCausalEvidenceV1 = Omit<CausalState['evidence'][number], 'legacySummary'> & {
+  summary: string
+}
+
 function migrateCausalStateV1(value: unknown): CausalState {
   const legacy = value as {
     nextIncidentSequence: number
@@ -2154,7 +2161,7 @@ function migrateCausalStateV1(value: unknown): CausalState {
     nextRevisionSequence: number
     nextEffectSequence: number
     incidents: Array<Record<string, unknown>>
-    evidence: CausalState['evidence']
+    evidence: LegacyCausalEvidenceV1[]
     publicRevisions: Array<Record<string, unknown>>
     appliedEffects: CausalState['appliedEffects']
   }
@@ -2174,7 +2181,10 @@ function migrateCausalStateV1(value: unknown): CausalState {
             : 'legacy.service-disruption',
       parentIncidentId: null,
     })) as CausalState['incidents'],
-    evidence: legacy.evidence.map((evidence) => ({ ...evidence })),
+    evidence: legacy.evidence.map((entry) => {
+      const { summary, ...evidence } = entry
+      return { ...evidence, legacySummary: summary }
+    }),
     publicRevisions: legacy.publicRevisions.map((revision) => ({
       ...revision,
       publisher: isRecord(revision.publisher)

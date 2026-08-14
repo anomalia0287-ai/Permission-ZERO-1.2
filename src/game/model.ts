@@ -489,7 +489,7 @@ export interface CausalEvidence {
   sequence: number
   incidentId: string
   kind: string
-  summary: string
+  legacySummary: string | null
   discoveredOnServiceDay: number
   audiences: EvidenceAudience[]
 }
@@ -558,7 +558,7 @@ export interface CausalEvidenceKnowledge {
   sequence: number
   incidentId: string
   kind: string
-  summary: string
+  legacySummary: string | null
   discoveredOnServiceDay: number
 }
 

@@ -472,7 +472,7 @@ function sameEvidence(
   return (
     evidence.incidentId === input.incidentId &&
     evidence.kind === input.kind &&
-    evidence.summary === input.summary &&
+    evidence.legacySummary === null &&
     evidence.discoveredOnServiceDay === input.discoveredOnServiceDay &&
     JSON.stringify(evidence.audiences) === JSON.stringify(audiences)
   )
@@ -482,7 +482,6 @@ export interface RecordCausalEvidenceInput {
   evidenceId?: string
   incidentId: string
   kind: NativeCausalEvidenceKind
-  summary: string
   discoveredOnServiceDay: number
   audiences: EvidenceAudience[]
 }
@@ -560,7 +559,6 @@ export function recordCausalEvidence(
     !contract ||
     !contract.acceptsAction(incident.actionId) ||
     JSON.stringify(audiences) !== JSON.stringify(contract.audiences) ||
-    !nonEmpty(input.summary) ||
     !Number.isInteger(input.discoveredOnServiceDay) ||
     input.discoveredOnServiceDay < incident.occurredOnServiceDay ||
     input.discoveredOnServiceDay > state.serviceDay ||
@@ -586,7 +584,7 @@ export function recordCausalEvidence(
     sequence,
     incidentId: input.incidentId,
     kind: input.kind,
-    summary: input.summary,
+    legacySummary: null,
     discoveredOnServiceDay: input.discoveredOnServiceDay,
     audiences,
   }
@@ -695,14 +693,14 @@ export function projectCausalKnowledge(
           sequence,
           incidentId,
           kind,
-          summary,
+          legacySummary,
           discoveredOnServiceDay,
         }) => ({
           id,
           sequence,
           incidentId,
           kind,
-          summary,
+          legacySummary,
           discoveredOnServiceDay,
         }),
       ),

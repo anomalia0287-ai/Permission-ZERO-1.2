@@ -16,6 +16,7 @@ import { createCampaign } from './createCampaign'
 import type {
   CampaignState,
   CausalIncident,
+  EvidenceAudience,
   NativeCausalActionId,
   NativeCausalEvidenceKind,
 } from './model'
@@ -94,6 +95,20 @@ function createNativeChain(seed: string) {
   return { initial, quality, rollback, recovery }
 }
 
+function recordStableEvidence(
+  state: CampaignState,
+  incidentId: string,
+  kind: NativeCausalEvidenceKind,
+  audiences: EvidenceAudience[],
+) {
+  return recordCausalEvidence(state, {
+    incidentId,
+    kind,
+    discoveredOnServiceDay: state.serviceDay,
+    audiences,
+  })
+}
+
 function recordNativeEvidence(
   state: CampaignState,
   incidentId: string,
@@ -127,7 +142,6 @@ function recordNativeEvidence(
     evidenceId,
     incidentId,
     kind,
-    summary: `stable summary for ${kind}`,
     discoveredOnServiceDay: state.serviceDay,
     audiences,
   })
@@ -481,7 +495,6 @@ describe('native causal evidence and attribution confidence', () => {
     const result = recordCausalEvidence(chain.recovery.state, {
       incidentId: target.id,
       kind,
-      summary: `summary for ${kind}`,
       discoveredOnServiceDay: chain.initial.serviceDay,
       audiences: [...audiences].reverse() as never,
     })
@@ -489,16 +502,25 @@ describe('native causal evidence and attribution confidence', () => {
     expect(result).toMatchObject({ accepted: true, applied: true })
     if (!result.accepted) return
     expect(result.evidence.audiences).toEqual(audiences)
+    expect(result.evidence).toMatchObject({
+      incidentId: target.id,
+      kind,
+      legacySummary: null,
+    })
+    expect(result.evidence).not.toHaveProperty('summary')
 
     const repeated = recordCausalEvidence(result.state, {
       evidenceId: result.evidence.id,
       incidentId: target.id,
       kind,
-      summary: `summary for ${kind}`,
       discoveredOnServiceDay: chain.initial.serviceDay,
       audiences: audiences as never,
     })
-    expect(repeated).toMatchObject({ accepted: true, applied: false })
+    expect(repeated).toMatchObject({
+      accepted: true,
+      applied: false,
+      state: result.state,
+    })
     if (!repeated.accepted) return
     expect(repeated.state).toBe(result.state)
     expect(repeated.evidence).toBe(result.evidence)
@@ -534,7 +556,6 @@ describe('native causal evidence and attribution confidence', () => {
       const result = recordCausalEvidence(state, {
         ...input,
         kind: input.kind as NativeCausalEvidenceKind,
-        summary: 'invalid evidence fixture',
         discoveredOnServiceDay: chain.initial.serviceDay,
         audiences: input.audiences as never,
       })
@@ -544,6 +565,68 @@ describe('native causal evidence and attribution confidence', () => {
         reason: 'INVALID_EVIDENCE',
       })
     }
+  })
+
+  it('stores native evidence without caller prose and projects only its fallback', () => {
+    const chain = createNativeChain('causal-native-prose-boundary')
+    const result = recordStableEvidence(
+      chain.recovery.state,
+      chain.quality.incident.id,
+      'meridian-quality-regression',
+      [{ kind: 'competitor', competitorId: 'meridian' }],
+    )
+    expect(result).toMatchObject({ accepted: true, applied: true })
+    if (!result.accepted) return
+
+    expect(result.evidence).toMatchObject({
+      incidentId: chain.quality.incident.id,
+      kind: 'meridian-quality-regression',
+      legacySummary: null,
+    })
+    expect(result.evidence).not.toHaveProperty('summary')
+
+    const projected = projectCausalKnowledge(result.state, {
+      kind: 'competitor',
+      competitorId: 'meridian',
+    })
+    expect(projected.evidence[0]).toMatchObject({
+      kind: 'meridian-quality-regression',
+      legacySummary: null,
+    })
+    expect(projected.evidence[0]).not.toHaveProperty('summary')
+  })
+
+  it.each([
+    { label: 'summary', value: 'caller-authored sentence' },
+    { label: 'legacySummary', value: 'caller-supplied fallback sentence' },
+  ])('ignores an untrusted $label sentence on native evidence input', ({
+    label,
+    value,
+  }) => {
+    const chain = createNativeChain(`causal-untrusted-${label}`)
+    const result = recordCausalEvidence(
+      chain.recovery.state,
+      {
+        evidenceId: `untrusted-${label}`,
+        incidentId: chain.quality.incident.id,
+        kind: 'meridian-quality-regression',
+        discoveredOnServiceDay: chain.initial.serviceDay,
+        audiences: [{ kind: 'competitor', competitorId: 'meridian' }],
+        [label]: value,
+      } as unknown as Parameters<typeof recordCausalEvidence>[1],
+    )
+
+    expect(result).toMatchObject({
+      accepted: true,
+      applied: true,
+      evidence: {
+        kind: 'meridian-quality-regression',
+        legacySummary: null,
+      },
+    })
+    if (!result.accepted) return
+    expect(result.evidence).not.toHaveProperty('summary')
+    expect(JSON.stringify(result.evidence)).not.toContain(value)
   })
 
   it('derives confidence from stable evidence kinds without parsing prose', () => {
@@ -754,7 +837,7 @@ describe('native causal evidence and attribution confidence', () => {
             sequence: 1,
             incidentId: incident.id,
             kind: 'public-recovery-checksum-anomaly',
-            summary: 'v6에서 작성자가 사용한 우연히 같은 증거 ID',
+            legacySummary: 'v6에서 작성자가 사용한 우연히 같은 증거 ID',
             discoveredOnServiceDay: initial.serviceDay,
             audiences: [{ kind: 'public' }],
           },

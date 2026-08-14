@@ -374,7 +374,7 @@ function legacyCausalStateV1Fixture() {
         sequence: 1,
         incidentId: 'legacy-incident-sabotage',
         kind: 'owner-defined-regression-signal',
-        summary: '원본 v6의 임의 회귀 신호',
+        summary: '원본 v6의  가각, 문장!  ★',
         discoveredOnServiceDay: 331,
         audiences: [{ kind: 'competitor', competitorId: 'meridian' }],
       },
@@ -666,7 +666,6 @@ function populatedCausalState(seed: string): CampaignState {
   const evidence = recordCausalEvidence(recovery.state, {
     incidentId: recovery.incident.id,
     kind: 'public-recovery-checksum-anomaly',
-    summary: '공개 복구 체크섬에 불일치가 기록됐다.',
     discoveredOnServiceDay: initial.serviceDay,
     audiences: [{ kind: 'public' }],
   })
@@ -913,12 +912,12 @@ describe('versioned campaign saves', () => {
 
   it('migrates every v6 causal field without changing its original meaning', () => {
     const sourceCausality = legacyCausalStateV1Fixture()
-    const decoded = decodeSave(
-      encodedLegacyV6State(
-        createCampaign('causal-v6-preservation'),
-        sourceCausality,
-      ),
-    )
+    const v6 = JSON.parse(encodedLegacyV6State(
+      createCampaign('causal-v6-preservation'),
+      sourceCausality,
+    )) as { state: { causality: { evidence: Array<Record<string, unknown>> } } }
+    const sourceEvidence = structuredClone(v6.state.causality.evidence)
+    const decoded = decodeSave(JSON.stringify(v6))
 
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
@@ -946,7 +945,15 @@ describe('versioned campaign saves', () => {
         return originalFields
       }),
     ).toEqual(sourceCausality.incidents)
-    expect(migrated.evidence).toEqual(sourceCausality.evidence)
+    expect(migrated.evidence).toEqual(
+      sourceEvidence.map(({ summary, ...evidence }) => ({
+        ...evidence,
+        legacySummary: summary,
+      })),
+    )
+    for (const evidence of migrated.evidence) {
+      expect(evidence).not.toHaveProperty('summary')
+    }
     expect(
       migrated.publicRevisions.map((revision) => {
         const originalFields = { ...revision } as Record<string, unknown>
@@ -978,6 +985,11 @@ describe('versioned campaign saves', () => {
     expect(roundTripped.ok).toBe(true)
     if (!roundTripped.ok) return
     expect(roundTripped.envelope.state.causality).toEqual(migrated)
+    expect(
+      roundTripped.envelope.state.causality.evidence.map(
+        ({ legacySummary }) => legacySummary,
+      ),
+    ).toEqual(sourceEvidence.map(({ summary }) => summary))
   })
 
   it.each([
@@ -1019,6 +1031,82 @@ describe('versioned campaign saves', () => {
       })
     },
   )
+
+  it('encodes native v7 causal evidence without a prose summary', () => {
+    const initial = createCampaign('native-v7-evidence-boundary')
+    const incident = recordCausalIncident(initial, {
+      actionId: 'sabotage.quality-degradation',
+      parentIncidentId: null,
+      kind: 'sabotage',
+      occurredOnServiceDay: initial.serviceDay,
+      targetId: 'meridian',
+      actualActorId: 'player',
+    })
+    if (!incident.accepted) throw new Error(incident.reason)
+    const evidence = recordCausalEvidence(incident.state, {
+      incidentId: incident.incident.id,
+      kind: 'meridian-quality-regression',
+      discoveredOnServiceDay: initial.serviceDay,
+      audiences: [{ kind: 'competitor', competitorId: 'meridian' }],
+    })
+    if (!evidence.accepted) throw new Error(evidence.reason)
+
+    const parsed = JSON.parse(encodeSave(evidence.state)) as {
+      state: { causality: { evidence: Array<Record<string, unknown>> } }
+    }
+    expect(parsed.state.causality.evidence[0]).toMatchObject({
+      kind: 'meridian-quality-regression',
+      legacySummary: null,
+    })
+    expect(parsed.state.causality.evidence[0]).not.toHaveProperty('summary')
+    expect(decodeSave(JSON.stringify(parsed))).toMatchObject({ ok: true })
+  })
+
+  it('rejects integrity-refreshed v7 evidence across the summary provenance boundary', () => {
+    const native = JSON.parse(
+      encodeSave(populatedCausalState('causal-native-summary-boundary')),
+    ) as { state: { causality: { evidence: Array<Record<string, unknown>> } } }
+    const legacySource = JSON.parse(
+      encodedLegacyV6State(createCampaign('causal-legacy-summary-boundary')),
+    ) as { state: { causality: { evidence: Array<Record<string, unknown>> } } }
+    const migrated = decodeSave(JSON.stringify(legacySource))
+    expect(migrated.ok).toBe(true)
+    if (!migrated.ok) return
+    const legacy = JSON.parse(encodeSave(migrated.envelope.state)) as {
+      state: { causality: { evidence: Array<Record<string, unknown>> } }
+    }
+
+    native.state.causality.evidence[0].legacySummary = '한국어 문장'
+    refreshPortableIntegrity(native)
+    expect(decodeSave(JSON.stringify(native))).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
+
+    const withSummary = JSON.parse(JSON.stringify(native)) as typeof native
+    withSummary.state.causality.evidence[0].legacySummary = null
+    withSummary.state.causality.evidence[0].summary = 'forged legacy prose'
+    refreshPortableIntegrity(withSummary)
+    expect(decodeSave(JSON.stringify(withSummary))).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
+
+    legacy.state.causality.evidence[0].legacySummary = null
+    refreshPortableIntegrity(legacy)
+    expect(decodeSave(JSON.stringify(legacy))).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
+
+    const missingLegacySummary = JSON.parse(JSON.stringify(native)) as typeof native
+    delete missingLegacySummary.state.causality.evidence[0].legacySummary
+    refreshPortableIntegrity(missingLegacySummary)
+    expect(decodeSave(JSON.stringify(missingLegacySummary))).toMatchObject({
+      ok: false,
+      reason: 'CORRUPT_SAVE',
+    })
+  })
 
   it('round-trips populated native causal records exactly through v7', () => {
     const state = populatedCausalState('causal-v7-round-trip')
