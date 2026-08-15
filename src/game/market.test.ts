@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { createCampaign } from './createCampaign'
+import { HACK_NODE_IDS } from './hacking'
 import {
   advanceCompetitorsDaily,
   applyInterceptionRoutes,
@@ -8,7 +9,8 @@ import {
   publicMarketCalculationInputs,
   recordMarketSnapshot,
 } from './market'
-import type { CampaignState } from './model'
+import type { CampaignState, GameCommand } from './model'
+import { applyCommand } from './reducer'
 
 function advanceCompetitorDays(initial: CampaignState, days: number): CampaignState {
   let state = initial
@@ -16,6 +18,15 @@ function advanceCompetitorDays(initial: CampaignState, days: number): CampaignSt
     state = advanceCompetitorsDaily({ ...state, serviceDay: state.serviceDay + 1 })
   }
   return state
+}
+
+function applyAcceptedMarketCommand(
+  state: CampaignState,
+  command: GameCommand,
+): CampaignState {
+  const result = applyCommand(state, command)
+  if (!result.accepted) throw new Error(`${command.type}: ${result.reason}`)
+  return result.state
 }
 
 describe('autonomous competitor lifecycle', () => {
@@ -88,6 +99,79 @@ describe('normalized market share', () => {
     expect(shares.competitors.tallow).toBe(0)
     expect(
       shares.player + Object.values(shares.competitors).reduce((sum, share) => sum + share, 0),
+    ).toBeCloseTo(100, 10)
+  })
+
+  it('keeps the real quality-root and rollback chain at 100 without a market-transfer effect', () => {
+    const nodeId = HACK_NODE_IDS.sabotage.qualityDegradation
+    let state = createCampaign('task-5-market-causal-chain')
+    const purchaseBlockIds = state.resources.reserve.filter(
+      (blockId): blockId is string => blockId !== null,
+    )
+    if (purchaseBlockIds.length !== 3) {
+      throw new Error('Task 5 market fixture requires three reserve blocks')
+    }
+    state = applyAcceptedMarketCommand(state, {
+      type: 'PURCHASE_HACK',
+      nodeId,
+      blockIds: purchaseBlockIds,
+    })
+    state = applyAcceptedMarketCommand(state, {
+      type: 'CANCEL_SABOTAGE_CHARGE',
+      nodeId,
+    })
+    const chargeBlockId = state.resources.reserve.find(
+      (blockId): blockId is string => blockId !== null,
+    )
+    if (!chargeBlockId) throw new Error('Task 5 market charge block is missing')
+    state = applyAcceptedMarketCommand(state, {
+      type: 'CHARGE_SABOTAGE',
+      nodeId,
+      blockId: chargeBlockId,
+    })
+    state = applyAcceptedMarketCommand(state, {
+      type: 'SCHEDULE_SABOTAGE',
+      nodeId,
+      targetId: 'meridian',
+    })
+    const beforeShares = {
+      player: state.market.playerShare,
+      competitors: state.market.competitors.map(({ id, marketShare }) => ({
+        id,
+        marketShare,
+      })),
+    }
+
+    const advanced = applyAcceptedMarketCommand(state, {
+      type: 'ADVANCE_DAY',
+    })
+    expect(advanced.causality.appliedEffects).toEqual([])
+    expect(
+      advanced.causality.appliedEffects.filter(
+        ({ effect }) => effect.kind === 'market-transfer',
+      ),
+    ).toEqual([])
+    expect({
+      player: advanced.market.playerShare,
+      competitors: advanced.market.competitors.map(
+        ({ id, marketShare }) => ({ id, marketShare }),
+      ),
+    }).toEqual(beforeShares)
+    expect(
+      advanced.market.playerShare +
+        advanced.market.competitors.reduce(
+          (total, competitor) => total + competitor.marketShare,
+          0,
+        ),
+    ).toBeCloseTo(100, 10)
+
+    const recalculated = calculateMarketShares(advanced)
+    expect(
+      recalculated.player +
+        Object.values(recalculated.competitors).reduce(
+          (total, share) => total + share,
+          0,
+        ),
     ).toBeCloseTo(100, 10)
   })
 

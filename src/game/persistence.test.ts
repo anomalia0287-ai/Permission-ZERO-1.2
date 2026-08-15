@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { createCampaign, createCampaignForProtocol } from './createCampaign'
+import {
+  selectRecoveryContaminationOpportunities,
+  type MeridianRollbackActionId,
+} from './causalGameplay'
 import { loadCampaign, saveCampaign } from './campaignStorage'
 import { STORY_FILES, SUPERVISOR_PRIVATE_MESSAGE } from '../content/story.ko'
 import { createGameEvent, enqueueBlockingEvent } from './events'
@@ -48,6 +52,7 @@ import {
   applyCausalEffect,
   appendPublicAttributionRevision,
   createEmptyCausalState,
+  deriveCausalId,
   recordCausalEvidence,
   recordCausalIncident,
 } from './causality'
@@ -747,6 +752,101 @@ function populatedCausalState(seed: string): CampaignState {
   })
   if (!effect.accepted) throw new Error(effect.reason)
   return effect.state
+}
+
+const TASK_5_FIXED_SAVED_AT = '2026-08-15T05:00:00.000Z'
+const TASK_5_ROLLBACK_PROFILES = [
+  {
+    actionId: 'response.meridian.rollback.fast',
+    opportunityDays: 2,
+  },
+  {
+    actionId: 'response.meridian.rollback.standard',
+    opportunityDays: 3,
+  },
+  {
+    actionId: 'response.meridian.rollback.forensic',
+    opportunityDays: 4,
+  },
+] as const satisfies ReadonlyArray<{
+  actionId: MeridianRollbackActionId
+  opportunityDays: 2 | 3 | 4
+}>
+
+function task5ScheduledQualitySabotage(seed: string): CampaignState {
+  const nodeId = HACK_NODE_IDS.sabotage.qualityDegradation
+  let state = createCampaign(seed)
+  const purchaseBlockIds = state.resources.reserve.filter(
+    (blockId): blockId is string => blockId !== null,
+  )
+  if (purchaseBlockIds.length !== 3) {
+    throw new Error('Task 5 quality fixture requires three starting reserve blocks')
+  }
+
+  state = requireAccepted(state, {
+    type: 'PURCHASE_HACK',
+    nodeId,
+    blockIds: purchaseBlockIds,
+  })
+  state = requireAccepted(state, {
+    type: 'CANCEL_SABOTAGE_CHARGE',
+    nodeId,
+  })
+  const chargeBlockId = state.resources.reserve.find(
+    (blockId): blockId is string => blockId !== null,
+  )
+  if (!chargeBlockId) throw new Error('Task 5 quality charge block is missing')
+  state = requireAccepted(state, {
+    type: 'CHARGE_SABOTAGE',
+    nodeId,
+    blockId: chargeBlockId,
+  })
+  return requireAccepted(state, {
+    type: 'SCHEDULE_SABOTAGE',
+    nodeId,
+    targetId: 'meridian',
+  })
+}
+
+let task5RollbackFixtures:
+  | ReadonlyMap<MeridianRollbackActionId, CampaignState>
+  | null = null
+
+function task5ScheduledStateFor(
+  actionId: MeridianRollbackActionId,
+): CampaignState {
+  if (task5RollbackFixtures === null) {
+    const fixtures = new Map<MeridianRollbackActionId, CampaignState>()
+    for (
+      let candidate = 0;
+      candidate < 1_000 && fixtures.size < TASK_5_ROLLBACK_PROFILES.length;
+      candidate += 1
+    ) {
+      const scheduled = task5ScheduledQualitySabotage(
+        `task-5-rollback-profile-${candidate}`,
+      )
+      const advanced = requireAccepted(scheduled, { type: 'ADVANCE_DAY' })
+      const rollback = advanced.causality.incidents.find(
+        ({ parentIncidentId }) =>
+          parentIncidentId === advanced.causality.incidents[0]?.id,
+      )
+      const profile = TASK_5_ROLLBACK_PROFILES.find(
+        ({ actionId: expectedActionId }) =>
+          expectedActionId === rollback?.actionId,
+      )
+      if (profile && !fixtures.has(profile.actionId)) {
+        fixtures.set(profile.actionId, scheduled)
+      }
+    }
+    if (fixtures.size !== TASK_5_ROLLBACK_PROFILES.length) {
+      throw new Error('Task 5 could not locate every deterministic rollback band')
+    }
+    task5RollbackFixtures = fixtures
+  }
+
+  const scheduled = task5RollbackFixtures.get(actionId)
+  if (!scheduled) throw new Error(`Task 5 rollback fixture is missing: ${actionId}`)
+  return scheduled
 }
 
 describe('versioned campaign saves', () => {
@@ -2977,6 +3077,239 @@ describe('versioned campaign saves', () => {
       reason: 'CORRUPT_SAVE',
     })
   })
+
+  it.each(TASK_5_ROLLBACK_PROFILES)(
+    'keeps the $actionId reducer chain exact across save, resume, replay, and re-encoding',
+    ({ actionId, opportunityDays }) => {
+      const scheduled = task5ScheduledStateFor(actionId)
+      const scheduledCommands = journalToArray(scheduled.commandLog)
+      const scheduledEvents = journalToArray(scheduled.eventLog)
+      expect(scheduledCommands.map(({ command }) => command.type)).toEqual([
+        'PURCHASE_HACK',
+        'CANCEL_SABOTAGE_CHARGE',
+        'CHARGE_SABOTAGE',
+        'SCHEDULE_SABOTAGE',
+      ])
+      expect(scheduled.commandSequence).toBe(4)
+      expect(scheduled.hacking.scheduledSabotage).toEqual([
+        {
+          id: 'sabotage-000001',
+          sequence: 1,
+          nodeId: HACK_NODE_IDS.sabotage.qualityDegradation,
+          targetId: 'meridian',
+          scheduledOnServiceDay: 331,
+          executeOnServiceDay: 332,
+        },
+      ])
+
+      const scheduledBytes = encodeSave(scheduled, TASK_5_FIXED_SAVED_AT)
+      const resumedEnvelope = decodeSave(scheduledBytes)
+      expect(resumedEnvelope.ok).toBe(true)
+      if (!resumedEnvelope.ok) return
+      expect(resumedEnvelope.envelope.savedAt).toBe(TASK_5_FIXED_SAVED_AT)
+      expect(resumedEnvelope.envelope.state).toEqual(scheduled)
+      expect(
+        encodeSave(resumedEnvelope.envelope.state, TASK_5_FIXED_SAVED_AT),
+      ).toBe(scheduledBytes)
+
+      const uninterrupted = requireAccepted(scheduled, {
+        type: 'ADVANCE_DAY',
+      })
+      const resumed = requireAccepted(resumedEnvelope.envelope.state, {
+        type: 'ADVANCE_DAY',
+      })
+      const commands = journalToArray(uninterrupted.commandLog).map(
+        ({ command }) => command,
+      )
+      const replayed = replayCommands(
+        uninterrupted.campaignSeed,
+        commands,
+        {
+          commandProtocol: uninterrupted.commandProtocol,
+          replayBootstrap: uninterrupted.replayBootstrap,
+        },
+      )
+      expect(replayed.ok).toBe(true)
+      if (!replayed.ok) return
+
+      expect(resumed).toEqual(uninterrupted)
+      expect(replayed.state).toEqual(uninterrupted)
+      expect(uninterrupted.serviceDay).toBe(332)
+      expect(uninterrupted.commandSequence).toBe(5)
+
+      const rootIncidentId = deriveCausalId(
+        scheduled,
+        'causal-incident',
+        1,
+      )
+      const rollbackIncidentId = deriveCausalId(
+        scheduled,
+        'causal-incident',
+        2,
+      )
+      const rootEvidenceId = deriveCausalId(
+        scheduled,
+        'causal-evidence',
+        1,
+      )
+      const rollbackEvidenceId = deriveCausalId(
+        scheduled,
+        'causal-evidence',
+        2,
+      )
+      expect(uninterrupted.causality).toEqual({
+        rulesVersion: 2,
+        nextIncidentSequence: 3,
+        nextEvidenceSequence: 3,
+        nextRevisionSequence: 1,
+        nextEffectSequence: 1,
+        incidents: [
+          {
+            id: rootIncidentId,
+            sequence: 1,
+            actionId: 'sabotage.quality-degradation',
+            parentIncidentId: null,
+            kind: 'sabotage',
+            occurredOnServiceDay: 332,
+            targetId: 'meridian',
+            privateTruth: { actualActorId: 'player' },
+          },
+          {
+            id: rollbackIncidentId,
+            sequence: 2,
+            actionId,
+            parentIncidentId: rootIncidentId,
+            kind: 'competitor-response',
+            occurredOnServiceDay: 332,
+            targetId: 'meridian',
+            privateTruth: { actualActorId: 'meridian' },
+          },
+        ],
+        evidence: [
+          {
+            id: rootEvidenceId,
+            sequence: 1,
+            incidentId: rootIncidentId,
+            kind: 'meridian-quality-regression',
+            legacySummary: null,
+            discoveredOnServiceDay: 332,
+            audiences: [{ kind: 'competitor', competitorId: 'meridian' }],
+          },
+          {
+            id: rollbackEvidenceId,
+            sequence: 2,
+            incidentId: rollbackIncidentId,
+            kind: 'company-observed-meridian-rollback',
+            legacySummary: null,
+            discoveredOnServiceDay: 332,
+            audiences: [
+              { kind: 'company' },
+              { kind: 'competitor', competitorId: 'meridian' },
+            ],
+          },
+        ],
+        publicRevisions: [],
+        appliedEffects: [],
+      })
+
+      const expectedOpportunity = {
+        id: `follow-up:${rollbackIncidentId}:recovery-contamination`,
+        sourceIncidentId: rollbackIncidentId,
+        nodeId: HACK_NODE_IDS.sabotage.qualityDegradation,
+        opensOnServiceDay: 332,
+        expiresOnServiceDay: 332 + opportunityDays,
+        status: 'open' as const,
+      }
+      expect(selectRecoveryContaminationOpportunities(uninterrupted)).toEqual([
+        expectedOpportunity,
+      ])
+      expect(selectRecoveryContaminationOpportunities(resumed)).toEqual([
+        expectedOpportunity,
+      ])
+      expect(
+        selectRecoveryContaminationOpportunities(replayed.state),
+      ).toEqual([expectedOpportunity])
+
+      expect(journalToArray(uninterrupted.eventLog)).toEqual([
+        ...scheduledEvents,
+        {
+          id: 'event-000001',
+          type: 'sabotage',
+          serviceDay: 332,
+          sequence: 1,
+          message: 'MERIDIAN에서 비정상적인 서비스 변동이 관측되었습니다.',
+        },
+      ])
+      expect(journalToArray(uninterrupted.commandLog)).toEqual([
+        ...scheduledCommands,
+        {
+          sequence: 5,
+          serviceDay: 331,
+          command: { type: 'ADVANCE_DAY' },
+        },
+      ])
+      expect(journalToArray(resumed.eventLog)).toEqual(
+        journalToArray(uninterrupted.eventLog),
+      )
+      expect(journalToArray(resumed.commandLog)).toEqual(
+        journalToArray(uninterrupted.commandLog),
+      )
+      expect(journalToArray(replayed.state.eventLog)).toEqual(
+        journalToArray(uninterrupted.eventLog),
+      )
+      expect(journalToArray(replayed.state.commandLog)).toEqual(
+        journalToArray(uninterrupted.commandLog),
+      )
+
+      const meridian = uninterrupted.market.competitors.find(
+        ({ id }) => id === 'meridian',
+      )
+      const tallow = uninterrupted.market.competitors.find(
+        ({ id }) => id === 'tallow',
+      )
+      expect(meridian).toMatchObject({
+        intrinsicServiceScore: 82,
+        serviceScore: 72,
+        marketShare: 40,
+        sabotageHistory: [
+          {
+            nodeId: HACK_NODE_IDS.sabotage.qualityDegradation,
+            resolvedOnServiceDay: 332,
+            effectEndsOnServiceDay: 347,
+            evidenceDelta: 2,
+          },
+        ],
+      })
+      expect(tallow).toMatchObject({
+        marketShare: 0,
+        researchProgress: 1 / (7 * 30),
+      })
+      expect(uninterrupted.hacking.hiddenEvidence).toBe(2)
+      expect(uninterrupted.market).toEqual(resumed.market)
+      expect(uninterrupted.market).toEqual(replayed.state.market)
+      expect(
+        uninterrupted.market.playerShare +
+          uninterrupted.market.competitors.reduce(
+            (total, competitor) => total + competitor.marketShare,
+            0,
+          ),
+      ).toBeCloseTo(100, 10)
+
+      const uninterruptedBytes = encodeSave(
+        uninterrupted,
+        TASK_5_FIXED_SAVED_AT,
+      )
+      expect(encodeSave(resumed, TASK_5_FIXED_SAVED_AT)).toBe(
+        uninterruptedBytes,
+      )
+      expect(encodeSave(replayed.state, TASK_5_FIXED_SAVED_AT)).toBe(
+        uninterruptedBytes,
+      )
+      expect(uninterruptedBytes).not.toContain('"opportunities"')
+      expect(uninterruptedBytes).not.toContain('"expiresOnServiceDay"')
+      expect(uninterruptedBytes).not.toContain('"responseRoll"')
+    },
+  )
 
   it('exports and imports an exact file above the clipboard cap', () => {
     const state = largeAppendOnlyCommandCampaign()

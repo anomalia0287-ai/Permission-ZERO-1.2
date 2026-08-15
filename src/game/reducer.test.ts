@@ -1,11 +1,78 @@
 import { describe, expect, it } from 'vitest'
 
 import { enqueueBlockingEvent } from './calendar'
+import { recordCausalEvidence, recordCausalIncident } from './causality'
+import {
+  selectRecoveryContaminationOpportunities,
+  type CausalGameplayOperations,
+} from './causalGameplay'
 import { createCampaign, createCampaignForProtocol } from './createCampaign'
-import { applyCommand } from './reducer'
+import {
+  HACK_NODE_IDS,
+  purchaseHackNode,
+  scheduleSabotage,
+  type SabotageCausalOperations,
+} from './hacking'
+import type { CampaignState } from './model'
+import { applyCommand, type ApplyCommandOptions } from './reducer'
 import { placeHiddenBomb } from './bombs'
 import { JOURNAL_CHUNK_SIZE, journalAt, journalToArray } from './journal'
 import { moveDisguiseBlock } from './resources'
+
+function reserveIds(state: CampaignState, count: number): string[] {
+  const ids = state.resources.reserve.filter(
+    (blockId): blockId is string => blockId !== null,
+  )
+  if (ids.length < count) {
+    throw new Error(`Expected ${count} reserve resources, found ${ids.length}`)
+  }
+  return ids.slice(0, count)
+}
+
+function dueQualitySabotage(seed: string): CampaignState {
+  const initial = createCampaign(seed)
+  const purchased = purchaseHackNode(
+    initial,
+    HACK_NODE_IDS.sabotage.qualityDegradation,
+    reserveIds(initial, 3),
+  )
+  if (!purchased.accepted) throw new Error(purchased.reason)
+  const scheduled = scheduleSabotage(
+    purchased.state,
+    HACK_NODE_IDS.sabotage.qualityDegradation,
+    'meridian',
+  )
+  if (!scheduled.accepted) throw new Error(scheduled.reason)
+  return scheduled.state
+}
+
+function causalFailureCommandOptions(
+  phase: 'sabotage-root' | 'meridian-response',
+): ApplyCommandOptions {
+  if (phase === 'sabotage-root') {
+    const sabotageCausalOperations: SabotageCausalOperations = {
+      recordIncident: recordCausalIncident,
+      recordEvidence(state) {
+        return { accepted: false, state, reason: 'INVALID_EVIDENCE' }
+      },
+    }
+    return {
+      protocolVersion: 3,
+      dailyCausalOperations: { sabotageCausalOperations },
+    }
+  }
+
+  const causalGameplayOperations: CausalGameplayOperations = {
+    recordIncident: recordCausalIncident,
+    recordEvidence(state) {
+      return { accepted: false, state, reason: 'INVALID_EVIDENCE' }
+    },
+  }
+  return {
+    protocolVersion: 3,
+    dailyCausalOperations: { causalGameplayOperations },
+  }
+}
 
 function activeAudit(
   seed: string,
@@ -209,6 +276,117 @@ describe('applyCommand', () => {
     expect(initial.commandSequence).toBe(0)
     expect(initial.commandLog.length).toBe(0)
   })
+
+  it('rejects a mismatched ADVANCE_DAY before invoking a supplied daily causal seam', () => {
+    const initial = dueQualitySabotage('protocol-mismatch-daily-causal-seam')
+    const calls: string[] = []
+    const sabotageCausalOperations: SabotageCausalOperations = {
+      recordIncident(state, input) {
+        calls.push('sabotage-incident')
+        return recordCausalIncident(state, input)
+      },
+      recordEvidence(state, input) {
+        calls.push('sabotage-evidence')
+        return recordCausalEvidence(state, input)
+      },
+    }
+    const causalGameplayOperations: CausalGameplayOperations = {
+      recordIncident(state, input) {
+        calls.push('response-incident')
+        return recordCausalIncident(state, input)
+      },
+      recordEvidence(state, input) {
+        calls.push('response-evidence')
+        return recordCausalEvidence(state, input)
+      },
+    }
+
+    const result = applyCommand(
+      initial,
+      { type: 'ADVANCE_DAY' },
+      {
+        protocolVersion: 2,
+        dailyCausalOperations: {
+          sabotageCausalOperations,
+          causalGameplayOperations,
+        },
+      },
+    )
+
+    expect(result).toEqual({
+      accepted: false,
+      state: initial,
+      reason: 'PROTOCOL_MISMATCH',
+    })
+    expect(result.state).toBe(initial)
+    expect(calls).toEqual([])
+    expect(initial.serviceDay).toBe(331)
+    expect(initial.commandSequence).toBe(0)
+    expect(initial.commandLog.length).toBe(0)
+  })
+
+  it.each(['sabotage-root', 'meridian-response'] as const)(
+    'rejects ADVANCE_DAY atomically when %s rejects its evidence write and a same-state retry reproduces every deterministic result',
+    (phase) => {
+      const before = dueQualitySabotage(`reducer-whole-day-${phase}`)
+      const uninterrupted = applyCommand(before, { type: 'ADVANCE_DAY' })
+      expect(uninterrupted.accepted).toBe(true)
+      if (!uninterrupted.accepted) return
+
+      const failed = applyCommand(
+        before,
+        { type: 'ADVANCE_DAY' },
+        causalFailureCommandOptions(phase),
+      )
+
+      expect(failed).toEqual({
+        accepted: false,
+        state: before,
+        reason: 'CAUSAL_TRANSITION_FAILED',
+      })
+      expect(failed.state).toBe(before)
+      expect(failed.state.serviceDay).toBe(before.serviceDay)
+      expect(failed.state.commandSequence).toBe(before.commandSequence)
+      expect(failed.state.commandLog).toBe(before.commandLog)
+      expect(failed.state.hacking).toBe(before.hacking)
+      expect(failed.state.resources).toBe(before.resources)
+      expect(failed.state.market).toBe(before.market)
+      expect(failed.state.reviews).toBe(before.reviews)
+      expect(failed.state.causality).toBe(before.causality)
+      expect(failed.state.evaluation).toBe(before.evaluation)
+      expect(failed.state.audit).toBe(before.audit)
+      expect(failed.state.bombs).toBe(before.bombs)
+      expect(failed.state.story).toBe(before.story)
+      expect(failed.state.eventLog).toBe(before.eventLog)
+      expect(failed.state.eventQueue).toBe(before.eventQueue)
+      expect(failed.state.clock).toBe(before.clock)
+      expect(
+        journalToArray(failed.state.commandLog).filter(
+          ({ command }) => command.type === 'ADVANCE_DAY',
+        ),
+      ).toEqual([])
+
+      const retried = applyCommand(failed.state, { type: 'ADVANCE_DAY' })
+      expect(retried.accepted).toBe(true)
+      if (!retried.accepted) return
+      expect(retried.state).toEqual(uninterrupted.state)
+      expect(retried.state.serviceDay).toBe(before.serviceDay + 1)
+      const retriedOpportunities =
+        selectRecoveryContaminationOpportunities(retried.state)
+      const uninterruptedOpportunities =
+        selectRecoveryContaminationOpportunities(uninterrupted.state)
+      expect(retriedOpportunities).toEqual(uninterruptedOpportunities)
+      expect(retriedOpportunities).toHaveLength(1)
+      expect(retriedOpportunities[0]?.opensOnServiceDay).toBe(
+        before.serviceDay + 1,
+      )
+      expect(
+        journalToArray(retried.state.commandLog).map(
+          ({ command }) => command.type,
+        ),
+      ).toEqual(['ADVANCE_DAY'])
+    },
+  )
 
   it.each([2, 3] as const)(
     'requires separation authorization under protocol v%i',

@@ -117,6 +117,7 @@ describe('sabotage execution', () => {
     const sameDay = resolveScheduledSabotage(first.state)
     expect(sameDay).toEqual({
       resolved: false,
+      failed: false,
       state: first.state,
       reason: 'DAILY_LIMIT_REACHED',
     })

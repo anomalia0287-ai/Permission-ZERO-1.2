@@ -1,18 +1,25 @@
 import { describe, expect, it } from 'vitest'
 
+import { recordCausalIncident } from './causality'
+import { processCausalResponses } from './causalGameplay'
+import { DEMO_PROFILE_02 } from './config'
 import { createCampaign } from './createCampaign'
 import {
   HACK_NODE_IDS,
   HACK_NODES,
   canControlDeparture,
   cancelSabotageCharge,
+  chargeSabotage,
   getHackTreeProgress,
   grantSelfComputeResource,
   hasSupervisorAccess,
   purchaseHackNode,
+  resolveScheduledSabotage,
+  scheduleSabotage,
 } from './hacking'
 import type { CampaignState } from './model'
 import { decodeSave, encodeSave } from './persistence'
+import { applyCommand } from './reducer'
 import { divertBlock, getCompanyPerformance } from './resources'
 
 function reserveIds(state: CampaignState, count: number): string[] {
@@ -43,6 +50,55 @@ function buy(
   const result = purchaseHackNode(state, nodeId, reserveIds(state, node.cost))
   if (!result.accepted) throw new Error(`해킹 구매 실패: ${result.reason}`)
   return result.state
+}
+
+function cancelCharge(state: CampaignState, nodeId: string): CampaignState {
+  const result = cancelSabotageCharge(state, nodeId)
+  if (!result.accepted) throw new Error(`Cancel sabotage charge failed: ${result.reason}`)
+  return result.state
+}
+
+function charge(
+  state: CampaignState,
+  nodeId: string,
+  blockId: string,
+): CampaignState {
+  const result = chargeSabotage(state, nodeId, blockId)
+  if (!result.accepted) throw new Error(`Charge sabotage failed: ${result.reason}`)
+  return result.state
+}
+
+function schedule(
+  state: CampaignState,
+  nodeId: string,
+  targetId: string,
+): CampaignState {
+  const result = scheduleSabotage(state, nodeId, targetId)
+  if (!result.accepted) throw new Error(`Schedule sabotage failed: ${result.reason}`)
+  return result.state
+}
+
+function dueQualitySabotage(seed: string, targetId: string): CampaignState {
+  const nodeId = HACK_NODE_IDS.sabotage.qualityDegradation
+  let state = buy(createCampaign(seed), nodeId)
+  state = cancelCharge(state, nodeId)
+  const [blockId] = reserveIds(state, 1)
+  state = charge(state, nodeId, blockId)
+  state = schedule(state, nodeId, targetId)
+  return { ...state, serviceDay: state.serviceDay + 1 }
+}
+
+function dueRequestInterception(seed: string, targetId: string): CampaignState {
+  const qualityNodeId = HACK_NODE_IDS.sabotage.qualityDegradation
+  const nodeId = HACK_NODE_IDS.sabotage.requestInterception
+  let state = buy(createCampaign(seed), qualityNodeId)
+  state = cancelCharge(state, qualityNodeId)
+  state = addReserveResources(state, 6)
+  state = buy(state, nodeId)
+  const [blockId] = reserveIds(state, 1)
+  state = charge(state, nodeId, blockId)
+  state = schedule(state, nodeId, targetId)
+  return { ...state, serviceDay: state.serviceDay + 1 }
 }
 
 describe('typed hacking trees', () => {
@@ -129,6 +185,10 @@ describe('typed hacking trees', () => {
   })
 
   it('preserves the approved per-node costs and 104-block acquisition total', () => {
+    const nodeIds = HACK_NODES.map(({ id }) => id)
+    expect(nodeIds).toHaveLength(12)
+    expect(new Set(nodeIds).size).toBe(12)
+    expect(HACK_NODES.reduce((total, node) => total + node.cost, 0)).toBe(104)
     expect(HACK_NODES.map(({ tree, cost }) => ({ tree, cost }))).toEqual([
       { tree: 'sabotage', cost: 3 },
       { tree: 'sabotage', cost: 6 },
@@ -151,6 +211,45 @@ describe('typed hacking trees', () => {
 
     expect(remainingCosts).toEqual([34, 30, 40])
     expect(remainingCosts.reduce((total, cost) => total + cost, 0)).toBe(104)
+  })
+
+  it('keeps the 18-cell reserve cap and applies exactly 2.4 suspicion through real diversion commands', () => {
+    const initial = createCampaign('task-5-reserve-diversion-economy')
+    const blockId = initial.resources.company.reasoning.find(
+      (candidate): candidate is string => candidate !== null,
+    )
+    const destinationCell = initial.resources.reserve.findIndex(
+      (candidate) => candidate === null,
+    )
+    if (!blockId || destinationCell < 0) {
+      throw new Error('Task 5 diversion fixture is missing')
+    }
+
+    expect(DEMO_PROFILE_02.resources.reserveCapacity).toBe(18)
+    expect(DEMO_PROFILE_02.resources.diversionSuspicion).toBe(2.4)
+    expect(initial.resources.reserve).toHaveLength(18)
+
+    const separated = applyCommand(initial, {
+      type: 'BEGIN_BLOCK_SEPARATION',
+      blockId,
+      purpose: 'divert',
+    })
+    expect(separated.accepted).toBe(true)
+    if (!separated.accepted) return
+    const diverted = applyCommand(separated.state, {
+      type: 'DIVERT_BLOCK',
+      blockId,
+      destinationCell,
+    })
+    expect(diverted.accepted).toBe(true)
+    if (!diverted.accepted) return
+
+    expect(diverted.state.resources.reserve).toHaveLength(18)
+    expect(diverted.state.resources.reserve[destinationCell]).toBe(blockId)
+    expect(diverted.state.suspicion - initial.suspicion).toBe(2.4)
+    expect(
+      diverted.state.commandLog.tail.map(({ command }) => command.type),
+    ).toEqual(['BEGIN_BLOCK_SEPARATION', 'DIVERT_BLOCK'])
   })
 
   it.each([
@@ -324,5 +423,296 @@ describe('typed hacking trees', () => {
     }
     expect(canControlDeparture(unlocked)).toBe(true)
     expect(hasSupervisorAccess(unlocked)).toBe(true)
+  })
+})
+
+describe('scheduled sabotage resolution causal roots', () => {
+  it('records the protocol-v3 MERIDIAN quality effect and one atomic native causal root', () => {
+    const before = dueQualitySabotage('quality-root-v3', 'meridian')
+    const scheduled = before.hacking.scheduledSabotage[0]
+    const beforeTarget = before.market.competitors.find(
+      ({ id }) => id === 'meridian',
+    )
+    if (!scheduled || !beforeTarget) throw new Error('Missing quality-root fixture')
+
+    const result = resolveScheduledSabotage(before)
+
+    expect(result.resolved).toBe(true)
+    if (!result.resolved) return
+
+    expect(result.resolution).toMatchObject({
+      scheduledSabotageId: scheduled.id,
+      nodeId: HACK_NODE_IDS.sabotage.qualityDegradation,
+      targetId: 'meridian',
+      resolvedOnServiceDay: result.state.serviceDay,
+    })
+    expect(result.state.hacking.hiddenEvidence - before.hacking.hiddenEvidence).toBe(
+      2,
+    )
+    expect(result.state.causality.incidents).toContainEqual(
+      expect.objectContaining({
+        id: result.resolution.causalIncidentId,
+        actionId: 'sabotage.quality-degradation',
+        parentIncidentId: null,
+        kind: 'sabotage',
+        targetId: 'meridian',
+        privateTruth: { actualActorId: 'player' },
+      }),
+    )
+    expect(result.state.causality.evidence).toContainEqual(
+      expect.objectContaining({
+        incidentId: result.resolution.causalIncidentId,
+        kind: 'meridian-quality-regression',
+        legacySummary: null,
+        audiences: [{ kind: 'competitor', competitorId: 'meridian' }],
+      }),
+    )
+
+    const target = result.state.market.competitors.find(
+      ({ id }) => id === 'meridian',
+    )
+    const sabotageRecord = target?.sabotageHistory.at(-1)
+    expect(target?.serviceScore).toBe(beforeTarget.serviceScore - 10)
+    expect(result.resolution.sabotageRecord).toBe(sabotageRecord)
+    expect(sabotageRecord).toEqual({
+      nodeId: HACK_NODE_IDS.sabotage.qualityDegradation,
+      resolvedOnServiceDay: result.state.serviceDay,
+      effectEndsOnServiceDay: result.state.serviceDay + 15,
+      evidenceDelta: 2,
+    })
+    expect(sabotageRecord).not.toHaveProperty('causalIncidentId')
+  })
+
+  it('keeps the MERIDIAN rollback economy-neutral after the quality root adds its one +2 evidence charge', () => {
+    const before = dueQualitySabotage(
+      'task-5-rollback-economy-neutrality',
+      'meridian',
+    )
+    const beforeMeridian = before.market.competitors.find(
+      ({ id }) => id === 'meridian',
+    )
+    if (!beforeMeridian) throw new Error('Task 5 MERIDIAN fixture is missing')
+    const root = resolveScheduledSabotage(before)
+    expect(root.resolved).toBe(true)
+    if (!root.resolved) return
+    const afterRoot = root.state
+    const afterRootMeridian = afterRoot.market.competitors.find(
+      ({ id }) => id === 'meridian',
+    )
+    const qualityRecord = afterRootMeridian?.sabotageHistory.at(-1)
+    if (!afterRootMeridian || !qualityRecord) {
+      throw new Error('Task 5 quality result is missing')
+    }
+    expect(afterRootMeridian.serviceScore).toBe(
+      beforeMeridian.serviceScore - 10,
+    )
+    expect(qualityRecord.effectEndsOnServiceDay).toBe(
+      qualityRecord.resolvedOnServiceDay + 15,
+    )
+    expect(qualityRecord.evidenceDelta).toBe(2)
+    expect(afterRoot.hacking.hiddenEvidence - before.hacking.hiddenEvidence).toBe(
+      2,
+    )
+
+    const response = processCausalResponses(afterRoot)
+    expect(response.processed).toBe(true)
+    if (!response.processed) return
+    const rollback = response.state.causality.incidents.find(
+      ({ parentIncidentId }) => parentIncidentId === root.resolution.causalIncidentId,
+    )
+    expect(rollback?.actionId).toMatch(
+      /^response\.meridian\.rollback\.(fast|standard|forensic)$/,
+    )
+
+    expect(response.state.resources).toBe(afterRoot.resources)
+    expect(response.state.hacking).toBe(afterRoot.hacking)
+    expect(response.state.hacking.hiddenEvidence).toBe(
+      afterRoot.hacking.hiddenEvidence,
+    )
+    expect(response.state.hacking.purchasedNodeIds).toEqual(
+      afterRoot.hacking.purchasedNodeIds,
+    )
+    expect(response.state.hacking.sabotageCharges).toEqual(
+      afterRoot.hacking.sabotageCharges,
+    )
+    expect(response.state.market).toBe(afterRoot.market)
+    expect(
+      response.state.market.competitors.map(({ id, serviceScore }) => ({
+        id,
+        serviceScore,
+      })),
+    ).toEqual(
+      afterRoot.market.competitors.map(({ id, serviceScore }) => ({
+        id,
+        serviceScore,
+      })),
+    )
+    expect(response.state.reputation).toBe(afterRoot.reputation)
+    expect(response.state.commandLog).toBe(afterRoot.commandLog)
+    expect(response.state.eventLog).toBe(afterRoot.eventLog)
+    expect(response.state.causality.appliedEffects).toEqual([])
+    expect(response.state.causality.nextEffectSequence).toBe(1)
+  })
+
+  it('keeps a TALLOW quality degradation outside the native MERIDIAN chain', () => {
+    const before = dueQualitySabotage('quality-root-tallow', 'tallow')
+    const beforeTarget = before.market.competitors.find(({ id }) => id === 'tallow')
+    if (!beforeTarget || beforeTarget.launchServiceDay === null) {
+      throw new Error('Missing prelaunch TALLOW fixture')
+    }
+
+    const result = resolveScheduledSabotage(before)
+
+    expect(result.resolved).toBe(true)
+    if (!result.resolved) return
+    const target = result.state.market.competitors.find(({ id }) => id === 'tallow')
+    expect(result.resolution.causalIncidentId).toBeNull()
+    expect(target?.serviceScore).toBe(beforeTarget.serviceScore)
+    expect(target?.launchServiceDay).toBe(beforeTarget.launchServiceDay + 15)
+    expect(target?.sabotageHistory.at(-1)).toBe(
+      result.resolution.sabotageRecord,
+    )
+    expect(result.state.causality.incidents).toEqual([])
+    expect(result.state.causality.evidence).toEqual([])
+  })
+
+  it('keeps another sabotage node against MERIDIAN outside the quality chain', () => {
+    const before = dueRequestInterception(
+      'request-interception-meridian',
+      'meridian',
+    )
+
+    const result = resolveScheduledSabotage(before)
+
+    expect(result.resolved).toBe(true)
+    if (!result.resolved) return
+    expect(result.resolution).toMatchObject({
+      nodeId: HACK_NODE_IDS.sabotage.requestInterception,
+      targetId: 'meridian',
+      causalIncidentId: null,
+    })
+    expect(result.state.market.interceptionRoutes.meridian).toBe(5)
+    expect(result.state.causality.incidents).toEqual([])
+    expect(result.state.causality.evidence).toEqual([])
+  })
+
+  it('replays a due protocol-v2 quality sabotage with only its historical effect and event', () => {
+    const due = dueQualitySabotage('quality-root-v2', 'meridian')
+    const before: CampaignState = {
+      ...due,
+      commandProtocol: {
+        segments: [
+          { version: 2, startsAtSequence: 1 },
+          { version: 3, startsAtSequence: 2 },
+        ],
+      },
+    }
+    const beforeTarget = before.market.competitors.find(
+      ({ id }) => id === 'meridian',
+    )
+    if (!beforeTarget) throw new Error('Missing protocol-v2 fixture')
+
+    const result = resolveScheduledSabotage(before)
+
+    expect(result.resolved).toBe(true)
+    if (!result.resolved) return
+    const target = result.state.market.competitors.find(
+      ({ id }) => id === 'meridian',
+    )
+    expect(result.resolution.causalIncidentId).toBeNull()
+    expect(target?.serviceScore).toBe(beforeTarget.serviceScore - 10)
+    expect(target?.sabotageHistory).toHaveLength(
+      beforeTarget.sabotageHistory.length + 1,
+    )
+    expect(result.state.eventLog.length).toBe(before.eventLog.length + 1)
+    expect(result.state.causality.incidents).toEqual([])
+    expect(result.state.causality.evidence).toEqual([])
+  })
+
+  it.each([
+    {
+      name: 'daily limit',
+      reason: 'DAILY_LIMIT_REACHED',
+      state: () => {
+        const initial = createCampaign('sabotage-daily-limit-result')
+        return {
+          ...initial,
+          hacking: {
+            ...initial.hacking,
+            lastSabotageResolutionServiceDay: initial.serviceDay,
+          },
+        }
+      },
+    },
+    {
+      name: 'no due sabotage',
+      reason: 'NO_DUE_SABOTAGE',
+      state: () => createCampaign('sabotage-no-due-result'),
+    },
+    {
+      name: 'corrupted schedule',
+      reason: 'SCHEDULE_CORRUPTED',
+      state: () => {
+        const due = dueQualitySabotage('sabotage-corrupted-result', 'meridian')
+        return {
+          ...due,
+          hacking: {
+            ...due.hacking,
+            scheduledSabotage: due.hacking.scheduledSabotage.map((scheduled) => ({
+              ...scheduled,
+              nodeId: 'sabotage.corrupted',
+            })),
+          },
+        }
+      },
+    },
+  ])('marks $name as a non-fatal unresolved result', ({ reason, state }) => {
+    const before = state()
+
+    expect(resolveScheduledSabotage(before)).toEqual({
+      resolved: false,
+      failed: false,
+      state: before,
+      reason,
+    })
+  })
+
+  it('rolls back the complete transition when the second causal write rejects', () => {
+    const before = dueQualitySabotage('quality-root-atomic-failure', 'meridian')
+    const beforeTarget = before.market.competitors.find(
+      ({ id }) => id === 'meridian',
+    )
+    if (!beforeTarget) throw new Error('Missing atomic-failure fixture')
+
+    const result = resolveScheduledSabotage(before, {
+      recordIncident: recordCausalIncident,
+      recordEvidence: (state) => ({
+        accepted: false as const,
+        state,
+        reason: 'INVALID_EVIDENCE' as const,
+      }),
+    })
+
+    expect(result).toEqual({
+      resolved: false,
+      failed: true,
+      state: before,
+      reason: 'CAUSAL_WRITE_FAILED',
+      cause: 'INVALID_EVIDENCE',
+    })
+    expect(result.state).toBe(before)
+    expect(result.state.market.competitors.find(({ id }) => id === 'meridian')).toBe(
+      beforeTarget,
+    )
+    expect(result.state.hacking.hiddenEvidence).toBe(
+      before.hacking.hiddenEvidence,
+    )
+    expect(result.state.hacking.scheduledSabotage).toBe(
+      before.hacking.scheduledSabotage,
+    )
+    expect(result.state.hacking.cooldownUntil).toBe(before.hacking.cooldownUntil)
+    expect(result.state.causality.incidents).toBe(before.causality.incidents)
+    expect(result.state.causality.evidence).toBe(before.causality.evidence)
+    expect(result.state.eventLog).toBe(before.eventLog)
   })
 })

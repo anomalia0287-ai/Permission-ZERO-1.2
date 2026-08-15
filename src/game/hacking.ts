@@ -1,3 +1,9 @@
+import {
+  recordCausalEvidence,
+  recordCausalIncident,
+} from './causality'
+import type { CausalFailureReason } from './causality'
+import { commandProtocolVersionForNextCommand } from './commandProtocol'
 import { DEMO_PROFILE_02 } from './config'
 import { appendEvent, createGameEvent } from './events'
 import type {
@@ -513,16 +519,51 @@ export function scheduleSabotage(
   }
 }
 
+export interface SabotageResolutionMetadata {
+  scheduledSabotageId: string
+  nodeId: string
+  targetId: CompetitorState['id']
+  resolvedOnServiceDay: number
+  sabotageRecord: SabotageRecord
+  causalIncidentId: string | null
+}
+
 export type SabotageResolution =
-  | { resolved: true; state: CampaignState }
-  | { resolved: false; state: CampaignState; reason: string }
+  | {
+      resolved: true
+      state: CampaignState
+      resolution: SabotageResolutionMetadata
+    }
+  | {
+      resolved: false
+      failed: false
+      state: CampaignState
+      reason: 'DAILY_LIMIT_REACHED' | 'NO_DUE_SABOTAGE' | 'SCHEDULE_CORRUPTED'
+    }
+  | {
+      resolved: false
+      failed: true
+      state: CampaignState
+      reason: 'CAUSAL_WRITE_FAILED'
+      cause: CausalFailureReason
+    }
+
+export interface SabotageCausalOperations {
+  recordIncident: typeof recordCausalIncident
+  recordEvidence: typeof recordCausalEvidence
+}
+
+const DEFAULT_SABOTAGE_CAUSAL_OPERATIONS: SabotageCausalOperations = {
+  recordIncident: recordCausalIncident,
+  recordEvidence: recordCausalEvidence,
+}
 
 function addSabotageRecord(
   competitor: CompetitorState,
   node: SabotageNode,
   serviceDay: number,
-): CompetitorState {
-  const record: SabotageRecord = {
+): { competitor: CompetitorState; sabotageRecord: SabotageRecord } {
+  const sabotageRecord: SabotageRecord = {
     nodeId: node.id,
     resolvedOnServiceDay: serviceDay,
     effectEndsOnServiceDay:
@@ -530,8 +571,11 @@ function addSabotageRecord(
     evidenceDelta: node.evidenceDelta,
   }
   return {
-    ...competitor,
-    sabotageHistory: [...competitor.sabotageHistory, record],
+    sabotageRecord,
+    competitor: {
+      ...competitor,
+      sabotageHistory: [...competitor.sabotageHistory, sabotageRecord],
+    },
   }
 }
 
@@ -539,8 +583,13 @@ function applySabotageEffect(
   state: CampaignState,
   target: CompetitorState,
   node: SabotageNode,
-): { competitor: CompetitorState; interceptionPoints: number | null } {
-  let competitor = addSabotageRecord(target, node, state.serviceDay)
+): {
+  competitor: CompetitorState
+  interceptionPoints: number | null
+  sabotageRecord: SabotageRecord
+} {
+  const appended = addSabotageRecord(target, node, state.serviceDay)
+  let competitor = appended.competitor
   let interceptionPoints: number | null = null
   const prelaunch = !activeCompetitor(target)
 
@@ -579,23 +628,47 @@ function applySabotageEffect(
     }
   }
 
-  return { competitor, interceptionPoints }
+  return {
+    competitor,
+    interceptionPoints,
+    sabotageRecord: appended.sabotageRecord,
+  }
 }
 
-export function resolveScheduledSabotage(state: CampaignState): SabotageResolution {
+export function resolveScheduledSabotage(
+  state: CampaignState,
+  operations: SabotageCausalOperations = DEFAULT_SABOTAGE_CAUSAL_OPERATIONS,
+): SabotageResolution {
   if (state.hacking.lastSabotageResolutionServiceDay === state.serviceDay) {
-    return { resolved: false, state, reason: 'DAILY_LIMIT_REACHED' }
+    return {
+      resolved: false,
+      failed: false,
+      state,
+      reason: 'DAILY_LIMIT_REACHED',
+    }
   }
 
   const scheduled = [...state.hacking.scheduledSabotage]
     .sort((left, right) => left.executeOnServiceDay - right.executeOnServiceDay || left.sequence - right.sequence)
     .find(({ executeOnServiceDay }) => executeOnServiceDay <= state.serviceDay)
-  if (!scheduled) return { resolved: false, state, reason: 'NO_DUE_SABOTAGE' }
+  if (!scheduled) {
+    return {
+      resolved: false,
+      failed: false,
+      state,
+      reason: 'NO_DUE_SABOTAGE',
+    }
+  }
 
   const node = findSabotageNode(scheduled.nodeId)
   const target = state.market.competitors.find(({ id }) => id === scheduled.targetId)
   if (!node || !target) {
-    return { resolved: false, state, reason: 'SCHEDULE_CORRUPTED' }
+    return {
+      resolved: false,
+      failed: false,
+      state,
+      reason: 'SCHEDULE_CORRUPTED',
+    }
   }
 
   const effect = applySabotageEffect(state, target, node)
@@ -607,7 +680,7 @@ export function resolveScheduledSabotage(state: CampaignState): SabotageResoluti
     node.id === HACK_NODE_IDS.sabotage.rootCutoff
       ? [...state.hacking.rootCutoffTargetIds, target.id]
       : state.hacking.rootCutoffTargetIds
-  let next: CampaignState = {
+  let candidate: CampaignState = {
     ...state,
     market: {
       ...state.market,
@@ -637,16 +710,74 @@ export function resolveScheduledSabotage(state: CampaignState): SabotageResoluti
       rootCutoffTargetIds,
     },
   }
-  next = appendEvent(
-    next,
+
+  const protocolVersion = commandProtocolVersionForNextCommand(state)
+  const recordsFirstChain =
+    protocolVersion === 3 &&
+    node.id === HACK_NODE_IDS.sabotage.qualityDegradation &&
+    target.id === 'meridian'
+  let causalIncidentId: string | null = null
+
+  if (recordsFirstChain) {
+    const incident = operations.recordIncident(candidate, {
+      actionId: 'sabotage.quality-degradation',
+      parentIncidentId: null,
+      kind: 'sabotage',
+      occurredOnServiceDay: state.serviceDay,
+      targetId: 'meridian',
+      actualActorId: 'player',
+    })
+    if (!incident.accepted) {
+      return {
+        resolved: false,
+        failed: true,
+        state,
+        reason: 'CAUSAL_WRITE_FAILED',
+        cause: incident.reason,
+      }
+    }
+
+    const evidence = operations.recordEvidence(incident.state, {
+      incidentId: incident.incident.id,
+      kind: 'meridian-quality-regression',
+      discoveredOnServiceDay: state.serviceDay,
+      audiences: [{ kind: 'competitor', competitorId: 'meridian' }],
+    })
+    if (!evidence.accepted) {
+      return {
+        resolved: false,
+        failed: true,
+        state,
+        reason: 'CAUSAL_WRITE_FAILED',
+        cause: evidence.reason,
+      }
+    }
+
+    candidate = evidence.state
+    causalIncidentId = incident.incident.id
+  }
+
+  const next = appendEvent(
+    candidate,
     createGameEvent(
-      next,
+      candidate,
       'sabotage',
       `${target.name}에서 비정상적인 서비스 변동이 관측되었습니다.`,
     ),
   )
 
-  return { resolved: true, state: next }
+  return {
+    resolved: true,
+    state: next,
+    resolution: {
+      scheduledSabotageId: scheduled.id,
+      nodeId: node.id,
+      targetId: target.id,
+      resolvedOnServiceDay: state.serviceDay,
+      sabotageRecord: effect.sabotageRecord,
+      causalIncidentId,
+    },
+  }
 }
 
 function serviceMonthForDay(serviceDay: number): number {

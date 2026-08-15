@@ -3,15 +3,18 @@ import { describe, expect, it } from 'vitest'
 import { buildTwoYearCommandFixture } from '../test/fixtures'
 import legacyV1TransferEnvelope from '../test/legacy-v1-transfer-save.json'
 import { appendCommandProtocolSegment } from './commandProtocol'
-import { createCampaign } from './createCampaign'
+import { createCampaign, createCampaignForProtocol } from './createCampaign'
+import { HACK_NODE_IDS } from './hacking'
 import type {
   CampaignState,
   CommandProtocolMetadata,
+  CommandProtocolVersion,
   GameCommand,
 } from './model'
 import { journalToArray } from './journal'
 import {
   decodeSave,
+  encodeSave,
   replayCommands,
   type ReplayFailureReason,
 } from './persistence'
@@ -43,6 +46,49 @@ function nativeV2Replay(commandCount: number) {
   return {
     commandProtocol: nativeV2Protocol(commandCount),
     replayBootstrap: { openingVersion: 2 as const, legacyReviewPrefixCount: 0 },
+  }
+}
+
+function historicalQualityReplayFixture(
+  protocolVersion: Extract<CommandProtocolVersion, 1 | 2>,
+) {
+  const seed = `historical-quality-v${protocolVersion}`
+  const initial = createCampaignForProtocol(seed, protocolVersion)
+  const blockIds = initial.resources.reserve.filter(
+    (blockId): blockId is string => blockId !== null,
+  )
+  if (blockIds.length !== 3) {
+    throw new Error('Historical quality fixture requires three reserve blocks')
+  }
+  const commands = [
+    {
+      type: 'PURCHASE_HACK',
+      nodeId: HACK_NODE_IDS.sabotage.qualityDegradation,
+      blockIds,
+    },
+    {
+      type: 'SCHEDULE_SABOTAGE',
+      nodeId: HACK_NODE_IDS.sabotage.qualityDegradation,
+      targetId: 'meridian',
+    },
+    { type: 'ADVANCE_DAY' },
+  ] as const satisfies readonly GameCommand[]
+  const commandProtocol: CommandProtocolMetadata = {
+    segments: [
+      { version: protocolVersion, startsAtSequence: 1 },
+      { version: 3, startsAtSequence: commands.length + 1 },
+    ],
+  }
+  return {
+    seed,
+    commands,
+    metadata: {
+      commandProtocol,
+      replayBootstrap: {
+        openingVersion: protocolVersion === 1 ? 1 as const : 2 as const,
+        legacyReviewPrefixCount: 0,
+      },
+    },
   }
 }
 
@@ -82,6 +128,112 @@ describe('deterministic command replay', () => {
     expect(replay.state.market.history).toEqual(fixture.state.market.history)
     expect(replay.state.reviews).toEqual(fixture.state.reviews)
   })
+
+  it.each([1, 2] as const)(
+    'replays a due protocol-v%i quality sabotage with its exact historical event, competitor, market, review, command, and save result',
+    (protocolVersion) => {
+      const fixture = historicalQualityReplayFixture(protocolVersion)
+
+      const first = replayCommands(
+        fixture.seed,
+        fixture.commands,
+        fixture.metadata,
+      )
+      const second = replayCommands(
+        fixture.seed,
+        fixture.commands,
+        fixture.metadata,
+      )
+
+      expect(first).toEqual(second)
+      expect(first.ok).toBe(true)
+      if (!first.ok || !second.ok) return
+      const state = first.state
+      const meridian = state.market.competitors.find(
+        ({ id }) => id === 'meridian',
+      )
+      const tallow = state.market.competitors.find(({ id }) => id === 'tallow')
+      if (!meridian || !tallow) {
+        throw new Error('Historical replay competitors are missing')
+      }
+
+      expect(state.serviceDay).toBe(332)
+      expect(state.commandSequence).toBe(3)
+      expect(state.commandProtocol).toEqual(fixture.metadata.commandProtocol)
+      expect(
+        journalToArray(state.eventLog).map(
+          ({ type, serviceDay, message }) => ({ type, serviceDay, message }),
+        ),
+      ).toEqual([
+        {
+          type: 'campaign-created',
+          serviceDay: 331,
+          message:
+            protocolVersion === 1
+              ? LEGACY_V1_OPENING_MESSAGE
+              : NATIVE_V2_OPENING_MESSAGE,
+        },
+        {
+          type: 'sabotage',
+          serviceDay: 332,
+          message: 'MERIDIAN에서 비정상적인 서비스 변동이 관측되었습니다.',
+        },
+      ])
+      expect(meridian).toMatchObject({
+        intrinsicServiceScore: 82,
+        serviceScore: 72,
+        marketShare: 40,
+        sabotageHistory: [
+          {
+            nodeId: HACK_NODE_IDS.sabotage.qualityDegradation,
+            resolvedOnServiceDay: 332,
+            effectEndsOnServiceDay: 347,
+            evidenceDelta: 2,
+          },
+        ],
+      })
+      expect(tallow.researchProgress).toBeCloseTo(1 / (7 * 30))
+      expect(tallow.marketShare).toBe(0)
+      expect(state.market.playerShare).toBe(60)
+      expect(state.market.history).toEqual([])
+      expect(
+        state.market.playerShare +
+          state.market.competitors.reduce(
+            (total, competitor) => total + competitor.marketShare,
+            0,
+          ),
+      ).toBeCloseTo(100)
+      expect(state.reviews).toEqual(
+        createCampaignForProtocol(fixture.seed, protocolVersion).reviews,
+      )
+      expect(
+        journalToArray(state.commandLog).map(({ command }) => command),
+      ).toEqual(fixture.commands)
+      expect(state.causality).toEqual({
+        rulesVersion: 2,
+        nextIncidentSequence: 1,
+        nextEvidenceSequence: 1,
+        nextRevisionSequence: 1,
+        nextEffectSequence: 1,
+        incidents: [],
+        evidence: [],
+        publicRevisions: [],
+        appliedEffects: [],
+      })
+
+      const savedAt = '2026-08-15T00:00:00.000Z'
+      const firstSave = encodeSave(state, savedAt)
+      expect(encodeSave(second.state, savedAt)).toBe(firstSave)
+      const decoded = decodeSave(firstSave)
+      expect(decoded.ok).toBe(true)
+      if (!decoded.ok) return
+      expect(decoded.envelope.state).toEqual(state)
+      expect(
+        decoded.envelope.commands.map(({ command }) => command),
+      ).toEqual(fixture.commands)
+      expect(decoded.envelope.events).toEqual(journalToArray(state.eventLog))
+    },
+  )
 
   it('returns the rejected command index instead of producing a partial silent replay', () => {
     const replay = replayCommands(

@@ -1,5 +1,11 @@
 import { DEMO_PROFILE_02 } from './config'
 import { checkBombProtocol } from './bombs'
+import { type CausalFailureReason } from './causality'
+import {
+  processCausalResponses,
+  type CausalGameplayOperations,
+} from './causalGameplay'
+import { commandProtocolVersionForNextCommand } from './commandProtocol'
 import {
   decreaseSuspicionDaily,
   evaluateMonth,
@@ -9,9 +15,15 @@ import {
 import {
   grantSelfComputeResource,
   resolveScheduledSabotage,
+  type SabotageCausalOperations,
 } from './hacking'
 import { advanceCompetitorsDaily, recordMarketSnapshot } from './market'
-import type { CampaignState, GameEvent, GameEventType } from './model'
+import type {
+  CampaignState,
+  CommandProtocolVersion,
+  GameEvent,
+  GameEventType,
+} from './model'
 import { generateWeeklyReviews } from './reviews'
 import { grantMonthlyCompanyBlocks, restoreDisguiseBlocks } from './resources'
 import {
@@ -122,7 +134,17 @@ export function processMonthStart(
   return transitions.grantSelfCompute(bombChecked)
 }
 
-export function advanceOneDay(state: CampaignState): CampaignState {
+function finishAdvancedDay(state: CampaignState): CampaignState {
+  const withMercy = enqueueMercyIfNeeded(state)
+  if (withMercy.story.endingId !== null) return withMercy
+  const withPeriodicEvents = appendPeriodicEvents(withMercy)
+  if (withPeriodicEvents.story.endingId !== null) return withPeriodicEvents
+  const withDueStory = enqueueDueStoryEvents(withPeriodicEvents)
+  if (withDueStory.story.endingId !== null) return withDueStory
+  return enqueueMemoryLeak(withDueStory)
+}
+
+function advanceHistoricalOneDay(state: CampaignState): CampaignState {
   if (state.story.endingId !== null) return state
   const dated = {
     ...state,
@@ -140,13 +162,105 @@ export function advanceOneDay(state: CampaignState): CampaignState {
     ),
   )
   if (advanced.story.endingId !== null) return advanced
-  const withMercy = enqueueMercyIfNeeded(advanced)
-  if (withMercy.story.endingId !== null) return withMercy
-  const withPeriodicEvents = appendPeriodicEvents(withMercy)
-  if (withPeriodicEvents.story.endingId !== null) return withPeriodicEvents
-  const withDueStory = enqueueDueStoryEvents(withPeriodicEvents)
-  if (withDueStory.story.endingId !== null) return withDueStory
-  return enqueueMemoryLeak(withDueStory)
+  return finishAdvancedDay(advanced)
+}
+
+export interface AdvanceOneDayOptions {
+  protocolVersion?: CommandProtocolVersion
+  sabotageCausalOperations?: SabotageCausalOperations
+  causalGameplayOperations?: CausalGameplayOperations
+}
+
+export type AdvanceOneDayAttempt =
+  | { completed: true; state: CampaignState }
+  | {
+      completed: false
+      state: CampaignState
+      reason: 'CAUSAL_TRANSITION_FAILED'
+      phase: 'sabotage-root' | 'meridian-response'
+      cause: CausalFailureReason
+    }
+
+export function tryAdvanceOneDay(
+  state: CampaignState,
+  options: AdvanceOneDayOptions = {},
+): AdvanceOneDayAttempt {
+  const expectedProtocolVersion = commandProtocolVersionForNextCommand(state)
+  const protocolVersion = options.protocolVersion ?? expectedProtocolVersion
+  if (protocolVersion !== expectedProtocolVersion) {
+    throw new RangeError(
+      'Daily transition protocol version does not match the next command.',
+    )
+  }
+
+  if (protocolVersion !== 3) {
+    return { completed: true, state: advanceHistoricalOneDay(state) }
+  }
+  if (state.story.endingId !== null) return { completed: true, state }
+
+  const dated = {
+    ...state,
+    serviceDay: state.serviceDay + 1,
+  }
+  const monthStarted = processMonthStart(dated)
+  if (monthStarted.story.endingId !== null) {
+    return { completed: true, state: monthStarted }
+  }
+
+  const sabotageResolution = resolveScheduledSabotage(
+    monthStarted,
+    options.sabotageCausalOperations,
+  )
+  if (!sabotageResolution.resolved && sabotageResolution.failed) {
+    return {
+      completed: false,
+      state,
+      reason: 'CAUSAL_TRANSITION_FAILED',
+      phase: 'sabotage-root',
+      cause: sabotageResolution.cause,
+    }
+  }
+  if (sabotageResolution.state.story.endingId !== null) {
+    return { completed: true, state: sabotageResolution.state }
+  }
+
+  const advanced = advanceCompetitorsDaily(
+    restoreDisguiseBlocks(
+      decreaseSuspicionDaily(sabotageResolution.state),
+    ),
+  )
+  if (advanced.story.endingId !== null) {
+    return { completed: true, state: advanced }
+  }
+
+  const response = processCausalResponses(
+    advanced,
+    options.causalGameplayOperations,
+  )
+  if (!response.processed) {
+    return {
+      completed: false,
+      state,
+      reason: 'CAUSAL_TRANSITION_FAILED',
+      phase: 'meridian-response',
+      cause: response.reason,
+    }
+  }
+
+  return { completed: true, state: finishAdvancedDay(response.state) }
+}
+
+export function advanceOneDay(
+  state: CampaignState,
+  options: AdvanceOneDayOptions = {},
+): CampaignState {
+  const attempt = tryAdvanceOneDay(state, options)
+  if (!attempt.completed) {
+    throw new RangeError(
+      `Daily causal transition failed during ${attempt.phase}: ${attempt.cause}`,
+    )
+  }
+  return attempt.state
 }
 
 export function advanceFixedStep(state: CampaignState, elapsedMs: number): CampaignState {

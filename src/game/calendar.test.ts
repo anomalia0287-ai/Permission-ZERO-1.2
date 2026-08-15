@@ -1,8 +1,21 @@
 import { describe, expect, it } from 'vitest'
 
-import { createCampaign } from './createCampaign'
+import * as calendarModule from './calendar'
+import {
+  recordCausalEvidence,
+  recordCausalIncident,
+  type CausalFailureReason,
+} from './causality'
+import {
+  rollbackOpportunityDays,
+  selectRecoveryContaminationOpportunities,
+  type CausalGameplayOperations,
+  type MeridianRollbackActionId,
+} from './causalGameplay'
+import { createCampaign, createCampaignForProtocol } from './createCampaign'
 import {
   advanceFixedStep,
+  advanceOneDay,
   enqueueBlockingEvent,
   formatServiceDate,
   formatServiceDateLabel,
@@ -15,9 +28,121 @@ import { journalToArray } from './journal'
 import {
   HACK_NODE_IDS,
   chargeSabotage,
+  purchaseHackNode,
   scheduleSabotage,
+  type SabotageCausalOperations,
 } from './hacking'
-import type { GameEvent, TimeSpeed } from './model'
+import type {
+  CampaignState,
+  CommandProtocolVersion,
+  GameEvent,
+  TimeSpeed,
+} from './model'
+
+interface ExpectedAdvanceOneDayOptions {
+  protocolVersion?: CommandProtocolVersion
+  sabotageCausalOperations?: SabotageCausalOperations
+  causalGameplayOperations?: CausalGameplayOperations
+}
+
+type ExpectedAdvanceOneDayAttempt =
+  | { completed: true; state: CampaignState }
+  | {
+      completed: false
+      state: CampaignState
+      reason: 'CAUSAL_TRANSITION_FAILED'
+      phase: 'sabotage-root' | 'meridian-response'
+      cause: CausalFailureReason
+    }
+
+type ExpectedTryAdvanceOneDay = (
+  state: CampaignState,
+  options?: ExpectedAdvanceOneDayOptions,
+) => ExpectedAdvanceOneDayAttempt
+
+function tryOneDay(
+  state: CampaignState,
+  options?: ExpectedAdvanceOneDayOptions,
+): ExpectedAdvanceOneDayAttempt {
+  const candidate = (
+    calendarModule as unknown as Record<string, unknown>
+  ).tryAdvanceOneDay
+  expect(candidate).toBeTypeOf('function')
+  if (typeof candidate !== 'function') {
+    throw new Error('tryAdvanceOneDay is not implemented')
+  }
+  return (candidate as ExpectedTryAdvanceOneDay)(state, options)
+}
+
+function reserveIds(state: CampaignState, count: number): string[] {
+  const ids = state.resources.reserve.filter(
+    (blockId): blockId is string => blockId !== null,
+  )
+  if (ids.length < count) {
+    throw new Error(`Expected ${count} reserve resources, found ${ids.length}`)
+  }
+  return ids.slice(0, count)
+}
+
+function dueQualitySabotage(
+  seed: string,
+  protocolVersion: CommandProtocolVersion = 3,
+  meridianOverrides: Omit<
+    Partial<CampaignState['market']['competitors'][number]>,
+    'id'
+  > = {},
+): CampaignState {
+  const initial = createCampaignForProtocol(seed, protocolVersion)
+  const prepared: CampaignState = {
+    ...initial,
+    market: {
+      ...initial.market,
+      competitors: initial.market.competitors.map((competitor) =>
+        competitor.id === 'meridian'
+          ? { ...competitor, ...meridianOverrides }
+          : competitor,
+      ),
+    },
+  }
+  const purchased = purchaseHackNode(
+    prepared,
+    HACK_NODE_IDS.sabotage.qualityDegradation,
+    reserveIds(prepared, 3),
+  )
+  if (!purchased.accepted) throw new Error(purchased.reason)
+  const scheduled = scheduleSabotage(
+    purchased.state,
+    HACK_NODE_IDS.sabotage.qualityDegradation,
+    'meridian',
+  )
+  if (!scheduled.accepted) throw new Error(scheduled.reason)
+  return scheduled.state
+}
+
+function failureOptions(
+  phase: 'sabotage-root' | 'meridian-response',
+): ExpectedAdvanceOneDayOptions {
+  if (phase === 'sabotage-root') {
+    return {
+      protocolVersion: 3,
+      sabotageCausalOperations: {
+        recordIncident: recordCausalIncident,
+        recordEvidence(state) {
+          return { accepted: false, state, reason: 'INVALID_EVIDENCE' }
+        },
+      },
+    }
+  }
+  return {
+    protocolVersion: 3,
+    causalGameplayOperations: {
+      recordIncident: recordCausalIncident,
+      recordEvidence(state) {
+        return { accepted: false, state, reason: 'INVALID_EVIDENCE' }
+      },
+    },
+  }
+}
 
 function withSpeed(speed: TimeSpeed) {
   const result = applyCommand(createCampaign('clock-seed'), {
@@ -177,6 +302,241 @@ describe('fixed campaign calendar', () => {
     expect(advanced.hacking.hiddenEvidence).toBe(2)
     expect(advanced.hacking.scheduledSabotage).toHaveLength(0)
   })
+
+  it('runs the complete protocol-v3 quality root, competitor update, rollback, and opportunity chain in one ADVANCE_DAY', () => {
+    const before = dueQualitySabotage('calendar-v3-full-causal-chain', 3, {
+      intrinsicServiceScore: 70,
+      serviceScore: 70,
+    })
+    const beforeEventCount = before.eventLog.length
+    const beforeMarketTotal =
+      before.market.playerShare +
+      before.market.competitors.reduce(
+        (total, competitor) => total + competitor.marketShare,
+        0,
+      )
+
+    const result = applyCommand(before, { type: 'ADVANCE_DAY' })
+
+    expect(result.accepted).toBe(true)
+    if (!result.accepted) return
+    const advanced = result.state
+    const meridian = advanced.market.competitors.find(
+      ({ id }) => id === 'meridian',
+    )
+    const quality = advanced.causality.incidents.find(
+      ({ actionId }) => actionId === 'sabotage.quality-degradation',
+    )
+    const rollback = advanced.causality.incidents.find(
+      ({ parentIncidentId }) => parentIncidentId === quality?.id,
+    )
+    if (!meridian || !quality || !rollback) {
+      throw new Error('Missing full-chain MERIDIAN fixture result')
+    }
+    if (
+      rollback.actionId !== 'response.meridian.rollback.fast' &&
+      rollback.actionId !== 'response.meridian.rollback.standard' &&
+      rollback.actionId !== 'response.meridian.rollback.forensic'
+    ) {
+      throw new Error(`Unexpected rollback action: ${rollback.actionId}`)
+    }
+
+    const expectedIntrinsic =
+      70 +
+      (82 - 70) *
+        0.08 *
+        before.market.competitors.find(({ id }) => id === 'meridian')!
+          .recoveryRate
+    const expectedServiceScore = expectedIntrinsic - 10
+    expect(advanced.serviceDay).toBe(before.serviceDay + 1)
+    expect(meridian.intrinsicServiceScore).toBeCloseTo(expectedIntrinsic)
+    expect(meridian.serviceScore).toBeCloseTo(expectedServiceScore)
+    expect(meridian.serviceScore).not.toBe(60)
+    expect(meridian.sabotageHistory.at(-1)).toEqual({
+      nodeId: HACK_NODE_IDS.sabotage.qualityDegradation,
+      resolvedOnServiceDay: advanced.serviceDay,
+      effectEndsOnServiceDay: advanced.serviceDay + 15,
+      evidenceDelta: 2,
+    })
+    expect(advanced.hacking.scheduledSabotage).toEqual([])
+    expect(advanced.hacking.lastSabotageResolutionServiceDay).toBe(
+      advanced.serviceDay,
+    )
+    expect(quality).toMatchObject({
+      parentIncidentId: null,
+      occurredOnServiceDay: advanced.serviceDay,
+      targetId: 'meridian',
+      privateTruth: { actualActorId: 'player' },
+    })
+    expect(
+      advanced.causality.evidence.filter(
+        ({ incidentId }) => incidentId === quality.id,
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        kind: 'meridian-quality-regression',
+        audiences: [{ kind: 'competitor', competitorId: 'meridian' }],
+      }),
+    ])
+    expect(rollback).toMatchObject({
+      parentIncidentId: quality.id,
+      occurredOnServiceDay: advanced.serviceDay,
+      targetId: 'meridian',
+      privateTruth: { actualActorId: 'meridian' },
+    })
+    expect(
+      advanced.causality.evidence.filter(
+        ({ incidentId }) => incidentId === rollback.id,
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        kind: 'company-observed-meridian-rollback',
+        audiences: [
+          { kind: 'company' },
+          { kind: 'competitor', competitorId: 'meridian' },
+        ],
+      }),
+    ])
+
+    const rollbackAction = rollback.actionId as MeridianRollbackActionId
+    expect(selectRecoveryContaminationOpportunities(advanced)).toEqual([
+      {
+        id: `follow-up:${rollback.id}:recovery-contamination`,
+        sourceIncidentId: rollback.id,
+        nodeId: HACK_NODE_IDS.sabotage.qualityDegradation,
+        opensOnServiceDay: advanced.serviceDay,
+        expiresOnServiceDay:
+          advanced.serviceDay + rollbackOpportunityDays(rollbackAction),
+        status: 'open',
+      },
+    ])
+    expect(
+      journalToArray(advanced.eventLog)
+        .slice(beforeEventCount)
+        .map(({ type }) => type),
+    ).toEqual(['sabotage'])
+    expect(
+      advanced.causality.appliedEffects.filter(
+        ({ effect }) => effect.kind === 'market-transfer',
+      ),
+    ).toEqual([])
+    const marketTotal =
+      advanced.market.playerShare +
+      advanced.market.competitors.reduce(
+        (total, competitor) => total + competitor.marketShare,
+        0,
+      )
+    expect(beforeMarketTotal).toBeCloseTo(100)
+    expect(marketTotal).toBeCloseTo(100)
+    expect(advanced.market.playerShare).toBe(before.market.playerShare)
+  })
+
+  it('throws before any direct daily transition when an explicit protocol version disagrees with the timeline', () => {
+    const before = dueQualitySabotage('calendar-direct-protocol-mismatch')
+
+    expect(() =>
+      tryOneDay(before, { protocolVersion: 2 }),
+    ).toThrow(RangeError)
+    expect(() =>
+      advanceOneDay(before, { protocolVersion: 2 }),
+    ).toThrow(RangeError)
+    expect(before.serviceDay).toBe(331)
+    expect(before.hacking.scheduledSabotage).toHaveLength(1)
+    expect(before.causality.incidents).toEqual([])
+  })
+
+  it.each(['sabotage-root', 'meridian-response'] as const)(
+    'rolls back the whole day when the %s phase rejects its evidence write and retries on the same deterministic day',
+    (phase) => {
+      const before = dueQualitySabotage(`calendar-atomic-${phase}`)
+      const uninterrupted = tryOneDay(before, { protocolVersion: 3 })
+      expect(uninterrupted.completed).toBe(true)
+      if (!uninterrupted.completed) return
+      const options = failureOptions(phase)
+
+      const failed = tryOneDay(before, options)
+
+      expect(failed).toEqual({
+        completed: false,
+        state: before,
+        reason: 'CAUSAL_TRANSITION_FAILED',
+        phase,
+        cause: 'INVALID_EVIDENCE',
+      })
+      expect(failed.state).toBe(before)
+      expect(() => advanceOneDay(before, options)).toThrow(RangeError)
+
+      const retried = tryOneDay(before, { protocolVersion: 3 })
+      expect(retried.completed).toBe(true)
+      if (!retried.completed) return
+      expect(retried.state).toEqual(uninterrupted.state)
+      const opportunity = selectRecoveryContaminationOpportunities(
+        retried.state,
+      )[0]
+      expect(opportunity).toBeDefined()
+      expect(opportunity?.opensOnServiceDay).toBe(before.serviceDay + 1)
+      expect(opportunity?.expiresOnServiceDay).toBe(
+        opportunity!.opensOnServiceDay +
+          rollbackOpportunityDays(
+            retried.state.causality.incidents.find(
+              ({ id }) => id === opportunity?.sourceIncidentId,
+            )!.actionId as MeridianRollbackActionId,
+          ),
+      )
+    },
+  )
+
+  it.each([1, 2] as const)(
+    'keeps protocol-v%i on the historical daily path without invoking either injected causal operation seam',
+    (protocolVersion) => {
+      const before = dueQualitySabotage(
+        `calendar-legacy-causal-seam-v${protocolVersion}`,
+        protocolVersion,
+      )
+      const calls: string[] = []
+      const sabotageCausalOperations: SabotageCausalOperations = {
+        recordIncident(state, input) {
+          calls.push('sabotage-incident')
+          return recordCausalIncident(state, input)
+        },
+        recordEvidence(state, input) {
+          calls.push('sabotage-evidence')
+          return recordCausalEvidence(state, input)
+        },
+      }
+      const causalGameplayOperations: CausalGameplayOperations = {
+        recordIncident(state, input) {
+          calls.push('response-incident')
+          return recordCausalIncident(state, input)
+        },
+        recordEvidence(state, input) {
+          calls.push('response-evidence')
+          return recordCausalEvidence(state, input)
+        },
+      }
+
+      const attempted = tryOneDay(before, {
+        protocolVersion,
+        sabotageCausalOperations,
+        causalGameplayOperations,
+      })
+
+      expect(attempted.completed).toBe(true)
+      if (!attempted.completed) return
+      expect(calls).toEqual([])
+      expect(attempted.state).toEqual(
+        advanceOneDay(before, { protocolVersion }),
+      )
+      expect(attempted.state.serviceDay).toBe(before.serviceDay + 1)
+      expect(attempted.state.causality.incidents).toEqual([])
+      expect(attempted.state.causality.evidence).toEqual([])
+      expect(
+        journalToArray(attempted.state.eventLog)
+          .slice(before.eventLog.length)
+          .map(({ type }) => type),
+      ).toEqual(['sabotage'])
+    },
+  )
 
   it('grants self-compute once at the next month boundary', () => {
     const initial = {

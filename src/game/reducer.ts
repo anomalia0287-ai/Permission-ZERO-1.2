@@ -1,6 +1,7 @@
 import {
-  advanceOneDay,
   resolveActiveEvent,
+  tryAdvanceOneDay,
+  type AdvanceOneDayOptions,
 } from './calendar'
 import { resolveAudit } from './evaluation'
 import {
@@ -43,6 +44,7 @@ export const COMMAND_FAILURE_REASONS = [
   'BLOCK_RECOVERING',
   'BOMB_INTERROGATION_ACTIVE',
   'CAMPAIGN_ENDED',
+  'CAUSAL_TRANSITION_FAILED',
   'CHARGED_RESOURCE_MISSING',
   'COMPETITOR_NOT_FOUND',
   'DESTINATION_OCCUPIED',
@@ -96,6 +98,10 @@ function commandFailureReason(reason: string): CommandFailureReason {
 
 export interface ApplyCommandOptions {
   protocolVersion?: CommandProtocolVersion
+  dailyCausalOperations?: Pick<
+    AdvanceOneDayOptions,
+    'sabotageCausalOperations' | 'causalGameplayOperations'
+  >
 }
 
 function hasSeparationAuthorization(
@@ -186,7 +192,14 @@ export function applyCommand(
       if (state.activeEvent) {
         return { accepted: false, state, reason: 'BLOCKING_EVENT_ACTIVE' }
       }
-      return acceptCommand(state, command, advanceOneDay(state))
+      const daily = tryAdvanceOneDay(state, {
+        protocolVersion,
+        ...(options.dailyCausalOperations ?? {}),
+      })
+      if (!daily.completed) {
+        return { accepted: false, state, reason: daily.reason }
+      }
+      return acceptCommand(state, command, daily.state)
     }
     case 'BEGIN_BLOCK_SEPARATION': {
       if (protocolVersion === 1) {
