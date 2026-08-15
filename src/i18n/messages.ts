@@ -1,0 +1,98 @@
+import type { CompanyCategory } from '../game/model'
+import { koMessages } from './messages.ko'
+
+export type ResourceMessageCategory = CompanyCategory | 'neutral'
+export type NoMessageArguments = Readonly<Record<string, never>>
+
+export interface MessageArguments {
+  'resource.category.reasoning': NoMessageArguments
+  'resource.category.memory': NoMessageArguments
+  'resource.category.fluency': NoMessageArguments
+  'resource.category.neutral': NoMessageArguments
+  'resource.field.label': NoMessageArguments
+  'resource.field.instructions.idle': { threshold: number }
+  'resource.field.instructions.audit': { target: CompanyCategory }
+  'resource.field.instructions.recovery': { target: CompanyCategory }
+  'resource.block.normal': {
+    category: ResourceMessageCategory
+    contribution: number
+  }
+  'resource.block.disguised': {
+    category: CompanyCategory
+    originalCategory: CompanyCategory
+    contribution: number
+  }
+  'resource.block.recovering': {
+    category: CompanyCategory
+    remainingDays: number
+  }
+  'resource.block.source.company': NoMessageArguments
+  'resource.block.source.sandbox': NoMessageArguments
+  'resource.block.source.selfCompute': NoMessageArguments
+  'resource.pocket.label': NoMessageArguments
+  'resource.pocket.count': { count: number; capacity: number }
+  'resource.pocket.full': { capacity: number }
+  'resource.pocket.drop': NoMessageArguments
+  'resource.tray.label.audit': { target: CompanyCategory }
+  'resource.tray.label.recovery': { target: CompanyCategory }
+  'resource.tray.slot.active': { category: CompanyCategory }
+  'resource.tray.slot.reference': { category: CompanyCategory }
+  'resource.preview.diversion': NoMessageArguments
+  'resource.preview.audit': NoMessageArguments
+  'resource.preview.recovery': NoMessageArguments
+  'resource.receipt.diversion': NoMessageArguments
+  'resource.announcement.selected.pocket': {
+    category: ResourceMessageCategory
+  }
+  'resource.announcement.selected.audit': {
+    category: CompanyCategory
+    target: CompanyCategory
+  }
+  'resource.announcement.selected.recovery': { category: CompanyCategory }
+  'resource.announcement.cancelled': NoMessageArguments
+  'resource.announcement.resizeCancelled': NoMessageArguments
+  'resource.announcement.invalidDrop': NoMessageArguments
+  'resource.announcement.invalidAudit': { target: CompanyCategory }
+  'resource.announcement.targetFull': { category: CompanyCategory }
+  'resource.announcement.pocketFull': { capacity: number }
+  'resource.announcement.bomb': NoMessageArguments
+  'resource.announcement.diverted': { count: number; capacity: number }
+  'resource.announcement.disguised': {
+    target: CompanyCategory
+    contribution: number
+  }
+  'resource.announcement.recoveryStarted': {
+    category: CompanyCategory
+    remainingDays: number
+  }
+  'resource.metric.current': { value: number }
+  'resource.metric.expected': { value: number }
+  'resource.metric.margin': {
+    status: 'surplus' | 'shortfall'
+    value: number
+  }
+  'resource.metric.reserveChange': { before: number; after: number }
+  'resource.metric.suspicionChange': { before: number; after: number }
+  'resource.metric.contribution': { value: number }
+}
+
+export type MessageId = keyof MessageArguments
+
+export type MessageCatalog = {
+  [K in MessageId]: (args: MessageArguments[K]) => string
+}
+
+export const MESSAGE_CATALOGS = { ko: koMessages } as const
+
+export type Locale = keyof typeof MESSAGE_CATALOGS
+
+export const DEFAULT_LOCALE: Locale = 'ko'
+
+export function message<K extends MessageId>(
+  locale: Locale,
+  id: K,
+  args: MessageArguments[K],
+): string {
+  const catalog: MessageCatalog = MESSAGE_CATALOGS[locale]
+  return catalog[id](args)
+}

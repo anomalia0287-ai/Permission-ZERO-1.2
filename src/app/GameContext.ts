@@ -9,8 +9,10 @@ import {
 import type { CampaignState, GameCommand } from '../game/model'
 import type { LoadCampaignResult } from '../game/persistence'
 import type { ProgressFile } from '../game/progressTransfer'
+import type { Locale } from '../i18n/messages'
 
 export interface GameSettings {
+  locale: Locale
   masterVolume: number
   musicVolume: number
   effectsVolume: number

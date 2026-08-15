@@ -40,6 +40,7 @@ function testSettings(): SettingsContextValue {
   }
   return {
     settings: {
+      locale: 'ko',
       masterVolume: 0.8,
       musicVolume: 0.6,
       effectsVolume: 0.85,

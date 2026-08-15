@@ -25,6 +25,11 @@ import {
 import { applyCommand } from '../game/reducer'
 import { advanceSupervisorMessagePresentation } from '../game/story'
 import {
+  DEFAULT_LOCALE,
+  MESSAGE_CATALOGS,
+  type Locale,
+} from '../i18n/messages'
+import {
   DispatchContext,
   ClockCheckpointContext,
   type GameDispatch,
@@ -60,6 +65,7 @@ type ProviderAction =
 const SETTINGS_STORAGE_KEY = 'permission-zero.settings.v1'
 
 const DEFAULT_SETTINGS: GameSettings = {
+  locale: DEFAULT_LOCALE,
   masterVolume: 0.8,
   musicVolume: 0.6,
   effectsVolume: 0.85,
@@ -69,6 +75,12 @@ const DEFAULT_SETTINGS: GameSettings = {
 }
 
 const UI_SCALES = [0.9, 1, 1.1] as const
+
+function validLocale(value: unknown): Locale {
+  return typeof value === 'string' && Object.hasOwn(MESSAGE_CATALOGS, value)
+    ? (value as Locale)
+    : DEFAULT_LOCALE
+}
 
 function validVolume(value: unknown, fallback: number): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return fallback
@@ -88,6 +100,7 @@ function validUiScale(value: unknown): number {
 
 function normalizeSettings(value: Partial<GameSettings>): GameSettings {
   return {
+    locale: validLocale(value.locale),
     masterVolume: validVolume(
       value.masterVolume,
       DEFAULT_SETTINGS.masterVolume,

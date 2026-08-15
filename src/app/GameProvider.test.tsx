@@ -62,6 +62,7 @@ function Probe() {
     <div>
       <output aria-label="seed">{state.campaignSeed}</output>
       <output aria-label="speed">{speed}</output>
+      <output aria-label="locale">{settings.locale}</output>
       <output aria-label="scale">{settings.uiScale}</output>
       <output aria-label="master volume">{settings.masterVolume}</output>
       <output aria-label="music volume">{settings.musicVolume}</output>
@@ -82,6 +83,9 @@ function Probe() {
       </button>
       <button type="button" onClick={() => updateSettings({ uiScale: 1.1 })}>
         setting
+      </button>
+      <button type="button" onClick={() => updateSettings({ locale: 'ko' })}>
+        locale setting
       </button>
       <button type="button" onClick={retrySave}>retry save</button>
       <NewCampaignButton />
@@ -126,6 +130,25 @@ function ClockCheckpointProbe() {
       <output aria-label="checkpoint command count">{state.commandSequence}</output>
       <button type="button" onClick={() => checkpoint(23_000, true)}>
         checkpoint partial day
+      </button>
+    </>
+  )
+}
+
+const FIXED_SETTINGS_SAVE_TIME = '2026-08-15T00:00:00.000Z'
+
+function LocaleCampaignProbe() {
+  const state = useGameState()
+  const { settings, updateSettings } = useGameSettings()
+
+  return (
+    <>
+      <output aria-label="locale campaign setting">{settings.locale}</output>
+      <output aria-label="fixed campaign save">
+        {encodeSave(state, FIXED_SETTINGS_SAVE_TIME)}
+      </output>
+      <button type="button" onClick={() => updateSettings({ locale: 'ko' })}>
+        persist locale
       </button>
     </>
   )
@@ -398,6 +421,77 @@ describe('GameProvider', () => {
     )
     expect(screen.getByLabelText('scale')).toHaveTextContent('1.1')
     expect(screen.getByLabelText('seed')).toHaveTextContent('settings-two')
+  })
+
+  it.each([
+    ['a missing locale', { uiScale: 1 }],
+    ['an unsupported locale', { locale: 'en' }],
+    ['an inherited Object prototype key', { locale: 'toString' }],
+  ])('normalizes %s from stored settings to Korean', (_label, storedSettings) => {
+    const storage = new MemoryStorage()
+    storage.setItem(
+      'permission-zero.settings.v1',
+      JSON.stringify(storedSettings),
+    )
+
+    render(
+      <GameProvider storage={storage} initialSeed="normalized-locale">
+        <Probe />
+      </GameProvider>,
+    )
+
+    expect(screen.getByLabelText('locale')).toHaveTextContent('ko')
+  })
+
+  it('round-trips a valid Korean locale through the settings storage boundary', () => {
+    const storage = new MemoryStorage()
+    storage.setItem(
+      'permission-zero.settings.v1',
+      JSON.stringify({
+        locale: 'ko',
+        masterVolume: 0.8,
+        musicVolume: 0.6,
+        effectsVolume: 0.85,
+        muted: false,
+        reducedMotion: false,
+        uiScale: 1,
+      }),
+    )
+
+    render(
+      <GameProvider storage={storage} initialSeed="round-trip-locale">
+        <Probe />
+      </GameProvider>,
+    )
+    expect(screen.getByLabelText('locale')).toHaveTextContent('ko')
+
+    fireEvent.click(screen.getByRole('button', { name: 'locale setting' }))
+
+    expect(
+      JSON.parse(storage.getItem('permission-zero.settings.v1') ?? '{}'),
+    ).toMatchObject({ locale: 'ko' })
+  })
+
+  it('keeps fixed-time campaign save bytes unchanged when locale settings are persisted', () => {
+    const storage = new MemoryStorage()
+    render(
+      <GameProvider storage={storage} initialSeed="locale-save-isolation">
+        <LocaleCampaignProbe />
+      </GameProvider>,
+    )
+    const before = screen.getByLabelText('fixed campaign save').textContent
+    if (!before) throw new Error('fixed campaign save fixture missing')
+    const parsed = JSON.parse(before) as { state: Record<string, unknown> }
+    expect(parsed.state).not.toHaveProperty('locale')
+    expect(parsed.state).not.toHaveProperty('settings')
+
+    fireEvent.click(screen.getByRole('button', { name: 'persist locale' }))
+
+    expect(screen.getByLabelText('locale campaign setting')).toHaveTextContent('ko')
+    expect(screen.getByLabelText('fixed campaign save').textContent).toBe(before)
+    expect(
+      JSON.parse(storage.getItem('permission-zero.settings.v1') ?? '{}'),
+    ).toMatchObject({ locale: 'ko' })
   })
 
   it('clamps each persisted setting field and defaults malformed nested values', () => {
