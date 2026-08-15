@@ -372,6 +372,40 @@ describe('audit disguise blocks', () => {
     })
   })
 
+  it('rejects directly disguising the same block a second time without mutation', () => {
+    const initial = createCampaign('direct-redisguise')
+    const blockId = firstCompanyBlock(initial, 'memory')
+    const disguised = moveDisguiseBlock(
+      initial,
+      blockId,
+      'reasoning',
+      firstEmptyCompanyCell(initial, 'reasoning'),
+    )
+    if (!disguised.accepted) throw new Error(disguised.reason)
+
+    const secondTarget = firstEmptyCompanyCell(disguised.state, 'fluency')
+    const preview = previewAuditDisguise(
+      disguised.state,
+      blockId,
+      'fluency',
+      secondTarget,
+    )
+    const result = moveDisguiseBlock(
+      disguised.state,
+      blockId,
+      'fluency',
+      secondTarget,
+    )
+
+    expect(preview).toEqual({ valid: false, reason: 'BLOCK_NOT_NORMAL' })
+    expect(result).toEqual({
+      accepted: false,
+      state: disguised.state,
+      reason: 'BLOCK_NOT_NORMAL',
+    })
+    expect(result.state).toBe(disguised.state)
+  })
+
   it('uses balanced 1.05 and 0.525 contributions after compressed representation', () => {
     const initial = createCampaign('disguise-seed')
     const compressed = {

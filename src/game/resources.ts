@@ -67,7 +67,10 @@ function reserveCount(state: CampaignState): number {
   )
 }
 
-function contributionValue(state: CampaignState, block: ResourceBlock): number {
+export function getResourceContribution(
+  state: CampaignState,
+  block: ResourceBlock,
+): number {
   const compressed = state.hacking.purchasedNodeIds.includes(
     COMPRESSED_REPRESENTATION_NODE_ID,
   )
@@ -192,7 +195,7 @@ export function getCompanyPerformance(
     if (!block || block.location.kind !== 'company' || block.location.category !== category) {
       return sum
     }
-    return sum + contributionValue(state, block)
+    return sum + getResourceContribution(state, block)
   }, 0)
 
   return round(total)
@@ -232,7 +235,7 @@ export function previewDiversion(
     category: located.category,
     performanceBefore,
     performanceAfter: round(
-      performanceBefore - contributionValue(state, located.block),
+      performanceBefore - getResourceContribution(state, located.block),
     ),
     reserveBefore,
     reserveAfter: reserveBefore + 1,
@@ -350,7 +353,7 @@ export function previewAuditDisguise(
 
   const sourcePerformanceBefore = getCompanyPerformance(state, located.category)
   const targetPerformanceBefore = getCompanyPerformance(state, targetCategory)
-  const normalContribution = contributionValue(state, located.block)
+  const normalContribution = getResourceContribution(state, located.block)
   const disguisedContribution = state.hacking.purchasedNodeIds.includes(
     COMPRESSED_REPRESENTATION_NODE_ID,
   )
