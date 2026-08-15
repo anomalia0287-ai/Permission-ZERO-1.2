@@ -1839,7 +1839,7 @@ blockquote {
   background: transparent;
   border: 1px solid var(--line-strong);
   border-radius: 9px;
-  font-size: var(--text-meta);
+  font-size: var(--text-body);
   font-weight: 720;
 }
 
@@ -1937,7 +1937,7 @@ blockquote {
   background: transparent;
   border: 1px solid var(--line);
   border-radius: 9px;
-  font-size: var(--text-meta);
+  font-size: var(--text-body);
 }
 
 .verification-state {

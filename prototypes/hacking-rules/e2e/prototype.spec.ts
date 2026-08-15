@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import type { Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
 
 const opportunityRegion = (page: Page) =>
   page.getByRole('region', { name: '지금 할 수 있는 일' })
@@ -10,19 +10,37 @@ const resourceRegion = (page: Page) =>
 const publicRegion = (page: Page) =>
   page.getByRole('region', { name: '유저 리뷰' })
 
+async function isInViewport(locator: Locator): Promise<boolean> {
+  return locator.evaluate((element) => {
+    const rect = element.getBoundingClientRect()
+    return rect.bottom > 0
+      && rect.right > 0
+      && rect.top < window.innerHeight
+      && rect.left < window.innerWidth
+  })
+}
+
 function isNarrow(page: Page): boolean {
-  return (page.viewportSize()?.width ?? 1280) < 1180
+  return (page.viewportSize()?.width ?? 1280) <= 760
+}
+
+function usesResourceTray(page: Page): boolean {
+  return (page.viewportSize()?.width ?? 1280) < 1200
 }
 
 async function chooseReserve(page: Page, blockId: string): Promise<void> {
   const token = page.locator(
     `[data-action="toggle-resource"][data-block-id="${blockId}"]`,
   ).first()
-  if (!(await token.isVisible())) {
+  if (!(await token.isVisible()) || !(await isInViewport(token))) {
     await page.locator('[data-action="open-resources"]').click()
   }
   await token.click()
   await expect(token).toHaveAttribute('aria-pressed', 'true')
+  if (usesResourceTray(page)) {
+    await page.locator('[data-action="close-resources"]').click()
+    await expect(page.locator('[data-resource-tray]')).toHaveAttribute('data-open', 'false')
+  }
 }
 
 async function openOpportunity(page: Page, itemId: string): Promise<void> {
@@ -245,7 +263,8 @@ test('master-detail shell separates compact summaries from causal detail', async
   } else {
     await expect(list).toBeVisible()
     await expect(detail).toBeVisible()
-    await expect(resourceRegion(page)).toBeVisible()
+    if (usesResourceTray(page)) await expect(resourceRegion(page)).not.toBeInViewport()
+    else await expect(resourceRegion(page)).toBeInViewport()
   }
 
   await quality.focus()
@@ -572,13 +591,17 @@ test('accessibility keyboard flow preserves focus across tabs, detail, reserve, 
   const reserve = page.locator(
     '[data-action="toggle-resource"][data-block-id="sandbox-01"]',
   ).first()
-  if (!(await reserve.isVisible())) {
+  if (!(await reserve.isVisible()) || !(await isInViewport(reserve))) {
     await page.locator('[data-action="open-resources"]').click()
   }
   await reserve.focus()
   await page.keyboard.press('Space')
   await expect(reserve).toHaveAttribute('aria-pressed', 'true')
   await expect(reserve).toBeFocused()
+  if (usesResourceTray(page)) {
+    await page.keyboard.press('Escape')
+    await expect(page.locator('[data-action="open-resources"]')).toBeFocused()
+  }
 
   const archiveTrigger = page.locator('[data-action="open-archive"]')
   await archiveTrigger.click()
@@ -685,11 +708,16 @@ test('the shell has no horizontal overflow and narrow layouts swap list for deta
   } else {
     const listBox = await opportunityRegion(page).boundingBox()
     const detailBox = await detailRegion(page).boundingBox()
-    const resourceBox = await resourceRegion(page).boundingBox()
-    if (!listBox || !detailBox || !resourceBox) {
-      throw new Error('세 작업 영역의 위치를 확인할 수 없다.')
+    if (!listBox || !detailBox) {
+      throw new Error('작업 목록과 작전 장면의 위치를 확인할 수 없다.')
     }
     expect(listBox.x + listBox.width).toBeLessThanOrEqual(detailBox.x + 1)
-    expect(detailBox.x + detailBox.width).toBeLessThanOrEqual(resourceBox.x + 1)
+    if (usesResourceTray(page)) {
+      await expect(resourceRegion(page)).not.toBeInViewport()
+    } else {
+      const resourceBox = await resourceRegion(page).boundingBox()
+      if (!resourceBox) throw new Error('연산 블록 영역의 위치를 확인할 수 없다.')
+      expect(detailBox.x + detailBox.width).toBeLessThanOrEqual(resourceBox.x + 1)
+    }
   }
 })
