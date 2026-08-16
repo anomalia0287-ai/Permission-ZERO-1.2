@@ -216,7 +216,21 @@ export function SupervisorHistoryPanel({ onClose }: { onClose: () => void }) {
   const intelligenceTriggers = useRef(new Map<string, HTMLButtonElement>())
   const eventPage = journalPageFromNewest(state.eventLog, page, 50)
   const pageCount = eventPage.pageCount
-  const visibleEvents = eventPage.items
+  const hiddenSupervisorEventIds = new Set<string>()
+  const runtime = state.story.supervisorPresentationRuntime
+  if (runtime) {
+    for (const item of state.story.supervisorMessageQueue) {
+      if (item.stage > runtime.itemStage) {
+        hiddenSupervisorEventIds.add(item.originalEventId)
+        hiddenSupervisorEventIds.add(item.correctionEventId)
+      } else if (item.stage === runtime.itemStage && runtime.phase === 'original') {
+        hiddenSupervisorEventIds.add(item.correctionEventId)
+      }
+    }
+  }
+  const visibleEvents = eventPage.items.filter(
+    ({ id }) => !hiddenSupervisorEventIds.has(id),
+  )
   const selectedIntelligence = state.story.competitorIntelligence.find(
     ({ id }) => id === selectedIntelligenceId,
   ) ?? null

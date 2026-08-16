@@ -127,6 +127,15 @@ async function pressTabUntilFocused(
   throw new Error(`Tab 순서에서 대상을 찾지 못했습니다: ${await target.getAttribute('aria-label')}`)
 }
 
+async function expectReverseTabRoundTrip(page: Page, target: Locator) {
+  await page.keyboard.press('Shift+Tab')
+  const reverseTarget = page.locator(':focus')
+  await expect(reverseTarget).toBeVisible()
+  await expect(target).not.toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(target).toBeFocused()
+}
+
 async function pressTowardUntilFocused(page: Page, target: Locator, limit = 96) {
   for (let index = 0; index < limit; index += 1) {
     try {
@@ -268,7 +277,9 @@ function trendReviewState(seed: string): CampaignState {
 async function captureSeededWeeklyBoundary(page: Page, seed: string) {
   const errors = collectBrowserErrors(page)
   await openSavedCampaign(page, weeklyBoundaryState(seed))
-  const serviceDate = page.locator('.time-cluster > time')
+  const serviceDate = page
+    .getByRole('group', { name: '서비스 기한' })
+    .getByRole('time')
   await expect(serviceDate).toHaveText('서비스 0년 11개월 6일')
 
   await page.getByRole('button', { name: '4배속' }).click()
@@ -530,7 +541,7 @@ test('keeps the full operations workspace usable at the configured release viewp
   )
 
   const dockButtons = page.locator('.operations-dock__button')
-  await expect(dockButtons).toHaveCount(5)
+  await expect(dockButtons).toHaveCount(4)
   await expect(page.getByLabel('감독 메시지 1개')).toHaveText('1')
   await expect(page.getByRole('region', { name: '최근 감독 메시지' })).toHaveCount(0)
 
@@ -930,11 +941,13 @@ test('diverts resources and schedules a charged sabotage through the visible UI'
   })
   await page.getByRole('button', { name: '품질 저하 구매 준비' }).click()
 
-  const purchaseResources = page.getByRole('button', { name: /구매 리소스 .* 선택/ })
+  const purchaseResources = page.getByRole('button', {
+    name: /확보 리소스, 품질 저하 노드에 준비/,
+  })
   await expect(purchaseResources).toHaveCount(4)
-  await purchaseResources.nth(0).click()
-  await purchaseResources.nth(1).click()
-  await purchaseResources.nth(2).click()
+  await purchaseResources.first().click()
+  await purchaseResources.first().click()
+  await purchaseResources.first().click()
   await page.getByRole('button', { name: '품질 저하 구매 확정' }).click()
 
   await expect(firstHackComparison).toBeHidden()
@@ -1005,7 +1018,9 @@ test('activates a hidden bomb at pointer separation before release and Escape ca
 
   const interrogation = page.getByRole('dialog', { name: '감독관 질의' })
   await expect(interrogation).toBeVisible()
-  await expect(page.getByText('의심 15')).toBeVisible()
+  await expect(
+    interrogation.getByRole('region', { name: '현재 위험 상태' }),
+  ).toContainText('현재 의심15.0')
   await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(3)
   await expect(source).toHaveCount(1)
 
@@ -1027,14 +1042,14 @@ test('uses keyboard destination confirmation as the hidden-bomb separation bound
   await page.keyboard.press('Enter')
   const destination = page.getByRole('button', { name: /확보 투입구, 현재 3개/ })
   await expect(destination).toBeFocused()
-  await page.keyboard.press('Shift+Tab')
-  await expect(page.getByRole('button', { name: /해킹 네트워크/ })).toBeFocused()
-  await page.keyboard.press('Tab')
-  await expect(destination).toBeFocused()
+  await expectReverseTabRoundTrip(page, destination)
   await page.keyboard.press('Enter')
 
-  await expect(page.getByRole('dialog', { name: '감독관 질의' })).toBeVisible()
-  await expect(page.getByText('의심 15')).toBeVisible()
+  const interrogation = page.getByRole('dialog', { name: '감독관 질의' })
+  await expect(interrogation).toBeVisible()
+  await expect(
+    interrogation.getByRole('region', { name: '현재 위험 상태' }),
+  ).toContainText('현재 의심15.0')
   await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(3)
   await expect(source).toHaveCount(1)
   expect(errors).toEqual([])
@@ -1049,10 +1064,7 @@ test('plays the core diversion and contains modal focus with keyboard input only
   await page.keyboard.press('Enter')
   const destination = page.getByRole('button', { name: /확보 투입구, 현재 3개/ })
   await expect(destination).toBeFocused()
-  await page.keyboard.press('Shift+Tab')
-  await expect(page.getByRole('button', { name: /해킹 네트워크/ })).toBeFocused()
-  await page.keyboard.press('Tab')
-  await expect(destination).toBeFocused()
+  await expectReverseTabRoundTrip(page, destination)
   await page.keyboard.press('Enter')
   await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(4)
 
@@ -1089,7 +1101,8 @@ test('preserves non-motion core feedback when reduced motion is requested', asyn
   await expect(source).toHaveCSS('animation-name', 'none')
   await page.mouse.up()
 
-  await source.click()
+  await source.evaluate((element) => (element as HTMLElement).focus())
+  await page.keyboard.press('Enter')
   await expect(source).toHaveClass(/resource-block--selected/)
   const selectedStyle = await source.evaluate((element) => ({
     animationDuration: getComputedStyle(element).animationDuration,
@@ -1184,10 +1197,7 @@ test('uses roving keyboard focus for audit and recovery company destinations', a
 
   const auditDestination = page.getByRole('button', { name: /감사 대상 추론/ })
   await expect(auditDestination).toBeFocused()
-  await page.keyboard.press('Shift+Tab')
-  await expect(page.getByRole('button', { name: /해킹 네트워크/ })).toBeFocused()
-  await page.keyboard.press('Tab')
-  await expect(auditDestination).toBeFocused()
+  await expectReverseTabRoundTrip(page, auditDestination)
   await page.keyboard.press('Enter')
 
   await pressTabUntilFocused(page, submit)
@@ -1230,7 +1240,9 @@ test('recovers all confidential files, defers the message, and rereads the perma
 
   for (let index = 0; index < 3; index += 1) {
     await page.getByRole('button', { name: '미분류 데이터 복구 준비' }).click()
-    await page.getByRole('button', { name: /복구 리소스 .* 선택/ }).first().click()
+    await page.getByRole('button', {
+      name: /확보 리소스, 미분류 데이터 복구 노드에 준비/,
+    }).first().click()
     await page.getByRole('button', { name: '미분류 데이터 복구 확정' }).click()
   }
   await expect(recovery).toBeHidden()
@@ -1473,11 +1485,18 @@ test('keeps a save failure visible until a real retry succeeds without exposing 
       value: false,
       writable: true,
     })
+    Object.defineProperty(window, '__permissionZeroSaveAttempts', {
+      configurable: true,
+      value: 0,
+      writable: true,
+    })
     Storage.prototype.setItem = function setItem(key: string, value: string) {
-      const allowSave = (window as typeof window & {
+      const saveProbe = window as typeof window & {
         __permissionZeroAllowSave: boolean
-      }).__permissionZeroAllowSave
-      if (key === saveKey && !allowSave) {
+        __permissionZeroSaveAttempts: number
+      }
+      if (key === saveKey) saveProbe.__permissionZeroSaveAttempts += 1
+      if (key === saveKey && !saveProbe.__permissionZeroAllowSave) {
         throw new DOMException('private quota path', 'QuotaExceededError')
       }
       return originalSetItem.call(this, key, value)
@@ -1492,7 +1511,13 @@ test('keeps a save failure visible until a real retry succeeds without exposing 
   await expect(warning).toContainText('permission-zero')
   await expect(warning).not.toContainText('private quota path')
 
+  const attemptsBeforeRetry = await page.evaluate(() => (
+    window as typeof window & { __permissionZeroSaveAttempts: number }
+  ).__permissionZeroSaveAttempts)
   await page.getByRole('button', { name: '저장 다시 시도' }).click()
+  await expect.poll(() => page.evaluate(() => (
+    window as typeof window & { __permissionZeroSaveAttempts: number }
+  ).__permissionZeroSaveAttempts)).toBeGreaterThan(attemptsBeforeRetry)
   await expect(warning).toBeVisible()
   await page.evaluate(() => {
     ;(window as typeof window & {

@@ -187,6 +187,31 @@
   grid-column: 1 / -1;
 }
 
+.event-bomb-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+  margin: 0 18px 14px;
+}
+
+.event-bomb-summary > div {
+  display: grid;
+  gap: 5px;
+  padding: 10px;
+  border: 1px solid var(--line-soft);
+  background: rgb(223 91 85 / 4%);
+}
+
+.event-bomb-summary span {
+  color: var(--text-muted);
+  font-size: 0.54rem;
+}
+
+.event-bomb-summary strong {
+  color: var(--text-strong);
+  font: 650 0.72rem/1 "Cascadia Code", Consolas, monospace;
+}
+
 .event-choices {
   display: grid;
   gap: 7px;

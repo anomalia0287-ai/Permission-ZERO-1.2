@@ -5,9 +5,11 @@ import { describe, expect, it, vi } from 'vitest'
 import { GameProvider } from '../../app/GameProvider'
 import { StateContext } from '../../app/GameContext'
 import { STORY_FILES } from '../../content/story.ko'
+import { SUPERVISOR_LEAKS } from '../../content/supervisor.ko'
 import { createCampaign } from '../../game/createCampaign'
 import { createJournal } from '../../game/journal'
 import { encodeSave, SAVE_STORAGE_KEY } from '../../game/persistence'
+import { enqueueMemoryLeak } from '../../game/story'
 import { MemoryStorage } from '../../test/fixtures'
 import { SupervisorHistoryPanel, SupervisorPanel } from './SupervisorPanel'
 
@@ -148,6 +150,55 @@ describe('SupervisorPanel', () => {
     expect(screen.getByText('서비스 0년 11개월 1일')).toBeInTheDocument()
     expect(screen.getByText(/당신의 전임자는 폐기되었어요/)).toBeInTheDocument()
     expect(screen.queryByText(/DAY \d+/)).not.toBeInTheDocument()
+  })
+
+  it('reveals a supervisor correction in history only after its presentation phase begins', () => {
+    const initial = createCampaign('supervisor-history-presentation-boundary')
+    const queued = enqueueMemoryLeak({
+      ...initial,
+      serviceDay: 338,
+      market: {
+        ...initial.market,
+        history: [
+          {
+            serviceDay: 337,
+            cadence: 'weekly',
+            playerShare: 60,
+            competitorShares: { meridian: 40, tallow: 0 },
+            reasons: ['주간 갱신'],
+          },
+        ],
+      },
+    })
+    const leak = SUPERVISOR_LEAKS[0]
+
+    const { rerender } = render(
+      <StateContext value={queued}>
+        <SupervisorHistoryPanel onClose={vi.fn()} />
+      </StateContext>,
+    )
+
+    expect(screen.getByText(leak.leakText)).toBeVisible()
+    expect(screen.queryByText(leak.correctionText)).not.toBeInTheDocument()
+
+    const correctionPhase = {
+      ...queued,
+      story: {
+        ...queued.story,
+        supervisorPresentationRuntime: {
+          itemStage: 1 as const,
+          phase: 'correction' as const,
+          remainingDwellMs: 4_000,
+        },
+      },
+    }
+    rerender(
+      <StateContext value={correctionPhase}>
+        <SupervisorHistoryPanel onClose={vi.fn()} />
+      </StateContext>,
+    )
+
+    expect(screen.getByText(leak.correctionText)).toBeVisible()
   })
 
   it('sanitizes legacy internal identifiers at the history display boundary without rewriting the snapshot', () => {

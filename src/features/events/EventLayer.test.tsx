@@ -165,6 +165,13 @@ describe('EventLayer', () => {
     renderEvent(state)
 
     expect(screen.queryByRole('button', { name: '계속' })).not.toBeInTheDocument()
+    expect(screen.getByRole('region', { name: '현재 위험 상태' })).toHaveTextContent(
+      '현재 의심15.0감지 분야',
+    )
+    const dialog = screen.getByRole('dialog', { name: '감독관 질의' })
+    for (const placement of state.bombs.placements) {
+      expect(dialog).not.toHaveTextContent(placement.blockId)
+    }
     fireEvent.click(screen.getByRole('button', { name: '모르겠다 선택' }))
     fireEvent.click(screen.getByRole('button', { name: '모르겠다 답변 확정' }))
     expect(screen.getByLabelText('active event')).toHaveTextContent('none')

@@ -177,6 +177,21 @@ function EventDialog({ event }: { event: GameEvent }) {
         </div>
       ) : null}
 
+      {event.type === 'bomb-interrogation' && state.bombs.activeInterrogation ? (
+        <section className="event-bomb-summary" aria-label="현재 위험 상태">
+          <div>
+            <span>현재 의심</span>
+            <strong>{state.suspicion.toFixed(1)}</strong>
+          </div>
+          <div>
+            <span>감지 분야</span>
+            <strong>
+              {CATEGORY_LABELS[state.bombs.activeInterrogation.category]}
+            </strong>
+          </div>
+        </section>
+      ) : null}
+
       {bombExplanations.length > 0 ? (
         <div className="event-choices" aria-label="감독관 답변">
           {bombExplanations.map((explanation) => (
