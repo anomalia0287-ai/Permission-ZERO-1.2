@@ -14,6 +14,7 @@ import {
 } from '../../game/resources'
 import { MemoryStorage } from '../../test/fixtures'
 import { EventLayer } from '../events/EventLayer'
+import { PerformanceTrend } from './PerformanceTrend'
 import { ResourceBoard } from './ResourceBoard'
 
 function Probe() {
@@ -154,7 +155,7 @@ function armedState(seed: string, category: 'reasoning' | 'memory' = 'reasoning'
 }
 
 describe('ResourceBoard', () => {
-  it('renders one live company field with a bottom-left theft intake, top-right audit corner, stolen count, and expectation chart', () => {
+  it('renders one live company field with a visible unbounded intake and segmented glass guard', () => {
     const { container } = renderBoard()
 
     const field = screen.getByRole('region', { name: '회사 제공 성능' })
@@ -171,15 +172,14 @@ describe('ResourceBoard', () => {
       'data-resource-obstacle',
       'reserve-intake-guard',
     )
+    expect(field.querySelectorAll('[data-resource-obstacle-segment]')).toHaveLength(10)
     const reserveSummary = screen.getByLabelText('확보 리소스 수량')
     expect(reserveSummary).toHaveTextContent('0')
     expect(reserveSummary).toHaveTextContent('상한 없음')
     expect(
-      screen.getByRole('img', { name: '회사 기대 성능과 실제 제공 성능 추세' }),
-    ).toBeInTheDocument()
-    expect(
-      within(field).getByRole('region', { name: '경쟁 AI 현황' }),
-    ).toBeInTheDocument()
+      screen.queryByRole('img', { name: '회사 기대 성능과 실제 제공 성능 추세' }),
+    ).not.toBeInTheDocument()
+    expect(within(field).queryByRole('region', { name: '경쟁 AI 현황' })).not.toBeInTheDocument()
     expect(container.querySelector('[role="grid"]')).not.toBeInTheDocument()
     expect(container.querySelector('[role="gridcell"]')).not.toBeInTheDocument()
     expect(container.querySelector('[data-reserve-cell]')).not.toBeInTheDocument()
@@ -239,7 +239,7 @@ describe('ResourceBoard', () => {
         ],
       },
     }
-    renderState(state)
+    render(<PerformanceTrend state={state} />)
 
     const chart = screen.getByRole('img', {
       name: '회사 기대 성능과 실제 제공 성능 추세',
@@ -271,6 +271,7 @@ describe('ResourceBoard', () => {
 
   it('keeps a one-point live trend finite and exposes every category in the field legend', () => {
     renderBoard()
+    render(<PerformanceTrend state={createCampaign('resource-board-one-point-trend')} />)
 
     const chart = screen.getByRole('img', {
       name: '회사 기대 성능과 실제 제공 성능 추세',

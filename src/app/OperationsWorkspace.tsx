@@ -19,14 +19,14 @@ export function OperationsWorkspace({
 }: OperationsWorkspaceProps) {
   return (
     <div className="workspace-grid" aria-label="서비스 운영 화면">
+      <ReviewFeed onOpenHistory={onOpenReviews} />
+      <ResourceBoard />
       <OperationsDock
         onOpenSupervisor={onOpenSupervisor}
         onOpenMessages={onOpenMessages}
         onOpenStatistics={onOpenStatistics}
         onOpenHacking={onOpenHacking}
       />
-      <ReviewFeed onOpenHistory={onOpenReviews} />
-      <ResourceBoard />
     </div>
   )
 }

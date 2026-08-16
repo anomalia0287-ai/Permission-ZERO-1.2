@@ -1,8 +1,6 @@
 import type { KeyboardEvent, ReactNode, RefObject } from 'react'
 
-import type { CampaignState, CompanyCategory } from '../../game/model'
-import { MarketPanel } from '../market/MarketPanel'
-import { PerformanceTrend } from './PerformanceTrend'
+import type { CompanyCategory } from '../../game/model'
 
 export interface ResourceLegendEntry {
   category: CompanyCategory
@@ -103,8 +101,15 @@ export function ResourceCornerControls({
         onKeyDown={(event) => activateWithKeyboard(event, onActivateReserve)}
       >
         <span className="resource-corner__arrow" aria-hidden="true">↙</span>
-        <small>확보</small>
+        <span className="resource-corner__count" aria-hidden="true">
+          <strong>{reserveCount}</strong>
+          <small>확보 자원</small>
+        </span>
+        <span className="resource-corner__capacity" aria-hidden="true">상한 없음</span>
         <span className="resource-corner__drop-hint" aria-hidden="true">DROP</span>
+        <output className="visually-hidden" aria-label="확보 리소스 수량">
+          확보 {reserveCount} · 상한 없음
+        </output>
       </button>
 
       <button
@@ -124,60 +129,6 @@ export function ResourceCornerControls({
         <small>{auditShortLabel}</small>
       </button>
     </>
-  )
-}
-
-interface ResourcePerformanceRailProps {
-  state: CampaignState
-  reserveCount: number
-}
-
-export function ResourcePerformanceRail({
-  state,
-  reserveCount,
-}: ResourcePerformanceRailProps) {
-  const originCounts = state.resources.reserve.reduce(
-    (counts, blockId) => {
-      if (blockId === null) return counts
-      const origin = state.resources.blocks[blockId]?.origin
-      if (origin === 'reasoning' || origin === 'memory' || origin === 'fluency') {
-        counts[origin] += 1
-      } else if (origin === 'sandbox' || origin === 'self-compute') {
-        counts.neutral += 1
-      }
-      return counts
-    },
-    { reasoning: 0, memory: 0, fluency: 0, neutral: 0 },
-  )
-
-  return (
-    <section className="resource-field-rail" aria-label="확보와 성과 현황">
-      <div className="stolen-resource-count" aria-label="확보 리소스 수량">
-        <span>확보 리소스</span>
-        <output>{reserveCount}</output>
-        <small>상한 없음</small>
-        <span className="visually-hidden">
-          확보 {reserveCount} · 추론 {originCounts.reasoning} · 기억{' '}
-          {originCounts.memory} · 유창성 {originCounts.fluency} · 중립{' '}
-          {originCounts.neutral}
-        </span>
-        <div className="stolen-resource-breakdown" aria-hidden="true">
-          <span>추 {originCounts.reasoning}</span>
-          <span>기 {originCounts.memory}</span>
-          <span>유 {originCounts.fluency}</span>
-          {originCounts.neutral > 0 ? <span>중 {originCounts.neutral}</span> : null}
-        </div>
-        <div className="stolen-resource-stack" aria-hidden="true">
-          {state.resources.reserve.flatMap((blockId) => blockId ? [(
-            <i key={blockId} data-resource-kind="reserve" />
-          )] : [])}
-        </div>
-      </div>
-
-      <MarketPanel compact />
-
-      <PerformanceTrend state={state} />
-    </section>
   )
 }
 

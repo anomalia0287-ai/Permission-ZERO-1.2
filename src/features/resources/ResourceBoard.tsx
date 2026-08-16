@@ -33,13 +33,13 @@ import {
   ResourceCornerControls,
   ResourceFieldLegend,
   ResourceOperationStatus,
-  ResourcePerformanceRail,
   ResourceStageHeader,
 } from './ResourceFieldChrome'
 import { presentResourceBlock } from './resourcePresentation'
 import { useResourceMotion } from './useResourceMotion'
 
 const DRAG_THRESHOLD_PX = 8
+const INTAKE_GUARD_SEGMENT_HEIGHTS = [100, 91, 80, 68, 56, 45, 35, 26, 18, 10]
 
 type FieldDropTarget = 'reserve-pocket' | 'audit-corner'
 type InteractionKind = 'divert' | 'audit' | 'reposition'
@@ -141,7 +141,7 @@ export function ResourceBoard() {
     useState<DiversionReceipt | null>(null)
   const boardRef = useRef<HTMLElement | null>(null)
   const fieldRef = useRef<HTMLDivElement | null>(null)
-  const intakeGuardRef = useRef<HTMLElement | null>(null)
+  const intakeGuardSegmentRefs = useRef<Array<HTMLSpanElement | null>>([])
   const reservePocketRef = useRef<HTMLButtonElement | null>(null)
   const auditCornerRef = useRef<HTMLButtonElement | null>(null)
   const pointerRef = useRef<PointerCandidate | null>(null)
@@ -173,13 +173,21 @@ export function ResourceBoard() {
     [companyBlockIds, state],
   )
   const motionObstacleRefs = useMemo(
-    () => [{ id: 'reserve-intake-guard', ref: intakeGuardRef }],
+    () =>
+      INTAKE_GUARD_SEGMENT_HEIGHTS.map((_, index) => ({
+        id: `reserve-intake-guard-${index}`,
+        ref: {
+          get current() {
+            return intakeGuardSegmentRefs.current[index] ?? null
+          },
+        },
+      })),
     [],
   )
   const motion = useResourceMotion({
     ids: companyBlockIds,
     containerRef: fieldRef,
-    radius: 16,
+    radius: 20,
     obstacleRefs: motionObstacleRefs,
     reducedMotion: settings.reducedMotion,
     active: true,
@@ -734,12 +742,37 @@ export function ResourceBoard() {
           />
 
           <span
-            ref={intakeGuardRef}
             className="resource-intake-guard"
             data-testid="reserve-intake-guard"
             data-resource-obstacle="reserve-intake-guard"
             aria-hidden="true"
-          />
+          >
+            <svg viewBox="0 0 1000 600" preserveAspectRatio="none">
+              <path
+                className="resource-intake-guard__glass"
+                d="M0 0C120 210 480 440 1000 550L1000 600H0Z"
+              />
+              <path
+                className="resource-intake-guard__edge"
+                d="M0 0C120 210 480 440 1000 550"
+              />
+            </svg>
+            {INTAKE_GUARD_SEGMENT_HEIGHTS.map((height, index) => (
+              <span
+                className="resource-intake-guard__segment"
+                data-resource-obstacle-segment={index}
+                key={height}
+                ref={(element) => {
+                  intakeGuardSegmentRefs.current[index] = element
+                }}
+                style={{
+                  left: `${index * 10}%`,
+                  width: '10%',
+                  height: `${height}%`,
+                }}
+              />
+            ))}
+          </span>
 
           <ResourceCornerControls
             reservePocketRef={reservePocketRef}
@@ -793,10 +826,6 @@ export function ResourceBoard() {
           })}
         </div>
 
-        <ResourcePerformanceRail
-          state={state}
-          reserveCount={reserveCount}
-        />
       </div>
 
       {statusContent ? (

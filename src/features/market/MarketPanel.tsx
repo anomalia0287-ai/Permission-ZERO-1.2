@@ -64,7 +64,7 @@ export function MarketPanel({
     >
       <header>
         <div>
-          <span>시장 점유</span>
+          <span>경쟁 AI · 시장 점유</span>
           <strong>당신 {state.market.playerShare.toFixed(1)}%</strong>
           <small>
             {signedShareDelta

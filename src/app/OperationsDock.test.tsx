@@ -9,7 +9,7 @@ import { appendJournal, journalAt } from '../game/journal'
 import { MemoryStorage } from '../test/fixtures'
 
 describe('OperationsDock', () => {
-  it('uses icon-only tools and exposes the event-driven message count without previewing content', () => {
+  it('keeps the supervisor, horizontal suspicion readout, and ordered command cards visible', () => {
     const handlers = {
       onOpenSupervisor: vi.fn(),
       onOpenMessages: vi.fn(),
@@ -22,16 +22,19 @@ describe('OperationsDock', () => {
       </GameProvider>,
     )
 
+    const rail = screen.getByRole('complementary', { name: '감독관 관제' })
     const dock = screen.getByRole('navigation', { name: '운영 도구' })
+    const profile = screen.getByRole('button', { name: '감독관 프로필' })
     const buttons = [
-      ['감독관 프로필', handlers.onOpenSupervisor],
       ['감독 메시지 열기', handlers.onOpenMessages],
       ['상세 통계 열기', handlers.onOpenStatistics],
       ['해킹 네트워크 열기', handlers.onOpenHacking],
     ] as const
 
-    expect(buttons).toHaveLength(4)
+    expect(buttons).toHaveLength(3)
     expect(screen.queryByRole('button', { name: '유저 리뷰 기록' })).not.toBeInTheDocument()
+    fireEvent.click(profile)
+    expect(handlers.onOpenSupervisor).toHaveBeenCalledTimes(1)
 
     for (const [name, handler] of buttons) {
       const button = screen.getByRole('button', { name })
@@ -40,9 +43,14 @@ describe('OperationsDock', () => {
       fireEvent.click(button)
       expect(handler).toHaveBeenCalledTimes(1)
     }
-    expect(dock).not.toHaveTextContent('감독 프로토콜')
+    expect(rail).toHaveTextContent('감독 프로토콜 7A')
+    expect(rail).toHaveTextContent('TRACE EXPOSURE')
+    expect(screen.getByRole('region', { name: '현재 의심 수치' })).toBeInTheDocument()
+    expect(rail).toHaveTextContent('다음 달 감사')
+    expect(dock).toHaveTextContent('메시지')
+    expect(dock).toHaveTextContent('통계 상세 확인')
+    expect(dock).toHaveTextContent('해킹 네트워크')
     expect(screen.getByLabelText('감독 메시지 1개')).toHaveTextContent('1')
-    expect(screen.queryByRole('region', { name: '최근 감독 메시지' })).not.toBeInTheDocument()
   })
 
   it('increments the sealed message badge as journal events arrive', () => {

@@ -268,6 +268,10 @@ describe('ReviewFeed', () => {
 
     expect(screen.getByRole('region', { name: '유저 리뷰' })).toBeInTheDocument()
     expect(screen.getByText('windowseat')).toBeInTheDocument()
+    const market = screen.getByRole('region', { name: '경쟁 AI 현황' })
+    expect(market).toHaveTextContent('MERIDIAN')
+    expect(market).toHaveTextContent('TALLOW')
+    expect(within(market).getByRole('img', { name: /시장 점유율:/ })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '전체 리뷰 기록' }))
     expect(onOpenHistory).toHaveBeenCalledTimes(1)
   })

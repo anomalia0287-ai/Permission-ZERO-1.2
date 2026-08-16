@@ -654,29 +654,36 @@ test('keeps every live resource moving, bouncing, and outside the automatic inta
     const samples: Array<Array<{ id: string; x: number; y: number; overlap: boolean }>> = []
     const reserveCounts: string[] = []
     for (let index = 0; index < 36; index += 1) {
-      const guardElement = document.querySelector<HTMLElement>('.resource-intake-guard')
-      if (!guardElement) throw new Error('흡입구 경계 누락')
-      const guardBox = guardElement.getBoundingClientRect()
+      const guardBoxes = [
+        ...document.querySelectorAll<HTMLElement>('[data-resource-obstacle-segment]'),
+      ].map((element) => element.getBoundingClientRect())
+      if (guardBoxes.length === 0) throw new Error('흡입구 경계 누락')
       samples.push(
         [...document.querySelectorAll<HTMLElement>('[data-resource-kind="company"]')].map(
           (element) => {
             const box = element.getBoundingClientRect()
+            const centerX = box.left + box.width / 2
+            const centerY = box.top + box.height / 2
+            const radius = Math.min(box.width, box.height) / 2
             return {
               id: element.dataset.blockId ?? '',
               x: box.x,
               y: box.y,
-              overlap:
-                box.left < guardBox.right &&
-                box.right > guardBox.left &&
-                box.top < guardBox.bottom &&
-                box.bottom > guardBox.top,
+              overlap: guardBoxes.some((guardBox) => {
+                const closestX = Math.max(guardBox.left, Math.min(centerX, guardBox.right))
+                const closestY = Math.max(guardBox.top, Math.min(centerY, guardBox.bottom))
+                const deltaX = centerX - closestX
+                const deltaY = centerY - closestY
+                return deltaX * deltaX + deltaY * deltaY < radius * radius - 0.01
+              }),
             }
           },
         ),
       )
       reserveCounts.push(
-        document.querySelector<HTMLOutputElement>('.stolen-resource-count output')
-          ?.textContent ?? '',
+        document
+          .querySelector<HTMLOutputElement>('[aria-label="확보 리소스 수량"]')
+          ?.textContent?.match(/\d+/)?.[0] ?? '',
       )
       await new Promise((resolve) => setTimeout(resolve, 100))
     }
@@ -724,71 +731,38 @@ test('keeps every live resource moving, bouncing, and outside the automatic inta
   expect(result.reserveCounts).toEqual(['0'])
 })
 
-test('keeps the canonical trend and keyboard review detail legible at the release viewport', async ({
+test('keeps market context, oversight commands, and keyboard review detail legible at the release viewport', async ({
   page,
 }, testInfo) => {
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await openSavedCampaign(page, trendReviewState(`task-3-${testInfo.project.name}`))
 
-  const trend = page.getByRole('region', { name: '월별 성능 추세' })
-  const chart = page.getByRole('img', {
-    name: '회사 기대 성능과 실제 제공 성능 추세',
-  })
-  await expect(trend).toBeVisible()
-  await expect(chart).toBeVisible()
-  await expect(page.getByRole('table', { name: '성능 추세 정확한 수치' }).getByRole('row')).toHaveCount(9)
-  await expect(page.locator('[data-trend-series="expected"]')).toHaveAttribute('stroke-dasharray', '5 4')
-  await expect(page.locator('[data-trend-marker="expected"]')).toHaveCount(8)
-  await expect(page.locator('[data-trend-marker="actual"]')).toHaveCount(8)
-  const visibleDates = trend.getByTestId('performance-trend-visible-date')
-  await expect(visibleDates).toHaveCount(3)
-  await expect(visibleDates.nth(0)).toHaveText('서비스 0년 10개월 30일')
-  await expect(visibleDates.nth(1)).toHaveText('서비스 1년 1개월 30일')
-  await expect(visibleDates.nth(2)).toHaveText('서비스 1년 6개월 1일')
-  const visibleDateBoxes = await visibleDates.evaluateAll((elements) =>
-    elements.map((element) => {
-      const box = element.getBoundingClientRect()
-      return { left: box.left, right: box.right, top: box.top, bottom: box.bottom }
-    }),
-  )
-  for (let index = 1; index < visibleDateBoxes.length; index += 1) {
-    expect(visibleDateBoxes[index - 1].right).toBeLessThanOrEqual(
-      visibleDateBoxes[index].left + 1,
-    )
-  }
-  for (const path of await page.locator('[data-trend-series]').all()) {
-    expect(await path.getAttribute('d')).not.toMatch(/NaN|Infinity/)
-    await expect(path).toHaveCSS('animation-name', 'none')
-  }
+  const publicContext = page.getByRole('region', { name: '유저 리뷰' })
+  const market = page.getByRole('region', { name: '경쟁 AI 현황' })
+  const oversight = page.getByRole('complementary', { name: '감독관 관제' })
+  await expect(publicContext).toBeVisible()
+  await expect(market).toBeVisible()
+  await expect(market).toContainText('MERIDIAN')
+  await expect(market).toContainText('TALLOW')
+  await expect(market.getByRole('img', { name: /시장 점유율:/ })).toBeVisible()
+  await expect(oversight).toBeVisible()
+  await expect(oversight.getByRole('button')).toHaveCount(4)
+  await expect(oversight.getByRole('button').nth(0)).toHaveAccessibleName('감독관 프로필')
+  await expect(oversight.getByRole('button').nth(1)).toHaveAccessibleName('감독 메시지 열기')
+  await expect(oversight.getByRole('button').nth(2)).toHaveAccessibleName('상세 통계 열기')
+  await expect(oversight.getByRole('button').nth(3)).toHaveAccessibleName('해킹 네트워크 열기')
+  await expect(page.getByRole('region', { name: '현재 의심 수치' })).toBeVisible()
+  await expect(page.getByRole('region', { name: '월별 성능 추세' })).toHaveCount(0)
+  await expect(page.locator('.resource-field-rail')).toHaveCount(0)
+
   const fieldLegend = page.getByLabel('분야 범례')
   await expect(fieldLegend.locator('span')).toHaveCount(3)
   await expect(fieldLegend).toContainText('추론')
   await expect(fieldLegend).toContainText('기억')
   await expect(fieldLegend).toContainText('유창성')
-  await expect(trend).toContainText('기대')
-  await expect(trend).toContainText('실제 평균')
   const reserveCount = page.getByLabel('확보 리소스 수량')
   await expect(reserveCount).toContainText('확보')
   await expect(reserveCount).toContainText('상한 없음')
-
-  const stripBox = await page.locator('.resource-field-rail').boundingBox()
-  const trendBox = await trend.boundingBox()
-  const reserveCountBox = await reserveCount.boundingBox()
-  expect(stripBox).not.toBeNull()
-  expect(trendBox).not.toBeNull()
-  expect(reserveCountBox).not.toBeNull()
-  expect(trendBox!.x).toBeGreaterThanOrEqual(stripBox!.x - 1)
-  expect(trendBox!.x + trendBox!.width).toBeLessThanOrEqual(
-    stripBox!.x + stripBox!.width + 1,
-  )
-  expect(reserveCountBox!.x).toBeGreaterThanOrEqual(stripBox!.x - 1)
-  expect(reserveCountBox!.x + reserveCountBox!.width).toBeLessThanOrEqual(
-    stripBox!.x + stripBox!.width + 1,
-  )
-  for (const { top, bottom } of visibleDateBoxes) {
-    expect(top).toBeGreaterThanOrEqual(trendBox!.y - 1)
-    expect(bottom).toBeLessThanOrEqual(trendBox!.y + trendBox!.height + 1)
-  }
   const overflow = await page.evaluate(() => ({
     horizontal: document.documentElement.scrollWidth - window.innerWidth,
     vertical: document.documentElement.scrollHeight - window.innerHeight,
@@ -804,6 +778,19 @@ test('keeps the canonical trend and keyboard review detail legible at the releas
     path: resolve(artifactDirectory, `workspace-${viewport.width}x${viewport.height}.png`),
     animations: 'disabled',
   })
+
+  await page.getByRole('button', { name: '상세 통계 열기' }).click()
+  const statistics = page.getByRole('dialog', { name: '상세 통계' })
+  await expect(statistics).toBeVisible()
+  await statistics.getByRole('tab', { name: '서비스 성능' }).click()
+  const performanceChart = statistics.getByRole('img', { name: '서비스 성능 변화 차트' })
+  await expect(performanceChart).toBeVisible()
+  await expect(statistics.getByLabel('성능 차트 범례')).toContainText('기대 성능')
+  for (const line of await performanceChart.locator('polyline').all()) {
+    expect(await line.getAttribute('points')).not.toMatch(/NaN|Infinity/)
+  }
+  await statistics.getByRole('button', { name: '통계 닫기' }).click()
+  await expect(statistics).toBeHidden()
 
   await page.getByRole('button', { name: '전체 리뷰 기록' }).click()
   const reviewHistory = page.getByRole('dialog', { name: '유저 리뷰 기록' })

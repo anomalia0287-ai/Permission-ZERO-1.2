@@ -11,6 +11,7 @@ import {
   publicReviewSentimentLabel,
   publicReviewTopicLabel,
 } from '../../game/publicLabels'
+import { MarketPanel } from '../market/MarketPanel'
 
 const HISTORY_PAGE_SIZE = 50
 
@@ -178,6 +179,7 @@ export function ReviewFeed({
           <ReviewEntry review={review} key={review.id} onOpen={openReview} />
         ))}
       </div>
+      <MarketPanel />
     </section>
     {selectedReview ? (
       <ReviewDetail

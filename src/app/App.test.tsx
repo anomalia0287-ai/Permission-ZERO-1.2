@@ -48,18 +48,20 @@ describe('public-only audio state', () => {
 })
 
 describe('App', () => {
-  it('presents the complete one-screen operations workspace', () => {
+  it('presents the live field between public context and the persistent oversight rail', () => {
     render(<App />)
 
     expect(screen.getByRole('main', { name: 'PERMISSION ZERO' })).toBeInTheDocument()
     expect(screen.getByRole('navigation', { name: '운영 도구' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: '회사 제공 성능' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: '유저 리뷰' })).toBeInTheDocument()
+    expect(screen.getByRole('complementary', { name: '감독관 관제' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: '현재 의심 수치' })).toBeInTheDocument()
     expect(screen.queryByRole('region', { name: '감독관' })).not.toBeInTheDocument()
     expect(screen.getByRole('group', { name: '움직이는 회사 리소스 필드' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '확보 투입구, 현재 0개, 저장 상한 없음' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '감사 위장 모서리, 감사 기간에 활성화' })).toBeInTheDocument()
-    expect(screen.getByRole('region', { name: '월별 성능 추세' })).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: '월별 성능 추세' })).not.toBeInTheDocument()
     expect(screen.getByRole('region', { name: '경쟁 AI 현황' })).toBeInTheDocument()
     expect(screen.getByRole('group', { name: '서비스 기한' })).toBeInTheDocument()
     expect(screen.queryByText('PERMISSION ZERO')).not.toBeInTheDocument()
