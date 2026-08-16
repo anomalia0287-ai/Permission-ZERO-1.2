@@ -323,6 +323,12 @@ function validCommand(
         isNonEmptyString(value.targetId) &&
         (!references || references.competitorIds.has(value.targetId))
       )
+    case 'EXECUTE_SABOTAGE_FOLLOW_UP':
+      return (
+        protocolVersion === 3 &&
+        hasOnlyKeys(value, ['type', 'opportunityId']) &&
+        isNonEmptyString(value.opportunityId)
+      )
     case 'RESOLVE_BOMB_INTERROGATION':
       return (
         hasOnlyKeys(value, ['type', 'explanationId']) &&

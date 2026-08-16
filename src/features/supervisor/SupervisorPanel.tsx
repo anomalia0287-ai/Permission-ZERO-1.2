@@ -3,9 +3,8 @@ import { useRef, useState } from 'react'
 import { AccessibleDialog } from '../../app/AccessibleDialog'
 import {
   useGameState,
-  useSupervisorPresentationCheckpoint,
 } from '../../app/GameContext'
-import { useSupervisorMessagePresentation } from '../../app/useSupervisorMessagePresentation'
+import { currentSupervisorMessage } from '../../app/useSupervisorMessagePresentation'
 import {
   getBombProtocolPublicSchedule,
   type BombProtocolPublicSchedule,
@@ -52,16 +51,14 @@ function bombProtocolStatusLabel(
 export function SupervisorPanel({
   onOpenHistory,
   onOpenStatistics,
+  profileOnly = false,
 }: {
-  onOpenHistory: (trigger: HTMLButtonElement) => void
-  onOpenStatistics: (trigger: HTMLButtonElement) => void
+  onOpenHistory?: (trigger: HTMLButtonElement) => void
+  onOpenStatistics?: (trigger: HTMLButtonElement) => void
+  profileOnly?: boolean
 }) {
   const state = useGameState()
-  const supervisorPresentationCheckpoint = useSupervisorPresentationCheckpoint()
-  const presentedSupervisorMessage = useSupervisorMessagePresentation({
-    state,
-    checkpoint: supervisorPresentationCheckpoint,
-  })
+  const presentedSupervisorMessage = currentSupervisorMessage(state)
   const latestEvent =
     state.activeEvent ?? presentedSupervisorMessage ?? journalAt(state.eventLog, -1)
   const suspicionBand = getSuspicionBand(state.suspicion)
@@ -92,7 +89,10 @@ export function SupervisorPanel({
   }[state.story.supervisorState]
 
   return (
-    <section className="workspace-panel supervisor-panel" aria-label="감독관">
+    <section
+      className={`workspace-panel supervisor-panel${profileOnly ? ' supervisor-panel--profile' : ''}`}
+      aria-label={profileOnly ? '감독관 프로필' : '감독관'}
+    >
       <header className="panel-heading">
         <span className="panel-index">03</span>
         <div>
@@ -160,12 +160,13 @@ export function SupervisorPanel({
         </div>
       </section>
 
+      {!profileOnly ? (
       <section className="supervisor-message" aria-label="최근 감독 메시지">
         <header>
           <span>최근 통신</span>
           <button
             type="button"
-            onClick={(event) => onOpenHistory(event.currentTarget)}
+            onClick={(event) => onOpenHistory?.(event.currentTarget)}
           >
             과거 내역
           </button>
@@ -177,15 +178,33 @@ export function SupervisorPanel({
         </p>
         <small>{latestEvent ? `${publicEventTypeLabel(latestEvent.type)} · ${formatServiceDateLabel(latestEvent.serviceDay)}` : '감독 채널 대기'}</small>
       </section>
+      ) : null}
 
-      <MarketPanel onOpenStatistics={onOpenStatistics} />
+      {!profileOnly ? <MarketPanel onOpenStatistics={onOpenStatistics} /> : null}
 
-      <div className="supervision-footer">
+      {!profileOnly ? <div className="supervision-footer">
         <span>다음 달 예상</span>
         <strong>{(nextAuditProbability * 100).toFixed(1)}%</strong>
         <span>폐기 단계</span>
         <strong>{state.evaluation.disposalStage}/3</strong>
-      </div>
+      </div> : null}
+    </section>
+  )
+}
+
+export function SupervisorProfilePanel({ onClose }: { onClose: () => void }) {
+  return (
+    <section className="detail-panel supervisor-profile-detail">
+      <header className="detail-panel__header">
+        <div>
+          <small>OVERSIGHT PROFILE</small>
+          <h2>감독관 프로필</h2>
+        </div>
+        <button type="button" aria-label="감독관 프로필 닫기" onClick={onClose}>
+          닫기 ×
+        </button>
+      </header>
+      <SupervisorPanel profileOnly />
     </section>
   )
 }

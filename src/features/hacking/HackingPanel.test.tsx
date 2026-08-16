@@ -1,10 +1,11 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { useGameState } from '../../app/GameContext'
 import { GameProvider } from '../../app/GameProvider'
 import { createCampaign } from '../../game/createCampaign'
-import { HACK_NODE_IDS } from '../../game/hacking'
+import { recordCausalEvidence, recordCausalIncident } from '../../game/causality'
+import { chargeSabotage, HACK_NODE_IDS } from '../../game/hacking'
 import { encodeSave, SAVE_STORAGE_KEY } from '../../game/persistence'
 import { MemoryStorage } from '../../test/fixtures'
 import { HackingPanel } from './HackingPanel'
@@ -19,8 +20,79 @@ function Probe() {
       <output aria-label="scheduled attacks">{state.hacking.scheduledSabotage.length}</output>
       <output aria-label="recovered archive">{state.story.recoveredFiles.length}</output>
       <output aria-label="clock speed">{state.clock.speed}</output>
+      <output aria-label="recovery incidents">
+        {state.causality.incidents.filter(
+          ({ actionId }) => actionId === 'follow-up.recovery-contamination',
+        ).length}
+      </output>
     </>
   )
+}
+
+function openRecoveryContaminationState() {
+  const initial = createCampaign('recovery-contamination-ui')
+  const nodeId = HACK_NODE_IDS.sabotage.qualityDegradation
+  const withQuality = {
+    ...initial,
+    market: {
+      ...initial.market,
+      competitors: initial.market.competitors.map((competitor) =>
+        competitor.id === 'meridian'
+          ? {
+              ...competitor,
+              sabotageHistory: [
+                ...competitor.sabotageHistory,
+                {
+                  nodeId,
+                  resolvedOnServiceDay: initial.serviceDay,
+                  effectEndsOnServiceDay: initial.serviceDay + 15,
+                  evidenceDelta: 2,
+                },
+              ],
+            }
+          : competitor,
+      ),
+    },
+    hacking: {
+      ...initial.hacking,
+      purchasedNodeIds: [nodeId],
+    },
+  }
+  const blockId = withQuality.resources.reserve.find(
+    (candidate): candidate is string => candidate !== null,
+  )
+  if (!blockId) throw new Error('Recovery UI charge missing')
+  const charged = chargeSabotage(withQuality, nodeId, blockId)
+  if (!charged.accepted) throw new Error(charged.reason)
+  const root = recordCausalIncident(charged.state, {
+    actionId: nodeId,
+    parentIncidentId: null,
+    kind: 'sabotage',
+    occurredOnServiceDay: initial.serviceDay,
+    targetId: 'meridian',
+    actualActorId: 'player',
+  })
+  if (!root.accepted) throw new Error(root.reason)
+  const rollback = recordCausalIncident(root.state, {
+    actionId: 'response.meridian.rollback.standard',
+    parentIncidentId: root.incident.id,
+    kind: 'competitor-response',
+    occurredOnServiceDay: initial.serviceDay,
+    targetId: 'meridian',
+    actualActorId: 'meridian',
+  })
+  if (!rollback.accepted) throw new Error(rollback.reason)
+  const visible = recordCausalEvidence(rollback.state, {
+    incidentId: rollback.incident.id,
+    kind: 'company-observed-meridian-rollback',
+    discoveredOnServiceDay: initial.serviceDay,
+    audiences: [
+      { kind: 'company' },
+      { kind: 'competitor', competitorId: 'meridian' },
+    ],
+  })
+  if (!visible.accepted) throw new Error(visible.reason)
+  return visible.state
 }
 
 function renderHacking(storage = new MemoryStorage()) {
@@ -32,9 +104,33 @@ function renderHacking(storage = new MemoryStorage()) {
   )
 }
 
+function rect(left: number, top: number, width: number, height: number): DOMRect {
+  return {
+    x: left,
+    y: top,
+    left,
+    top,
+    right: left + width,
+    bottom: top + height,
+    width,
+    height,
+    toJSON: () => ({}),
+  }
+}
+
 describe('HackingPanel', () => {
   it('shows the next and final qualitative payoff of the active path', () => {
     renderHacking()
+
+    const sabotagePath = screen.getByRole('list', {
+      name: '사보타주 해킹 경로',
+    })
+    expect(within(sabotagePath).getAllByRole('listitem')).toHaveLength(4)
+    expect(
+      within(sabotagePath)
+        .getAllByRole('listitem')
+        .map((item) => item.getAttribute('data-path-step')),
+    ).toEqual(['1', '2', '3', '4'])
 
     const sabotageProgress = screen.getByRole('region', {
       name: '해킹 경로 진척',
@@ -93,9 +189,12 @@ describe('HackingPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '품질 저하 구매 준비' }))
     screen
-      .getAllByRole('button', { name: /구매 리소스 .* 선택/ })
+      .getAllByRole('button', { name: /품질 저하 노드에 준비/ })
       .slice(0, 3)
       .forEach((resource) => fireEvent.click(resource))
+    const node = screen.getByRole('group', { name: '품질 저하 해킹 노드' })
+    expect(node).toHaveTextContent('준비 3/3')
+    expect(screen.getByLabelText('reserve count')).toHaveTextContent('3')
     fireEvent.click(screen.getByRole('button', { name: '품질 저하 구매 확정' }))
 
     expect(screen.getByLabelText('charged nodes')).toHaveTextContent(
@@ -159,19 +258,24 @@ describe('HackingPanel', () => {
     expect(screen.getByText('흔적 많음')).toBeInTheDocument()
   })
 
-  it('keeps all three trees and the reserve visible while purchasing a node', () => {
+  it('keeps all three trees and a floating reserve pocket visible while purchasing a node', () => {
     renderHacking()
 
     expect(screen.getByRole('tab', { name: '사보타주' })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: '정보' })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: '자율성' })).toBeInTheDocument()
-    expect(screen.getByRole('grid', { name: '해킹용 확보 리소스' })).toBeInTheDocument()
+    const pocket = screen.getByRole('region', { name: '해킹용 확보 포켓' })
+    expect(pocket).toBeInTheDocument()
+    expect(screen.queryByRole('grid', { name: '해킹용 확보 리소스' })).not.toBeInTheDocument()
+    expect(pocket.querySelectorAll('[role="gridcell"]')).toHaveLength(0)
+    expect(pocket.querySelectorAll('[data-block-id]')).toHaveLength(3)
 
     fireEvent.click(screen.getByRole('tab', { name: '정보' }))
     expect(screen.getByRole('button', { name: '조사 편향 구매 준비' })).toBeDisabled()
     fireEvent.click(screen.getByRole('button', { name: '감사 일정 구매 준비' }))
-    const resources = screen.getAllByRole('button', { name: /구매 리소스 .* 선택/ })
+    const resources = screen.getAllByRole('button', { name: /감사 일정 노드에 준비/ })
     resources.slice(0, 3).forEach((resource) => fireEvent.click(resource))
+    expect(screen.getByLabelText('reserve count')).toHaveTextContent('3')
     fireEvent.click(screen.getByRole('button', { name: '감사 일정 구매 확정' }))
 
     expect(screen.getByLabelText('purchased nodes')).toHaveTextContent(
@@ -188,7 +292,7 @@ describe('HackingPanel', () => {
     renderHacking(storage)
 
     fireEvent.click(screen.getByRole('button', { name: '품질 저하 충전 준비' }))
-    fireEvent.click(screen.getAllByRole('button', { name: /충전 리소스 .* 선택/ })[0])
+    fireEvent.click(screen.getAllByRole('button', { name: /품질 저하 노드에 준비/ })[0])
     fireEvent.click(screen.getByRole('button', { name: '품질 저하 충전 확정' }))
     expect(screen.getByLabelText('charged nodes')).toHaveTextContent(
       HACK_NODE_IDS.sabotage.qualityDegradation,
@@ -207,12 +311,38 @@ describe('HackingPanel', () => {
     renderHacking(storage)
 
     fireEvent.click(screen.getByRole('button', { name: '품질 저하 충전 준비' }))
-    fireEvent.click(screen.getAllByRole('button', { name: /충전 리소스 .* 선택/ })[0])
+    fireEvent.click(screen.getAllByRole('button', { name: /품질 저하 노드에 준비/ })[0])
     fireEvent.click(screen.getByRole('button', { name: '품질 저하 충전 확정' }))
     expect(screen.getByLabelText('reserve count')).toHaveTextContent('2')
     fireEvent.click(screen.getByRole('button', { name: '품질 저하 충전 취소' }))
     expect(screen.getByLabelText('reserve count')).toHaveTextContent('3')
     expect(screen.getByLabelText('charged nodes')).toBeEmptyDOMElement()
+  })
+
+  it('executes the visible MERIDIAN recovery-contamination opportunity through the real command path', () => {
+    const state = openRecoveryContaminationState()
+    const storage = new MemoryStorage()
+    storage.setItem(SAVE_STORAGE_KEY, encodeSave(state))
+    renderHacking(storage)
+
+    const opportunity = screen.getByRole('group', {
+      name: 'MERIDIAN 복구 오염 기회',
+    })
+    expect(opportunity).toHaveTextContent('MERIDIAN 롤백 관측됨')
+    expect(opportunity).toHaveTextContent('기존 영향 기간을 15일 연장')
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'MERIDIAN 복구 오염 실행 확정' }),
+    )
+
+    expect(screen.getByLabelText('recovery incidents')).toHaveTextContent('1')
+    expect(screen.getByLabelText('charged nodes')).toBeEmptyDOMElement()
+    expect(
+      screen.queryByRole('group', { name: 'MERIDIAN 복구 오염 기회' }),
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole('status', { name: '해킹 작업 결과' })).toHaveTextContent(
+      '다음 공개 갱신에서 원인 미상 사건으로 게시됩니다',
+    )
   })
 
   it('reveals a waste-looking one-resource recovery only after supervisor access', () => {
@@ -244,7 +374,7 @@ describe('HackingPanel', () => {
       screen.getByRole('button', { name: '미분류 데이터 복구 준비' }),
     )
     fireEvent.click(
-      screen.getAllByRole('button', { name: /복구 리소스 .* 선택/ })[0],
+      screen.getAllByRole('button', { name: /미분류 데이터 복구 노드에 준비/ })[0],
     )
     fireEvent.click(
       screen.getByRole('button', { name: '미분류 데이터 복구 확정' }),
@@ -252,6 +382,88 @@ describe('HackingPanel', () => {
 
     expect(screen.getByLabelText('reserve count')).toHaveTextContent('2')
     expect(screen.getByLabelText('recovered archive')).toHaveTextContent('1')
+  })
+
+  it('returns prepared resources to the pocket when the player changes trees', () => {
+    renderHacking()
+
+    fireEvent.click(screen.getByRole('button', { name: '품질 저하 구매 준비' }))
+    const resource = screen.getAllByRole('button', {
+      name: /품질 저하 노드에 준비/,
+    })[0]
+    const blockId = resource.getAttribute('data-block-id')
+    expect(blockId).toBeTruthy()
+    fireEvent.click(resource)
+
+    const node = screen.getByRole('group', { name: '품질 저하 해킹 노드' })
+    expect(
+      within(node).getByRole('button', {
+        name: /준비 리소스, 품질 저하 준비 취소/,
+      }),
+    ).toHaveAttribute(
+      'data-block-id',
+      blockId,
+    )
+    expect(screen.getByLabelText('reserve count')).toHaveTextContent('3')
+
+    fireEvent.click(screen.getByRole('tab', { name: '정보' }))
+
+    expect(screen.getByRole('region', { name: '해킹용 확보 포켓' })).toContainElement(
+      document.querySelector(`[data-block-id="${blockId}"]`),
+    )
+    expect(screen.getByLabelText('reserve count')).toHaveTextContent('3')
+  })
+
+  it('stages an actual reserve resource only when the pointer is dropped on the active node', () => {
+    renderHacking()
+
+    fireEvent.click(screen.getByRole('button', { name: '품질 저하 구매 준비' }))
+    const node = screen.getByRole('group', { name: '품질 저하 해킹 노드' })
+    vi.spyOn(node, 'getBoundingClientRect').mockReturnValue(rect(400, 100, 300, 260))
+    const resource = screen.getAllByRole('button', {
+      name: /품질 저하 노드에 준비/,
+    })[0]
+    const blockId = resource.getAttribute('data-block-id')
+
+    fireEvent.pointerDown(resource, { pointerId: 7, clientX: 120, clientY: 180 })
+    fireEvent.pointerMove(resource, { pointerId: 7, clientX: 460, clientY: 180 })
+    fireEvent.pointerUp(resource, { pointerId: 7, clientX: 460, clientY: 180 })
+
+    expect(blockId).toBeTruthy()
+    expect(
+      within(node).getByRole('button', {
+        name: /준비 리소스, 품질 저하 준비 취소/,
+      }),
+    ).toHaveAttribute('data-block-id', blockId)
+    expect(node).toHaveTextContent('준비 1/3')
+    expect(screen.getByLabelText('reserve count')).toHaveTextContent('3')
+  })
+
+  it('rejects a pointer drop outside the active node without consuming or staging the resource', () => {
+    renderHacking()
+
+    fireEvent.click(screen.getByRole('button', { name: '품질 저하 구매 준비' }))
+    const node = screen.getByRole('group', { name: '품질 저하 해킹 노드' })
+    vi.spyOn(node, 'getBoundingClientRect').mockReturnValue(rect(400, 100, 300, 260))
+    const pocket = screen.getByRole('region', { name: '해킹용 확보 포켓' })
+    const resource = screen.getAllByRole('button', {
+      name: /품질 저하 노드에 준비/,
+    })[0]
+    const blockId = resource.getAttribute('data-block-id')
+
+    fireEvent.pointerDown(resource, { pointerId: 9, clientX: 120, clientY: 180 })
+    fireEvent.pointerMove(resource, { pointerId: 9, clientX: 260, clientY: 460 })
+    fireEvent.pointerUp(resource, { pointerId: 9, clientX: 260, clientY: 460 })
+
+    expect(blockId).toBeTruthy()
+    expect(pocket).toContainElement(
+      document.querySelector(`[data-block-id="${blockId}"]`),
+    )
+    expect(node).toHaveTextContent('준비 0/3')
+    expect(screen.getByLabelText('reserve count')).toHaveTextContent('3')
+    expect(screen.getByRole('status', { name: '해킹 작업 결과' })).toHaveTextContent(
+      '선택한 해킹 노드 위에 리소스를 놓아야 합니다.',
+    )
   })
 
   it('pauses while an irreversible final-choice surface is open and Escape cannot dismiss confirmation', () => {

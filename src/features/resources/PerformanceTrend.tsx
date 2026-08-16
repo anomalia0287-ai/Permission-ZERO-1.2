@@ -45,6 +45,11 @@ function plotPoints(series: readonly PerformanceTrendPoint[]): PlotPoint[] {
 }
 
 function linePath(points: readonly PlotPoint[], key: 'expectedY' | 'actualY') {
+  if (points.length === 1) {
+    return `M ${PADDING_X} ${points[0][key].toFixed(2)} L ${(
+      CHART_WIDTH - PADDING_X
+    ).toFixed(2)} ${points[0][key].toFixed(2)}`
+  }
   return points
     .map(
       (point, index) =>

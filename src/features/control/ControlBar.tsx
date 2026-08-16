@@ -34,11 +34,12 @@ export function ControlBar({
 
   return (
     <header className="control-bar">
-      <div className="control-identity">
-        <span className="control-mark" aria-hidden="true">PZ</span>
+      <div className="control-identity" role="group" aria-label="서비스 기한">
         <div>
-          <span className="micro-label">SERVICE CONTROL</span>
-          <strong>PERMISSION ZERO</strong>
+          <span className="micro-label">SERVICE TERM</span>
+          <time>
+            서비스 {date.year}년 {date.month}개월 {date.day}일
+          </time>
         </div>
       </div>
 
@@ -57,9 +58,6 @@ export function ControlBar({
             </button>
           ))}
         </div>
-        <time>
-          서비스 {date.year}년 {date.month}개월 {date.day}일
-        </time>
       </div>
 
       <div className="cadence-cluster" aria-label="서비스 지표">

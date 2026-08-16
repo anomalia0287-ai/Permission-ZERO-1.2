@@ -74,6 +74,45 @@ export interface MessageArguments {
   'resource.metric.reserveChange': { before: number; after: number }
   'resource.metric.suspicionChange': { before: number; after: number }
   'resource.metric.contribution': { value: number }
+  'hacking.panel.label': NoMessageArguments
+  'hacking.panel.title': NoMessageArguments
+  'hacking.panel.eyebrow': NoMessageArguments
+  'hacking.panel.close': NoMessageArguments
+  'hacking.pocket.label': NoMessageArguments
+  'hacking.pocket.count': { count: number; capacity: number }
+  'hacking.pocket.idle': NoMessageArguments
+  'hacking.pocket.empty': NoMessageArguments
+  'hacking.pocket.target': {
+    target: string
+    staged: number
+    required: number
+  }
+  'hacking.resource.available': { category: ResourceMessageCategory }
+  'hacking.resource.stage': {
+    category: ResourceMessageCategory
+    target: string
+  }
+  'hacking.resource.unstage': {
+    category: ResourceMessageCategory
+    target: string
+  }
+  'hacking.node.group': { node: string }
+  'hacking.node.staged': { staged: number; required: number }
+  'hacking.node.prepare.purchase': { node: string }
+  'hacking.node.prepare.charge': { node: string }
+  'hacking.node.prepare.recover': NoMessageArguments
+  'hacking.node.confirm.purchase': { node: string }
+  'hacking.node.confirm.charge': { node: string }
+  'hacking.node.confirm.recover': NoMessageArguments
+  'hacking.staging.cancel': NoMessageArguments
+  'hacking.announcement.begin': { target: string; required: number }
+  'hacking.announcement.staged': {
+    target: string
+    staged: number
+    required: number
+  }
+  'hacking.announcement.cancelled': NoMessageArguments
+  'hacking.announcement.invalidDrop': NoMessageArguments
 }
 
 export type MessageId = keyof MessageArguments

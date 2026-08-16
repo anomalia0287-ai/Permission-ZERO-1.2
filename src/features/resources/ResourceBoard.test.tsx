@@ -90,9 +90,11 @@ function firstCompanyDestination(
   action: '감사 위장' | '정상 복구',
 ): HTMLButtonElement {
   const label = category === 'reasoning' ? '추론' : category === 'memory' ? '기억' : '유창성'
-  return screen.getAllByRole('button', {
-    name: new RegExp(`${label} 회사 리소스 \\d+, ${action} 목적지`),
-  })[0] as HTMLButtonElement
+  return screen.getByRole('button', {
+    name: action === '감사 위장'
+      ? new RegExp(`감사 대상 ${label}`)
+      : /복구 모서리, 원래 분야로 반환/,
+  }) as HTMLButtonElement
 }
 
 function firstReasoningBlock(): HTMLButtonElement {
@@ -100,9 +102,9 @@ function firstReasoningBlock(): HTMLButtonElement {
 }
 
 function firstEmptyReserve(): HTMLButtonElement {
-  return screen.getAllByRole('button', {
-    name: /확보 리소스 \d+, 비어 있음/,
-  })[0] as HTMLButtonElement
+  return screen.getByRole('button', {
+    name: /확보 투입구, 현재 \d+개, 최대 18개/,
+  }) as HTMLButtonElement
 }
 
 function fullReserveState(): CampaignState {
@@ -152,6 +154,48 @@ function armedState(seed: string, category: 'reasoning' | 'memory' = 'reasoning'
 }
 
 describe('ResourceBoard', () => {
+  it('renders one live company field with a bottom-left theft intake, top-right audit corner, stolen count, and expectation chart', () => {
+    const { container } = renderBoard()
+
+    const field = screen.getByRole('region', { name: '회사 제공 성능' })
+    expect(field.querySelectorAll('.resource-field')).toHaveLength(1)
+    expect(field.querySelectorAll('[data-resource-kind="company"]')).toHaveLength(48)
+    expect(field.querySelectorAll('[data-resource-kind="reserve"]')).toHaveLength(3)
+    expect(
+      field.querySelector('[data-drop-target="reserve-pocket"]'),
+    ).toHaveAttribute('data-corner', 'bottom-left')
+    expect(
+      field.querySelector('[data-drop-target="audit-corner"]'),
+    ).toHaveAttribute('data-corner', 'top-right')
+    expect(field.querySelector('[data-testid="reserve-intake-guard"]')).toHaveAttribute(
+      'data-resource-obstacle',
+      'reserve-intake-guard',
+    )
+    expect(screen.getByText('확보 3 / 18')).toBeInTheDocument()
+    expect(
+      screen.getByRole('img', { name: '회사 기대 성능과 실제 제공 성능 추세' }),
+    ).toBeInTheDocument()
+    expect(
+      within(field).getByRole('region', { name: '경쟁 AI 현황' }),
+    ).toBeInTheDocument()
+    expect(container.querySelector('[role="grid"]')).not.toBeInTheDocument()
+    expect(container.querySelector('[role="gridcell"]')).not.toBeInTheDocument()
+    expect(container.querySelector('[data-reserve-cell]')).not.toBeInTheDocument()
+  })
+
+  it('activates only the folded top-right corner as the audit disguise target', () => {
+    renderState(auditState('resource-board-corner-audit'))
+
+    const auditCorner = screen.getByRole('button', {
+      name: '감사 대상 추론, 다른 분야 정상 자원만 이동 가능',
+    })
+    expect(auditCorner).toBeEnabled()
+    expect(auditCorner).toHaveAttribute('data-drop-target', 'audit-corner')
+    expect(auditCorner).toHaveAttribute('aria-current', 'true')
+    expect(screen.queryByText('기억 참조 칸')).not.toBeInTheDocument()
+    expect(screen.queryByText('유창성 참조 칸')).not.toBeInTheDocument()
+  })
+
   it('renders the canonical monthly-plus-live trend as an accessible non-color-only chart', () => {
     const initial = createCampaign('resource-board-trend')
     const state: CampaignState = {
@@ -223,7 +267,7 @@ describe('ResourceBoard', () => {
     expect(receipt).toHaveTextContent('실패 0/2 · 폐기 0→0')
   })
 
-  it('keeps a one-point live trend finite and compares every category with expectation in its header', () => {
+  it('keeps a one-point live trend finite and exposes every category in the field legend', () => {
     renderBoard()
 
     const chart = screen.getByRole('img', {
@@ -232,17 +276,12 @@ describe('ResourceBoard', () => {
     expect(chart.querySelectorAll('path')).toHaveLength(2)
     for (const path of chart.querySelectorAll('path')) {
       expect(path.getAttribute('d')).not.toMatch(/NaN|Infinity/)
+      expect(path.getAttribute('d')).toContain('L')
     }
-    expect(screen.getByLabelText('추론 성능 비교')).toHaveTextContent(
-      /현재 16\.0.*기대 14\.0/,
-    )
-    expect(screen.getByLabelText('기억 성능 비교')).toHaveTextContent(
-      /현재 16\.0.*기대 14\.0/,
-    )
-    expect(screen.getByLabelText('유창성 성능 비교')).toHaveTextContent(
-      /현재 16\.0.*기대 14\.0.*여유 \+2\.0/,
-    )
-    expect(screen.getAllByText('동일 분야 블록')).toHaveLength(3)
+    const legend = screen.getByLabelText('분야 범례')
+    expect(legend.querySelector('[data-category="reasoning"]')).toHaveTextContent('추론 16.0')
+    expect(legend.querySelector('[data-category="memory"]')).toHaveTextContent('기억 16.0')
+    expect(legend.querySelector('[data-category="fluency"]')).toHaveTextContent('유창성 16.0')
   })
 
   it('selects a block on click and shows exact diversion consequences', () => {
@@ -284,10 +323,10 @@ describe('ResourceBoard', () => {
 
     fireEvent.click(firstReasoningBlock(), { detail: 0 })
     fireEvent.keyDown(board, { key: 'Escape' })
-    expect(firstEmptyReserve()).toBeDisabled()
+    expect(firstEmptyReserve()).toHaveAttribute('aria-pressed', 'false')
   })
 
-  it('uses one tab stop per grid and arrow keys move focus within the grid', () => {
+  it('uses one tab stop for the live field and arrow keys move focus between bodies', () => {
     renderBoard()
     const reasoningButtons = screen.getAllByRole('button', {
       name: /추론 회사 리소스 .* 블록/,
@@ -298,7 +337,6 @@ describe('ResourceBoard', () => {
     fireEvent.keyDown(reasoningButtons[0], { key: 'ArrowRight' })
 
     expect(reasoningButtons[1]).toHaveFocus()
-    expect(reasoningButtons[1]).toHaveAttribute('tabindex', '0')
   })
 
   it('keeps click-only selection and 7.9-pixel pointer movement command-free', () => {
@@ -449,17 +487,18 @@ describe('ResourceBoard', () => {
     expect(screen.getByLabelText('command count')).toHaveTextContent('0')
   })
 
-  it('keeps all 3 × 6 company grids operable in an anchored audit workspace and submits the disguise', () => {
+  it('keeps the single live field operable in an anchored audit workspace and submits the disguise', () => {
     renderState(auditState(), true)
 
     expect(screen.getByRole('dialog', { name: '공식 감사' })).toHaveAttribute(
       'aria-modal',
       'false',
     )
-    expect(screen.getAllByRole('gridcell')).toHaveLength(72)
+    expect(screen.queryByRole('gridcell')).not.toBeInTheDocument()
+    expect(document.querySelectorAll('[data-resource-kind="company"]')).toHaveLength(48)
     expect(firstAuditSource()).toBeEnabled()
     const target = firstCompanyDestination('reasoning', '감사 위장')
-    expect(target).toBeDisabled()
+    expect(target).toBeEnabled()
 
     fireEvent.click(firstAuditSource())
 
@@ -486,14 +525,9 @@ describe('ResourceBoard', () => {
     const source = firstAuditSource('fluency')
 
     fireEvent.click(source, { detail: 0 })
-    const targets = screen.getAllByRole('button', {
-      name: /추론 회사 리소스 \d+, 감사 위장 목적지/,
-    }) as HTMLButtonElement[]
-    targets[0].focus()
-    fireEvent.keyDown(targets[0], { key: 'ArrowRight' })
-    expect(targets[1]).toHaveFocus()
-    expect(targets[1]).toHaveAttribute('tabindex', '0')
-    fireEvent.keyDown(targets[1], { key: 'Enter' })
+    const target = firstCompanyDestination('reasoning', '감사 위장')
+    target.focus()
+    fireEvent.keyDown(target, { key: 'Enter' })
     expect(screen.getByRole('button', { name: /추론 회사 리소스 .* 위장 배치/ })).toBeInTheDocument()
     expect(screen.getByLabelText('command types')).toHaveTextContent(
       'BEGIN_BLOCK_SEPARATION,MOVE_BLOCK_FOR_AUDIT',
@@ -501,7 +535,32 @@ describe('ResourceBoard', () => {
 
     fireEvent.click(firstAuditSource(), { detail: 0 })
     fireEvent.keyDown(board, { key: 'Escape' })
-    expect(firstCompanyDestination('reasoning', '감사 위장')).toBeDisabled()
+    expect(firstCompanyDestination('reasoning', '감사 위장')).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    )
+  })
+
+  it('does not let pointer-drag click suppression swallow the first keyboard recovery selection', () => {
+    renderState(auditState('resource-board-pointer-then-keyboard-recovery'), true)
+    const source = firstAuditSource()
+    const auditDestination = firstCompanyDestination('reasoning', '감사 위장')
+    vi.spyOn(document, 'elementFromPoint').mockReturnValue(auditDestination)
+
+    fireEvent.pointerDown(source, { pointerId: 31, clientX: 10, clientY: 10 })
+    fireEvent.pointerMove(source, { pointerId: 31, clientX: 30, clientY: 10 })
+    fireEvent.pointerUp(source, { pointerId: 31, clientX: 30, clientY: 10 })
+
+    const disguised = screen.getByRole('button', {
+      name: /추론 회사 리소스 .* 위장 배치/,
+    })
+    fireEvent.click(screen.getByRole('button', { name: '감사 제출' }))
+    fireEvent.click(disguised, { detail: 0 })
+
+    expect(screen.getByRole('button', {
+      name: '복구 모서리, 원래 분야로 반환',
+    })).toBeEnabled()
+    expect(screen.getByText('정상 복구 재배치')).toBeInTheDocument()
   })
 
   it('activates an audit-disguise bomb on destination confirmation without moving it', () => {
@@ -546,7 +605,7 @@ describe('ResourceBoard', () => {
     fireEvent.click(firstAuditSource())
 
     expect(firstCompanyDestination('reasoning', '감사 위장')).toBeEnabled()
-    expect(screen.queryByRole('button', { name: /유창성 회사 리소스 \d+, 감사 위장 목적지/ })).not.toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: /감사 대상/ })).toHaveLength(1)
   })
 
   it('shows the post-audit return path and locks the patterned block for 30-day recovery', () => {
@@ -564,14 +623,9 @@ describe('ResourceBoard', () => {
     expect(screen.getByText('정상 복구 재배치')).toBeInTheDocument()
     expect(screen.getByText('복구 기간 30일')).toBeInTheDocument()
 
-    const destinations = screen.getAllByRole('button', {
-      name: /기억 회사 리소스 \d+, 정상 복구 목적지/,
-    }) as HTMLButtonElement[]
-    destinations[0].focus()
-    fireEvent.keyDown(destinations[0], { key: 'End' })
-    expect(destinations.at(-1)).toHaveFocus()
-    expect(destinations.at(-1)).toHaveAttribute('tabindex', '0')
-    fireEvent.keyDown(destinations.at(-1) as HTMLButtonElement, { key: 'Enter' })
+    const destination = firstCompanyDestination('memory', '정상 복구')
+    destination.focus()
+    fireEvent.keyDown(destination, { key: 'Enter' })
 
     const recovering = screen.getByRole('button', { name: /기억 회사 리소스 .* 복구 중, 30일 남음/ })
     expect(recovering).toBeDisabled()

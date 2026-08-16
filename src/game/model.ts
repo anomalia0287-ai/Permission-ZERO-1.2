@@ -367,6 +367,7 @@ export type GameCommand =
   | { type: 'CHARGE_SABOTAGE'; nodeId: string; blockId: string }
   | { type: 'CANCEL_SABOTAGE_CHARGE'; nodeId: string }
   | { type: 'SCHEDULE_SABOTAGE'; nodeId: string; targetId: string }
+  | { type: 'EXECUTE_SABOTAGE_FOLLOW_UP'; opportunityId: string }
   | { type: 'RESOLVE_AUDIT' }
   | { type: 'RESOLVE_BOMB_INTERROGATION'; explanationId: BombExplanationId }
   | { type: 'RECOVER_FILE'; blockId: string }

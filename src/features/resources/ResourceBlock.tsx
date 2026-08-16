@@ -4,6 +4,7 @@ import type {
 } from 'react'
 
 import type { ResourceBlock as ResourceBlockModel } from '../../game/model'
+import type { ResourceBlockPresentation } from './resourcePresentation'
 
 export type BlockInputMethod = 'pointer' | 'keyboard'
 
@@ -19,6 +20,8 @@ export interface ResourceBlockProps {
   settling?: boolean
   disguisedContribution?: number
   recoveryDays?: number | null
+  presentation?: ResourceBlockPresentation
+  elementRef?: (element: HTMLButtonElement | null) => void
   tabIndex?: number
   onSelect?: (method: BlockInputMethod) => void
   onFocus?: () => void
@@ -41,6 +44,8 @@ export function ResourceBlock({
   settling = false,
   disguisedContribution = 0.5,
   recoveryDays = null,
+  presentation,
+  elementRef,
   tabIndex,
   onSelect,
   onFocus,
@@ -59,6 +64,9 @@ export function ResourceBlock({
       className={[
         'resource-block',
         'resource-block-button',
+        presentation ? `resource-block--${presentation.shape}` : '',
+        presentation ? `resource-block--${presentation.visualCategory}` : '',
+        presentation ? `resource-block--${presentation.state}` : '',
         selected ? 'resource-block--selected' : '',
         dragging ? 'resource-block--dragging' : '',
         returning ? 'resource-block--returning' : '',
@@ -71,6 +79,9 @@ export function ResourceBlock({
       tabIndex={tabIndex}
       data-block-id={block.id}
       data-resource-kind={kind}
+      data-resource-category={presentation?.visualCategory}
+      data-resource-state={presentation?.state}
+      ref={elementRef}
       onClick={(event) => onSelect?.(event.detail === 0 ? 'keyboard' : 'pointer')}
       onFocus={onFocus}
       onKeyDown={onKeyDown}
@@ -79,7 +90,7 @@ export function ResourceBlock({
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerCancel}
     >
-      <i aria-hidden="true" />
+      <i aria-hidden="true">{presentation?.symbol}</i>
       <small aria-hidden="true">
         {recoveryDays !== null
           ? `복구 ${recoveryDays}일`

@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 const styleModules = [
+  'operations-shell.css',
   'connected-details.css',
   'hacking.css',
   'statistics.css',
@@ -40,6 +41,7 @@ describe('style module boundaries', () => {
       'utf8',
     )
 
+    expect(globalSource).not.toContain('/* Primary operations surface')
     expect(globalSource).not.toContain('/* Connected detail surfaces')
     expect(globalSource).not.toContain('/* Hacking network')
     expect(globalSource).not.toContain('/* Statistics')

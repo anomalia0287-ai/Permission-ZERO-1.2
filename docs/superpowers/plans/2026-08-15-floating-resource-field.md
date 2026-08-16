@@ -532,10 +532,12 @@ For each fixed step:
 1. integrate free bodies;
 2. clamp/reflect against field bounds;
 3. resolve visible obstacle collisions;
-4. run two bounded collision passes over all unordered body pairs and resolve penetration/equal-mass impulse;
+4. run exactly two bounded collision-resolution traversals over all unordered body pairs and resolve penetration/equal-mass impulse;
 5. cap speed and reject non-finite output.
 
-With 54 bodies, each pass is at most 1,431 pairs. Two passes remain a bounded 2,862 checks per step and are less error-prone for a dense cluster. Do not add a spatial hash before profiling proves it necessary.
+With 54 bodies, each resolution traversal is at most 1,431 pairs, so two unordered-pair resolution traversals make exactly 2,862 `resolvePairCollision` (`Math.hypot`) collision checks per step. During the first traversal, the implementation may also record pre-step pair validity with one fused squared-distance predicate per pair (1,431 additional arithmetic predicates at 54 bodies). During the same final traversal, each non-contact pair may additionally record at most two mixed saved/current squared-distance rollback-dependency predicates (2,862 additional arithmetic predicates in the sparse 54-body worst case). These fused predicates must not add a third unordered-pair traversal, an extra collision `Math.hypot` check, a global repair loop, or a full-field relayout. Do not add a spatial hash before profiling proves it necessary.
+
+An exceptional rollback component may use component-local rigid fallback after the two pair traversals. Exact wall/AABB contact normals must first reject an empty translation cone and prefilter the fixed directions; a feasible component then tests the eight fixed plus at most three continuous-cone directions at successively halved positive binary64 speeds. Search ends when every unresolved direction loses representable progress, the speed underflows to zero, or a candidate is accepted for every component body. Starting from `42`, binary64 halving has at most 1,080 positive levels, so the hard recovery-only ceiling is 11,880 endpoint-candidate evaluations per affected body, or 641,520 for 54 affected bodies with no obstacles. This exceptional static work must add no unordered-pair traversal, collision `Math.hypot`, per-pair allocation, random choice, or whole-field relayout; normal frames do none of it.
 
 - [ ] **Step 6: Implement the React motion hook and reduced-motion preference**
 

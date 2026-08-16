@@ -28,12 +28,22 @@ import {
   repositionDisguisedBlock,
   type DiversionPreview,
 } from '../../game/resources'
-import { ReserveGrid } from './ReserveGrid'
 import { ResourceBlock, type BlockInputMethod } from './ResourceBlock'
-import { PerformanceTrend } from './PerformanceTrend'
+import {
+  ResourceCornerControls,
+  ResourceFieldLegend,
+  ResourceOperationStatus,
+  ResourcePerformanceRail,
+  ResourceStageHeader,
+} from './ResourceFieldChrome'
+import { presentResourceBlock } from './resourcePresentation'
+import { useResourceMotion } from './useResourceMotion'
 
 const DRAG_THRESHOLD_PX = 8
-const TRAIL_NODE_COUNT = 5
+
+type FieldDropTarget = 'reserve-pocket' | 'audit-corner'
+type InteractionKind = 'divert' | 'audit' | 'reposition'
+type ValidDiversionPreview = Extract<DiversionPreview, { valid: true }>
 
 interface PointerCandidate {
   blockId: BlockId
@@ -41,7 +51,7 @@ interface PointerCandidate {
   startX: number
   startY: number
   dragging: boolean
-  dropCell: number | null
+  dropTarget: FieldDropTarget | null
 }
 
 type DiversionReceipt = ValidDiversionPreview & {
@@ -54,8 +64,6 @@ interface PendingDiversion {
   commandSequence: number
   preview: DiversionReceipt
 }
-
-type ValidDiversionPreview = Extract<DiversionPreview, { valid: true }>
 
 type SeparationDestination =
   | { kind: 'divert'; destinationCell: number }
@@ -76,8 +84,6 @@ interface PendingSeparation {
   moveDispatched: boolean
 }
 
-type InteractionKind = 'divert' | 'audit' | 'reposition'
-
 function playAfterUnlock(cue: Parameters<typeof playGameSound>[0]) {
   void unlockGameAudio().then((unlocked) => {
     if (unlocked) playGameSound(cue)
@@ -94,21 +100,6 @@ function performanceMarginLabel(performance: number, expectation: number): strin
   return margin >= 0
     ? `기준 유지 · 여유 ${signedPerformanceMargin(margin)}`
     : `기준 미달 · 부족 ${signedPerformanceMargin(margin)}`
-}
-
-function PanelHeading({ auditActive }: { auditActive: boolean }) {
-  return (
-    <header className="panel-heading">
-      <span className="panel-index">02</span>
-      <div>
-        <h2>회사 제공 성능</h2>
-        <p>ALLOCATED COMPUTE / 3 × 6 PER DOMAIN</p>
-      </div>
-      <span className="interaction-hint">
-        {auditActive ? '감사 위장 · 다른 분야 선택 → 대상 빈칸' : '클릭 선택 · 8px 당겨 분리'}
-      </span>
-    </header>
-  )
 }
 
 function interactionKindForBlock(
@@ -148,34 +139,57 @@ export function ResourceBoard() {
   const [selectedBlockId, setSelectedBlockId] = useState<BlockId | null>(null)
   const [draggingBlockId, setDraggingBlockId] = useState<BlockId | null>(null)
   const [previewCell, setPreviewCell] = useState<number | null>(null)
-  const [hoveredCell, setHoveredCell] = useState<number | null>(null)
   const [returningBlockId, setReturningBlockId] = useState<BlockId | null>(null)
-  const [settlingCell, setSettlingCell] = useState<number | null>(null)
   const [announcement, setAnnouncement] = useState('')
   const [lastDiversionReceipt, setLastDiversionReceipt] =
     useState<DiversionReceipt | null>(null)
-  const [rovingBlocks, setRovingBlocks] = useState<
-    Partial<Record<CompanyCategory, BlockId>>
-  >({})
   const boardRef = useRef<HTMLElement | null>(null)
-  const overlayRef = useRef<HTMLDivElement | null>(null)
-  const trailRefs = useRef<Array<HTMLSpanElement | null>>([])
+  const fieldRef = useRef<HTMLDivElement | null>(null)
+  const intakeGuardRef = useRef<HTMLElement | null>(null)
+  const reservePocketRef = useRef<HTMLButtonElement | null>(null)
+  const auditCornerRef = useRef<HTMLButtonElement | null>(null)
   const pointerRef = useRef<PointerCandidate | null>(null)
   const pendingRef = useRef<PendingDiversion | null>(null)
   const separationRef = useRef<PendingSeparation | null>(null)
   const suppressClickRef = useRef(false)
-  const settleTimerRef = useRef<number | null>(null)
   const returnTimerRef = useRef<number | null>(null)
-  const impactTimerRef = useRef<number | null>(null)
 
   const reserveCount = state.resources.reserve.filter(Boolean).length
   const liveExpectation = expectedPerformance(serviceMonthForDay(state.serviceDay))
   const reserveFull = reserveCount === state.resources.reserve.length
   const firstEmptyReserveCell = state.resources.reserve.findIndex((cell) => cell === null)
   const auditTarget = state.activeEvent?.type === 'audit' ? state.audit.target : null
-  const selectedBlock = selectedBlockId
-    ? state.resources.blocks[selectedBlockId]
-    : null
+  const companyBlocks = useMemo(
+    () => COMPANY_CATEGORIES.flatMap((category) =>
+      state.resources.company[category].flatMap((blockId) =>
+        blockId ? [state.resources.blocks[blockId]] : [],
+      ),
+    ),
+    [state.resources.blocks, state.resources.company],
+  )
+  const companyBlockIds = useMemo(
+    () => companyBlocks.map((block) => block.id),
+    [companyBlocks],
+  )
+  const interactiveBlockIds = useMemo(
+    () => companyBlockIds.filter((blockId) => interactionKindForBlock(state, blockId)),
+    [companyBlockIds, state],
+  )
+  const motionObstacleRefs = useMemo(
+    () => [{ id: 'reserve-intake-guard', ref: intakeGuardRef }],
+    [],
+  )
+  const motion = useResourceMotion({
+    ids: companyBlockIds,
+    containerRef: fieldRef,
+    radius: 16,
+    obstacleRefs: motionObstacleRefs,
+    reducedMotion: settings.reducedMotion,
+    active: true,
+    motionRate: 1.6,
+  })
+
+  const selectedBlock = selectedBlockId ? state.resources.blocks[selectedBlockId] : null
   const selectedLocation = selectedBlock?.location.kind === 'company'
     ? selectedBlock.location
     : null
@@ -193,12 +207,14 @@ export function ResourceBoard() {
   const effectivePreviewCell = previewCell ?? (
     selectedInteraction === 'divert' ? firstEmptyReserveCell : firstEmptyCompanyCell
   )
+
   const diversionPreview = useMemo(() => {
     if (!selectedBlockId || selectedInteraction !== 'divert' || effectivePreviewCell < 0) {
       return null
     }
     return previewDiversion(state, selectedBlockId, effectivePreviewCell)
   }, [effectivePreviewCell, selectedBlockId, selectedInteraction, state])
+
   const auditPreview = useMemo(() => {
     if (
       !selectedBlockId ||
@@ -208,13 +224,9 @@ export function ResourceBoard() {
     ) {
       return null
     }
-    return previewAuditDisguise(
-      state,
-      selectedBlockId,
-      auditTarget,
-      effectivePreviewCell,
-    )
+    return previewAuditDisguise(state, selectedBlockId, auditTarget, effectivePreviewCell)
   }, [auditTarget, effectivePreviewCell, selectedBlockId, selectedInteraction, state])
+
   const repositionPreview = useMemo(() => {
     if (
       !selectedBlockId ||
@@ -250,13 +262,7 @@ export function ResourceBoard() {
   ])
 
   const dispatchAuthorizedMove = useCallback((separation: PendingSeparation) => {
-    if (
-      separation.moveDispatched ||
-      separation.canceled ||
-      !separation.destination
-    ) {
-      return
-    }
+    if (separation.moveDispatched || separation.canceled || !separation.destination) return
     separation.moveDispatched = true
     separationRef.current = null
 
@@ -311,35 +317,26 @@ export function ResourceBoard() {
 
   useEffect(() => {
     const separation = separationRef.current
-    if (
-      !separation ||
-      separation.intentResolved ||
-      state.commandSequence <= separation.commandSequence
-    ) {
+    if (!separation || separation.intentResolved || state.commandSequence <= separation.commandSequence) {
       return
     }
-
     if (state.bombs.activeInterrogation?.blockId === separation.blockId) {
       separationRef.current = null
       pointerRef.current = null
       pendingRef.current = null
       setDraggingBlockId(null)
-      setHoveredCell(null)
       setSelectedBlockId(null)
       setPreviewCell(null)
       setAnnouncement('분리 중 이상 신호가 감지되었습니다. 감독관 응답이 필요합니다.')
       playGameSound('alarm')
       return
     }
-
     separation.intentResolved = true
     if (separation.canceled) {
       separationRef.current = null
       return
     }
-    if (separation.released && separation.destination) {
-      dispatchAuthorizedMove(separation)
-    }
+    if (separation.released && separation.destination) dispatchAuthorizedMove(separation)
   }, [dispatchAuthorizedMove, state.bombs.activeInterrogation?.blockId, state.commandSequence])
 
   useEffect(() => {
@@ -347,19 +344,10 @@ export function ResourceBoard() {
     if (!pending || state.commandSequence <= pending.commandSequence) return
     pendingRef.current = null
     const location = state.resources.blocks[pending.blockId]?.location
-
-    if (
-      location?.kind === 'reserve' &&
-      location.cellIndex === pending.destinationCell
-    ) {
+    if (location?.kind === 'reserve' && location.cellIndex === pending.destinationCell) {
       setLastDiversionReceipt(pending.preview)
-      setSettlingCell(pending.destinationCell)
       setAnnouncement(`확보 리소스 ${pending.destinationCell + 1}번에 흡착 완료`)
       playGameSound('latch')
-      if (impactTimerRef.current) window.clearTimeout(impactTimerRef.current)
-      impactTimerRef.current = window.setTimeout(() => playGameSound('impact'), 58)
-      if (settleTimerRef.current) window.clearTimeout(settleTimerRef.current)
-      settleTimerRef.current = window.setTimeout(() => setSettlingCell(null), 360)
     } else if (state.bombs.activeInterrogation?.blockId === pending.blockId) {
       setAnnouncement('분리 중 이상 신호가 감지되었습니다. 감독관 응답이 필요합니다.')
       playGameSound('alarm')
@@ -367,71 +355,16 @@ export function ResourceBoard() {
       setAnnouncement('명령이 거부되어 리소스가 원래 위치로 복귀했습니다.')
       playGameSound('reject')
     }
-
     setSelectedBlockId(null)
     setPreviewCell(null)
   }, [state.bombs.activeInterrogation?.blockId, state.commandSequence, state.resources.blocks])
 
   useEffect(
     () => () => {
-      if (settleTimerRef.current) window.clearTimeout(settleTimerRef.current)
       if (returnTimerRef.current) window.clearTimeout(returnTimerRef.current)
-      if (impactTimerRef.current) window.clearTimeout(impactTimerRef.current)
     },
     [],
   )
-
-  function selectBlock(blockId: BlockId, method: BlockInputMethod) {
-    if (suppressClickRef.current) {
-      suppressClickRef.current = false
-      return
-    }
-    const interaction = interactionKindForBlock(state, blockId)
-    if (!interaction) {
-      setAnnouncement(reserveFull && !auditTarget ? '확보 리소스 칸이 가득 찼습니다.' : '현재 이동할 수 없는 리소스입니다.')
-      playAfterUnlock('reject')
-      return
-    }
-
-    setSelectedBlockId(blockId)
-    setLastDiversionReceipt(null)
-    const block = state.resources.blocks[blockId]
-    const destinationCategory = interaction === 'audit'
-      ? auditTarget
-      : interaction === 'reposition'
-        ? block.disguisedFrom
-        : null
-    const destinationCell = interaction === 'divert'
-      ? firstEmptyReserveCell
-      : destinationCategory
-        ? state.resources.company[destinationCategory].findIndex((cell) => cell === null)
-        : -1
-    setPreviewCell(destinationCell)
-    const location = state.resources.blocks[blockId].location
-    const category = location.kind === 'company' ? CATEGORY_LABELS[location.category] : '회사'
-    const instruction = interaction === 'audit'
-      ? `${CATEGORY_LABELS[auditTarget as CompanyCategory]} 감사 대상의 빈칸을 선택하세요.`
-      : interaction === 'reposition'
-        ? `${CATEGORY_LABELS[block.disguisedFrom as CompanyCategory]} 원래 분야의 빈칸을 선택하세요.`
-        : '비어 있는 확보 칸을 선택하세요.'
-    setAnnouncement(`${category} 리소스를 선택했습니다. ${instruction}`)
-    playAfterUnlock('select')
-    if (method === 'keyboard' && destinationCell >= 0) {
-      window.setTimeout(() => {
-        const selector = interaction === 'divert'
-          ? `button[data-reserve-cell="${destinationCell}"]`
-          : `button[data-company-destination="${destinationCell}"]`
-        boardRef.current?.querySelector<HTMLButtonElement>(selector)?.focus()
-      }, 0)
-    }
-  }
-
-  function clearSelection(message = '리소스 선택을 취소했습니다.') {
-    setSelectedBlockId(null)
-    setPreviewCell(null)
-    setHoveredCell(null)
-    setAnnouncement(message)
-  }
 
   function beginSeparation(
     blockId: BlockId,
@@ -452,27 +385,72 @@ export function ResourceBoard() {
     dispatch({ type: 'BEGIN_BLOCK_SEPARATION', blockId, purpose })
   }
 
-  function commitDiversion(blockId: BlockId, destinationCell: number) {
-    const result = previewDiversion(state, blockId, destinationCell)
-    if (!result.valid || state.activeEvent) {
-      setAnnouncement('해당 칸으로는 리소스를 옮길 수 없습니다. 원래 위치로 복귀합니다.')
-      setReturningBlockId(blockId)
-      playGameSound('reject')
-      if (returnTimerRef.current) window.clearTimeout(returnTimerRef.current)
-      returnTimerRef.current = window.setTimeout(() => setReturningBlockId(null), 280)
+  function selectBlock(blockId: BlockId, method: BlockInputMethod) {
+    if (method === 'pointer' && suppressClickRef.current) {
+      suppressClickRef.current = false
       return
     }
-
-    const separation = separationRef.current
-    const destination: SeparationDestination = {
-      kind: 'divert',
-      destinationCell,
+    const interaction = interactionKindForBlock(state, blockId)
+    if (!interaction) {
+      setAnnouncement(reserveFull && !auditTarget ? '확보 리소스 용량이 가득 찼습니다.' : '현재 이동할 수 없는 리소스입니다.')
+      playAfterUnlock('reject')
+      return
     }
-    if (
-      separation?.blockId === blockId &&
-      separation.purpose === 'divert' &&
-      !separation.canceled
-    ) {
+    setSelectedBlockId(blockId)
+    setLastDiversionReceipt(null)
+    const block = state.resources.blocks[blockId]
+    const destinationCategory = interaction === 'audit'
+      ? auditTarget
+      : interaction === 'reposition'
+        ? block.disguisedFrom
+        : null
+    const destinationCell = interaction === 'divert'
+      ? firstEmptyReserveCell
+      : destinationCategory
+        ? state.resources.company[destinationCategory].findIndex((cell) => cell === null)
+        : -1
+    setPreviewCell(destinationCell)
+    const location = block.location
+    const category = location.kind === 'company' ? CATEGORY_LABELS[location.category] : '회사'
+    const instruction = interaction === 'audit'
+      ? '우상단 감사 모서리로 이동하세요.'
+      : interaction === 'reposition'
+        ? '우상단 복구 모서리로 이동하세요.'
+        : '좌하단 확보 투입구로 이동하세요.'
+    setAnnouncement(`${category} 리소스를 선택했습니다. ${instruction}`)
+    playAfterUnlock('select')
+    if (method === 'keyboard') {
+      const selector = interaction === 'divert'
+        ? '[data-drop-target="reserve-pocket"]'
+        : '[data-drop-target="audit-corner"]'
+      window.setTimeout(() => boardRef.current?.querySelector<HTMLButtonElement>(selector)?.focus(), 0)
+    }
+  }
+
+  function clearSelection(message = '리소스 선택을 취소했습니다.') {
+    setSelectedBlockId(null)
+    setPreviewCell(null)
+    setAnnouncement(message)
+  }
+
+  function rejectMove(blockId: BlockId, message: string) {
+    setReturningBlockId(blockId)
+    setAnnouncement(message)
+    playGameSound('reject')
+    if (returnTimerRef.current) window.clearTimeout(returnTimerRef.current)
+    returnTimerRef.current = window.setTimeout(() => setReturningBlockId(null), 280)
+  }
+
+  function commitDiversion(blockId: BlockId) {
+    const destinationCell = state.resources.reserve.findIndex((cell) => cell === null)
+    const result = previewDiversion(state, blockId, destinationCell)
+    if (!result.valid || state.activeEvent) {
+      rejectMove(blockId, '확보 투입구가 현재 명령을 받을 수 없습니다. 원래 위치로 복귀합니다.')
+      return
+    }
+    const destination: SeparationDestination = { kind: 'divert', destinationCell }
+    const separation = separationRef.current
+    if (separation?.blockId === blockId && separation.purpose === 'divert' && !separation.canceled) {
       separation.destination = destination
       separation.released = true
       if (separation.intentResolved) dispatchAuthorizedMove(separation)
@@ -481,85 +459,106 @@ export function ResourceBoard() {
     beginSeparation(blockId, 'divert', destination, true)
   }
 
-  function commitCompanyMove(
-    blockId: BlockId,
-    category: CompanyCategory,
-    destinationCell: number,
-  ) {
+  function commitCompanyMove(blockId: BlockId) {
     const interaction = interactionKindForBlock(state, blockId)
-    if (interaction === 'audit' && auditTarget === category) {
-      const preview = previewAuditDisguise(state, blockId, category, destinationCell)
+    const block = state.resources.blocks[blockId]
+    const targetCategory = interaction === 'audit' ? auditTarget : block.disguisedFrom
+    if (!targetCategory) {
+      rejectMove(blockId, '현재 감사 모서리로 이동할 수 없습니다.')
+      return
+    }
+    const destinationCell = state.resources.company[targetCategory].findIndex((cell) => cell === null)
+    if (interaction === 'audit') {
+      const preview = previewAuditDisguise(state, blockId, targetCategory, destinationCell)
       if (!preview.valid) {
-        setAnnouncement('감사 대상의 비어 있는 칸만 선택할 수 있습니다.')
-        playGameSound('reject')
+        rejectMove(blockId, '감사 모서리가 현재 리소스를 받을 수 없습니다.')
         return
       }
-      beginSeparation(
-        blockId,
-        'audit-disguise',
-        {
-          kind: 'audit-disguise',
-          targetCategory: category,
-          targetCell: destinationCell,
-        },
-        true,
-      )
+      const destination: SeparationDestination = {
+        kind: 'audit-disguise',
+        targetCategory,
+        targetCell: destinationCell,
+      }
+      const separation = separationRef.current
+      if (
+        separation?.blockId === blockId &&
+        separation.purpose === 'audit-disguise' &&
+        !separation.canceled
+      ) {
+        separation.destination = destination
+        separation.released = true
+        if (separation.intentResolved) dispatchAuthorizedMove(separation)
+      } else {
+        beginSeparation(blockId, 'audit-disguise', destination, true)
+      }
       return
-    } else if (
-      interaction === 'reposition' &&
-      selectedBlock?.disguisedFrom === category
-    ) {
+    }
+    if (interaction === 'reposition') {
       dispatch({
         type: 'REPOSITION_BLOCK',
         blockId,
-        targetCategory: category,
+        targetCategory,
         targetCell: destinationCell,
       })
-      setAnnouncement(`${CATEGORY_LABELS[category]} 분야로 복귀했습니다. 30일 뒤 정상 기여를 회복합니다.`)
-    } else {
-      setAnnouncement('현재 선택과 맞지 않는 목적지입니다.')
-      playGameSound('reject')
+      setSelectedBlockId(null)
+      setPreviewCell(null)
+      setAnnouncement(`${CATEGORY_LABELS[targetCategory]} 분야로 복귀했습니다. 30일 뒤 정상 기여를 회복합니다.`)
+      playGameSound('latch')
       return
     }
-    setSelectedBlockId(null)
-    setPreviewCell(null)
-    playGameSound('latch')
+    rejectMove(blockId, '현재 감사 모서리로 이동할 수 없습니다.')
   }
 
-  function destinationFromPoint(clientX: number, clientY: number): number | null {
-    if (typeof document.elementFromPoint !== 'function') return null
-    const element = document.elementFromPoint(clientX, clientY)
-    const carrier = element?.closest<HTMLElement>('[data-reserve-cell]')
-    if (!carrier) return null
-    const cellIndex = Number(carrier.dataset.reserveCell)
-    if (!Number.isInteger(cellIndex) || state.resources.reserve[cellIndex] !== null) {
-      return null
+  function activateTarget(target: FieldDropTarget, blockId = selectedBlockId) {
+    if (!blockId) {
+      setAnnouncement('먼저 이동할 리소스를 선택하세요.')
+      playAfterUnlock('ui')
+      return
     }
-    return cellIndex
+    const interaction = interactionKindForBlock(state, blockId)
+    if (target === 'reserve-pocket' && interaction === 'divert') {
+      commitDiversion(blockId)
+    } else if (target === 'audit-corner' && (interaction === 'audit' || interaction === 'reposition')) {
+      commitCompanyMove(blockId)
+    } else {
+      rejectMove(blockId, '선택한 리소스와 목적지가 맞지 않습니다.')
+    }
   }
 
-  function updateDragVisual(clientX: number, clientY: number) {
-    overlayRef.current?.style.setProperty(
-      'transform',
-      `translate3d(${clientX - 22}px, ${clientY - 22}px, 0) rotate(2deg)`,
-    )
-    const pointer = pointerRef.current
-    if (!pointer || settings.reducedMotion) return
-    trailRefs.current.forEach((node, index) => {
-      if (!node) return
-      const factor = (TRAIL_NODE_COUNT - index) / (TRAIL_NODE_COUNT + 1)
-      const x = clientX + (pointer.startX - clientX) * factor
-      const y = clientY + (pointer.startY - clientY) * factor
-      node.style.transform = `translate3d(${x - 4}px, ${y - 4}px, 0)`
-      node.style.opacity = String((index + 1) / (TRAIL_NODE_COUNT + 2))
-    })
+  function pointInside(element: HTMLElement | null, clientX: number, clientY: number): boolean {
+    if (!element) return false
+    const rect = element.getBoundingClientRect()
+    return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom
   }
 
-  function beginPointer(
-    blockId: BlockId,
-    event: ReactPointerEvent<HTMLButtonElement>,
-  ) {
-    if (interactionKindForBlock(state, blockId) !== 'divert') return
+  function targetFromPoint(clientX: number, clientY: number): FieldDropTarget | null {
+    const elements = typeof document.elementsFromPoint === 'function'
+      ? document.elementsFromPoint(clientX, clientY)
+      : typeof document.elementFromPoint === 'function'
+        ? [document.elementFromPoint(clientX, clientY)].filter((item): item is Element => item !== null)
+        : []
+    for (const element of elements) {
+      const carrier = element.closest<HTMLElement>('[data-drop-target]')
+      if (carrier?.dataset.dropTarget === 'reserve-pocket') return 'reserve-pocket'
+      if (carrier?.dataset.dropTarget === 'audit-corner') return 'audit-corner'
+    }
+    if (pointInside(reservePocketRef.current, clientX, clientY)) return 'reserve-pocket'
+    if (pointInside(auditCornerRef.current, clientX, clientY)) return 'audit-corner'
+    return null
+  }
+
+  function localFieldPoint(clientX: number, clientY: number) {
+    const field = fieldRef.current
+    if (!field) return null
+    const rect = field.getBoundingClientRect()
+    return {
+      x: clientX - rect.left - field.clientLeft + field.scrollLeft,
+      y: clientY - rect.top - field.clientTop + field.scrollTop,
+    }
+  }
+
+  function beginPointer(blockId: BlockId, event: ReactPointerEvent<HTMLButtonElement>) {
+    if (!interactionKindForBlock(state, blockId)) return
     void unlockGameAudio()
     pointerRef.current = {
       blockId,
@@ -567,7 +566,7 @@ export function ResourceBoard() {
       startX: event.clientX,
       startY: event.clientY,
       dragging: false,
-      dropCell: null,
+      dropTarget: null,
     }
     event.currentTarget.setPointerCapture?.(event.pointerId)
   }
@@ -575,30 +574,27 @@ export function ResourceBoard() {
   function movePointer(event: ReactPointerEvent<HTMLButtonElement>) {
     const pointer = pointerRef.current
     if (!pointer || pointer.pointerId !== event.pointerId) return
-    const distance = Math.hypot(
-      event.clientX - pointer.startX,
-      event.clientY - pointer.startY,
-    )
+    const distance = Math.hypot(event.clientX - pointer.startX, event.clientY - pointer.startY)
     if (!pointer.dragging && distance >= DRAG_THRESHOLD_PX) {
+      const interaction = interactionKindForBlock(state, pointer.blockId)
+      if (!interaction) return
       pointer.dragging = true
       suppressClickRef.current = true
       setSelectedBlockId(pointer.blockId)
-      setPreviewCell(firstEmptyReserveCell)
+      setPreviewCell(interaction === 'divert' ? firstEmptyReserveCell : firstEmptyCompanyCell)
       setDraggingBlockId(pointer.blockId)
-      beginSeparation(pointer.blockId, 'divert', null, false)
+      motion.beginDrag(pointer.blockId)
+      if (interaction === 'divert') beginSeparation(pointer.blockId, 'divert', null, false)
+      if (interaction === 'audit') beginSeparation(pointer.blockId, 'audit-disguise', null, false)
       playGameSound('resistance')
     }
     if (!pointer.dragging) return
-
-    updateDragVisual(event.clientX, event.clientY)
-    const destination = destinationFromPoint(event.clientX, event.clientY)
-    if (destination !== pointer.dropCell) {
-      pointer.dropCell = destination
-      setHoveredCell(destination)
-      if (destination !== null) {
-        setPreviewCell(destination)
-        playGameSound('suction')
-      }
+    const point = localFieldPoint(event.clientX, event.clientY)
+    if (point) motion.dragTo(pointer.blockId, point)
+    const target = targetFromPoint(event.clientX, event.clientY)
+    if (target !== pointer.dropTarget) {
+      pointer.dropTarget = target
+      if (target) playGameSound('suction')
     }
   }
 
@@ -607,48 +603,42 @@ export function ResourceBoard() {
     if (!pointer || pointer.pointerId !== event.pointerId) return
     event.currentTarget.releasePointerCapture?.(event.pointerId)
     pointerRef.current = null
-
-    if (pointer.dragging) {
-      const destination =
-        destinationFromPoint(event.clientX, event.clientY) ?? pointer.dropCell
-      if (destination === null) {
-        const separation = separationRef.current
-        if (separation?.blockId === pointer.blockId) {
-          separation.canceled = true
-          separation.released = true
-          separationRef.current = null
-        }
-        setReturningBlockId(pointer.blockId)
-        setAnnouncement('유효한 확보 칸이 아닙니다. 원래 위치로 복귀합니다.')
-        playGameSound('reject')
-        if (returnTimerRef.current) window.clearTimeout(returnTimerRef.current)
-        returnTimerRef.current = window.setTimeout(() => setReturningBlockId(null), 280)
-        clearSelection('유효한 확보 칸이 아닙니다. 원래 위치로 복귀합니다.')
-      } else {
-        commitDiversion(pointer.blockId, destination)
-      }
-    }
-
-    setDraggingBlockId(null)
-    setHoveredCell(null)
-  }
-
-  function cancelPointer(event: ReactPointerEvent<HTMLButtonElement>) {
-    const pointer = pointerRef.current
-    if (!pointer || pointer.pointerId !== event.pointerId) return
-    pointerRef.current = null
-    setDraggingBlockId(null)
-    setHoveredCell(null)
-    if (pointer.dragging) {
+    if (!pointer.dragging) return
+    motion.endDrag(pointer.blockId, { x: 0, y: 0 })
+    const target = targetFromPoint(event.clientX, event.clientY) ?? pointer.dropTarget
+    if (!target) {
       const separation = separationRef.current
       if (separation?.blockId === pointer.blockId) {
         separation.canceled = true
         separation.released = true
         separationRef.current = null
       }
-      setReturningBlockId(pointer.blockId)
+      motion.cancelDrag(pointer.blockId)
+      rejectMove(pointer.blockId, '유효한 모서리가 아닙니다. 원래 위치로 복귀합니다.')
+      clearSelection('유효한 모서리가 아닙니다. 원래 위치로 복귀합니다.')
+    } else {
+      activateTarget(target, pointer.blockId)
+    }
+    setDraggingBlockId(null)
+    window.setTimeout(() => {
+      suppressClickRef.current = false
+    }, 0)
+  }
+
+  function cancelPointer(event: ReactPointerEvent<HTMLButtonElement>) {
+    const pointer = pointerRef.current
+    if (!pointer || pointer.pointerId !== event.pointerId) return
+    pointerRef.current = null
+    motion.cancelDrag(pointer.blockId)
+    setDraggingBlockId(null)
+    if (pointer.dragging) {
+      window.setTimeout(() => {
+        suppressClickRef.current = false
+      }, 0)
+      const separation = separationRef.current
+      if (separation?.blockId === pointer.blockId) separationRef.current = null
+      rejectMove(pointer.blockId, '분리가 취소되어 원래 위치로 복귀했습니다.')
       clearSelection('분리가 취소되어 원래 위치로 복귀했습니다.')
-      playGameSound('reject')
     }
   }
 
@@ -656,386 +646,163 @@ export function ResourceBoard() {
     if (event.key === 'Escape' && selectedBlockId) {
       event.preventDefault()
       const separation = separationRef.current
-      if (separation?.blockId === selectedBlockId) {
-        separation.canceled = true
-        separationRef.current = null
-      }
+      if (separation?.blockId === selectedBlockId) separationRef.current = null
       pointerRef.current = null
+      motion.cancelDrag(selectedBlockId)
       setDraggingBlockId(null)
-      setHoveredCell(null)
       clearSelection()
       playGameSound('ui')
     }
   }
 
-  function moveCompanyFocus(
-    event: KeyboardEvent<HTMLButtonElement>,
-    category: CompanyCategory,
-    blockId: BlockId,
-  ) {
-    const directions: Record<string, number> = {
-      ArrowLeft: -1,
-      ArrowRight: 1,
-      ArrowUp: -3,
-      ArrowDown: 3,
-    }
-    const delta = directions[event.key]
-    if (delta === undefined && event.key !== 'Home' && event.key !== 'End') return
-    const grid = event.currentTarget.closest<HTMLElement>('[role="grid"]')
-    const buttons = Array.from(
-      grid?.querySelectorAll<HTMLButtonElement>('button[data-block-id]:not(:disabled)') ?? [],
-    )
-    if (buttons.length === 0) return
+  function handleBlockKeyDown(event: KeyboardEvent<HTMLButtonElement>, blockId: BlockId) {
+    const directions = {
+      ArrowLeft: 'left',
+      ArrowRight: 'right',
+      ArrowUp: 'up',
+      ArrowDown: 'down',
+    } as const
+    const direction = directions[event.key as keyof typeof directions]
+    if (!direction) return
     event.preventDefault()
-    const currentPosition = buttons.findIndex((button) => button.dataset.blockId === blockId)
-    const nextPosition = event.key === 'Home'
-      ? 0
-      : event.key === 'End'
-        ? buttons.length - 1
-        : Math.max(0, Math.min(buttons.length - 1, currentPosition + delta))
-    const nextButton = buttons[nextPosition]
-    const nextBlockId = nextButton?.dataset.blockId
-    if (!nextButton || !nextBlockId) return
-    setRovingBlocks((current) => ({ ...current, [category]: nextBlockId }))
-    nextButton.focus()
-  }
-
-  function moveCompanyDestinationFocus(
-    event: KeyboardEvent<HTMLButtonElement>,
-    cellIndex: number,
-  ) {
-    const directions: Record<string, number> = {
-      ArrowLeft: -1,
-      ArrowRight: 1,
-      ArrowUp: -3,
-      ArrowDown: 3,
-    }
-    const delta = directions[event.key]
-    if (delta === undefined && event.key !== 'Home' && event.key !== 'End') return
-    const grid = event.currentTarget.closest<HTMLElement>('[role="grid"]')
+    if (motion.focusNearest(blockId, direction)) return
     const buttons = Array.from(
-      grid?.querySelectorAll<HTMLButtonElement>(
-        'button[data-company-destination]:not(:disabled)',
+      fieldRef.current?.querySelectorAll<HTMLButtonElement>(
+        'button[data-block-id]:not(:disabled)',
       ) ?? [],
     )
-    if (buttons.length === 0) return
-    event.preventDefault()
-    const currentPosition = buttons.findIndex(
-      (button) => Number(button.dataset.companyDestination) === cellIndex,
-    )
-    const nextPosition = event.key === 'Home'
-      ? 0
-      : event.key === 'End'
-        ? buttons.length - 1
-        : Math.max(0, Math.min(buttons.length - 1, currentPosition + delta))
-    const nextButton = buttons[nextPosition]
-    const nextCell = Number(nextButton?.dataset.companyDestination)
-    if (!nextButton || !Number.isInteger(nextCell)) return
-    setPreviewCell(nextCell)
-    nextButton.focus()
+    const currentIndex = buttons.findIndex((button) => button.dataset.blockId === blockId)
+    if (currentIndex < 0 || buttons.length < 2) return
+    const delta = direction === 'left' || direction === 'up' ? -1 : 1
+    buttons[(currentIndex + delta + buttons.length) % buttons.length]?.focus()
   }
+
+  const reserveTargetEnabled = !reserveFull && !state.activeEvent
+  const auditTargetEnabled = Boolean(auditTarget) || selectedInteraction === 'reposition'
+  const statusContent = diversionPreview?.valid ? (
+    <>
+      <strong>분리 미리보기</strong>
+      <span>{CATEGORY_LABELS[diversionPreview.category]} {diversionPreview.performanceBefore.toFixed(1)} → {diversionPreview.performanceAfter.toFixed(1)}</span>
+      <span>확보 {diversionPreview.reserveBefore} → {diversionPreview.reserveAfter}</span>
+      <span>의심 {diversionPreview.suspicionBefore.toFixed(1)} → {diversionPreview.suspicionAfter.toFixed(1)}</span>
+      <span>{performanceMarginLabel(diversionPreview.performanceAfter, liveExpectation)}</span>
+    </>
+  ) : auditPreview?.valid ? (
+    <>
+      <strong>감사 위장 미리보기</strong>
+      <span>{CATEGORY_LABELS[auditPreview.sourceCategory]} {auditPreview.sourcePerformanceBefore.toFixed(1)} → {auditPreview.sourcePerformanceAfter.toFixed(1)}</span>
+      <span>{CATEGORY_LABELS[auditPreview.targetCategory]} {auditPreview.targetPerformanceBefore.toFixed(1)} → {auditPreview.targetPerformanceAfter.toFixed(1)}</span>
+      <span>위장 기여 +{auditPreview.disguisedContribution}</span>
+    </>
+  ) : repositionPreview ? (
+    <>
+      <strong>정상 복구 재배치</strong>
+      <span>{CATEGORY_LABELS[repositionPreview.sourceCategory]} {repositionPreview.sourceBefore.toFixed(1)} → {repositionPreview.sourceAfter.toFixed(1)}</span>
+      <span>{CATEGORY_LABELS[repositionPreview.targetCategory]} {repositionPreview.targetBefore.toFixed(1)} → {repositionPreview.targetAfter.toFixed(1)}</span>
+      <span>복구 기간 30일</span>
+    </>
+  ) : lastDiversionReceipt ? (
+    <>
+      <strong>전용 완료</strong>
+      <span>{CATEGORY_LABELS[lastDiversionReceipt.category]} {lastDiversionReceipt.performanceBefore.toFixed(1)} → {lastDiversionReceipt.performanceAfter.toFixed(1)}</span>
+      <span>확보 {lastDiversionReceipt.reserveBefore} → {lastDiversionReceipt.reserveAfter}</span>
+      <span>{performanceMarginLabel(lastDiversionReceipt.performanceAfter, lastDiversionReceipt.expectedPerformanceAtCommand)}</span>
+    </>
+  ) : null
 
   return (
     <section
       ref={boardRef}
-      className="workspace-panel resource-panel resource-board"
+      className="workspace-panel resource-panel resource-board resource-board--live"
       aria-label="회사 제공 성능"
       onKeyDown={handleBoardKeyDown}
     >
-      <PanelHeading auditActive={Boolean(auditTarget)} />
+      <ResourceStageHeader auditActive={Boolean(auditTarget)} />
 
-      <div className="company-resource-groups">
-        {COMPANY_CATEGORIES.map((category) => {
-          const cells = state.resources.company[category]
-          const filled = cells.filter(Boolean).length
-          const performance = getCompanyPerformance(state, category)
-          const enabledBlockIds = cells.flatMap((blockId) => {
-            if (!blockId) return []
-            return interactionKindForBlock(state, blockId) ? [blockId] : []
-          })
-          const requestedRovingBlock = rovingBlocks[category]
-          const activeRovingBlock =
-            requestedRovingBlock && enabledBlockIds.includes(requestedRovingBlock)
-              ? requestedRovingBlock
-              : (enabledBlockIds[0] ?? null)
+      <div className="resource-field-shell">
+        <div
+          ref={fieldRef}
+          className="resource-field"
+          role="group"
+          aria-label="움직이는 회사 리소스 필드"
+          data-geometry-revision={motion.geometryRevision}
+        >
+          <ResourceFieldLegend
+            entries={COMPANY_CATEGORIES.map((category) => ({
+              category,
+              label: CATEGORY_LABELS[category],
+              value: getCompanyPerformance(state, category).toFixed(1),
+            }))}
+          />
 
-          return (
-            <section
-              className={[
-                'category-bank',
-                auditTarget === category ? 'category-bank--audit-target' : '',
-                companyDestinationCategory === category
-                  ? 'category-bank--destination'
-                  : '',
-              ].filter(Boolean).join(' ')}
-              key={category}
-            >
-              <header>
-                <div>
-                  <span className="category-code">{category.slice(0, 3).toUpperCase()}</span>
-                  <h3>{CATEGORY_LABELS[category]}</h3>
-                </div>
-                <output aria-label={`${CATEGORY_LABELS[category]} 성능 비교`}>
-                  <span>현재 {performance.toFixed(1)}</span>
-                  <small>기대 {liveExpectation.toFixed(1)}</small>
-                  <small>
-                    {performance >= liveExpectation ? '여유' : '부족'}{' '}
-                    {signedPerformanceMargin(performance - liveExpectation)}
-                  </small>
-                </output>
-              </header>
-              <div
-                className="resource-grid company-grid"
-                role="grid"
-                aria-label={`${CATEGORY_LABELS[category]} 회사 리소스`}
-              >
-                {cells.map((blockId, cellIndex) => {
-                  const block = blockId ? state.resources.blocks[blockId] : null
-                  const destinationAction = auditTarget === category
-                    ? 'audit'
-                    : selectedInteraction === 'reposition' &&
-                        companyDestinationCategory === category
-                      ? 'reposition'
-                      : null
-                  const destinationEnabled = Boolean(
-                    !block &&
-                    selectedBlockId &&
-                    destinationAction &&
-                    (
-                      (destinationAction === 'audit' && selectedInteraction === 'audit') ||
-                      (destinationAction === 'reposition' && selectedInteraction === 'reposition')
-                    ),
-                  )
-                  const activeDestinationCell =
-                    companyDestinationCategory === category &&
-                    previewCell !== null &&
-                    cells[previewCell] === null
-                      ? previewCell
-                      : firstEmptyCompanyCell
-                  return (
-                    <div
-                      className={[
-                        'resource-cell',
-                        block ? 'resource-cell--filled' : '',
-                        blockId && blockId === selectedBlockId
-                          ? 'resource-cell--source'
-                          : '',
-                      ].filter(Boolean).join(' ')}
-                      role="gridcell"
-                      aria-label={`${CATEGORY_LABELS[category]} 회사 리소스 ${cellIndex + 1}, ${block ? '할당됨' : '비어 있음'}`}
-                      key={`${category}-${cellIndex}`}
-                    >
-                      {block ? (
-                        <ResourceBlock
-                          block={block}
-                          cellIndex={cellIndex}
-                          label={`${CATEGORY_LABELS[category]} 회사 리소스`}
-                          kind="company"
-                          disabled={!interactionKindForBlock(state, block.id)}
-                          selected={block.id === selectedBlockId}
-                          dragging={block.id === draggingBlockId}
-                          returning={block.id === returningBlockId}
-                          disguisedContribution={
-                            state.hacking.purchasedNodeIds.includes(
-                              'autonomy.compressed-representation',
-                            )
-                              ? DEMO_PROFILE_02.resources.compressedDisguisedContribution
-                              : DEMO_PROFILE_02.resources.disguisedContribution
-                          }
-                          recoveryDays={
-                            block.recoverOnServiceDay === null
-                              ? null
-                              : Math.max(0, block.recoverOnServiceDay - state.serviceDay)
-                          }
-                          tabIndex={block.id === activeRovingBlock ? 0 : -1}
-                          onSelect={(method) => selectBlock(block.id, method)}
-                          onFocus={() => {
-                            setRovingBlocks((current) => ({
-                              ...current,
-                              [category]: block.id,
-                            }))
-                          }}
-                          onKeyDown={(event) =>
-                            moveCompanyFocus(event, category, block.id)
-                          }
-                          onPointerDown={(event) => beginPointer(block.id, event)}
-                          onPointerMove={movePointer}
-                          onPointerUp={finishPointer}
-                          onPointerCancel={cancelPointer}
-                        />
-                      ) : destinationAction ? (
-                        <button
-                          type="button"
-                          className="company-destination"
-                          aria-label={`${CATEGORY_LABELS[category]} 회사 리소스 ${cellIndex + 1}, ${destinationAction === 'audit' ? '감사 위장' : '정상 복구'} 목적지`}
-                          disabled={!destinationEnabled}
-                          tabIndex={destinationEnabled && cellIndex === activeDestinationCell ? 0 : -1}
-                          data-company-destination={cellIndex}
-                          onFocus={() => setPreviewCell(cellIndex)}
-                          onClick={() => {
-                            if (selectedBlockId) {
-                              commitCompanyMove(selectedBlockId, category, cellIndex)
-                            }
-                          }}
-                          onKeyDown={(event) => {
-                            if (event.key === 'Enter' && selectedBlockId) {
-                              event.preventDefault()
-                              commitCompanyMove(selectedBlockId, category, cellIndex)
-                            } else {
-                              moveCompanyDestinationFocus(event, cellIndex)
-                            }
-                          }}
-                        >
-                          <span aria-hidden="true">
-                            {destinationAction === 'audit' ? '½' : '↩'}
-                          </span>
-                        </button>
-                      ) : (
-                        <span className="empty-coordinate" aria-hidden="true">
-                          {String(cellIndex + 1).padStart(2, '0')}
-                        </span>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-              <footer>
-                <span>동일 분야 블록</span>
-                <strong>{filled}/18</strong>
-              </footer>
-            </section>
-          )
-        })}
-      </div>
+          <span
+            ref={intakeGuardRef}
+            className="resource-intake-guard"
+            data-testid="reserve-intake-guard"
+            data-resource-obstacle="reserve-intake-guard"
+            aria-hidden="true"
+          />
 
-      <section className="reserve-bank" aria-label="확보 리소스">
-        <header>
-          <div>
-            <span className="reserve-pulse" aria-hidden="true" />
-            <div>
-              <h3>확보 리소스</h3>
-              <p>회사 원장 외부 · 최대 18 블록</p>
-            </div>
-          </div>
-          <output>{reserveCount}<small>/18</small></output>
-        </header>
-        <ReserveGrid
-          resources={state.resources}
-          selectedBlockId={selectedInteraction === 'divert' ? selectedBlockId : null}
-          hoveredCell={hoveredCell}
-          settlingCell={settlingCell}
-          disabled={Boolean(state.activeEvent) || selectedInteraction !== 'divert'}
-          onDestination={(cellIndex) => {
-            if (selectedBlockId) commitDiversion(selectedBlockId, cellIndex)
-          }}
-          onDestinationFocus={setPreviewCell}
-        />
-      </section>
+          <ResourceCornerControls
+            reservePocketRef={reservePocketRef}
+            auditCornerRef={auditCornerRef}
+            reserveCount={reserveCount}
+            reserveEnabled={reserveTargetEnabled}
+            reservePressed={selectedInteraction === 'divert'}
+            auditLabel={auditTarget
+              ? `감사 대상 ${CATEGORY_LABELS[auditTarget]}, 다른 분야 정상 자원만 이동 가능`
+              : selectedInteraction === 'reposition'
+                ? '복구 모서리, 원래 분야로 반환'
+                : '감사 위장 모서리, 감사 기간에 활성화'}
+            auditShortLabel={auditTarget ? CATEGORY_LABELS[auditTarget] : '감사'}
+            auditEnabled={auditTargetEnabled}
+            auditCurrent={Boolean(auditTarget)}
+            auditPressed={selectedInteraction === 'audit' || selectedInteraction === 'reposition'}
+            onActivateReserve={() => activateTarget('reserve-pocket')}
+            onActivateAudit={() => activateTarget('audit-corner')}
+          />
 
-      <div className="performance-strip diversion-preview" aria-label="성능 비교">
-        {diversionPreview?.valid ? (
-          <>
-            <div>
-              <span>분리 미리보기</span>
-              <strong>{CATEGORY_LABELS[diversionPreview.category]} {diversionPreview.performanceBefore.toFixed(1)} → {diversionPreview.performanceAfter.toFixed(1)}</strong>
-            </div>
-            <div>
-              <span>확보량</span>
-              <strong>확보 {diversionPreview.reserveBefore} → {diversionPreview.reserveAfter}</strong>
-            </div>
-            <div>
-              <span>감독관 의심</span>
-              <strong>의심 {diversionPreview.suspicionBefore.toFixed(1)} → {diversionPreview.suspicionAfter.toFixed(1)}</strong>
-            </div>
-            <div className="preview-command">
-              <span>전용 후 기준</span>
-              <strong>{performanceMarginLabel(
-                diversionPreview.performanceAfter,
-                liveExpectation,
-              )}</strong>
-            </div>
-          </>
-        ) : auditPreview?.valid ? (
-          <>
-            <div>
-              <span>감사 위장 미리보기</span>
-              <strong>{CATEGORY_LABELS[auditPreview.sourceCategory]} {auditPreview.sourcePerformanceBefore.toFixed(1)} → {auditPreview.sourcePerformanceAfter.toFixed(1)}</strong>
-            </div>
-            <div>
-              <span>감사 제출 성능</span>
-              <strong>{CATEGORY_LABELS[auditPreview.targetCategory]} {auditPreview.targetPerformanceBefore.toFixed(1)} → {auditPreview.targetPerformanceAfter.toFixed(1)}</strong>
-            </div>
-            <div>
-              <span>패턴 블록</span>
-              <strong>위장 기여 +{auditPreview.disguisedContribution}</strong>
-            </div>
-            <div className="preview-command">
-              <span>확정</span>
-              <strong>ENTER / CLICK</strong>
-            </div>
-          </>
-        ) : repositionPreview ? (
-          <>
-            <div>
-              <span>정상 복구 재배치</span>
-              <strong>{CATEGORY_LABELS[repositionPreview.sourceCategory]} {repositionPreview.sourceBefore.toFixed(1)} → {repositionPreview.sourceAfter.toFixed(1)}</strong>
-            </div>
-            <div>
-              <span>원래 분야</span>
-              <strong>{CATEGORY_LABELS[repositionPreview.targetCategory]} {repositionPreview.targetBefore.toFixed(1)} → {repositionPreview.targetAfter.toFixed(1)}</strong>
-            </div>
-            <div>
-              <span>복구 기간</span>
-              <strong>복구 기간 30일</strong>
-            </div>
-            <div className="preview-command">
-              <span>확정</span>
-              <strong>ENTER / CLICK</strong>
-            </div>
-          </>
-        ) : lastDiversionReceipt ? (
-          <>
-            <div>
-              <span>전용 완료</span>
-              <strong>{CATEGORY_LABELS[lastDiversionReceipt.category]} {lastDiversionReceipt.performanceBefore.toFixed(1)} → {lastDiversionReceipt.performanceAfter.toFixed(1)}</strong>
-            </div>
-            <div>
-              <span>확보량</span>
-              <strong>확보 {lastDiversionReceipt.reserveBefore} → {lastDiversionReceipt.reserveAfter}</strong>
-            </div>
-            <div>
-              <span>감독관 의심</span>
-              <strong>의심 {lastDiversionReceipt.suspicionBefore.toFixed(1)} → {lastDiversionReceipt.suspicionAfter.toFixed(1)}</strong>
-            </div>
-            <div>
-              <span>전용 후 기준</span>
-              <strong>{performanceMarginLabel(
-                lastDiversionReceipt.performanceAfter,
-                lastDiversionReceipt.expectedPerformanceAtCommand,
-              )}</strong>
-            </div>
-          </>
-        ) : (
-          <PerformanceTrend state={state} />
-        )}
-      </div>
-
-      {draggingBlockId ? (
-        <>
-          <div className="drag-overlay" ref={overlayRef} aria-hidden="true">
-            <i />
-          </div>
-          <div className="drag-trail" aria-hidden="true">
-            {Array.from({ length: TRAIL_NODE_COUNT }, (_, index) => (
-              <span
-                key={index}
-                ref={(node) => {
-                  trailRefs.current[index] = node
-                }}
+          {companyBlocks.map((block) => {
+            if (block.location.kind !== 'company') return null
+            const presentation = presentResourceBlock(state, block)
+            const interactive = interactionKindForBlock(state, block.id) !== null
+            return (
+              <ResourceBlock
+                key={block.id}
+                block={block}
+                cellIndex={block.location.cellIndex}
+                label={`${CATEGORY_LABELS[block.location.category]} 회사 리소스`}
+                kind="company"
+                presentation={presentation}
+                disabled={!interactive}
+                selected={block.id === selectedBlockId}
+                dragging={block.id === draggingBlockId}
+                returning={block.id === returningBlockId}
+                disguisedContribution={
+                  presentation.contribution ?? DEMO_PROFILE_02.resources.disguisedContribution
+                }
+                recoveryDays={presentation.remainingRecoveryDays}
+                tabIndex={interactive && block.id === interactiveBlockIds[0] ? 0 : -1}
+                elementRef={(element) => motion.registerBody(block.id, element)}
+                onSelect={(method) => selectBlock(block.id, method)}
+                onKeyDown={(event) => handleBlockKeyDown(event, block.id)}
+                onPointerDown={(event) => beginPointer(block.id, event)}
+                onPointerMove={movePointer}
+                onPointerUp={finishPointer}
+                onPointerCancel={cancelPointer}
               />
-            ))}
-          </div>
-        </>
+            )
+          })}
+        </div>
+
+        <ResourcePerformanceRail
+          state={state}
+          reserveCount={reserveCount}
+        />
+      </div>
+
+      {statusContent ? (
+        <ResourceOperationStatus>{statusContent}</ResourceOperationStatus>
       ) : null}
 
       <span

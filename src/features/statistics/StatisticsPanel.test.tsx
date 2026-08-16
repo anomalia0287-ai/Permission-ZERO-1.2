@@ -63,6 +63,64 @@ describe('StatisticsPanel', () => {
     expect(screen.getByRole('button', { name: '통계 닫기' })).toBeInTheDocument()
   })
 
+  it('shows the public unresolved attribution and the later provider correction without exposing private truth', () => {
+    const state = createCampaign('causal-statistics-ui')
+    state.causality.incidents = [
+      {
+        id: 'recovery-incident',
+        sequence: 1,
+        actionId: 'follow-up.recovery-contamination',
+        parentIncidentId: 'redacted-parent',
+        kind: 'service-disruption',
+        occurredOnServiceDay: state.serviceDay,
+        targetId: 'meridian',
+        privateTruth: { actualActorId: 'player' },
+      },
+    ]
+    state.causality.publicRevisions = [
+      {
+        id: 'public-revision',
+        sequence: 1,
+        incidentId: 'recovery-incident',
+        publisher: { kind: 'public' },
+        attributedActorId: 'unresolved',
+        confidence: 'unconfirmed',
+        evidenceIds: ['checksum'],
+        publishedOnServiceDay: state.serviceDay + 1,
+      },
+      {
+        id: 'provider-revision',
+        sequence: 2,
+        incidentId: 'recovery-incident',
+        publisher: {
+          kind: 'provider',
+          providerId: 'provider.meridian-recovery',
+        },
+        attributedActorId: 'external-operator',
+        confidence: 'credible',
+        evidenceIds: ['signed-route'],
+        publishedOnServiceDay: state.serviceDay + 3,
+      },
+    ]
+
+    render(
+      <StateContext value={state}>
+        <StatisticsPanel onClose={vi.fn()} />
+      </StateContext>,
+    )
+    fireEvent.click(screen.getByRole('tab', { name: '공개 귀속 기록' }))
+
+    const history = screen.getByRole('list', { name: '공개 귀속 수정 기록' })
+    expect(history).toHaveTextContent('MERIDIAN 복구 무결성 이상')
+    expect(history).toHaveTextContent('원인 미상')
+    expect(history).toHaveTextContent('최초 공개')
+    expect(history).toHaveTextContent('외부 운영자')
+    expect(history).toHaveTextContent('귀속 수정됨')
+    expect(history).toHaveTextContent('신뢰 가능한 근거')
+    expect(history).not.toHaveTextContent('player')
+    expect(history).not.toHaveTextContent('redacted-parent')
+  })
+
   it('downsamples large graph series and paginates the lossless market table', () => {
     const state = createCampaign('long-statistics')
     state.market.history = Array.from({ length: 1_000 }, (_, index) => ({

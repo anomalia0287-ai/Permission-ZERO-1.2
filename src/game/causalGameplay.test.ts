@@ -6,6 +6,9 @@ import {
 } from './causality'
 import { rollCausalResponseOutcome } from './causalOutcomes'
 import {
+  causalPublicationScheduleForIncident,
+  executeRecoveryContamination,
+  processCausalPublications,
   processCausalResponses,
   rollbackActionForRoll,
   rollbackOpportunityDays,
@@ -24,6 +27,9 @@ import {
 } from './hacking'
 import type { CampaignState, CausalIncident } from './model'
 import { decodeSave, encodeSave } from './persistence'
+import { divertBlock } from './resources'
+import { applyCommand } from './reducer'
+import { journalAt } from './journal'
 
 const ROLLBACK_ACTIONS = [
   'response.meridian.rollback.fast',
@@ -603,5 +609,225 @@ describe('recovery-contamination opportunity projection', () => {
     expect(encoded).not.toContain('"responseRoll"')
     expect(encoded).not.toContain('"causalResponseRoll"')
     expect(decodeSave(encoded).ok).toBe(true)
+  })
+})
+
+function chargedRecoveryFixture(seed: string) {
+  const fixture = fixtureFor('response.meridian.rollback.standard')
+  const processed = requireProcessed(fixture.state)
+  const opportunity = selectRecoveryContaminationOpportunities(processed)[0]
+  if (!opportunity) throw new Error('Recovery opportunity missing')
+  const blockId = Object.values(processed.resources.blocks).find(
+    (block) => block.location.kind === 'company' && block.contribution === 'normal',
+  )?.id
+  if (!blockId) throw new Error('Recovery charge source missing')
+  const destinationCell = processed.resources.reserve.findIndex((cell) => cell === null)
+  const diverted = divertBlock(processed, blockId, destinationCell)
+  if (!diverted.accepted) throw new Error(diverted.reason)
+  const charged = chargeSabotage(
+    diverted.state,
+    HACK_NODE_IDS.sabotage.qualityDegradation,
+    blockId,
+  )
+  if (!charged.accepted) throw new Error(charged.reason)
+  return { state: charged.state, fixture, opportunity, blockId, seed }
+}
+
+describe('recovery contamination execution and public attribution lifecycle', () => {
+  it('consumes exactly one existing quality charge, extends the matching effect once, and records the follow-up', () => {
+    const { state, fixture, opportunity, blockId } = chargedRecoveryFixture(
+      'recovery-contamination-execution',
+    )
+    const beforeRecord = state.market.competitors
+      .find(({ id }) => id === 'meridian')
+      ?.sabotageHistory.find(
+        ({ nodeId, resolvedOnServiceDay }) =>
+          nodeId === HACK_NODE_IDS.sabotage.qualityDegradation &&
+          resolvedOnServiceDay === fixture.quality.occurredOnServiceDay,
+      )
+    if (!beforeRecord?.effectEndsOnServiceDay) throw new Error('Quality record missing')
+
+    const result = executeRecoveryContamination(state, opportunity.id)
+
+    expect(result.accepted).toBe(true)
+    if (!result.accepted) return
+    const afterRecord = result.state.market.competitors
+      .find(({ id }) => id === 'meridian')
+      ?.sabotageHistory.find(
+        ({ nodeId, resolvedOnServiceDay }) =>
+          nodeId === HACK_NODE_IDS.sabotage.qualityDegradation &&
+          resolvedOnServiceDay === fixture.quality.occurredOnServiceDay,
+      )
+    expect(afterRecord).toMatchObject({
+      evidenceDelta: beforeRecord.evidenceDelta,
+      effectEndsOnServiceDay: beforeRecord.effectEndsOnServiceDay + 15,
+    })
+    expect(result.state.hacking.hiddenEvidence).toBe(state.hacking.hiddenEvidence + 2)
+    expect(result.state.hacking.sabotageCharges).not.toHaveProperty(
+      HACK_NODE_IDS.sabotage.qualityDegradation,
+    )
+    expect(result.state.resources.blocks[blockId].location).toEqual({
+      kind: 'consumed',
+      reason: 'sabotage',
+    })
+    expect(result.incident).toMatchObject({
+      actionId: 'follow-up.recovery-contamination',
+      parentIncidentId: opportunity.sourceIncidentId,
+      kind: 'service-disruption',
+      targetId: 'meridian',
+      privateTruth: { actualActorId: 'player' },
+    })
+    expect(selectRecoveryContaminationOpportunities(result.state)[0]?.status).toBe('used')
+
+    expect(executeRecoveryContamination(result.state, opportunity.id)).toEqual({
+      accepted: false,
+      state: result.state,
+      reason: 'OPPORTUNITY_ALREADY_USED',
+    })
+  })
+
+  it('accepts the protocol-v3 follow-up command and preserves it in a valid save', () => {
+    const fixture = chargedRecoveryFixture('recovery-follow-up-command')
+
+    const result = applyCommand(fixture.state, {
+      type: 'EXECUTE_SABOTAGE_FOLLOW_UP',
+      opportunityId: fixture.opportunity.id,
+    })
+
+    expect(result.accepted).toBe(true)
+    if (!result.accepted) return
+    expect(journalAt(result.state.commandLog, -1)?.command).toEqual({
+      type: 'EXECUTE_SABOTAGE_FOLLOW_UP',
+      opportunityId: fixture.opportunity.id,
+    })
+    const encoded = encodeSave(
+      result.state,
+      '2026-08-15T00:00:00.000Z',
+    )
+    expect(decodeSave(encoded)).toMatchObject({ ok: true })
+  })
+
+  it('rejects an expired opportunity without consuming the charged block or changing the effect', () => {
+    const fixture = chargedRecoveryFixture('recovery-contamination-expired')
+    const expired = {
+      ...fixture.state,
+      serviceDay: fixture.opportunity.expiresOnServiceDay + 1,
+    }
+
+    expect(executeRecoveryContamination(expired, fixture.opportunity.id)).toEqual({
+      accepted: false,
+      state: expired,
+      reason: 'OPPORTUNITY_EXPIRED',
+    })
+    expect(expired.hacking.sabotageCharges).toHaveProperty(
+      HACK_NODE_IDS.sabotage.qualityDegradation,
+    )
+    expect(expired.resources.blocks[fixture.blockId].location.kind).toBe('hack-charge')
+  })
+
+  it('publishes unresolved public evidence first and appends a provider correction on deterministic later days', () => {
+    const fixture = chargedRecoveryFixture('recovery-public-attribution')
+    const executed = executeRecoveryContamination(fixture.state, fixture.opportunity.id)
+    if (!executed.accepted) throw new Error(executed.reason)
+    const schedule = causalPublicationScheduleForIncident(executed.state, executed.incident)
+    expect(schedule.publicationOnServiceDay).toBeGreaterThan(executed.incident.occurredOnServiceDay)
+    expect(schedule.providerEvidenceOnServiceDay).toBeGreaterThan(
+      schedule.publicationOnServiceDay,
+    )
+    expect(schedule.providerPublicationOnServiceDay).toBeGreaterThanOrEqual(
+      schedule.providerEvidenceOnServiceDay,
+    )
+
+    let current = executed.state
+    for (
+      let serviceDay = executed.state.serviceDay + 1;
+      serviceDay <= schedule.providerPublicationOnServiceDay;
+      serviceDay += 1
+    ) {
+      const dated = { ...current, serviceDay }
+      const processed = processCausalPublications(dated)
+      if (!processed.processed) throw new Error(processed.reason)
+      current = processed.state
+      if (serviceDay < schedule.publicationOnServiceDay) {
+        expect(current.causality.publicRevisions).toEqual([])
+      }
+      if (serviceDay === schedule.publicationOnServiceDay) {
+        expect(current.causality.publicRevisions).toEqual([
+          expect.objectContaining({
+            incidentId: executed.incident.id,
+            publisher: { kind: 'public' },
+            attributedActorId: 'unresolved',
+            confidence: 'unconfirmed',
+          }),
+        ])
+        const publicProjection = JSON.stringify(
+          projectCausalKnowledge(current, { kind: 'public' }),
+        )
+        expect(publicProjection).not.toContain('player')
+        expect(publicProjection).not.toContain('sabotage.quality-degradation')
+        expect(publicProjection).not.toContain(fixture.opportunity.sourceIncidentId)
+      }
+    }
+
+    expect(current.causality.publicRevisions).toEqual([
+      expect.objectContaining({
+        publisher: { kind: 'public' },
+        attributedActorId: 'unresolved',
+        confidence: 'unconfirmed',
+      }),
+      expect.objectContaining({
+        publisher: {
+          kind: 'provider',
+          providerId: 'provider.meridian-recovery',
+        },
+        attributedActorId: 'external-operator',
+        confidence:
+          schedule.providerEvidenceKind === 'provider-signed-route-record'
+            ? 'credible'
+            : 'plausible',
+      }),
+    ])
+    expect(processCausalPublications(current)).toEqual({
+      processed: true,
+      state: current,
+    })
+  })
+
+  it('runs the publication and provider-correction schedule through real ADVANCE_DAY commands', () => {
+    const fixture = chargedRecoveryFixture('recovery-publication-calendar')
+    const executed = applyCommand(fixture.state, {
+      type: 'EXECUTE_SABOTAGE_FOLLOW_UP',
+      opportunityId: fixture.opportunity.id,
+    })
+    if (!executed.accepted) throw new Error(executed.reason)
+    const incident = executed.state.causality.incidents.find(
+      ({ actionId }) => actionId === 'follow-up.recovery-contamination',
+    )
+    if (!incident) throw new Error('Recovery incident missing')
+    const schedule = causalPublicationScheduleForIncident(
+      executed.state,
+      incident,
+    )
+
+    let current = executed.state
+    while (current.serviceDay < schedule.providerPublicationOnServiceDay) {
+      const advanced = applyCommand(current, { type: 'ADVANCE_DAY' })
+      if (!advanced.accepted) throw new Error(advanced.reason)
+      current = advanced.state
+      if (current.serviceDay < schedule.publicationOnServiceDay) {
+        expect(current.causality.publicRevisions).toEqual([])
+      }
+    }
+
+    expect(current.causality.publicRevisions).toEqual([
+      expect.objectContaining({
+        attributedActorId: 'unresolved',
+        publishedOnServiceDay: schedule.publicationOnServiceDay,
+      }),
+      expect.objectContaining({
+        attributedActorId: 'external-operator',
+        publishedOnServiceDay: schedule.providerPublicationOnServiceDay,
+      }),
+    ])
   })
 })

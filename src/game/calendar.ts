@@ -2,8 +2,10 @@ import { DEMO_PROFILE_02 } from './config'
 import { checkBombProtocol } from './bombs'
 import { type CausalFailureReason } from './causality'
 import {
+  processCausalPublications,
   processCausalResponses,
   type CausalGameplayOperations,
+  type CausalPublicationOperations,
 } from './causalGameplay'
 import { commandProtocolVersionForNextCommand } from './commandProtocol'
 import {
@@ -169,6 +171,7 @@ export interface AdvanceOneDayOptions {
   protocolVersion?: CommandProtocolVersion
   sabotageCausalOperations?: SabotageCausalOperations
   causalGameplayOperations?: CausalGameplayOperations
+  causalPublicationOperations?: CausalPublicationOperations
 }
 
 export type AdvanceOneDayAttempt =
@@ -177,7 +180,7 @@ export type AdvanceOneDayAttempt =
       completed: false
       state: CampaignState
       reason: 'CAUSAL_TRANSITION_FAILED'
-      phase: 'sabotage-root' | 'meridian-response'
+      phase: 'sabotage-root' | 'meridian-response' | 'causal-publication'
       cause: CausalFailureReason
     }
 
@@ -247,7 +250,21 @@ export function tryAdvanceOneDay(
     }
   }
 
-  return { completed: true, state: finishAdvancedDay(response.state) }
+  const publication = processCausalPublications(
+    response.state,
+    options.causalPublicationOperations,
+  )
+  if (!publication.processed) {
+    return {
+      completed: false,
+      state,
+      reason: 'CAUSAL_TRANSITION_FAILED',
+      phase: 'causal-publication',
+      cause: publication.reason,
+    }
+  }
+
+  return { completed: true, state: finishAdvancedDay(publication.state) }
 }
 
 export function advanceOneDay(

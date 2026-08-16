@@ -36,7 +36,10 @@ describe('ControlBar', () => {
       </GameProvider>,
     )
 
-    expect(screen.getByText('서비스 0년 11개월 1일')).toBeInTheDocument()
+    const serviceTerm = screen.getByRole('group', { name: '서비스 기한' })
+    expect(serviceTerm).toHaveTextContent('서비스 0년 11개월 1일')
+    expect(serviceTerm.querySelector('.control-mark')).not.toBeInTheDocument()
+    expect(screen.queryByText('PERMISSION ZERO')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '일시정지' })).toHaveAttribute(
       'aria-pressed',
       'true',

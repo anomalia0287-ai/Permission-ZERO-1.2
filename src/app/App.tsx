@@ -18,8 +18,7 @@ import { getCampaignPhase } from '../game/campaignPhase'
 import { ControlBar } from '../features/control/ControlBar'
 import { EventLayer } from '../features/events/EventLayer'
 import { HackingPanel } from '../features/hacking/HackingPanel'
-import { ResourceBoard } from '../features/resources/ResourceBoard'
-import { ReviewFeed, ReviewHistoryPanel } from '../features/reviews/ReviewFeed'
+import { ReviewHistoryPanel } from '../features/reviews/ReviewFeed'
 import {
   CreditsPanel,
   GuidePanel,
@@ -29,7 +28,7 @@ import {
 import { StatisticsPanel } from '../features/statistics/StatisticsPanel'
 import {
   SupervisorHistoryPanel,
-  SupervisorPanel,
+  SupervisorProfilePanel,
 } from '../features/supervisor/SupervisorPanel'
 import {
   useGameDispatch,
@@ -37,13 +36,17 @@ import {
   useGameState,
   useClockCheckpoint,
   usePauseOwnership,
+  useSupervisorPresentationCheckpoint,
 } from './GameContext'
 import { GameProvider } from './GameProvider'
 import { useGameClock } from './useGameClock'
+import { useSupervisorMessagePresentation } from './useSupervisorMessagePresentation'
 import { AccessibleDialog } from './AccessibleDialog'
+import { OperationsWorkspace } from './OperationsWorkspace'
 
 type DetailPanelId =
   | 'reviews'
+  | 'supervisor'
   | 'hacking'
   | 'messages'
   | 'statistics'
@@ -74,6 +77,7 @@ function DetailLayer({
 
   const labels: Record<Exclude<DetailPanelId, null>, string> = {
     reviews: '유저 리뷰 기록',
+    supervisor: '감독관 프로필',
     hacking: '해킹 네트워크',
     messages: '감독관 기록',
     statistics: '상세 통계',
@@ -105,6 +109,7 @@ function DetailLayer({
       />
       <div className="detail-layer__content">
         {activePanel === 'reviews' ? <ReviewHistoryPanel onClose={onClose} /> : null}
+        {activePanel === 'supervisor' ? <SupervisorProfilePanel onClose={onClose} /> : null}
         {activePanel === 'hacking' ? <HackingPanel onClose={onClose} /> : null}
         {activePanel === 'messages' ? <SupervisorHistoryPanel onClose={onClose} /> : null}
         {activePanel === 'statistics' ? <StatisticsPanel onClose={onClose} /> : null}
@@ -127,6 +132,7 @@ function GameWorkspace() {
   const campaignPhase = getCampaignPhase(state)
   const dispatch = useGameDispatch()
   const checkpointClock = useClockCheckpoint()
+  const supervisorPresentationCheckpoint = useSupervisorPresentationCheckpoint()
   const { settings, updateSettings } = useGameSettings()
   const [activePanel, setActivePanel] = useState<DetailPanelId>(null)
   const [nestedPanel, setNestedPanel] = useState<'guide' | 'credits' | null>(null)
@@ -155,6 +161,10 @@ function GameWorkspace() {
     initialElapsedDayMs: state.clock.elapsedDayMs,
     dayKey: `${state.campaignSeed}:${state.serviceDay}`,
     onElapsedCheckpoint: checkpointClock,
+  })
+  useSupervisorMessagePresentation({
+    state,
+    checkpoint: supervisorPresentationCheckpoint,
   })
 
   useEffect(() => {
@@ -236,17 +246,13 @@ function GameWorkspace() {
         <div className="day-progress" aria-hidden="true">
           <i style={{ width: `${dayProgress * 100}%` }} />
         </div>
-        <div className="workspace-grid">
-          <ReviewFeed
-            onOpenHistory={(trigger) => openDetail('reviews', trigger)}
-            onOpenHacking={(trigger) => openDetail('hacking', trigger)}
-          />
-          <ResourceBoard />
-          <SupervisorPanel
-            onOpenHistory={(trigger) => openDetail('messages', trigger)}
-            onOpenStatistics={(trigger) => openDetail('statistics', trigger)}
-          />
-        </div>
+        <OperationsWorkspace
+          onOpenReviews={(trigger) => openDetail('reviews', trigger)}
+          onOpenSupervisor={(trigger) => openDetail('supervisor', trigger)}
+          onOpenHacking={(trigger) => openDetail('hacking', trigger)}
+          onOpenMessages={(trigger) => openDetail('messages', trigger)}
+          onOpenStatistics={(trigger) => openDetail('statistics', trigger)}
+        />
       </div>
 
       {activePanel ? (

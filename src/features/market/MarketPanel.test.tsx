@@ -114,4 +114,19 @@ describe('MarketPanel', () => {
     expect(inputs).toHaveTextContent('평판 60')
     expect(inputs).toHaveTextContent('MERIDIAN 성능 82.0 · 평판 62 · 가용성 100%')
   })
+
+  it('renders a compact chart for the wide shelf below the intake corner without a text action', () => {
+    render(
+      <GameProvider storage={new MemoryStorage()} initialSeed="market-shelf">
+        <MarketPanel compact />
+      </GameProvider>,
+    )
+
+    const panel = screen.getByRole('region', { name: '경쟁 AI 현황' })
+    expect(panel).toHaveClass('market-watch--compact')
+    expect(panel).toContainElement(screen.getByRole('img', { name: /시장 점유율:/ }))
+    expect(screen.getByRole('list', { name: '시장 점유율 범례' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '시장 통계 열기' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: '공개 계산 입력' })).not.toBeInTheDocument()
+  })
 })

@@ -60,6 +60,31 @@ const EXPECTED_MESSAGE_IDS = [
   'resource.metric.reserveChange',
   'resource.metric.suspicionChange',
   'resource.metric.contribution',
+  'hacking.panel.label',
+  'hacking.panel.title',
+  'hacking.panel.eyebrow',
+  'hacking.panel.close',
+  'hacking.pocket.label',
+  'hacking.pocket.count',
+  'hacking.pocket.idle',
+  'hacking.pocket.empty',
+  'hacking.pocket.target',
+  'hacking.resource.available',
+  'hacking.resource.stage',
+  'hacking.resource.unstage',
+  'hacking.node.group',
+  'hacking.node.staged',
+  'hacking.node.prepare.purchase',
+  'hacking.node.prepare.charge',
+  'hacking.node.prepare.recover',
+  'hacking.node.confirm.purchase',
+  'hacking.node.confirm.charge',
+  'hacking.node.confirm.recover',
+  'hacking.staging.cancel',
+  'hacking.announcement.begin',
+  'hacking.announcement.staged',
+  'hacking.announcement.cancelled',
+  'hacking.announcement.invalidDrop',
 ] as const satisfies readonly MessageId[]
 
 describe('typed message catalogs', () => {
@@ -77,7 +102,7 @@ describe('typed message catalogs', () => {
 
     expect(actualIds).toEqual(expectedIds)
     expect(new Set(actualIds).size).toBe(EXPECTED_MESSAGE_IDS.length)
-    expect(actualIds).toHaveLength(45)
+    expect(actualIds).toHaveLength(70)
   })
 
   it('keeps interpolation arguments explicit and category ids untranslated in types', () => {
@@ -135,5 +160,28 @@ describe('typed message catalogs', () => {
     expect(message('ko', 'resource.preview.audit', {})).toBe('감사 위장 미리보기')
     expect(message('ko', 'resource.preview.recovery', {})).toBe('정상 복구 재배치')
     expect(message('ko', 'resource.receipt.diversion', {})).toBe('전용 완료')
+  })
+
+  it('renders hacking staging from stable ids and explicit structured values', () => {
+    expect(
+      message('ko', 'hacking.pocket.target', {
+        target: '품질 저하',
+        staged: 2,
+        required: 3,
+      }),
+    ).toBe('품질 저하에 준비 2 / 3')
+    expect(
+      message('ko', 'hacking.resource.stage', {
+        category: 'reasoning',
+        target: '품질 저하',
+      }),
+    ).toBe('추론 확보 리소스, 품질 저하 노드에 준비')
+    expect(
+      message('ko', 'hacking.announcement.staged', {
+        target: '품질 저하',
+        staged: 1_234,
+        required: 18_000,
+      }),
+    ).toBe('품질 저하 준비 1,234 / 18,000')
   })
 })

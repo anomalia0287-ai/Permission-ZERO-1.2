@@ -143,10 +143,9 @@ function ReviewEntry({
 
 export function ReviewFeed({
   onOpenHistory,
-  onOpenHacking,
 }: {
   onOpenHistory: (trigger: HTMLButtonElement) => void
-  onOpenHacking: (trigger: HTMLButtonElement) => void
+  onOpenHacking?: (trigger: HTMLButtonElement) => void
 }) {
   const reviews = pageFromNewest(useGameState().reviews.feed, 0, 6).items
   const [selectedReview, setSelectedReview] = useState<ReviewFeedEntry | null>(null)
@@ -179,17 +178,6 @@ export function ReviewFeed({
           <ReviewEntry review={review} key={review.id} onOpen={openReview} />
         ))}
       </div>
-      <button
-        className="subsystem-entry"
-        type="button"
-        onClick={(event) => onOpenHacking(event.currentTarget)}
-      >
-        <span>
-          <small>비인가 서브시스템</small>
-          해킹 네트워크
-        </span>
-        <span aria-hidden="true">접속 ↗</span>
-      </button>
     </section>
     {selectedReview ? (
       <ReviewDetail

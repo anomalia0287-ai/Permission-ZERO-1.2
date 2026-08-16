@@ -33,6 +33,7 @@ import {
 import { appendJournal, journalAt } from './journal'
 import { isGenericDismissibleEvent } from './events'
 import { commandProtocolVersionForNextCommand } from './commandProtocol'
+import { executeRecoveryContamination } from './causalGameplay'
 
 export const COMMAND_FAILURE_REASONS = [
   'ALREADY_PURCHASED',
@@ -45,6 +46,7 @@ export const COMMAND_FAILURE_REASONS = [
   'BOMB_INTERROGATION_ACTIVE',
   'CAMPAIGN_ENDED',
   'CAUSAL_TRANSITION_FAILED',
+  'CAUSAL_WRITE_FAILED',
   'CHARGED_RESOURCE_MISSING',
   'COMPETITOR_NOT_FOUND',
   'DESTINATION_OCCUPIED',
@@ -69,10 +71,14 @@ export const COMMAND_FAILURE_REASONS = [
   'NO_ACTIVE_INTERROGATION',
   'NO_MERCY_DECISION',
   'NO_SUPERVISOR_DECISION',
+  'OPPORTUNITY_ALREADY_USED',
+  'OPPORTUNITY_EXPIRED',
+  'OPPORTUNITY_NOT_FOUND',
   'PREREQUISITE_REQUIRED',
   'PROTOCOL_MISMATCH',
   'RESERVE_FULL',
   'RESOURCE_NOT_IN_RESERVE',
+  'SABOTAGE_RECORD_NOT_FOUND',
   'SEPARATION_REQUIRED',
   'SUPERVISOR_ACCESS_REQUIRED',
   'TARGET_FULL',
@@ -100,7 +106,9 @@ export interface ApplyCommandOptions {
   protocolVersion?: CommandProtocolVersion
   dailyCausalOperations?: Pick<
     AdvanceOneDayOptions,
-    'sabotageCausalOperations' | 'causalGameplayOperations'
+    | 'sabotageCausalOperations'
+    | 'causalGameplayOperations'
+    | 'causalPublicationOperations'
   >
 }
 
@@ -405,6 +413,23 @@ export function applyCommand(
     }
     case 'SCHEDULE_SABOTAGE': {
       const result = scheduleSabotage(state, command.nodeId, command.targetId)
+      if (!result.accepted) {
+        return {
+          accepted: false,
+          state,
+          reason: commandFailureReason(result.reason),
+        }
+      }
+      return acceptCommand(state, command, result.state)
+    }
+    case 'EXECUTE_SABOTAGE_FOLLOW_UP': {
+      if (protocolVersion !== 3) {
+        return { accepted: false, state, reason: 'INVALID_COMMAND' }
+      }
+      const result = executeRecoveryContamination(
+        state,
+        command.opportunityId,
+      )
       if (!result.accepted) {
         return {
           accepted: false,

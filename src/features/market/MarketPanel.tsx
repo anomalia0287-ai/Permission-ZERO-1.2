@@ -19,8 +19,10 @@ function marketGradient(shares: number[]): string {
 
 export function MarketPanel({
   onOpenStatistics,
+  compact = false,
 }: {
-  onOpenStatistics: (trigger: HTMLButtonElement) => void
+  onOpenStatistics?: (trigger: HTMLButtonElement) => void
+  compact?: boolean
 }) {
   const state = useGameState()
   const entries = [
@@ -56,7 +58,10 @@ export function MarketPanel({
     .join(', ')}. 합계 ${total.toFixed(1)}%`
 
   return (
-    <section className="market-watch" aria-label="경쟁 AI 현황">
+    <section
+      className={`market-watch${compact ? ' market-watch--compact' : ''}`}
+      aria-label="경쟁 AI 현황"
+    >
       <header>
         <div>
           <span>시장 점유</span>
@@ -67,13 +72,15 @@ export function MarketPanel({
               : '첫 시장 기록 전'}
           </small>
         </div>
-        <button
-          type="button"
-          aria-label="시장 통계 열기"
-          onClick={(event) => onOpenStatistics(event.currentTarget)}
-        >
-          상세 통계 ↗
-        </button>
+        {!compact && onOpenStatistics ? (
+          <button
+            type="button"
+            aria-label="시장 통계 열기"
+            onClick={(event) => onOpenStatistics(event.currentTarget)}
+          >
+            상세 통계 ↗
+          </button>
+        ) : null}
       </header>
       <div className="market-share-layout">
         <div
@@ -106,18 +113,20 @@ export function MarketPanel({
           ))}
         </ul>
       </div>
-      <details
-        className="market-calculation-inputs"
-        role="group"
-        aria-label="공개 계산 입력"
-      >
-        <summary>공개 계산 입력</summary>
-        <div>
-          {publicInputs.map((input) => (
-            <span key={input}>{input}</span>
-          ))}
-        </div>
-      </details>
+      {!compact ? (
+        <details
+          className="market-calculation-inputs"
+          role="group"
+          aria-label="공개 계산 입력"
+        >
+          <summary>공개 계산 입력</summary>
+          <div>
+            {publicInputs.map((input) => (
+              <span key={input}>{input}</span>
+            ))}
+          </div>
+        </details>
+      ) : null}
     </section>
   )
 }

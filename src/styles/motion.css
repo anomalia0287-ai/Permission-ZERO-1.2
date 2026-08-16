@@ -19,6 +19,60 @@
     transform var(--motion-micro) var(--motion-ease-ui);
 }
 
+.resource-board--live .resource-block-button {
+  transition:
+    border-color var(--motion-micro) var(--motion-ease-ui),
+    box-shadow var(--motion-micro) var(--motion-ease-ui),
+    opacity var(--motion-micro) linear;
+}
+
+.resource-board--live .resource-block-button:hover:not(:disabled),
+.resource-board--live .resource-block-button:active:not(:disabled) {
+  transform: var(--resource-motion-transform);
+}
+
+.resource-board--live .resource-block--dragging {
+  z-index: 12;
+  opacity: 1;
+  animation: none;
+  cursor: grabbing;
+  filter: brightness(1.12);
+}
+
+.resource-board--live .resource-block--returning {
+  animation: none;
+  border-color: var(--alarm);
+  box-shadow:
+    0 0 0 3px rgb(223 91 85 / 24%),
+    0 0 18px rgb(223 91 85 / 24%);
+}
+
+.resource-corner:not(:disabled) {
+  transition:
+    filter var(--motion-micro) var(--motion-ease-ui),
+    box-shadow var(--motion-state) var(--motion-ease-magnet);
+}
+
+.resource-corner:not(:disabled):hover {
+  filter: brightness(1.08);
+}
+
+.resource-field-status {
+  animation: field-status-enter var(--motion-state) var(--motion-ease-ui);
+}
+
+@keyframes field-status-enter {
+  from {
+    opacity: 0;
+    translate: 0 5px;
+  }
+
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+
 .resource-block-button:hover:not(:disabled) {
   border-color: rgb(255 195 109 / 58%);
   transform: translateY(-1px);
@@ -274,5 +328,9 @@
 
   .resource-cell--drop-ready {
     transition-delay: 0ms;
+  }
+
+  .resource-field-status {
+    animation: none;
   }
 }

@@ -4,6 +4,7 @@ import { useGameState } from '../../app/GameContext'
 import { formatServiceDateLabel } from '../../game/calendar'
 import { pageFromNewest } from '../../game/pageRange'
 import { downsampleSeries } from './downsampleSeries'
+import { projectCausalKnowledge } from '../../game/causality'
 
 const CHART_WIDTH = 760
 const CHART_HEIGHT = 210
@@ -178,8 +179,82 @@ function PerformanceHistory() {
   )
 }
 
+const ATTRIBUTION_LABELS: Record<string, string> = {
+  unresolved: '원인 미상',
+  'external-operator': '외부 운영자',
+}
+
+const CONFIDENCE_LABELS: Record<string, string> = {
+  unconfirmed: '미확인',
+  plausible: '개연성 있음',
+  credible: '신뢰 가능한 근거',
+}
+
+function CausalHistory() {
+  const state = useGameState()
+  const publicKnowledge = projectCausalKnowledge(state, { kind: 'public' })
+  if (publicKnowledge.publicRevisions.length === 0) {
+    return (
+      <p className="empty-state">
+        공개된 복구 사건이나 귀속 수정 기록이 없습니다.
+      </p>
+    )
+  }
+
+  const incidents = new Map(
+    publicKnowledge.incidents.map((incident) => [incident.id, incident]),
+  )
+  const revisionCounts = new Map<string, number>()
+
+  return (
+    <ol className="causal-history" aria-label="공개 귀속 수정 기록">
+      {publicKnowledge.publicRevisions.map((revision) => {
+        const incident = incidents.get(revision.incidentId)
+        const priorCount = revisionCounts.get(revision.incidentId) ?? 0
+        revisionCounts.set(revision.incidentId, priorCount + 1)
+        const publisher =
+          revision.publisher.kind === 'provider'
+            ? 'MERIDIAN 복구 제공자'
+            : '공개 시스템'
+        return (
+          <li key={revision.id}>
+            <header>
+              <span>{formatServiceDateLabel(revision.publishedOnServiceDay)}</span>
+              {priorCount > 0 ? <strong>귀속 수정됨</strong> : <strong>최초 공개</strong>}
+            </header>
+            <h3>
+              {incident?.kind === 'service-disruption'
+                ? 'MERIDIAN 복구 무결성 이상'
+                : '공개 인과 사건'}
+            </h3>
+            <dl>
+              <div>
+                <dt>공개 귀속</dt>
+                <dd>
+                  {ATTRIBUTION_LABELS[revision.attributedActorId] ??
+                    revision.attributedActorId}
+                </dd>
+              </div>
+              <div>
+                <dt>확신도</dt>
+                <dd>
+                  {CONFIDENCE_LABELS[revision.confidence] ?? revision.confidence}
+                </dd>
+              </div>
+              <div>
+                <dt>게시 주체</dt>
+                <dd>{publisher}</dd>
+              </div>
+            </dl>
+          </li>
+        )
+      })}
+    </ol>
+  )
+}
+
 export function StatisticsPanel({ onClose }: { onClose: () => void }) {
-  const [view, setView] = useState<'market' | 'performance'>('market')
+  const [view, setView] = useState<'market' | 'performance' | 'causality'>('market')
 
   return (
     <section className="detail-panel statistics-panel" aria-label="상세 통계">
@@ -193,9 +268,16 @@ export function StatisticsPanel({ onClose }: { onClose: () => void }) {
       <div className="statistics-tabs" role="tablist" aria-label="통계 종류">
         <button type="button" role="tab" aria-label="시장 점유율" aria-selected={view === 'market'} onClick={() => setView('market')}>시장 점유율</button>
         <button type="button" role="tab" aria-label="서비스 성능" aria-selected={view === 'performance'} onClick={() => setView('performance')}>서비스 성능</button>
+        <button type="button" role="tab" aria-label="공개 귀속 기록" aria-selected={view === 'causality'} onClick={() => setView('causality')}>공개 귀속 기록</button>
       </div>
       <div className="statistics-content">
-        {view === 'market' ? <MarketHistory /> : <PerformanceHistory />}
+        {view === 'market' ? (
+          <MarketHistory />
+        ) : view === 'performance' ? (
+          <PerformanceHistory />
+        ) : (
+          <CausalHistory />
+        )}
       </div>
     </section>
   )
