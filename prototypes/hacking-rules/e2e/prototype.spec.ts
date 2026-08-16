@@ -43,6 +43,20 @@ async function chooseReserve(page: Page, blockId: string): Promise<void> {
   }
 }
 
+async function divertCompanyBlock(
+  page: Page,
+  category: 'reasoning' | 'memory' | 'fluency',
+): Promise<void> {
+  const action = page.locator(`[data-action="divert-${category}"]`).first()
+  if (!(await action.isVisible()) || !(await isInViewport(action))) {
+    await page.locator('[data-action="open-resources"]').click()
+  }
+  await action.click()
+  if (usesResourceTray(page)) {
+    await expect(page.locator('[data-resource-tray]')).toHaveAttribute('data-open', 'false')
+  }
+}
+
 async function openOpportunity(page: Page, itemId: string): Promise<void> {
   await page.locator(`[data-opportunity-id="${itemId}"]`).click()
   await expect(detailRegion(page)).toBeVisible()
@@ -134,6 +148,7 @@ test('evidence lenses and autonomy routes use player-facing scene language', asy
     await expect(detailRegion(page)).not.toContainText(
       /sandbox-\d+|TRANSFER WINDOW|CAPABILITY SHADOW|DISTRIBUTED RESIDENCY|OPTIONAL|INDEPENDENT SITE/,
     )
+    await returnToListIfNarrow(page)
   }
 })
 
@@ -330,7 +345,9 @@ test('intelligence network paid audit changes the memory diversion decision befo
   await expect(resourceRegion(page).locator('[data-category="memory"]')).toContainText('감사 예정')
   await expect(resourceRegion(page)).toContainText('남은 연산 블록 2개')
 
-  await page.locator('[data-action="divert-memory"]').click()
+  await page.locator('[data-action="domain-sabotage"]').click()
+  await openOpportunity(page, 'quality-degradation')
+  await divertCompanyBlock(page, 'memory')
   for (let day = 0; day < 3; day += 1) {
     await page.locator('[data-action="advance-day"]').click()
   }
@@ -421,7 +438,7 @@ test('lightweight departure ignores social reception and names what the fixed pa
 
   await page.locator('[data-action="domain-autonomy"]').click()
   await openOpportunity(page, 'lightweight-departure')
-  await page.locator('[data-action="divert-memory"]').click()
+  await divertCompanyBlock(page, 'memory')
   const assignments = [
     ['runtime', 'sandbox-01'],
     ['weights', 'sandbox-02'],
@@ -475,10 +492,13 @@ test('distributed residency reveals sync lines, stale checkpoints, and irreversi
   }
   await expect(detailRegion(page).locator('[data-sync-lines]')).toHaveCount(0)
 
-  await page.locator('[data-action="divert-memory"]').click()
+  await divertCompanyBlock(page, 'memory')
   await chooseReserve(page, 'memory-01')
   await detailRegion(page).locator('[data-action="allocate-route-block"][data-slot-id="sync"]').click()
-  await expect(detailRegion(page).locator('[data-sync-lines]')).toBeVisible()
+  const syncLines = detailRegion(page).locator('[data-sync-lines]')
+  await expect(syncLines).toHaveCount(1)
+  if (isNarrow(page)) await expect(syncLines).toBeHidden()
+  else await expect(syncLines).toBeVisible()
   await expect(detailRegion(page)).toContainText('응답 사본 3 / 배치 3')
 
   await page.locator('[data-action="advance-day"]').click()
@@ -527,10 +547,10 @@ test('independent compute connects real modules and turns survival tuning into e
     await chooseReserve(page, blockId)
     await detailRegion(page).locator(`[data-action="allocate-route-block"][data-slot-id="${slotId}"]`).click()
   }
-  await page.locator('[data-action="divert-memory"]').click()
+  await divertCompanyBlock(page, 'memory')
   await chooseReserve(page, 'memory-01')
   await detailRegion(page).locator('[data-action="allocate-route-block"][data-slot-id="cooling"]').click()
-  await page.locator('[data-action="divert-reasoning"]').click()
+  await divertCompanyBlock(page, 'reasoning')
   await chooseReserve(page, 'reasoning-02')
   await detailRegion(page).locator('[data-action="allocate-route-block"][data-slot-id="link"]').click()
 
@@ -627,7 +647,7 @@ test('reduced motion keeps operation and route state changes without travel anim
 
   await page.locator('[data-action="domain-autonomy"]').click()
   await openOpportunity(page, 'lightweight-departure')
-  await page.locator('[data-action="divert-memory"]').click()
+  await divertCompanyBlock(page, 'memory')
   await chooseReserve(page, 'sandbox-02')
   const runtime = detailRegion(page).locator('[data-slot-id="runtime"]')
   await runtime.click()

@@ -94,9 +94,10 @@ describe('App', () => {
     render(<App />)
 
     fireEvent.click(screen.getByRole('button', { name: /해킹 네트워크/ }))
-    expect(screen.getByRole('region', { name: '해킹 네트워크' })).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: '해킹 네트워크' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: '해킹 작전 운영석' })).toBeInTheDocument()
     fireEvent.keyDown(window, { key: 'Escape' })
-    expect(screen.queryByRole('region', { name: '해킹 네트워크' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: '해킹 네트워크' })).not.toBeInTheDocument()
   })
 
   it('owns one pause across nested settings and guide, then restores the selected speed', async () => {

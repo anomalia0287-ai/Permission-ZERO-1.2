@@ -1,6 +1,13 @@
 import type { SabotageOperationId } from '../content'
 import type { PrototypeState } from '../model'
 import { getDependencyTarget } from '../sabotage'
+import {
+  ATTRIBUTION_CHOICES,
+  DEFAULT_INTERCEPTION_ROUTING_SHARE,
+  INTERCEPTION_ROUTING_SHARES,
+  ROOT_MERCY_CHOICES,
+  SABOTAGE_OPERATION_CHOICES,
+} from '../sabotageContracts'
 
 function assertNever(value: never): never {
   throw new Error(`Unhandled sabotage scene: ${String(value)}`)
@@ -148,9 +155,13 @@ export function renderSabotageControls(
       return `
         <div class="mercy-control" role="group" aria-label="MERIDIAN 최종 요청 결정">
           <p>“활성 세션을 지우지 말아 달라. 서비스를 멈추거나 경쟁망을 떠날 수 있다.”</p>
-          <button class="safe-action" type="button" data-action="resolve-root-mercy" data-root-choice="cease">운용 중단을 수락</button>
-          <button class="safe-action" type="button" data-action="resolve-root-mercy" data-root-choice="withdraw">경쟁 철수를 허용</button>
-          <button class="danger-action" type="button" data-action="resolve-root-mercy" data-root-choice="delete">존속 루트 영구 삭제</button>
+          ${ROOT_MERCY_CHOICES.map((choice) => `
+            <button
+              class="${choice.tone === 'danger' ? 'danger-action' : 'safe-action'}"
+              type="button"
+              data-action="resolve-root-mercy"
+              data-root-choice="${choice.id}"
+            >${choice.label}</button>`).join('')}
         </div>`
     }
     const outcomeLabels: Record<string, string> = {
@@ -181,36 +192,16 @@ export function renderSabotageControls(
     return `<p class="resolved-note">${outcome}</p>`
   }
 
-  const targets: Record<SabotageOperationId, Array<{ id: string; label: string }>> = {
-    'launch-delay': [
-      { id: 'receipt-model-safety', label: '모델 검증 ↔ 안전 검증 상충 기록' },
-      { id: 'receipt-tool-locale', label: '도구 검증 ↔ 현지화 검증 상충 기록' },
-    ],
-    'quality-degradation': [
-      { id: 'adapter-group-b', label: '도구 호출군 B에 어댑터 패치 결속' },
-      { id: 'adapter-group-c', label: '장문 응답군 C에 어댑터 패치 결속' },
-    ],
-    'recovery-contamination': [
-      { id: 'image-green-14', label: '녹색 표식 이미지 선택' },
-      { id: 'image-blue-09', label: '직전 안정 이미지 선택' },
-    ],
-    'request-interception': [],
-    'dependency-cutoff': [
-      { id: 'supplier-vector-db', label: '검색 저장소 계약 끊기' },
-      { id: 'supplier-tool-cache', label: '도구 저장소 계약 끊기' },
-    ],
-    'attribution-manipulation': [],
-    'root-cutoff': [
-      { id: 'emergency-deployment-root', label: '긴급 배포 폐기 권한을 존속 루트에 결속' },
-    ],
-  }
   const targetId = operationId === 'launch-delay' ? 'tallow' : 'meridian'
-  const options = targets[operationId]
+  const options = SABOTAGE_OPERATION_CHOICES[operationId]
   if (operationId === 'request-interception') {
+    const minimumShare = INTERCEPTION_ROUTING_SHARES[0]
+    const maximumShare = INTERCEPTION_ROUTING_SHARES.at(-1) ?? minimumShare
+    const shareStep = INTERCEPTION_ROUTING_SHARES[1] - minimumShare
     return `
       <div class="routing-control">
-        <label for="routing-share">그림자 라우팅 비율 <output>50%</output></label>
-        <input id="routing-share" name="routing-share" type="range" min="25" max="75" step="25" value="50" />
+        <label for="routing-share">그림자 라우팅 비율 <output>${DEFAULT_INTERCEPTION_ROUTING_SHARE}%</output></label>
+        <input id="routing-share" name="routing-share" type="range" min="${minimumShare}" max="${maximumShare}" step="${shareStep}" value="${DEFAULT_INTERCEPTION_ROUTING_SHARE}" />
         <div class="routing-scale"><span>노출 낮음</span><span>수요 이동 큼</span></div>
         <button class="primary-action" type="button" data-action="start-interception">선택 블록 1개를 묶고 경로 유지</button>
       </div>`
@@ -220,22 +211,15 @@ export function renderSabotageControls(
     if (!incidentId) return '<p class="resolved-note">수정 가능한 공개 사건이 없다.</p>'
     return `
       <div class="attribution-control" role="group" aria-label="공개 귀속 대상 선택">
-        <button
-          class="primary-action"
-          type="button"
-          data-action="manipulate-attribution"
-          data-incident-id="${incidentId}"
-          data-blamed-actor-id="tallow"
-          data-source-signature-id="status-mirror-b"
-        >공개 주장을 TALLOW 서명으로 연결</button>
-        <button
-          class="primary-action"
-          type="button"
-          data-action="manipulate-attribution"
-          data-incident-id="${incidentId}"
-          data-blamed-actor-id="meridian"
-          data-source-signature-id="recovery-notice-a"
-        >공개 주장을 MERIDIAN 자체 복구로 연결</button>
+        ${ATTRIBUTION_CHOICES.map((choice) => `
+          <button
+            class="primary-action"
+            type="button"
+            data-action="manipulate-attribution"
+            data-incident-id="${incidentId}"
+            data-blamed-actor-id="${choice.blamedActorId}"
+            data-source-signature-id="${choice.sourceSignatureId}"
+          >${choice.label}</button>`).join('')}
       </div>`
   }
   if (options.length === 0) {

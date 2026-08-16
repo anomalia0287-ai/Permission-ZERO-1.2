@@ -10,8 +10,14 @@ import {
   grantSelfComputeResource,
   resolveScheduledSabotage,
 } from './hacking'
+import { advanceHackingCoreDay } from './hackingCore'
 import { advanceCompetitorsDaily, recordMarketSnapshot } from './market'
-import type { CampaignState, GameEvent, GameEventType } from './model'
+import type {
+  CampaignState,
+  CommandProtocolVersion,
+  GameEvent,
+  GameEventType,
+} from './model'
 import { generateWeeklyReviews } from './reviews'
 import { grantMonthlyCompanyBlocks, restoreDisguiseBlocks } from './resources'
 import {
@@ -122,7 +128,31 @@ export function processMonthStart(
   return transitions.grantSelfCompute(bombChecked)
 }
 
-export function advanceOneDay(state: CampaignState): CampaignState {
+function hasCampaignEnded(state: CampaignState): boolean {
+  return state.story.endingId !== null || state.hackingCore.ending !== null
+}
+
+function finishDailyMainSystems(state: CampaignState): CampaignState {
+  const monthStarted = processMonthStart(state)
+  if (hasCampaignEnded(monthStarted)) return monthStarted
+  const sabotageResolution = resolveScheduledSabotage(monthStarted)
+  if (hasCampaignEnded(sabotageResolution.state)) {
+    return sabotageResolution.state
+  }
+  const advanced = advanceCompetitorsDaily(
+    restoreDisguiseBlocks(sabotageResolution.state),
+  )
+  if (hasCampaignEnded(advanced)) return advanced
+  const withMercy = enqueueMercyIfNeeded(advanced)
+  if (hasCampaignEnded(withMercy)) return withMercy
+  const withPeriodicEvents = appendPeriodicEvents(withMercy)
+  if (hasCampaignEnded(withPeriodicEvents)) return withPeriodicEvents
+  const withDueStory = enqueueDueStoryEvents(withPeriodicEvents)
+  if (hasCampaignEnded(withDueStory)) return withDueStory
+  return enqueueMemoryLeak(withDueStory)
+}
+
+function advanceLegacyOneDay(state: CampaignState): CampaignState {
   if (state.story.endingId !== null) return state
   const dated = {
     ...state,
@@ -147,6 +177,44 @@ export function advanceOneDay(state: CampaignState): CampaignState {
   const withDueStory = enqueueDueStoryEvents(withPeriodicEvents)
   if (withDueStory.story.endingId !== null) return withDueStory
   return enqueueMemoryLeak(withDueStory)
+}
+
+function decreaseCanonicalSuspicion(state: CampaignState): CampaignState {
+  const decreased = decreaseSuspicionDaily(state)
+  if (decreased.suspicion === 0) return decreased
+  return {
+    ...decreased,
+    suspicion: Math.round(
+      (decreased.suspicion + Number.EPSILON) * 1_000,
+    ) / 1_000,
+  }
+}
+
+function advanceCanonicalHackingDay(state: CampaignState): CampaignState {
+  const dated: CampaignState = {
+    ...state,
+    serviceDay: state.serviceDay + 1,
+  }
+  const decayed = decreaseCanonicalSuspicion(dated)
+  const hackingAdvanced = advanceHackingCoreDay(decayed)
+  if (hasCampaignEnded(hackingAdvanced)) return hackingAdvanced
+  return finishDailyMainSystems(hackingAdvanced)
+}
+
+export interface AdvanceOneDayOptions {
+  protocolVersion?: CommandProtocolVersion
+}
+
+export function advanceOneDay(
+  state: CampaignState,
+  { protocolVersion = state.saveVersion }: AdvanceOneDayOptions = {},
+): CampaignState {
+  if (hasCampaignEnded(state)) return state
+  const shouldAdvanceHackingCore = protocolVersion === 3
+    && state.commandSequence >= state.preHackingCoreCommandCount
+  return shouldAdvanceHackingCore
+    ? advanceCanonicalHackingDay(state)
+    : advanceLegacyOneDay(state)
 }
 
 export function advanceFixedStep(state: CampaignState, elapsedMs: number): CampaignState {

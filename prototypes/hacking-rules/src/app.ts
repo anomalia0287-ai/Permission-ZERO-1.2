@@ -1,14 +1,12 @@
 import { transition } from './engine'
 import type {
-  CompetitorId,
   ProfileId,
   PrototypeCommand,
   PrototypeState,
-  RootMercyChoice,
   ScenarioId,
 } from './model'
 import { getIntelligenceDefinition, getSabotageDefinition } from './content'
-import type { IntelligenceItemId, SabotageOperationId } from './content'
+import type { IntelligenceItemId } from './content'
 import type { AutonomyRouteId } from './content'
 import { createPrototypeState } from './scenario'
 import {
@@ -24,6 +22,15 @@ import type {
   PrototypeViewState,
   ShellRenderInput,
 } from './views/shell'
+import {
+  DEFAULT_INTERCEPTION_ROUTING_SHARE,
+  getAttributionChoice,
+  INTERCEPTION_OPTION_ID,
+  isInterceptionRoutingShare,
+  isRootMercyChoice,
+  isSabotageOperationId,
+  isSabotageOptionForOperation,
+} from './sabotageContracts'
 
 export interface MountPrototypeOptions {
   profileId?: ProfileId
@@ -109,7 +116,6 @@ function actionMessage(
     case 'TUNE_ROUTE': {
       const tuningLabel = {
         untuned: '미조율',
-        buffer: '완충',
         redundancy: '중복',
         consensus: '합의',
         stealth: '은폐',
@@ -350,10 +356,16 @@ export function mountPrototype(
         dispatch({ type: 'START_QUALITY', blockIds: [...view.selectedReserve] })
         break
       case 'start-sabotage': {
-        const operationId = button.dataset.operationId as SabotageOperationId | undefined
-        const targetId = button.dataset.targetId as CompetitorId | undefined
+        const operationId = button.dataset.operationId
+        const targetId = button.dataset.targetId
         const optionId = button.dataset.optionId
-        if (!operationId || !targetId || !optionId) {
+        if (
+          !operationId
+          || !isSabotageOperationId(operationId)
+          || (targetId !== 'meridian' && targetId !== 'tallow')
+          || !optionId
+          || !isSabotageOptionForOperation(operationId, optionId)
+        ) {
           statusMessage = '실행 불가: 작전 대상 정보가 완전하지 않다.'
           updateSelectionFeedback()
           break
@@ -369,14 +381,20 @@ export function mountPrototype(
       }
       case 'start-interception': {
         const share = Number(
-          root.querySelector<HTMLInputElement>('[name="routing-share"]')?.value ?? 50,
+          root.querySelector<HTMLInputElement>('[name="routing-share"]')?.value
+            ?? DEFAULT_INTERCEPTION_ROUTING_SHARE,
         )
+        if (!isInterceptionRoutingShare(share)) {
+          statusMessage = '실행 불가: 허용된 그림자 라우팅 비율을 찾을 수 없다.'
+          updateSelectionFeedback()
+          break
+        }
         dispatch({
           type: 'START_SABOTAGE',
           operationId: 'request-interception',
           targetId: 'meridian',
           blockIds: [...view.selectedReserve],
-          optionId: 'shadow-router-a',
+          optionId: INTERCEPTION_OPTION_ID,
           routingShare: share,
         })
         break
@@ -393,13 +411,15 @@ export function mountPrototype(
       }
       case 'manipulate-attribution': {
         const incidentId = button.dataset.incidentId
-        const blamedActorId = button.dataset.blamedActorId as CompetitorId | undefined
+        const blamedActorId = button.dataset.blamedActorId
         const sourceSignatureId = button.dataset.sourceSignatureId
+        const attributionChoice = blamedActorId && sourceSignatureId
+          ? getAttributionChoice(blamedActorId, sourceSignatureId)
+          : undefined
         const [blockId] = [...view.selectedReserve]
         if (
           !incidentId
-          || !blamedActorId
-          || !sourceSignatureId
+          || !attributionChoice
           || !blockId
           || view.selectedReserve.size !== 1
         ) {
@@ -410,15 +430,15 @@ export function mountPrototype(
         dispatch({
           type: 'MANIPULATE_ATTRIBUTION',
           incidentId,
-          blamedActorId,
+          blamedActorId: attributionChoice.blamedActorId,
           blockId,
-          sourceSignatureId,
+          sourceSignatureId: attributionChoice.sourceSignatureId,
         })
         break
       }
       case 'resolve-root-mercy': {
-        const choice = button.dataset.rootChoice as RootMercyChoice | undefined
-        if (!choice || !['cease', 'withdraw', 'delete'].includes(choice)) {
+        const choice = button.dataset.rootChoice
+        if (!choice || !isRootMercyChoice(choice)) {
           statusMessage = '실행 불가: MERIDIAN의 최종 요청에 대한 결정을 찾을 수 없다.'
           updateSelectionFeedback()
           break

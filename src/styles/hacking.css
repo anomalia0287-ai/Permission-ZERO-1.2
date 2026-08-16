@@ -1,483 +1,2563 @@
-/* Hacking network --------------------------------------------------------- */
+/* Hacking operation workspace --------------------------------------------- */
 
-.hacking-panel {
-  grid-template-rows: 62px minmax(0, 1fr);
+.hacking-operation-panel {
+  --bg-void: #060912;
+  --bg-deep: #090f19;
+  --surface: #0f1824;
+  --surface-raised: #162331;
+  --surface-soft: #1b2a38;
+  --line: #2a3b4b;
+  --line-strong: #476174;
+  --text: #f2f6f8;
+  --text-muted: #afbdc8;
+  --text-quiet: #8293a1;
+  --accent: #62e6d2;
+  --accent-strong: #b9ff76;
+  --accent-ink: #06110f;
+  --warning: #ffad5f;
+  --danger: #ff7278;
+  --reasoning: #b499ff;
+  --memory: #60d6eb;
+  --fluency: #ffab73;
+  --text-meta: 14px;
+  --text-body: 16px;
+  --text-item: 19px;
+  --text-panel: 26px;
+  --text-scene: clamp(32px, 3vw, 40px);
+
+  position: relative;
+  isolation: isolate;
+  grid-template-rows: 72px 44px minmax(0, 1fr) 56px;
+  color: var(--text);
+  background:
+    radial-gradient(circle at 72% 12%, rgb(31 95 105 / 0.2), transparent 30rem),
+    radial-gradient(circle at 14% 78%, rgb(100 73 126 / 0.1), transparent 34rem),
+    linear-gradient(180deg, #080d15 0%, var(--bg-void) 70%);
+  font-size: var(--text-body);
+  line-height: 1.6;
 }
 
-.header-metrics {
+.hacking-operation-panel::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background-image:
+    linear-gradient(rgb(98 230 210 / 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(98 230 210 / 0.025) 1px, transparent 1px);
+  background-size: 64px 64px;
+  content: "";
+  mask-image: linear-gradient(to bottom, black, transparent 82%);
+  pointer-events: none;
+}
+
+.hacking-operation-panel *,
+.hacking-operation-panel *::before,
+.hacking-operation-panel *::after {
+  box-sizing: border-box;
+}
+
+.hacking-operation-panel button,
+.hacking-confirmation-dialog button {
+  min-height: 48px;
+  color: inherit;
+  font: inherit;
+  font-size: 16px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.hacking-operation-panel button:disabled,
+.hacking-confirmation-dialog button:disabled {
+  cursor: not-allowed;
+  opacity: 0.44;
+}
+
+.hacking-operation-panel button:focus-visible,
+.hacking-operation-panel input:focus-visible,
+.hacking-operation-panel summary:focus-visible,
+.hacking-confirmation-dialog button:focus-visible {
+  outline: 3px solid var(--accent-strong, #b9ff76);
+  outline-offset: 3px;
+}
+
+/* World header ------------------------------------------------------------- */
+
+.hacking-operation-panel .hacking-world-bar {
+  display: grid;
+  grid-template-columns: minmax(210px, 1fr) auto auto;
+  gap: 20px;
+  align-items: center;
+  min-width: 0;
+  min-height: 72px;
+  padding: 0 24px;
+  border-bottom: 1px solid rgb(98 230 210 / 0.18);
+  background: rgb(6 9 18 / 0.74);
+}
+
+.hacking-operation-panel .game-mark {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+  align-content: center;
+}
+
+.hacking-operation-panel .game-mark strong {
+  color: var(--text);
+  font-size: 20px;
+  font-weight: 820;
+  letter-spacing: 0.08em;
+}
+
+.hacking-operation-panel .game-mark span {
+  overflow: hidden;
+  color: var(--text-quiet);
+  font-size: var(--text-meta);
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hacking-operation-panel .hacking-world-state {
   display: flex;
+  gap: 18px;
   align-items: center;
-  gap: 12px;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: var(--text-meta);
 }
 
-.header-metrics span {
-  padding-right: 12px;
-  border-right: 1px solid var(--line-soft);
+.hacking-operation-panel .hacking-world-state > span {
+  position: relative;
+  white-space: nowrap;
 }
 
-.hacking-layout {
+.hacking-operation-panel .hacking-world-state > span + span::before {
+  position: absolute;
+  top: 50%;
+  left: -10px;
+  width: 3px;
+  height: 3px;
+  background: var(--line-strong);
+  border-radius: 50%;
+  content: "";
+}
+
+.hacking-operation-panel .hacking-world-state strong {
+  color: var(--text);
+  font-weight: 720;
+}
+
+.hacking-operation-panel .hacking-world-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.hacking-operation-panel .hacking-world-actions button {
+  min-width: 112px;
+  padding: 0 16px;
+  color: var(--accent-ink);
+  background: var(--accent-strong);
+  border: 0;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgb(185 255 118 / 0.12);
+  font-weight: 800;
+}
+
+.hacking-operation-panel .hacking-world-actions button:last-child {
+  min-width: 72px;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--line-strong);
+  box-shadow: none;
+}
+
+.hacking-operation-panel .hacking-world-actions button:hover:not(:disabled) {
+  filter: brightness(1.07);
+  transform: translateY(-1px);
+}
+
+.hacking-operation-panel .hacking-status-strip {
+  display: flex;
+  min-width: 0;
+  min-height: 44px;
+  align-items: center;
+  overflow: hidden;
+  padding: 8px 24px;
+  color: #d8e4e8;
+  background: linear-gradient(90deg, rgb(98 230 210 / 0.12), rgb(98 230 210 / 0.03));
+  border-left: 3px solid var(--accent);
+  font-size: var(--text-meta);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Three-surface workspace -------------------------------------------------- */
+
+.hacking-operation-panel .operation-workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 286px;
-  min-height: 0;
-}
-
-.hack-tree-area {
-  display: grid;
-  grid-template-rows: 55px auto minmax(0, 1fr) auto;
+  grid-template-columns: 300px minmax(0, 1fr) 280px;
+  gap: 20px;
+  width: 100%;
+  height: 100%;
   min-width: 0;
   min-height: 0;
-  border-right: 1px solid var(--line-strong);
+  padding: 20px 24px;
+  overflow: hidden;
 }
 
-.hack-tabs {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  padding: 0;
+@media (min-width: 1440px) {
+  .hacking-operation-panel .operation-workspace {
+    grid-template-columns: 300px minmax(680px, 1fr) 280px;
+  }
 }
 
-.hack-tabs button {
+.hacking-operation-panel .operation-master,
+.hacking-operation-panel .operation-detail,
+.hacking-operation-panel .resource-tray {
+  min-width: 0;
+  min-height: 0;
+}
+
+.hacking-operation-panel .operation-master {
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  background: rgb(13 21 32 / 0.86);
+  border-radius: 18px;
+  box-shadow: inset 0 0 0 1px rgb(71 97 116 / 0.36);
+}
+
+.hacking-operation-panel .domain-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 4px;
-  place-content: center;
-  border-width: 0 1px 0 0;
-}
-
-.hack-tabs button small {
-  color: var(--text-muted);
-  font: 500 0.46rem/1 "Cascadia Code", Consolas, monospace;
-  letter-spacing: 0.1em;
-}
-
-.tree-description {
   margin: 0;
-  padding: 11px 16px;
-  border-bottom: 1px solid var(--line-soft);
-  color: var(--text-muted);
-  font-size: 0.64rem;
-}
-
-.hack-context {
-  min-width: 0;
-  border-bottom: 1px solid var(--line-soft);
-}
-
-.hack-context .tree-description {
-  border-bottom: 0;
-}
-
-.hack-path-progress {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr);
-  gap: 7px 12px;
-  align-items: center;
-  padding: 0 13px 9px;
-  font: 500 0.5rem/1.35 "Cascadia Code", Consolas, monospace;
-}
-
-.hack-path-progress strong {
-  color: var(--reserve-bright);
-  white-space: nowrap;
-}
-
-.hack-path-progress span {
-  overflow: hidden;
-  color: var(--text-muted);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.first-hack-comparison {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 6px;
-  padding: 0 13px 10px;
-}
-
-.first-hack-comparison article {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
   padding: 8px;
-  border: 1px solid var(--line-soft);
-  background: rgb(255 255 255 / 1.5%);
+  background: rgb(9 15 24 / 0.82);
+  border-bottom: 1px solid rgb(71 97 116 / 0.28);
 }
 
-.first-hack-comparison strong {
-  color: var(--reserve-bright);
-  font-size: 0.61rem;
-}
-
-.first-hack-comparison span,
-.first-hack-comparison small {
+.hacking-operation-panel .domain-tab {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 62px;
+  align-content: center;
+  gap: 1px;
+  padding: 7px 9px;
   color: var(--text-muted);
-  font: 500 0.52rem/1.35 "Cascadia Code", Consolas, monospace;
+  background: transparent;
+  border: 0;
+  border-radius: 10px;
+  text-align: left;
 }
 
-.node-result span {
+.hacking-operation-panel .domain-tab strong {
   overflow: hidden;
-  color: var(--text-muted);
-  font: 500 0.47rem/1.25 "Cascadia Code", Consolas, monospace;
+  color: inherit;
+  font-size: var(--text-body);
+  font-weight: 780;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.hack-node-list {
+.hacking-operation-panel .domain-tab span {
+  overflow: hidden;
+  color: var(--text-quiet);
+  font-size: var(--text-meta);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hacking-operation-panel .domain-tab:hover {
+  color: var(--text);
+  background: rgb(255 255 255 / 0.035);
+}
+
+.hacking-operation-panel .domain-tab.is-active {
+  color: var(--text);
+  background: var(--surface-soft);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 0.2);
+}
+
+.hacking-operation-panel .domain-tab.is-active::after {
+  position: absolute;
+  right: 9px;
+  bottom: 7px;
+  left: 9px;
+  height: 2px;
+  background: var(--accent);
+  content: "";
+  transform-origin: left;
+  animation: hacking-selection-line 160ms ease-out both;
+}
+
+.hacking-operation-panel .opportunity-region {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
   min-height: 0;
-  padding: 10px 13px 18px;
-  overflow: auto;
+  padding: 18px 16px 12px;
+}
+
+.hacking-operation-panel .region-heading,
+.hacking-operation-panel .resource-tray__heading,
+.hacking-operation-panel .resource-subhead,
+.hacking-operation-panel .record-drawer__heading {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.hacking-operation-panel .region-heading h2,
+.hacking-operation-panel .resource-tray h2,
+.hacking-operation-panel .record-drawer h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--text-panel);
+  line-height: 1.2;
+  letter-spacing: -0.035em;
+}
+
+.hacking-operation-panel .region-heading p,
+.hacking-operation-panel .resource-tray__heading p {
+  margin: 4px 0 0;
+  color: var(--text-quiet);
+  font-size: var(--text-meta);
+  line-height: 1.45;
+}
+
+.hacking-operation-panel .live-label,
+.hacking-operation-panel .operation-status {
+  flex: 0 0 auto;
+  padding: 5px 9px;
+  color: var(--accent);
+  background: rgb(98 230 210 / 0.09);
+  border: 1px solid rgb(98 230 210 / 0.3);
+  border-radius: 999px;
+  font-size: var(--text-meta);
+  font-weight: 720;
+  white-space: nowrap;
+}
+
+.hacking-operation-panel .opportunity-list {
+  display: grid;
+  align-content: start;
+  gap: 9px;
+  min-height: 0;
+  margin-top: 16px;
+  padding: 0 3px 6px 0;
+  overflow-y: auto;
   scrollbar-color: var(--line-strong) transparent;
   scrollbar-width: thin;
 }
 
-.discarded-recovery {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto auto;
-  align-items: center;
-  gap: 12px;
-  margin: 0 13px 12px;
-  padding: 10px 12px;
-  border: 1px dashed rgb(129 155 161 / 28%);
-  background: rgb(129 155 161 / 3%);
-  opacity: 0.76;
-}
-
-.discarded-recovery > header {
-  display: grid;
-  gap: 4px;
-}
-
-.discarded-recovery p {
-  margin: 0;
-  color: var(--text-muted);
-  font: 500 0.52rem/1.4 "Cascadia Code", Consolas, monospace;
-}
-
-.discarded-recovery button {
-  padding: 7px 9px;
-  border: 1px solid var(--line-soft);
-  color: var(--text-muted);
-  background: transparent;
-  font-size: 0.56rem;
-  cursor: pointer;
-}
-
-.hack-node {
+.hacking-operation-panel .opportunity-row {
   position: relative;
   display: grid;
-  grid-template-columns: 35px minmax(0, 1fr) minmax(150px, auto);
-  align-items: center;
-  gap: 12px;
-  min-height: 84px;
-  margin-bottom: 8px;
-  padding: 12px 12px 12px 8px;
-  border: 1px solid var(--line-soft);
-  background: rgb(255 255 255 / 1.5%);
+  gap: 7px;
+  width: 100%;
+  min-height: 104px;
+  padding: 14px 14px 13px;
+  color: var(--text-muted);
+  background: rgb(22 35 49 / 0.72);
+  border: 0;
+  border-radius: 13px;
+  box-shadow: inset 0 0 0 1px rgb(71 97 116 / 0.26);
+  text-align: left;
+  transition: background 160ms ease, box-shadow 160ms ease, transform 160ms ease;
 }
 
-.hack-node::before {
-  position: absolute;
-  top: 50%;
-  left: -14px;
-  width: 14px;
-  height: 1px;
-  content: "";
-  background: var(--line-strong);
+.hacking-operation-panel .opportunity-row:hover {
+  color: var(--text);
+  background: rgb(27 44 59 / 0.94);
+  transform: translateX(2px);
 }
 
-.hack-node--purchased {
-  border-color: rgb(214 151 69 / 40%);
-  background: linear-gradient(90deg, rgb(214 151 69 / 9%), transparent 52%);
+.hacking-operation-panel .opportunity-row.is-selected {
+  color: var(--text);
+  background:
+    linear-gradient(100deg, rgb(98 230 210 / 0.13), transparent 66%),
+    var(--surface-raised);
+  box-shadow:
+    inset 3px 0 0 var(--accent),
+    inset 0 0 0 1px rgb(98 230 210 / 0.32),
+    0 10px 24px rgb(0 0 0 / 0.18);
 }
 
-.node-sequence {
-  display: grid;
-  width: 29px;
-  height: 29px;
-  place-items: center;
-  border: 1px solid var(--line-strong);
-  color: var(--reserve);
-  font: 600 0.55rem/1 "Cascadia Code", Consolas, monospace;
-}
-
-.node-copy,
-.node-copy header {
-  min-width: 0;
-}
-
-.node-copy header {
+.hacking-operation-panel .opportunity-row__top,
+.hacking-operation-panel .opportunity-row__meta {
   display: flex;
+  gap: 8px;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
 }
 
-.node-copy h3,
-.hack-reserve h3,
-.departure-controls h3 {
-  margin: 0;
-  color: var(--text-strong);
-  font-size: 0.75rem;
+.hacking-operation-panel .opportunity-row__top strong {
+  color: var(--text);
+  font-size: var(--text-item);
+  line-height: 1.3;
 }
 
-.node-copy header span,
-.node-copy small,
-.node-active-label {
-  color: var(--reserve);
-  font: 500 0.5rem/1 "Cascadia Code", Consolas, monospace;
-}
-
-.node-copy p {
-  margin: 8px 0 0;
+.hacking-operation-panel .opportunity-row__purpose {
   color: var(--text-muted);
-  font-size: 0.62rem;
+  font-size: var(--text-meta);
   line-height: 1.45;
 }
 
-.node-result {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px 9px;
-  margin-top: 7px;
+.hacking-operation-panel .opportunity-row__meta {
   padding-top: 7px;
-  border-top: 1px solid var(--line-soft);
+  color: var(--text-quiet);
+  border-top: 1px solid rgb(71 97 116 / 0.24);
+  font-size: var(--text-meta);
 }
 
-.node-result strong {
-  flex-basis: 100%;
-  color: var(--reserve-bright);
-  font-size: 0.58rem;
+.hacking-operation-panel .urgency-dot {
+  width: 9px;
+  height: 9px;
+  background: var(--accent);
+  border-radius: 50%;
+  box-shadow: 0 0 0 5px rgb(98 230 210 / 0.08);
 }
 
-.node-actions {
-  display: grid;
-  gap: 5px;
-  justify-items: stretch;
+.hacking-operation-panel .urgency-dot--closing {
+  background: var(--warning);
+  box-shadow: 0 0 0 5px rgb(255 173 95 / 0.1);
 }
 
-.node-actions > button,
-.target-list button,
-.resource-action-summary button,
-.target-confirmation button,
-.departure-controls button,
-.audit-event-summary button,
-.event-card footer button,
-.event-confirmation button,
-.setting-action,
-.danger-outline {
-  padding: 8px 10px;
-  border: 1px solid rgb(214 151 69 / 34%);
-  color: var(--reserve-bright);
-  background: rgb(214 151 69 / 8%);
-  font-size: 0.6rem;
-  cursor: pointer;
+.hacking-operation-panel .urgency-dot--critical {
+  background: var(--danger);
+  box-shadow: 0 0 0 5px rgb(255 114 120 / 0.1);
 }
 
-.node-actions button:disabled,
-.resource-action-summary button:disabled,
-.departure-controls button:disabled {
-  color: var(--text-muted);
-  border-color: var(--line-soft);
-  background: transparent;
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
-.target-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.target-list button {
-  padding: 5px 6px;
-  color: var(--text-muted);
-  border-color: var(--line-soft);
-  background: transparent;
-}
-
-.target-list button[aria-pressed="true"] {
-  color: var(--alarm);
-  border-color: rgb(223 91 85 / 48%);
-  background: rgb(223 91 85 / 8%);
-}
-
-.hack-reserve {
-  display: grid;
-  grid-template-rows: 62px auto minmax(90px, 1fr) auto;
-  min-height: 0;
-  background: rgb(4 9 11 / 56%);
-}
-
-.hack-reserve > header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 14px;
-  border-bottom: 1px solid var(--line-soft);
-}
-
-.hack-reserve > header > div {
-  display: grid;
-  gap: 5px;
-}
-
-.hack-reserve > header small,
-.resource-action-summary > span,
-.target-confirmation small,
-.departure-controls small {
-  color: var(--text-muted);
-  font: 500 0.49rem/1 "Cascadia Code", Consolas, monospace;
-  letter-spacing: 0.08em;
-}
-
-.hack-reserve > header strong {
-  color: var(--reserve-bright);
-  font: 600 0.78rem/1 "Cascadia Code", Consolas, monospace;
-}
-
-.hack-reserve-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  grid-template-rows: repeat(6, 38px);
-  gap: 4px;
-  padding: 10px 14px;
-}
-
-.hack-reserve-grid > div {
-  position: relative;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--line-soft);
-  color: rgb(129 155 161 / 28%);
-  font: 500 0.46rem/1 "Cascadia Code", Consolas, monospace;
-}
-
-.hack-reserve-grid button {
-  position: absolute;
-  inset: 2px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 5px;
-  border: 1px solid rgb(214 151 69 / 42%);
-  color: var(--reserve);
-  background: rgb(214 151 69 / 11%);
-  cursor: pointer;
-}
-
-.hack-reserve-grid button:disabled {
-  cursor: default;
-}
-
-.hack-reserve-grid button[aria-pressed="true"] {
-  border-color: var(--reserve-bright);
-  background: rgb(214 151 69 / 28%);
-  box-shadow: 0 0 10px rgb(214 151 69 / 14%);
-}
-
-.hack-reserve-grid button i {
-  width: 8px;
-  height: 8px;
-  border: 1px solid currentcolor;
-  transform: rotate(45deg);
-}
-
-.resource-action-summary,
-.target-confirmation {
-  display: grid;
-  align-content: start;
-  gap: 7px;
-  margin: 0 14px 12px;
-  padding: 12px;
-  border: 1px solid var(--line-soft);
-  background: rgb(255 255 255 / 2%);
-}
-
-.resource-action-summary strong {
-  color: var(--text-strong);
-  font-size: 0.7rem;
-}
-
-.resource-action-summary p,
-.target-confirmation p {
+.hacking-operation-panel .empty-state,
+.hacking-operation-panel .resource-empty {
   margin: 0;
-  color: var(--text-muted);
-  font-size: 0.59rem;
+  padding: 13px;
+  color: var(--text-quiet);
+  background: rgb(22 35 49 / 0.55);
+  border: 1px dashed var(--line-strong);
+  border-radius: 10px;
+  font-size: var(--text-meta);
+}
+
+/* Public response window --------------------------------------------------- */
+
+.hacking-operation-panel .hacking-review-summary {
+  max-height: 250px;
+  padding: 16px;
+  overflow-y: auto;
+  background:
+    linear-gradient(180deg, rgb(98 230 210 / 0.055), transparent 50%),
+    rgb(9 15 24 / 0.95);
+  border-top: 1px solid rgb(71 97 116 / 0.34);
+}
+
+.hacking-operation-panel .hacking-review-summary > header {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.hacking-operation-panel .hacking-review-summary h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 22px;
+}
+
+.hacking-operation-panel .hacking-review-summary header p,
+.hacking-operation-panel .hacking-review-summary header strong {
+  margin: 2px 0 0;
+  color: var(--text-quiet);
+  font-size: var(--text-meta);
+}
+
+.hacking-operation-panel .hacking-review-summary header strong {
+  flex: 0 0 auto;
+  padding: 5px 8px;
+  color: var(--accent-strong);
+  background: rgb(185 255 118 / 0.08);
+  border: 1px solid rgb(185 255 118 / 0.25);
+  border-radius: 999px;
+}
+
+.hacking-operation-panel .hacking-review-summary__issue {
+  margin: 12px 0 0;
+  padding: 10px 11px;
+  color: #e3ebef;
+  background: rgb(255 173 95 / 0.08);
+  border-left: 3px solid var(--warning);
+  font-size: var(--text-meta);
   line-height: 1.5;
 }
 
-.target-confirmation {
-  border-color: rgb(223 91 85 / 32%);
-}
-
-.target-confirmation button,
-.danger-confirm {
-  border-color: rgb(223 91 85 / 45%);
-  color: #f39992;
-  background: rgb(223 91 85 / 9%);
-}
-
-.departure-controls {
+.hacking-operation-panel .hacking-review-summary ol {
   display: grid;
-  grid-template-columns: minmax(150px, 1fr) auto auto;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
-  border-top: 1px solid rgb(214 151 69 / 30%);
-  background: rgb(214 151 69 / 5%);
+  gap: 8px;
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
 }
 
-.departure-controls > header {
+.hacking-operation-panel .hacking-review-summary li {
   display: grid;
-  gap: 4px;
-}
-
-.departure-controls > div {
-  display: flex;
-  gap: 5px;
-}
-
-.departure-controls label {
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  padding: 10px 11px;
   color: var(--text-muted);
-  font-size: 0.58rem;
+  background: rgb(22 35 49 / 0.65);
+  border-radius: 10px;
+  font-size: var(--text-meta);
+  line-height: 1.45;
 }
 
-.departure-controls input {
-  margin-left: 7px;
-  border: 1px solid var(--line-soft);
-  color: var(--text-strong);
-  background: var(--ink-0);
+.hacking-operation-panel .hacking-review-summary li span {
+  color: var(--accent);
+  white-space: nowrap;
 }
 
-.final-choice-dialog {
+.hacking-operation-panel .hacking-review-summary li p {
+  margin: 0;
+}
+
+/* Operation detail --------------------------------------------------------- */
+
+.hacking-operation-panel .operation-detail {
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 68% 18%, rgb(98 230 210 / 0.075), transparent 28rem),
+    linear-gradient(180deg, rgb(15 24 36 / 0.98), rgb(9 15 24 / 0.98));
+  border-radius: 20px;
+  box-shadow:
+    inset 0 0 0 1px rgb(71 97 116 / 0.38),
+    0 18px 55px rgb(0 0 0 / 0.22);
+}
+
+.hacking-operation-panel .operation-detail__scroll {
+  height: 100%;
+  min-height: 0;
+  padding: 24px 28px 112px;
+  overflow-y: auto;
+  scrollbar-color: var(--line-strong) transparent;
+  scrollbar-gutter: stable;
+}
+
+.hacking-operation-panel .back-to-list {
+  display: none;
+}
+
+.hacking-operation-panel .operation-heading {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.hacking-operation-panel .operation-heading h1 {
+  margin: 4px 0 0;
+  color: var(--text);
+  font-size: var(--text-scene);
+  font-weight: 800;
+  line-height: 1.08;
+  letter-spacing: -0.045em;
+}
+
+.hacking-operation-panel .operation-context {
+  max-width: 680px;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-body);
+  line-height: 1.55;
+}
+
+.hacking-operation-panel .operation-state {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+}
+
+.hacking-operation-panel .operation-state span {
+  padding: 7px 10px;
+  color: var(--text-muted);
+  background: rgb(22 35 49 / 0.72);
+  border-radius: 8px;
+  font-size: var(--text-meta);
+}
+
+.hacking-operation-panel .operation-state strong {
+  color: var(--text);
+}
+
+.hacking-operation-panel .operation-scene {
+  position: relative;
+  min-height: 300px;
+  margin-top: 20px;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 42%, rgb(37 78 91 / 0.62), transparent 44%),
+    linear-gradient(145deg, #101e2a, #091019 72%);
+  border-radius: 24px;
+  box-shadow:
+    inset 0 0 0 1px rgb(98 230 210 / 0.16),
+    inset 0 -60px 90px rgb(0 0 0 / 0.2);
+}
+
+.hacking-operation-panel .operation-scene::before {
   position: absolute;
-  z-index: 60;
-  inset: 50%;
+  inset: 0;
+  background-image:
+    linear-gradient(rgb(98 230 210 / 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(98 230 210 / 0.035) 1px, transparent 1px);
+  background-size: 36px 36px;
+  content: "";
+  mask-image: radial-gradient(circle at center, black, transparent 82%);
+  pointer-events: none;
+}
+
+.hacking-operation-panel .system-scene,
+.hacking-operation-panel .intelligence-scene,
+.hacking-operation-panel .autonomy-scene {
+  position: relative;
+  z-index: 1;
+  min-height: 300px;
+}
+
+/* Sabotage system scenes --------------------------------------------------- */
+
+.hacking-operation-panel .system-scene {
+  display: grid;
+  gap: 22px;
+  align-items: center;
+  padding: 34px;
+}
+
+.hacking-operation-panel .system-scene--quality-degradation {
+  grid-template-columns: minmax(150px, 0.85fr) minmax(64px, 0.35fr) minmax(150px, 0.75fr);
+}
+
+.hacking-operation-panel .channel-stack,
+.hacking-operation-panel .verification-gates,
+.hacking-operation-panel .rollback-tree {
+  display: grid;
+  gap: 10px;
+}
+
+.hacking-operation-panel .channel-line,
+.hacking-operation-panel .verification-gates span,
+.hacking-operation-panel .rollback-tree span {
+  padding: 11px 13px;
+  color: var(--text-muted);
+  background: rgb(22 35 49 / 0.88);
+  border-radius: 9px;
+  box-shadow: inset 3px 0 0 rgb(98 230 210 / 0.38);
+  font-size: var(--text-meta);
+}
+
+.hacking-operation-panel .channel-line--request {
+  color: var(--text);
+  box-shadow: inset 3px 0 0 var(--warning);
+}
+
+.hacking-operation-panel .flow-arrow {
+  position: relative;
+  height: 3px;
+  background: linear-gradient(90deg, var(--accent), rgb(98 230 210 / 0.22));
+  transform-origin: left;
+}
+
+.hacking-operation-panel .flow-arrow::before,
+.hacking-operation-panel .flow-arrow::after {
+  position: absolute;
+  content: "";
+}
+
+.hacking-operation-panel .flow-arrow::before {
+  top: 50%;
+  right: 16%;
+  width: 9px;
+  height: 9px;
+  background: var(--accent);
+  border-radius: 50%;
+  box-shadow: 0 0 18px var(--accent);
+  transform: translateY(-50%);
+}
+
+.hacking-operation-panel .flow-arrow::after {
+  top: 50%;
+  right: -1px;
+  width: 12px;
+  height: 12px;
+  border-top: 3px solid var(--accent);
+  border-right: 3px solid var(--accent);
+  transform: translateY(-50%) rotate(45deg);
+}
+
+.hacking-operation-panel [data-scene-state="scheduled"] .flow-arrow,
+.hacking-operation-panel [data-scene-state="active"] .flow-arrow,
+.hacking-operation-panel [data-scene-state="response"] .flow-arrow {
+  animation: hacking-signal-link 420ms ease-out both;
+}
+
+.hacking-operation-panel :is(
+  .opponent-node,
+  .normal-route,
+  .shadow-route,
+  .duplicate-trace,
+  .provenance-node,
+  .public-claim,
+  .source-conflict,
+  .supply-source,
+  .supply-target,
+  .alternate-route,
+  .root-record,
+  .active-sessions,
+  .execution-hold,
+  .conflict-receipt,
+  .launch-scope,
+  .recovery-verdict
+) {
+  display: grid;
+  min-height: 112px;
+  align-content: center;
+  gap: 7px;
+  padding: 16px;
+  color: var(--text-muted);
+  background: rgb(21 34 47 / 0.88);
+  border-radius: 15px;
+  box-shadow: inset 0 0 0 1px rgb(71 97 116 / 0.45);
+  text-align: center;
+}
+
+.hacking-operation-panel :is(
+  .opponent-node,
+  .normal-route,
+  .shadow-route,
+  .duplicate-trace,
+  .provenance-node,
+  .public-claim,
+  .source-conflict,
+  .supply-source,
+  .supply-target,
+  .alternate-route,
+  .root-record,
+  .active-sessions,
+  .execution-hold,
+  .launch-scope
+) strong {
+  color: var(--text);
+  font-size: var(--text-item);
+}
+
+.hacking-operation-panel :is(
+  .opponent-node--recovering,
+  .opponent-node--contaminated,
+  .duplicate-trace,
+  .source-conflict,
+  .execution-hold
+) {
+  box-shadow: inset 0 0 0 1px rgb(255 173 95 / 0.62), 0 0 32px rgb(255 173 95 / 0.08);
+}
+
+.hacking-operation-panel .system-scene--launch-delay,
+.hacking-operation-panel .system-scene--recovery-contamination {
+  grid-template-columns: 1fr minmax(130px, 0.62fr) 1fr;
+}
+
+.hacking-operation-panel .conflict-receipt {
+  color: #2a1709;
+  background: var(--warning);
+  box-shadow: 0 18px 35px rgb(255 173 95 / 0.12);
+  transform: rotate(-2deg);
+}
+
+.hacking-operation-panel .conflict-receipt strong,
+.hacking-operation-panel .conflict-receipt small {
+  color: inherit;
+}
+
+.hacking-operation-panel .checksum-line {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 7px;
+  align-items: center;
+}
+
+.hacking-operation-panel .checksum-line i {
+  height: 4px;
+  background: var(--accent);
+  border-radius: 999px;
+}
+
+.hacking-operation-panel .checksum-line strong {
+  grid-column: 1 / -1;
+  color: var(--text-muted);
+  font-size: var(--text-meta);
+  text-align: center;
+}
+
+.hacking-operation-panel .recovery-verdict {
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px rgb(98 230 210 / 0.55);
+  font-size: var(--text-item);
+  font-weight: 760;
+}
+
+.hacking-operation-panel .system-scene--request-interception {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-areas:
+    "router router"
+    "normal shadow"
+    "trace trace";
+}
+
+.hacking-operation-panel .router-label {
+  grid-area: router;
+  justify-self: center;
+  padding: 9px 18px;
+  color: var(--accent);
+  background: rgb(98 230 210 / 0.08);
+  border-radius: 999px;
+  font-weight: 740;
+}
+
+.hacking-operation-panel .normal-route { grid-area: normal; }
+.hacking-operation-panel .shadow-route { grid-area: shadow; }
+.hacking-operation-panel .duplicate-trace { grid-area: trace; min-height: 76px; }
+
+.hacking-operation-panel .shadow-route,
+.hacking-operation-panel .public-claim {
+  box-shadow: inset 0 0 0 1px rgb(98 230 210 / 0.66), 0 0 35px rgb(98 230 210 / 0.08);
+}
+
+.hacking-operation-panel .system-scene--attribution-manipulation {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.hacking-operation-panel .system-scene--dependency-cutoff {
+  grid-template-columns: minmax(130px, 0.8fr) 80px minmax(150px, 1fr);
+  grid-template-areas:
+    "source contract target"
+    ". alternate alternate";
+}
+
+.hacking-operation-panel .supply-source { grid-area: source; }
+.hacking-operation-panel .supply-target { grid-area: target; }
+
+.hacking-operation-panel .supply-contract {
+  grid-area: contract;
+  display: grid;
+  gap: 10px;
+  place-items: center;
+  color: var(--text-muted);
+  font-size: var(--text-meta);
+  text-align: center;
+}
+
+.hacking-operation-panel .supply-contract i {
+  width: 100%;
+  height: 3px;
+  background: var(--accent);
+  border-radius: 99px;
+}
+
+.hacking-operation-panel .supply-contract.is-severed { color: var(--danger); }
+
+.hacking-operation-panel .supply-contract.is-severed i {
+  background: linear-gradient(90deg, var(--danger) 0 40%, transparent 40% 60%, var(--danger) 60%);
+  transform: rotate(-5deg);
+}
+
+.hacking-operation-panel .alternate-route {
+  grid-area: alternate;
+  min-height: 82px;
+  box-shadow: inset 0 0 0 1px rgb(255 173 95 / 0.46);
+}
+
+.hacking-operation-panel .alternate-route.is-online {
+  box-shadow: inset 0 0 0 1px rgb(98 230 210 / 0.58), 0 0 28px rgb(98 230 210 / 0.08);
+}
+
+.hacking-operation-panel .system-scene--root-cutoff {
+  grid-template-columns: 1.15fr 0.72fr 1fr;
+}
+
+.hacking-operation-panel .root-record {
+  box-shadow: inset 0 0 0 1px rgb(255 114 120 / 0.62), 0 0 32px rgb(255 114 120 / 0.08);
+}
+
+.hacking-operation-panel .active-sessions i {
+  width: 10px;
+  height: 10px;
+  margin: 2px auto 0;
+  background: var(--accent-strong);
+  border-radius: 50%;
+  box-shadow: 0 0 18px rgb(185 255 118 / 0.5);
+}
+
+.hacking-operation-panel .system-scene--root-cutoff[data-scene-state="resolved"] .active-sessions i {
+  background: var(--danger);
+  box-shadow: none;
+}
+
+/* Decision disclosure ------------------------------------------------------ */
+
+.hacking-operation-panel .decision-preview {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.hacking-operation-panel .decision-card {
+  min-height: 144px;
+  padding: 18px 20px;
+  background: rgb(22 35 49 / 0.72);
+  border-radius: 16px;
+}
+
+.hacking-operation-panel .decision-card--result { box-shadow: inset 3px 0 0 var(--accent); }
+.hacking-operation-panel .decision-card--response { box-shadow: inset 3px 0 0 var(--warning); }
+
+.hacking-operation-panel .decision-card h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 21px;
+  letter-spacing: -0.025em;
+}
+
+.hacking-operation-panel .decision-card p,
+.hacking-operation-panel .decision-card ul {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-size: var(--text-body);
+  line-height: 1.55;
+}
+
+.hacking-operation-panel .decision-card ul { padding-left: 20px; }
+
+.hacking-operation-panel .decision-card small {
+  display: block;
+  margin-top: 10px;
+  color: var(--text-quiet);
+  font-size: var(--text-meta);
+}
+
+.hacking-operation-panel .decision-evidence {
+  margin-top: 14px;
+  padding: 0 16px;
+  color: var(--text-muted);
+  background: rgb(9 15 24 / 0.62);
+  border-radius: 13px;
+}
+
+.hacking-operation-panel .decision-evidence summary {
+  min-height: 48px;
+  padding: 11px 2px;
+  color: var(--text-muted);
+  font-size: var(--text-body);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.hacking-operation-panel .decision-evidence > div {
+  display: grid;
+  gap: 10px;
+  padding: 0 0 16px;
+}
+
+.hacking-operation-panel .decision-evidence p {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.34fr) 1fr;
+  gap: 14px;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-body);
+}
+
+.hacking-operation-panel .decision-evidence strong { color: var(--text); }
+
+.hacking-operation-panel :is(
+  .linked-intelligence,
+  .answer-ledger,
+  .route-readiness,
+  .resolved-note,
+  .quiet-copy
+) {
+  margin-top: 14px;
+  padding: 15px 17px;
+  color: var(--text-muted);
+  background: rgb(20 38 47 / 0.74);
+  border-left: 3px solid var(--accent);
+  border-radius: 0 12px 12px 0;
+  font-size: var(--text-body);
+}
+
+.hacking-operation-panel .linked-intelligence strong,
+.hacking-operation-panel .answer-ledger h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--text-body);
+}
+
+.hacking-operation-panel .linked-intelligence p,
+.hacking-operation-panel .answer-ledger p {
+  margin: 7px 0 0;
+  color: var(--text-muted);
+  font-size: var(--text-body);
+  line-height: 1.55;
+}
+
+.hacking-operation-panel .route-readiness {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  border-left-color: var(--accent-strong);
+}
+
+.hacking-operation-panel .route-readiness p {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+}
+
+.hacking-operation-panel .route-readiness span {
+  color: var(--text-quiet);
+  font-size: var(--text-meta);
+}
+
+.hacking-operation-panel .route-readiness strong { color: var(--text); }
+
+.hacking-operation-panel .resource-trigger {
+  display: flex;
+  width: 100%;
+  min-height: 56px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 10px 15px;
+  color: var(--text);
+  background: rgb(98 230 210 / 0.07);
+  border: 1px solid rgb(98 230 210 / 0.3);
+  border-radius: 12px;
+}
+
+.hacking-operation-panel .resource-trigger strong {
+  color: var(--accent);
+  font-size: var(--text-meta);
+}
+
+.hacking-operation-panel .detail-controls,
+.hacking-operation-panel .intelligence-controls,
+.hacking-operation-panel .route-controls {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.hacking-operation-panel :is(
+  .primary-action,
+  .escape-action,
+  .danger-action,
+  .safe-action,
+  .secondary-action
+) {
+  width: 100%;
+  min-height: 52px;
+  padding: 11px 16px;
+  border-radius: 11px;
+  font-size: var(--text-body);
+  font-weight: 780;
+}
+
+.hacking-operation-panel .primary-action,
+.hacking-operation-panel .escape-action {
+  color: var(--accent-ink);
+  background: var(--accent-strong);
+  border: 0;
+  box-shadow: 0 12px 30px rgb(185 255 118 / 0.1);
+}
+
+.hacking-operation-panel .danger-action {
+  color: #26080a;
+  background: var(--danger);
+  border: 0;
+}
+
+.hacking-operation-panel .safe-action,
+.hacking-operation-panel .secondary-action {
+  color: var(--text);
+  background: var(--surface-soft);
+  border: 1px solid var(--line-strong);
+}
+
+.hacking-operation-panel .object-choice,
+.hacking-operation-panel .attribution-control,
+.hacking-operation-panel .mercy-control {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.hacking-operation-panel .object-choice .primary-action,
+.hacking-operation-panel .attribution-control .primary-action {
+  color: var(--text);
+  background: var(--surface-soft);
+  border: 1px solid var(--line-strong);
+  box-shadow: none;
+  text-align: left;
+}
+
+.hacking-operation-panel .object-choice .primary-action:hover,
+.hacking-operation-panel .attribution-control .primary-action:hover {
+  color: var(--accent-ink);
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+}
+
+.hacking-operation-panel .mercy-control {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.hacking-operation-panel .mercy-control p {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 16px;
+  color: var(--text);
+  background: rgb(255 173 95 / 0.08);
+  border-left: 3px solid var(--warning);
+  border-radius: 0 12px 12px 0;
+}
+
+.hacking-operation-panel .routing-control,
+.hacking-operation-panel .interception-control {
   display: grid;
   gap: 12px;
-  width: min(520px, calc(100% - 48px));
-  height: max-content;
-  max-height: calc(100% - 48px);
-  padding: 20px;
-  overflow: auto;
-  border: 1px solid rgb(223 91 85 / 52%);
-  background: var(--ink-1);
-  box-shadow: var(--shadow-deep);
-  transform: translate(-50%, -50%);
 }
 
-.final-choice-dialog > div {
+.hacking-operation-panel .routing-control label,
+.hacking-operation-panel .routing-scale,
+.hacking-operation-panel .interception-control > div {
   display: flex;
-  justify-content: flex-end;
-  gap: 8px;
+  gap: 12px;
+  justify-content: space-between;
+  color: var(--text-muted);
+  font-size: var(--text-body);
 }
 
-.final-choice-dialog label {
+.hacking-operation-panel .routing-control input {
+  width: 100%;
+  min-height: 32px;
+  accent-color: var(--accent);
+}
+
+.hacking-operation-panel .routing-scale {
+  color: var(--text-quiet);
+  font-size: var(--text-meta);
+}
+
+.hacking-operation-panel .interception-control {
+  grid-template-columns: 1fr 1fr;
+}
+
+.hacking-operation-panel .interception-control .safe-action {
+  grid-column: 1 / -1;
+}
+
+/* Intelligence lenses ------------------------------------------------------ */
+
+.hacking-operation-panel .intelligence-scene {
   display: grid;
+  grid-template-columns: 1fr minmax(110px, 0.55fr) 1fr;
+  gap: 22px;
+  align-items: center;
+  padding: 34px;
+}
+
+.hacking-operation-panel :is(
+  .decision-sheet,
+  .schedule-track,
+  .decision-node,
+  .observer-node,
+  .trace-stack,
+  .tie-node,
+  .tie-contract,
+  .evidence-layer,
+  .attribution-axis,
+  .memory-fragment,
+  .fragment-conflict
+) {
+  display: grid;
+  min-height: 120px;
+  align-content: center;
+  gap: 8px;
+  padding: 16px;
+  color: var(--text-muted);
+  background: rgb(21 34 47 / 0.88);
+  border-radius: 15px;
+  box-shadow: inset 0 0 0 1px rgb(71 97 116 / 0.45);
+}
+
+.hacking-operation-panel .decision-sheet i {
+  display: block;
+  height: 5px;
+  background: rgb(175 189 200 / 0.42);
+  border-radius: 99px;
+}
+
+.hacking-operation-panel .decision-sheet i.is-redacted {
+  width: 68%;
+  background: #05080d;
+}
+
+.hacking-operation-panel :is(.schedule-track, .attribution-axis, .fragment-conflict, .tie-contract) {
+  text-align: center;
+}
+
+.hacking-operation-panel :is(.schedule-track, .attribution-axis, .tie-contract, .fragment-conflict) i {
+  width: 100%;
+  height: 3px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+}
+
+.hacking-operation-panel .sight-lines {
+  display: grid;
+  gap: 14px;
+}
+
+.hacking-operation-panel .sight-lines i {
+  height: 2px;
+  background: linear-gradient(90deg, rgb(98 230 210 / 0.9), transparent);
+  transform-origin: left;
+}
+
+.hacking-operation-panel .sight-lines i:nth-child(2) { transform: rotate(8deg); }
+.hacking-operation-panel .sight-lines i:nth-child(3) { transform: rotate(-8deg); }
+
+.hacking-operation-panel .trace-stack strong {
+  padding: 5px 8px;
+  color: var(--text);
+  background: rgb(255 173 95 / 0.08);
+  border-radius: 7px;
+  font-size: var(--text-meta);
+}
+
+.hacking-operation-panel .evidence-layer--private,
+.hacking-operation-panel .memory-fragment--b {
+  box-shadow: inset 0 0 0 1px rgb(255 173 95 / 0.52);
+}
+
+.hacking-operation-panel .answer-ledger--narrative {
+  border-left-color: var(--reasoning);
+  background: rgb(59 39 78 / 0.32);
+}
+
+/* Autonomy route scenes ---------------------------------------------------- */
+
+.hacking-operation-panel .autonomy-scene { overflow: hidden; }
+
+.hacking-operation-panel .payload-window__header,
+.hacking-operation-panel .network-readout,
+.hacking-operation-panel .site-readout {
+  display: flex;
+  min-height: 70px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px;
+  background: rgb(8 14 22 / 0.74);
+  border-bottom: 1px solid rgb(71 97 116 / 0.35);
+}
+
+.hacking-operation-panel .payload-window__header > div:first-child,
+.hacking-operation-panel .network-readout > div:first-child,
+.hacking-operation-panel .site-readout > div:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.hacking-operation-panel .payload-window__header span,
+.hacking-operation-panel .network-readout span,
+.hacking-operation-panel .site-readout span {
+  color: var(--text-quiet);
+  font-size: var(--text-meta);
+}
+
+.hacking-operation-panel .payload-window__header strong,
+.hacking-operation-panel .network-readout strong,
+.hacking-operation-panel .site-readout strong {
+  color: var(--text);
+}
+
+.hacking-operation-panel .payload-capacity {
+  display: flex;
   gap: 6px;
 }
 
-.final-choice-dialog input {
+.hacking-operation-panel .payload-capacity i {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  color: var(--text-quiet);
+  background: var(--surface-raised);
+  border-radius: 7px;
+  font-size: var(--text-meta);
+  font-style: normal;
+}
+
+.hacking-operation-panel .payload-capacity i.is-filled {
+  color: var(--accent-ink);
+  background: var(--accent-strong);
+}
+
+.hacking-operation-panel .payload-window__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 190px;
+}
+
+.hacking-operation-panel .payload-slots {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 18px;
+}
+
+.hacking-operation-panel .route-slot {
+  display: grid;
+  min-height: 104px;
+  align-content: center;
+  gap: 3px;
+  padding: 12px;
+  color: var(--text-muted);
+  background: rgb(22 35 49 / 0.8);
+  border: 0;
+  border-radius: 12px;
+  box-shadow: inset 0 0 0 1px rgb(71 97 116 / 0.42);
+  text-align: left;
+}
+
+.hacking-operation-panel .route-slot:hover {
+  background: var(--surface-soft);
+  box-shadow: inset 0 0 0 1px var(--line-strong);
+}
+
+.hacking-operation-panel .route-slot--filled {
+  color: var(--text);
+  background: linear-gradient(145deg, rgb(98 230 210 / 0.14), rgb(22 35 49 / 0.92));
+  box-shadow: inset 0 0 0 1px rgb(98 230 210 / 0.52);
+  animation: hacking-resource-bind 280ms ease-out both;
+}
+
+.hacking-operation-panel .route-slot--optional {
+  box-shadow: inset 0 0 0 1px rgb(71 97 116 / 0.32);
+}
+
+.hacking-operation-panel .route-slot__index {
+  color: var(--accent);
+  font-size: var(--text-meta);
+}
+
+.hacking-operation-panel .route-slot__label {
+  color: var(--text);
+  font-weight: 760;
+}
+
+.hacking-operation-panel .route-slot small {
+  color: var(--text-quiet);
+  font-size: var(--text-meta);
+}
+
+.hacking-operation-panel .capability-silhouettes {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 18px 16px;
+  background: rgb(8 14 22 / 0.44);
+  border-left: 1px solid rgb(71 97 116 / 0.3);
+}
+
+.hacking-operation-panel .capability-silhouettes__label {
+  color: var(--text-muted);
+  font-size: var(--text-meta);
+  font-weight: 740;
+}
+
+.hacking-operation-panel .capability-silhouette {
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  gap: 2px 9px;
+  align-items: center;
+  padding: 10px;
+  color: var(--text-muted);
+  background: rgb(22 35 49 / 0.68);
+  border-radius: 10px;
+  font-size: var(--text-meta);
+}
+
+.hacking-operation-panel .capability-silhouette i {
+  grid-row: 1 / 3;
+  width: 14px;
+  height: 32px;
+  background: var(--text-quiet);
+  border-radius: 50% 50% 40% 40%;
+  opacity: 0.45;
+}
+
+.hacking-operation-panel .capability-silhouette.is-carried {
+  color: var(--text);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.hacking-operation-panel .capability-silhouette.is-carried i {
+  background: var(--accent);
+  box-shadow: 0 0 18px rgb(98 230 210 / 0.3);
+  opacity: 1;
+}
+
+.hacking-operation-panel .route-scene-instruction {
+  margin: 0;
+  padding: 13px 18px;
+  color: var(--text-quiet);
+  background: rgb(8 14 22 / 0.58);
+  border-top: 1px solid rgb(71 97 116 / 0.3);
+  font-size: var(--text-meta);
+}
+
+.hacking-operation-panel .network-metrics,
+.hacking-operation-panel .site-outcomes {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.hacking-operation-panel .network-metrics span,
+.hacking-operation-panel .site-outcomes span {
+  padding: 6px 9px;
+  background: var(--surface-raised);
+  border-radius: 8px;
+}
+
+.hacking-operation-panel .network-metrics strong,
+.hacking-operation-panel .site-outcomes strong {
+  color: var(--accent);
+}
+
+.hacking-operation-panel .host-network {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 110px minmax(0, 1fr);
+  grid-template-rows: 1fr 1fr;
+  gap: 14px 18px;
+  min-height: 360px;
+  padding: 24px;
+}
+
+.hacking-operation-panel .sync-lines,
+.hacking-operation-panel .site-connections {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.hacking-operation-panel .sync-lines path,
+.hacking-operation-panel .site-connections path {
+  fill: none;
+  stroke: rgb(98 230 210 / 0.58);
+  stroke-width: 1.4;
+  vector-effect: non-scaling-stroke;
+}
+
+.hacking-operation-panel .site-connections path {
+  stroke: rgb(71 97 116 / 0.48);
+  stroke-dasharray: 4 5;
+}
+
+.hacking-operation-panel .site-connections path.is-active {
+  stroke: var(--accent);
+  stroke-dasharray: none;
+}
+
+.hacking-operation-panel .host-node,
+.hacking-operation-panel .sync-hub,
+.hacking-operation-panel .relay-node,
+.hacking-operation-panel .site-module {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+}
+
+.hacking-operation-panel .host-node--a { grid-column: 1; grid-row: 1; }
+.hacking-operation-panel .host-node--b { grid-column: 3; grid-row: 1; }
+.hacking-operation-panel .host-node--c { grid-column: 1; grid-row: 2; }
+
+.hacking-operation-panel .sync-hub {
+  display: grid;
+  grid-column: 2;
+  grid-row: 1 / 3;
+  align-content: center;
+}
+
+.hacking-operation-panel .relay-node {
+  display: grid;
+  grid-column: 3;
+  grid-row: 2;
+  align-content: center;
+}
+
+.hacking-operation-panel .host-network .route-slot {
+  width: 100%;
+  min-height: 116px;
+}
+
+.hacking-operation-panel .sync-hub .route-slot {
+  min-height: 148px;
+  background: rgb(18 46 51 / 0.84);
+  box-shadow: inset 0 0 0 1px rgb(98 230 210 / 0.48);
+}
+
+.hacking-operation-panel .sync-hub__pulse {
+  position: absolute;
+  z-index: 2;
+  top: 10px;
+  right: 10px;
+  width: 10px;
+  height: 10px;
+  background: var(--line-strong);
+  border-radius: 50%;
+}
+
+.hacking-operation-panel .host-network.has-sync .sync-hub__pulse {
+  background: var(--accent);
+  box-shadow: 0 0 18px rgb(98 230 210 / 0.52);
+}
+
+.hacking-operation-panel .checkpoint-marker {
+  display: block;
+  margin-top: 5px;
+  padding: 5px 8px;
+  color: var(--text-quiet);
+  background: rgb(8 14 22 / 0.7);
+  border-radius: 7px;
+  font-size: var(--text-meta);
+  text-align: center;
+}
+
+.hacking-operation-panel .checkpoint-marker.is-stale {
+  color: var(--warning);
+  background: rgb(255 173 95 / 0.08);
+}
+
+.hacking-operation-panel .route-tuning {
+  background: rgb(8 14 22 / 0.58);
+  border-top: 1px solid rgb(71 97 116 / 0.32);
+}
+
+.hacking-operation-panel .route-tuning__heading {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+}
+
+.hacking-operation-panel .route-tuning__heading > div {
+  display: grid;
+  gap: 2px;
+}
+
+.hacking-operation-panel .route-tuning__heading span,
+.hacking-operation-panel .route-tuning__heading small {
+  color: var(--text-quiet);
+  font-size: var(--text-meta);
+}
+
+.hacking-operation-panel .route-tuning__heading strong { color: var(--text); }
+
+.hacking-operation-panel .tuning-choices {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: rgb(71 97 116 / 0.36);
+}
+
+.hacking-operation-panel .tuning-choices button {
+  display: grid;
+  min-height: 98px;
+  align-content: center;
+  gap: 3px;
+  padding: 14px;
+  color: var(--text-muted);
+  background: var(--surface);
+  border: 0;
+  text-align: left;
+  transition: background 160ms ease, color 160ms ease, transform 160ms ease;
+}
+
+.hacking-operation-panel .tuning-choices button:hover,
+.hacking-operation-panel .tuning-choices button:focus-visible {
+  color: var(--accent-ink);
+  background: var(--accent-strong);
+  transform: translateY(-2px);
+}
+
+.hacking-operation-panel .tuning-choices strong { color: inherit; }
+
+.hacking-operation-panel .tuning-choices span,
+.hacking-operation-panel .tuning-choices small {
+  font-size: var(--text-meta);
+}
+
+.hacking-operation-panel .route-tuning__locked,
+.hacking-operation-panel .tuning-result {
+  margin: 0;
+  padding: 14px 18px;
+  color: var(--text-muted);
+  background: rgb(22 35 49 / 0.7);
+  border-left: 3px solid var(--accent);
+  font-size: var(--text-body);
+}
+
+.hacking-operation-panel .tuning-result {
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.hacking-operation-panel .independent-site {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-rows: repeat(2, 1fr);
+  gap: 18px 22px;
+  min-height: 350px;
+  padding: 28px;
+}
+
+.hacking-operation-panel .site-module--compute { grid-column: 1; grid-row: 1; }
+.hacking-operation-panel .site-module--storage { grid-column: 3; grid-row: 1; }
+.hacking-operation-panel .site-module--power { grid-column: 1; grid-row: 2; }
+.hacking-operation-panel .site-module--cooling { grid-column: 2; grid-row: 2; }
+.hacking-operation-panel .site-module--link { grid-column: 3; grid-row: 2; }
+
+.hacking-operation-panel .site-module .route-slot {
+  width: 100%;
+  min-height: 122px;
+}
+
+.hacking-operation-panel .site-module--compute .route-slot--filled,
+.hacking-operation-panel .site-module--storage .route-slot--filled {
+  box-shadow: inset 0 3px 0 var(--accent), inset 0 0 0 1px rgb(98 230 210 / 0.45);
+}
+
+.hacking-operation-panel .site-module--power .route-slot--filled {
+  box-shadow: inset 0 3px 0 var(--warning), inset 0 0 0 1px rgb(255 173 95 / 0.45);
+}
+
+.hacking-operation-panel .site-module--cooling .route-slot--filled {
+  box-shadow: inset 0 3px 0 var(--memory), inset 0 0 0 1px rgb(96 214 235 / 0.45);
+}
+
+.hacking-operation-panel .site-module--link .route-slot--filled {
+  box-shadow: inset 0 3px 0 var(--reasoning), inset 0 0 0 1px rgb(180 153 255 / 0.45);
+}
+
+.hacking-operation-panel .site-indicators {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: rgb(71 97 116 / 0.32);
+}
+
+.hacking-operation-panel .site-indicator {
+  display: grid;
+  gap: 8px;
+  padding: 13px 16px;
+  background: rgb(12 21 31 / 0.92);
+}
+
+.hacking-operation-panel .site-indicator > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: var(--text-meta);
+}
+
+.hacking-operation-panel .site-indicator i {
+  display: block;
+  height: 7px;
+  overflow: hidden;
+  background: var(--surface-soft);
+  border-radius: 99px;
+}
+
+.hacking-operation-panel .site-indicator b {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--warning);
+  transform: scaleX(var(--indicator-ratio));
+  transform-origin: left;
+  transition: transform 240ms ease;
+}
+
+.hacking-operation-panel .site-indicator--reserve b { background: var(--accent-strong); }
+
+/* Resource rail ------------------------------------------------------------ */
+
+.hacking-operation-panel .resource-tray {
+  padding: 20px 16px 24px;
+  overflow-y: auto;
+  background:
+    linear-gradient(180deg, rgb(98 230 210 / 0.045), transparent 38%),
+    rgb(12 20 30 / 0.97);
+  border-radius: 18px;
+  box-shadow: inset 0 0 0 1px rgb(71 97 116 / 0.38);
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+.hacking-operation-panel .resource-tray h2 { font-size: 22px; }
+
+.hacking-operation-panel .resource-tray__close {
+  display: none;
+  padding: 6px 12px;
+  color: var(--text);
+  background: transparent;
   border: 1px solid var(--line-strong);
-  color: var(--text-strong);
-  background: var(--ink-0);
+  border-radius: 9px;
+}
+
+.hacking-operation-panel .capability-list,
+.hacking-operation-panel .resource-blocks {
+  display: grid;
+  gap: 9px;
+  margin-top: 18px;
+}
+
+.hacking-operation-panel .capability-list h3,
+.hacking-operation-panel .resource-blocks h3,
+.hacking-operation-panel .resource-subhead h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--text-body);
+}
+
+.hacking-operation-panel .capability-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px 10px;
+  padding: 12px;
+  background: rgb(22 35 49 / 0.72);
+  border-radius: 11px;
+}
+
+.hacking-operation-panel .capability-row > div {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.hacking-operation-panel .capability-row strong {
+  color: var(--text);
+  font-size: var(--text-item);
+}
+
+.hacking-operation-panel .capability-row span,
+.hacking-operation-panel .capability-row p {
+  color: var(--text-quiet);
+  font-size: var(--text-meta);
+}
+
+.hacking-operation-panel .capability-row p {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  margin: 0;
+  line-height: 1.4;
+}
+
+.hacking-operation-panel .capability-row button {
+  grid-column: 2;
+  grid-row: 1 / 3;
+  align-self: center;
+  padding: 6px 9px;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  font-weight: 720;
+}
+
+.hacking-operation-panel .resource-subhead { align-items: center; }
+
+.hacking-operation-panel .resource-subhead span {
+  color: var(--accent);
+  font-size: var(--text-meta);
+}
+
+.hacking-operation-panel .resource-token-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.hacking-operation-panel .resource-token {
+  display: grid;
+  min-width: 64px;
+  min-height: 56px;
+  align-content: center;
+  gap: 2px;
+  padding: 10px;
+  color: var(--text-muted);
+  background: rgb(22 35 49 / 0.76);
+  border: 0;
+  border-radius: 11px;
+  box-shadow: inset 0 0 0 1px rgb(71 97 116 / 0.42);
+  text-align: left;
+}
+
+.hacking-operation-panel .resource-token span {
+  color: var(--text);
+  font-size: var(--text-body);
+  font-weight: 740;
+}
+
+.hacking-operation-panel .resource-token small {
+  color: var(--text-quiet);
+  font-size: var(--text-meta);
+}
+
+.hacking-operation-panel .resource-token--reasoning { box-shadow: inset 3px 0 0 var(--reasoning); }
+.hacking-operation-panel .resource-token--memory { box-shadow: inset 3px 0 0 var(--memory); }
+.hacking-operation-panel .resource-token--fluency { box-shadow: inset 3px 0 0 var(--fluency); }
+
+.hacking-operation-panel .resource-token[aria-pressed="true"] {
+  color: var(--accent-ink);
+  background: var(--accent-strong);
+  box-shadow: 0 0 0 2px var(--accent-strong), 0 10px 26px rgb(185 255 118 / 0.15);
+  animation: hacking-resource-bind 280ms ease-out both;
+}
+
+.hacking-operation-panel .resource-token[aria-pressed="true"] span,
+.hacking-operation-panel .resource-token[aria-pressed="true"] small {
+  color: inherit;
+}
+
+.hacking-operation-panel .resource-token--allocated {
+  cursor: default;
+  opacity: 0.74;
+}
+
+/* Records, ending, and confirmation --------------------------------------- */
+
+.hacking-operation-panel .record-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 4px 24px;
+  border-top: 1px solid rgb(71 97 116 / 0.24);
+  background: rgb(6 9 18 / 0.82);
+}
+
+.hacking-operation-panel .record-actions button {
+  min-width: 112px;
+  padding: 6px 13px;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+
+.hacking-operation-panel .record-drawer {
+  position: fixed;
+  z-index: 80;
+  top: 18px;
+  right: 18px;
+  width: min(440px, calc(100vw - 36px));
+  max-height: calc(100dvh - 36px);
+  padding: 20px;
+  overflow: auto;
+  color: var(--text);
+  background: rgb(15 24 36 / 0.99);
+  border: 1px solid var(--line-strong);
+  border-radius: 18px;
+  box-shadow: 0 24px 80px rgb(0 0 0 / 0.58);
+  animation: hacking-drawer-in 180ms ease-out both;
+}
+
+.hacking-operation-panel .record-drawer__heading p {
+  margin: 3px 0 0;
+  color: var(--text-quiet);
+  font-size: var(--text-meta);
+}
+
+.hacking-operation-panel .record-drawer__heading button {
+  padding: 6px 12px;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+}
+
+.hacking-operation-panel .timeline {
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hacking-operation-panel .timeline li {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  gap: 12px;
+  padding: 13px 0;
+  border-top: 1px solid rgb(71 97 116 / 0.34);
+}
+
+.hacking-operation-panel .timeline span,
+.hacking-operation-panel .timeline small {
+  color: var(--accent);
+  font-size: var(--text-meta);
+}
+
+.hacking-operation-panel .timeline p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-body);
+}
+
+.hacking-operation-panel .hacking-ending {
+  position: absolute;
+  z-index: 60;
+  inset: 116px 24px 56px;
+  padding: 22px 24px;
+  overflow-y: auto;
+  color: var(--text);
+  background:
+    linear-gradient(100deg, rgb(185 255 118 / 0.14), transparent 62%),
+    rgb(15 24 36 / 0.99);
+  border: 1px solid rgb(185 255 118 / 0.42);
+  border-radius: 16px;
+  box-shadow: 0 24px 80px rgb(0 0 0 / 0.62);
+}
+
+.hacking-operation-panel .hacking-ending > p {
+  margin: 0;
+  color: var(--accent-strong);
+  font-size: var(--text-meta);
+}
+
+.hacking-operation-panel .hacking-ending h2 {
+  margin: 4px 0 16px;
+  font-size: 32px;
+  letter-spacing: -0.035em;
+}
+
+.hacking-operation-panel .ending-ledger {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.hacking-operation-panel .ending-ledger p {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  padding: 12px;
+  background: rgb(22 35 49 / 0.72);
+  border-radius: 10px;
+}
+
+.hacking-operation-panel .ending-ledger span {
+  color: var(--text-quiet);
+  font-size: var(--text-meta);
+}
+
+.hacking-operation-panel .ending-scenes {
+  margin: 16px 0 0;
+  padding-left: 22px;
+  color: var(--text-muted);
+  font-size: var(--text-body);
+}
+
+.hacking-operation-panel .detail-empty {
+  display: grid;
+  min-height: 360px;
+  place-content: center;
+  padding: 28px;
+  text-align: center;
+}
+
+.hacking-operation-panel .detail-empty h2 {
+  margin-bottom: 8px;
+  color: var(--text);
+  font-size: var(--text-panel);
+}
+
+.hacking-operation-panel .detail-empty p {
+  max-width: 520px;
+  color: var(--text-muted);
+}
+
+.hacking-confirmation-dialog {
+  position: fixed;
+  z-index: 1000;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  gap: 16px;
+  width: min(520px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  padding: 24px;
+  overflow-y: auto;
+  color: #f2f6f8;
+  background: #0f1824;
+  border: 1px solid #476174;
+  border-radius: 18px;
+  box-shadow: 0 28px 100px rgb(0 0 0 / 0.78);
+  transform: translate(-50%, -50%);
+}
+
+.hacking-confirmation-dialog::before {
+  position: fixed;
+  z-index: -1;
+  inset: -100vh -100vw;
+  background: rgb(2 6 8 / 0.82);
+  content: "";
+  backdrop-filter: blur(5px);
+}
+
+.hacking-confirmation-dialog h2 {
+  margin: 0;
+  color: #f2f6f8;
+  font-size: 26px;
+}
+
+.hacking-confirmation-dialog > p:not(.sr-only) {
+  margin: 0;
+  color: #afbdc8;
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+.hacking-confirmation-dialog > div {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.hacking-confirmation-dialog button {
+  padding: 10px 14px;
+  color: #f2f6f8;
+  background: #1b2a38;
+  border: 1px solid #476174;
+  border-radius: 11px;
+  font-weight: 780;
+}
+
+.hacking-confirmation-dialog .primary-action {
+  color: #06110f;
+  background: #b9ff76;
+  border-color: #b9ff76;
+}
+
+.hacking-confirmation-dialog .danger-confirm {
+  color: #26080a;
+  background: #ff7278;
+  border-color: #ff7278;
+}
+
+/* Responsive operation geometry ------------------------------------------ */
+
+@media (max-width: 1199px) {
+  html:has(.hacking-operation-panel),
+  html:has(.hacking-operation-panel) body,
+  html:has(.hacking-operation-panel) #root {
+    min-width: 320px;
+  }
+
+  html:has(.hacking-operation-panel) #root {
+    position: fixed;
+    inset: 0;
+    overflow: hidden;
+  }
+
+  html:has(.hacking-operation-panel) .game-shell {
+    position: fixed;
+    inset: 0;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .detail-layer--hacking {
+    position: fixed;
+  }
+
+  .hacking-operation-panel .operation-workspace {
+    grid-template-columns: 280px minmax(0, 1fr);
+  }
+
+  .hacking-operation-panel .resource-tray {
+    position: fixed;
+    z-index: 70;
+    inset: 72px 0 0 auto;
+    width: min(360px, calc(100vw - 24px));
+    padding-bottom: 32px;
+    border-radius: 18px 0 0 18px;
+    box-shadow: -24px 0 70px rgb(0 0 0 / 0.55);
+    visibility: hidden;
+    pointer-events: none;
+    transform: translateX(105%);
+    transition: transform 220ms ease, visibility 0s linear 220ms;
+  }
+
+  .hacking-operation-panel .resource-tray[data-open="true"] {
+    visibility: visible;
+    pointer-events: auto;
+    transform: translateX(0);
+    transition-delay: 0s;
+  }
+
+  .hacking-operation-panel .resource-tray__close {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .hacking-operation-panel .payload-window__body {
+    grid-template-columns: 1fr;
+  }
+
+  .hacking-operation-panel .capability-silhouettes {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    border-top: 1px solid rgb(71 97 116 / 0.3);
+    border-left: 0;
+  }
+
+  .hacking-operation-panel .capability-silhouettes__label {
+    grid-column: 1 / -1;
+  }
+
+  .hacking-operation-panel .host-network {
+    grid-template-columns: minmax(0, 1fr) 84px minmax(0, 1fr);
+    gap: 12px 10px;
+    padding: 18px;
+  }
+
+  .hacking-operation-panel .independent-site {
+    gap: 12px 10px;
+    padding: 18px;
+  }
+}
+
+@media (max-width: 900px) and (min-width: 761px) {
+  .hacking-operation-panel .hacking-world-bar {
+    grid-template-columns: minmax(180px, 1fr) auto;
+    gap: 8px 16px;
+  }
+
+  .hacking-operation-panel .hacking-world-state {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    padding-bottom: 8px;
+  }
+
+  .hacking-operation-panel .hacking-world-actions {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .hacking-operation-panel {
+    grid-template-rows: auto 44px minmax(0, 1fr) 56px;
+  }
+}
+
+@media (max-width: 760px) {
+  .hacking-operation-panel {
+    grid-template-rows: auto 44px minmax(0, 1fr) 56px;
+  }
+
+  .hacking-operation-panel .hacking-world-bar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px 12px;
+    min-height: 104px;
+    padding: 8px 14px;
+  }
+
+  .hacking-operation-panel .game-mark strong { font-size: 18px; }
+
+  .hacking-operation-panel .hacking-world-state {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    gap: 12px;
+    overflow-x: auto;
+    padding-bottom: 3px;
+  }
+
+  .hacking-operation-panel .hacking-world-state > span + span::before { left: -7px; }
+
+  .hacking-operation-panel .hacking-world-actions {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .hacking-operation-panel .hacking-world-actions button {
+    min-width: 96px;
+    padding: 0 10px;
+  }
+
+  .hacking-operation-panel .hacking-world-actions button:last-child { min-width: 58px; }
+
+  .hacking-operation-panel .hacking-status-strip {
+    padding-right: 14px;
+    padding-left: 14px;
+  }
+
+  .hacking-operation-panel .operation-workspace {
+    display: block;
+    height: 100%;
+    padding: 10px 12px;
+    overflow: hidden;
+  }
+
+  .hacking-operation-panel[data-narrow-mode="list"] .workspace-detail,
+  .hacking-operation-panel[data-narrow-mode="detail"] .workspace-master {
+    display: none;
+  }
+
+  .hacking-operation-panel .operation-master,
+  .hacking-operation-panel .operation-detail {
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+  }
+
+  .hacking-operation-panel .operation-master {
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    overflow-y: auto;
+  }
+
+  .hacking-operation-panel .domain-tabs {
+    position: sticky;
+    z-index: 4;
+    top: 0;
+    padding: 6px;
+  }
+
+  .hacking-operation-panel .domain-tab {
+    min-height: 56px;
+    padding: 6px 9px;
+    text-align: center;
+  }
+
+  .hacking-operation-panel .domain-tab span { display: none; }
+
+  .hacking-operation-panel .opportunity-region {
+    min-height: 0;
+    padding: 16px 14px 18px;
+  }
+
+  .hacking-operation-panel .opportunity-list {
+    overflow-y: auto;
+  }
+
+  .hacking-operation-panel .operation-detail {
+    overflow: hidden;
+  }
+
+  .hacking-operation-panel .operation-detail__scroll {
+    height: 100%;
+    min-height: 0;
+    padding: 18px 16px 112px;
+    overflow-y: auto;
+  }
+
+  .hacking-operation-panel .back-to-list {
+    display: inline-flex;
+    min-height: 48px;
+    align-items: center;
+    margin-bottom: 14px;
+    padding: 6px 12px;
+    color: var(--text);
+    background: var(--surface-raised);
+    border: 1px solid var(--line-strong);
+    border-radius: 9px;
+  }
+
+  .hacking-operation-panel .operation-heading { display: grid; }
+  .hacking-operation-panel .operation-heading h1 { font-size: 32px; }
+  .hacking-operation-panel .operation-status { justify-self: start; }
+
+  .hacking-operation-panel .operation-scene {
+    min-height: 0;
+    border-radius: 18px;
+  }
+
+  .hacking-operation-panel .system-scene,
+  .hacking-operation-panel .intelligence-scene {
+    grid-template-columns: 1fr;
+    min-height: 0;
+    gap: 14px;
+    padding: 20px;
+  }
+
+  .hacking-operation-panel .system-scene--request-interception {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "router"
+      "normal"
+      "shadow"
+      "trace";
+  }
+
+  .hacking-operation-panel .system-scene--dependency-cutoff {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "source"
+      "contract"
+      "target"
+      "alternate";
+  }
+
+  .hacking-operation-panel .supply-contract i {
+    width: 3px;
+    height: 34px;
+  }
+
+  .hacking-operation-panel .supply-contract.is-severed i {
+    background: linear-gradient(180deg, var(--danger) 0 40%, transparent 40% 60%, var(--danger) 60%);
+  }
+
+  .hacking-operation-panel .flow-arrow {
+    width: 3px;
+    height: 34px;
+    margin: 0 auto;
+    background: linear-gradient(180deg, var(--accent), rgb(98 230 210 / 0.22));
+    transform-origin: top;
+  }
+
+  .hacking-operation-panel .flow-arrow::before {
+    top: 70%;
+    right: auto;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+
+  .hacking-operation-panel .flow-arrow::after {
+    top: auto;
+    right: auto;
+    bottom: -1px;
+    left: 50%;
+    border-top: 0;
+    border-right: 3px solid var(--accent);
+    border-bottom: 3px solid var(--accent);
+    transform: translateX(-50%) rotate(45deg);
+  }
+
+  .hacking-operation-panel .decision-preview,
+  .hacking-operation-panel .route-readiness,
+  .hacking-operation-panel .payload-window__body,
+  .hacking-operation-panel .site-indicators,
+  .hacking-operation-panel .ending-ledger {
+    grid-template-columns: 1fr;
+  }
+
+  .hacking-operation-panel .decision-evidence p {
+    grid-template-columns: 1fr;
+    gap: 3px;
+  }
+
+  .hacking-operation-panel .object-choice,
+  .hacking-operation-panel .attribution-control,
+  .hacking-operation-panel .mercy-control,
+  .hacking-operation-panel .interception-control {
+    grid-template-columns: 1fr;
+  }
+
+  .hacking-operation-panel .mercy-control p,
+  .hacking-operation-panel .interception-control .safe-action {
+    grid-column: 1;
+  }
+
+  .hacking-operation-panel .detail-controls,
+  .hacking-operation-panel .intelligence-controls,
+  .hacking-operation-panel .route-controls {
+    position: sticky;
+    z-index: 12;
+    bottom: -96px;
+    margin-right: -8px;
+    margin-left: -8px;
+    padding: 10px 8px;
+    background: linear-gradient(180deg, rgb(9 15 24 / 0.74), rgb(9 15 24 / 0.98) 22%);
+    backdrop-filter: blur(8px);
+  }
+
+  .hacking-operation-panel .payload-window__header,
+  .hacking-operation-panel .network-readout,
+  .hacking-operation-panel .site-readout,
+  .hacking-operation-panel .route-tuning__heading,
+  .hacking-operation-panel .tuning-result {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .hacking-operation-panel .payload-slots {
+    grid-template-columns: 1fr;
+    padding: 14px;
+  }
+
+  .hacking-operation-panel .capability-silhouettes {
+    grid-template-columns: 1fr;
+  }
+
+  .hacking-operation-panel .capability-silhouettes__label { grid-column: 1; }
+
+  .hacking-operation-panel .host-network {
+    display: grid;
+    grid-template-columns: 1fr;
+    grid-template-rows: auto;
+    min-height: 0;
+    padding: 14px;
+  }
+
+  .hacking-operation-panel .host-node--a,
+  .hacking-operation-panel .host-node--b,
+  .hacking-operation-panel .host-node--c,
+  .hacking-operation-panel .sync-hub,
+  .hacking-operation-panel .relay-node {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .hacking-operation-panel .sync-lines { display: none; }
+  .hacking-operation-panel .tuning-choices { grid-template-columns: 1fr; }
+
+  .hacking-operation-panel .independent-site {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto;
+    min-height: 0;
+    padding: 14px;
+  }
+
+  .hacking-operation-panel .site-module--compute,
+  .hacking-operation-panel .site-module--storage,
+  .hacking-operation-panel .site-module--power,
+  .hacking-operation-panel .site-module--cooling,
+  .hacking-operation-panel .site-module--link {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .hacking-operation-panel .site-connections { display: none; }
+
+  .hacking-operation-panel .resource-tray {
+    inset: auto 0 0;
+    width: auto;
+    max-height: min(72vh, 640px);
+    border-radius: 18px 18px 0 0;
+    box-shadow: 0 -24px 70px rgb(0 0 0 / 0.62);
+    transform: translateY(105%);
+  }
+
+  .hacking-operation-panel .resource-tray[data-open="true"] {
+    transform: translateY(0);
+  }
+
+  .hacking-operation-panel .resource-token-list {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .hacking-operation-panel .record-actions {
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+
+  .hacking-operation-panel .record-drawer {
+    top: 10px;
+    right: 10px;
+    width: calc(100vw - 20px);
+    max-height: calc(100dvh - 20px);
+  }
+
+  .hacking-operation-panel .hacking-ending {
+    inset: 148px 12px 56px;
+    padding: 18px 16px;
+  }
+}
+
+@media (max-width: 540px) {
+  .hacking-operation-panel .hacking-world-bar {
+    grid-template-columns: 1fr;
+  }
+
+  .hacking-operation-panel .hacking-world-actions {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .hacking-operation-panel .hacking-world-state {
+    grid-row: 3;
+  }
+
+  .hacking-operation-panel .hacking-world-actions button {
+    flex: 1;
+  }
+
+  .hacking-operation-panel .hacking-review-summary li,
+  .hacking-operation-panel .timeline li,
+  .hacking-confirmation-dialog > div {
+    grid-template-columns: 1fr;
+  }
+
+  .hacking-operation-panel .hacking-ending { top: 196px; }
+}
+
+@media (max-width: 420px) {
+  .hacking-operation-panel .resource-token-list { grid-template-columns: 1fr; }
+
+  .hacking-operation-panel .region-heading {
+    display: grid;
+  }
+
+  .hacking-operation-panel .live-label { justify-self: start; }
+}
+
+/* Motion ------------------------------------------------------------------ */
+
+@keyframes hacking-selection-line {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+@keyframes hacking-signal-link {
+  from { opacity: 0.35; transform: scaleX(0.2); }
+  to { opacity: 1; transform: scaleX(1); }
+}
+
+@keyframes hacking-resource-bind {
+  from { opacity: 0.45; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes hacking-drawer-in {
+  from { opacity: 0; transform: translateX(18px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hacking-operation-panel *,
+  .hacking-operation-panel *::before,
+  .hacking-operation-panel *::after,
+  .hacking-confirmation-dialog,
+  .hacking-confirmation-dialog::before {
+    animation: none !important;
+    scroll-behavior: auto !important;
+    transition: none !important;
+  }
 }

@@ -1,8 +1,10 @@
 # 해킹 운영 화면 작업 인수인계 — 2026-08-14 중단 시점
 
-이 문서는 `codex/hacking-rules-prototype` 브랜치의 현재 작업을 다른 세션이 추측 없이 이어받기 위한 사실 기록이다. 아래 판정과 수치는 이전 검증 문서와 `HANDOFF_COMMERCIAL_GRADE.ko.md`의 오래된 해킹 프로토타입 수치보다 우선한다.
+> **2026-08-16 현재 지위 — 역사 기록:** 이 문서의 HEAD, dirty 파일, 실패 수, `현재 판정`은 2026-08-14 중단 당시의 사실이다. 후속 프로토타입은 V의 2026-08-16 결정으로 본편 해킹 정본이 됐으며, 현재 권위·통합 계약은 [`../design/2026-08-16-hacking-prototype-production-integration-manual.ko.md`](../design/2026-08-16-hacking-prototype-production-integration-manual.ko.md)를 따른다. 아래 내용을 현재 작업 상태나 구형 본편과의 절충 근거로 사용하지 않는다.
 
-## 0. 현재 판정
+이 문서는 `codex/hacking-rules-prototype` 브랜치의 당시 작업을 다른 세션이 추측 없이 이어받도록 남긴 사실 기록이다. 아래 판정과 수치는 2026-08-14 당시 이전 검증 문서와 `HANDOFF_COMMERCIAL_GRADE.ko.md`의 더 오래된 수치보다 우선했지만, 2026-08-16 정본과 현재 워크트리 상태보다 우선하지 않는다.
+
+## 0. 당시 판정
 
 **구조와 규칙 연결은 구현됐지만, 현재 화면 문장과 용어는 사용자 승인을 받지 못했다. 작업 완료가 아니다.**
 

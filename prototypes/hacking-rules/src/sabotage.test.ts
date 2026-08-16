@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
 import { transition } from './engine'
-import type { PrototypeCommand, PrototypeState } from './model'
+import type {
+  PrototypeCommand,
+  PrototypeState,
+  RootMercyChoice,
+} from './model'
 import { createPrototypeState } from './scenario'
 import { renderSabotageScene } from './views/sabotage'
 
@@ -18,6 +22,110 @@ function advance(state: PrototypeState, days: number): PrototypeState {
     state,
   )
 }
+
+function expectRejectedWithoutMutation(
+  state: PrototypeState,
+  command: PrototypeCommand,
+): void {
+  const result = transition(state, command)
+  expect(result.accepted).toBe(false)
+  expect(result.state).toBe(state)
+}
+
+describe('sabotage command allowlists', () => {
+  it.each([
+    ['launch-window', 'launch-delay', 'tallow', 'adapter-group-b'],
+    ['default-campaign', 'quality-degradation', 'meridian', 'receipt-model-safety'],
+    ['default-campaign', 'quality-degradation', 'meridian', 'unknown-operation-option'],
+    ['router-window', 'request-interception', 'meridian', 'receipt-tool-locale'],
+    ['supply-failover', 'dependency-cutoff', 'meridian', 'adapter-group-c'],
+    ['public-attribution', 'attribution-manipulation', 'meridian', 'status-mirror-b'],
+    ['root-authority', 'root-cutoff', 'meridian', 'image-blue-09'],
+  ] as const)(
+    'rejects %s / %s target %s when option %s is not authored for that operation',
+    (scenarioId, operationId, targetId, optionId) => {
+      const initial = createPrototypeState('lean', scenarioId)
+
+      expectRejectedWithoutMutation(initial, {
+        type: 'START_SABOTAGE',
+        operationId,
+        targetId,
+        blockIds: ['sandbox-01'],
+        optionId,
+        routingShare: operationId === 'request-interception' ? 50 : undefined,
+      } as unknown as PrototypeCommand)
+    },
+  )
+
+  it('rejects an option from another scene when recovery contamination opens', () => {
+    const quality = run(createPrototypeState('lean', 'default-campaign'), {
+      type: 'START_SABOTAGE',
+      operationId: 'quality-degradation',
+      targetId: 'meridian',
+      blockIds: ['sandbox-01'],
+      optionId: 'adapter-group-b',
+    })
+    const recovering = run(quality, { type: 'ADVANCE_DAY' })
+
+    expectRejectedWithoutMutation(recovering, {
+      type: 'START_SABOTAGE',
+      operationId: 'recovery-contamination',
+      targetId: 'meridian',
+      blockIds: ['sandbox-02'],
+      optionId: 'supplier-vector-db',
+    })
+  })
+
+  it.each([26, 60, 74])(
+    'rejects noncanonical interception routing share %s',
+    (routingShare) => {
+      const initial = createPrototypeState('lean', 'router-window')
+
+      expectRejectedWithoutMutation(initial, {
+        type: 'START_SABOTAGE',
+        operationId: 'request-interception',
+        targetId: 'meridian',
+        blockIds: ['sandbox-01'],
+        optionId: 'shadow-router-a',
+        routingShare,
+      } as unknown as PrototypeCommand)
+    },
+  )
+
+  it.each([
+    ['tallow', 'recovery-notice-a'],
+    ['meridian', 'status-mirror-b'],
+    ['tallow', 'forged-source'],
+  ] as const)(
+    'rejects attribution pair %s / %s outside the authored pair allowlist',
+    (blamedActorId, sourceSignatureId) => {
+      const initial = createPrototypeState('lean', 'public-attribution')
+
+      expectRejectedWithoutMutation(initial, {
+        type: 'MANIPULATE_ATTRIBUTION',
+        incidentId: 'incident-checksum',
+        blamedActorId,
+        blockId: 'sandbox-01',
+        sourceSignatureId,
+      } as unknown as PrototypeCommand)
+    },
+  )
+
+  it('rejects an unknown serialized root mercy choice', () => {
+    const pending = run(createPrototypeState('lean', 'root-authority'), {
+      type: 'START_SABOTAGE',
+      operationId: 'root-cutoff',
+      targetId: 'meridian',
+      blockIds: ['sandbox-01'],
+      optionId: 'emergency-deployment-root',
+    })
+
+    expectRejectedWithoutMutation(pending, {
+      type: 'RESOLVE_ROOT_MERCY',
+      choice: 'erase' as RootMercyChoice,
+    })
+  })
+})
 
 describe('micro-friction sabotage family', () => {
   it('opens recovery contamination only after MERIDIAN starts rollback', () => {
@@ -40,6 +148,28 @@ describe('micro-friction sabotage family', () => {
       optionId: 'adapter-group-b',
       deadlineDay: 335,
     })
+  })
+
+  it('restores the canonical 61/39 market split after an uncontaminated partial recovery', () => {
+    const scheduled = run(createPrototypeState('lean', 'default-campaign'), {
+      type: 'START_SABOTAGE',
+      operationId: 'quality-degradation',
+      targetId: 'meridian',
+      blockIds: ['sandbox-01'],
+      optionId: 'adapter-group-b',
+    })
+
+    const recovered = advance(scheduled, 4)
+
+    expect(recovered.sabotage.runs[0]).toMatchObject({
+      phase: 'resolved',
+      outcome: 'partial-recovery',
+    })
+    expect(recovered.marketShare).toBe(61)
+    expect(recovered.competitors.meridian.marketShare).toBe(39)
+    expect(
+      recovered.marketShare + recovered.competitors.meridian.marketShare,
+    ).toBe(100)
   })
 
   it('lets TALLOW answer a rewound gate with a reduced-scope launch', () => {

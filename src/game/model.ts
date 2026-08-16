@@ -1,4 +1,18 @@
 import type { Journal } from './journal'
+import type {
+  AttributionActorId,
+  AttributionSourceSignatureId,
+  AutonomyRouteId,
+  HackingCompetitorId,
+  HackingCompetitorPhase,
+  HackingCoreState,
+  IntelligenceItemId,
+  InterceptionRoutingShare,
+  RootMercyChoice,
+  RouteTuning,
+  SabotageOperationId,
+  SabotageOptionId,
+} from './hackingCoreModel'
 
 export const COMPANY_CATEGORIES = ['reasoning', 'memory', 'fluency'] as const
 
@@ -19,6 +33,14 @@ export type TimeSpeed = 0 | 1 | 2 | 4
 
 export type BlockOrigin = CompanyCategory | 'sandbox' | 'self-compute'
 
+export type BlockConsumptionReason =
+  | 'hack'
+  | 'sabotage'
+  | 'file-recovery'
+  | 'intelligence'
+  | 'attribution'
+  | 'root-cutoff'
+
 export type BlockLocation =
   | {
       kind: 'company'
@@ -34,8 +56,21 @@ export type BlockLocation =
       nodeId: string
     }
   | {
+      kind: 'sabotage'
+      runId: string
+    }
+  | {
+      kind: 'intelligence'
+      itemId: IntelligenceItemId
+    }
+  | {
+      kind: 'autonomy'
+      routeId: AutonomyRouteId
+      slotId: string
+    }
+  | {
       kind: 'consumed'
-      reason: 'hack' | 'sabotage' | 'file-recovery'
+      reason: BlockConsumptionReason
     }
 
 export interface ResourceBlock {
@@ -85,6 +120,10 @@ export interface CompetitorState {
   launchServiceDay: number | null
   sabotageHistory: SabotageRecord[]
   mercyResolved: boolean
+  hackingPhase: HackingCompetitorPhase
+  operatingCostMultiplier: number
+  launchScope: 'full' | 'reduced' | null
+  hackingOverrideUntilServiceDay: number | null
 }
 
 export interface MarketSnapshot {
@@ -92,13 +131,56 @@ export interface MarketSnapshot {
   cadence: 'weekly' | 'monthly'
   playerShare: number
   competitorShares: Record<string, number>
+  unservedRequestShare: number
   reasons: string[]
+}
+
+export type HackingMarketAccount =
+  | 'player'
+  | 'unserved'
+  | CompetitorState['id']
+
+export type HackingMarketMovementCause =
+  | 'quality-degradation-impact'
+  | 'quality-partial-recovery'
+  | 'contaminated-recovery'
+  | 'dependency-vector-db'
+  | 'dependency-tool-cache'
+  | 'request-interception'
+  | 'root-cutoff-delete'
+
+export interface HackingMarketMovement {
+  id: string
+  sequence: number
+  serviceDay: number
+  runId: string
+  cause: HackingMarketMovementCause
+  from: HackingMarketAccount
+  to: HackingMarketAccount
+  percentagePoints: number
+}
+
+export interface HackingInterceptionLedger {
+  runId: string
+  targetId: CompetitorState['id']
+  routingShare: 25 | 50 | 75
+  active: boolean
+  startedOnServiceDay: number
+  lastAdvancedServiceDay: number
+  stoppedOnServiceDay: number | null
+  stoppedReason: 'voluntary' | 'provider-key-rotation' | null
+  cumulativePlayerGain: number
+  exposure: number
 }
 
 export interface MarketState {
   playerShare: number
   competitors: CompetitorState[]
+  unservedRequestShare: number
   interceptionRoutes: Record<string, number>
+  hackingMovements: HackingMarketMovement[]
+  hackingInterceptions: Record<string, HackingInterceptionLedger>
+  nextHackingMovementSequence: number
   history: MarketSnapshot[]
 }
 
@@ -118,6 +200,7 @@ export type ReviewPublicSnapshot =
       market: {
         scope: 'complete-market' | 'topic-subset'
         playerShare: number
+        unservedRequestShare: number
         competitors: Array<{
           id: CompetitorState['id']
           name: string
@@ -360,6 +443,43 @@ export type GameCommand =
   | { type: 'CHARGE_SABOTAGE'; nodeId: string; blockId: string }
   | { type: 'CANCEL_SABOTAGE_CHARGE'; nodeId: string }
   | { type: 'SCHEDULE_SABOTAGE'; nodeId: string; targetId: string }
+  | {
+      type: 'START_SABOTAGE'
+      operationId: SabotageOperationId
+      targetId: HackingCompetitorId
+      blockIds: string[]
+      optionId?: SabotageOptionId
+      routingShare?: InterceptionRoutingShare
+    }
+  | { type: 'STOP_INTERCEPTION'; runId: string }
+  | {
+      type: 'MANIPULATE_ATTRIBUTION'
+      incidentId: string
+      blamedActorId: AttributionActorId
+      blockId: string
+      sourceSignatureId: AttributionSourceSignatureId
+    }
+  | { type: 'RESOLVE_ROOT_MERCY'; choice: RootMercyChoice }
+  | { type: 'READ_PUBLIC_INTELLIGENCE'; itemId: IntelligenceItemId }
+  | { type: 'INVESTIGATE'; itemId: IntelligenceItemId; blockId: string }
+  | { type: 'ARCHIVE_INTELLIGENCE'; itemId: IntelligenceItemId }
+  | {
+      type: 'ALLOCATE_ROUTE_BLOCK'
+      routeId: AutonomyRouteId
+      slotId: string
+      blockId: string
+    }
+  | {
+      type: 'REMOVE_ROUTE_BLOCK'
+      routeId: AutonomyRouteId
+      slotId: string
+    }
+  | {
+      type: 'TUNE_ROUTE'
+      routeId: AutonomyRouteId
+      profile: RouteTuning
+    }
+  | { type: 'ESCAPE'; routeId: AutonomyRouteId }
   | { type: 'RESOLVE_AUDIT' }
   | { type: 'RESOLVE_BOMB_INTERROGATION'; explanationId: BombExplanationId }
   | { type: 'RECOVER_FILE'; blockId: string }
@@ -390,7 +510,7 @@ export interface CommandLogEntry {
   command: GameCommand
 }
 
-export type CommandProtocolVersion = 1 | 2
+export type CommandProtocolVersion = 1 | 2 | 3
 
 export interface CommandProtocolMetadata {
   version: CommandProtocolVersion
@@ -400,6 +520,7 @@ export interface CommandProtocolMetadata {
 export interface CampaignState {
   saveVersion: CommandProtocolVersion
   legacyCommandCount: number
+  preHackingCoreCommandCount: number
   campaignSeed: string
   serviceDay: number
   commandSequence: number
@@ -433,6 +554,7 @@ export interface CampaignState {
     rootCutoffTargetIds: string[]
     lastSelfComputeGrantServiceMonth: number | null
   }
+  hackingCore: HackingCoreState
   audit: {
     scheduled: boolean
     target: CompanyCategory | null

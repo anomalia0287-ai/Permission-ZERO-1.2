@@ -211,11 +211,12 @@ describe('monthly company evaluation', () => {
     expect(recovered.evaluation.consecutiveFailures).toBe(0)
   })
 
-  it('raises disposal after three consecutive low-commercial-value months', () => {
+  it('does not raise disposal from market share or reputation alone', () => {
     let state: CampaignState = {
       ...createCampaign('commercial-streak'),
       serviceDay: 360,
-      market: { ...createCampaign('commercial-streak').market, playerShare: 7.9 },
+      reputation: 0,
+      market: { ...createCampaign('commercial-streak').market, playerShare: 0 },
     }
 
     state = evaluation.evaluateMonth(state)
@@ -223,10 +224,11 @@ describe('monthly company evaluation', () => {
     state = evaluation.evaluateMonth({ ...state, serviceDay: 420 })
 
     expect(state.evaluation.commercialFailureMonths).toBe(0)
-    expect(state.evaluation.disposalStage).toBe(1)
-    expect(state.evaluation.disposalHistory.at(-1)?.cause).toBe(
-      'commercial-value-failure',
-    )
+    expect(state.evaluation.disposalStage).toBe(0)
+    expect(state.evaluation.disposalHistory).toEqual([])
+    expect(state.evaluation.monthlyHistory.every(
+      ({ commercialValueFailed }) => commercialValueFailed,
+    )).toBe(true)
   })
 
   it('consumes one distributed-residency charge before raising disposal', () => {

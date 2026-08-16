@@ -155,6 +155,7 @@ export function captureReviewPublicSnapshot(
               ? 'complete-market'
               : 'topic-subset',
             playerShare: state.market.playerShare,
+            unservedRequestShare: state.market.unservedRequestShare,
             competitors: relevantCompetitors.map(
               ({ id, marketShare, name, status }) => ({
                 id,

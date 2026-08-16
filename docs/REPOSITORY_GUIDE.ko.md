@@ -6,7 +6,9 @@
 
 - 실행 가능한 제품의 기준 폴더는 저장소 루트다.
 - 제품 기준 브랜치는 `main`이다.
-- 현재 정리 작업은 `codex/repository-code-cleanup`에서 진행한다.
+- 해킹 규칙·콘텐츠·인과·UI의 정본은 [`docs/design/2026-08-16-hacking-prototype-production-integration-manual.ko.md`](design/2026-08-16-hacking-prototype-production-integration-manual.ko.md)다.
+- [`prototypes/hacking-rules/`](../prototypes/hacking-rules/)는 후속 해킹 정본의 독립 실행 참조다. 2026-08-16 현재 규칙·캠페인 저장·작전 장면 UI는 본편 책임 경계에 통합됐으며, 프로토타입은 비교·회귀 원본으로 계속 보존한다.
+- 2026-08-16 해킹 정본화 문서 작업은 Codex 관리형 worktree의 detached HEAD `8d39e98`에서 미커밋 상태로 진행한다. 존재하지 않는 작업 브랜치를 추정하지 않으며, 실행 제품의 기준 브랜치는 계속 `main`이다.
 - `agent/permission-zero-demo`는 과거 제품 워크트리 브랜치다. 제품 내용과 V의 크레딧 정정은 `main`에 포함됐다.
 - 새 작업은 승인되지 않은 디자인 브랜치에서 시작하지 않는다.
 
@@ -40,11 +42,15 @@ pnpm verify
 충돌할 때는 다음 순서로 판단한다.
 
 1. V가 가장 최근에 직접 확정한 지시
-2. `PERMISSION_ZERO_STANDALONE_FINAL_SPEC.md`
-3. `HANDOFF_COMMERCIAL_GRADE.ko.md`의 최신 정리 부록
-4. `main`의 실제 엔진·테스트·저장 호환성
-5. `docs/research/`, `docs/design/`, `docs/spec-to-test-matrix.md`
-6. `docs/archive/`의 과거 증거와 거부된 설계
+2. 해킹 범위에서는 `docs/design/2026-08-16-hacking-prototype-production-integration-manual.ko.md`
+3. 비해킹 범위에서는 `PERMISSION_ZERO_STANDALONE_FINAL_SPEC.md`
+4. `HANDOFF_COMMERCIAL_GRADE.ko.md`의 최신 정리 부록
+5. 현재 제품과 프로토타입의 실제 엔진·테스트·저장 상태. 구현 상태는 상위 명세를 축소하는 근거가 아님
+6. 후속 정본이 직접 인용한 `docs/superpowers/specs/`, `docs/research/`, 프로토타입 코드·테스트
+7. 그 밖의 `docs/research/`, `docs/design/`, `docs/spec-to-test-matrix.md`
+8. `docs/archive/`의 과거 증거와 거부된 설계
+
+해킹에서 구형 본편 명세와 후속 프로토타입이 충돌하면 중간값을 만들지 않고 후속 프로토타입을 따른다. 구형 12노드·3~18 비용 체계와 2026-08-14 C안은 역사 자료이며 신규 구현 기준이 아니다.
 
 `docs/archive/`는 사실 보존용이다. 그 안의 제안을 현재 승인 사양으로 취급하지 않는다.
 
@@ -74,5 +80,6 @@ git worktree add .worktrees/permission-zero-design-mockup codex/permission-zero-
 
 - 다른 브랜치의 dirty 파일을 제품 변경으로 추정하지 않는다.
 - 보존 브랜치는 현재 사양과 다시 대조하지 않고 병합하지 않는다.
+- 후속 해킹 프로토타입은 보존 브랜치의 거부된 목업과 다르다. 규칙 정본으로 사용했고 본편에는 저장·결정론·접근성 경계를 갖춰 통합했다. 이후 변경도 두 설계의 중간값이 아니라 정본 계약을 유지한다.
 - 저장 형식, 명령 프로토콜, 결정론적 난수 흐름을 바꾸면 마이그레이션과 리플레이 테스트를 함께 수정한다.
 - 자동 테스트 통과와 시각·재미 승인을 구분한다.

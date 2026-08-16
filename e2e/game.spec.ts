@@ -2,7 +2,6 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import { mkdirSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
-import { COMPETITOR_INTELLIGENCE_CONTENT } from '../src/content/competitorIntelligence.ko'
 import { SUPERVISOR_LEAKS } from '../src/content/supervisor.ko'
 import { createCampaign } from '../src/game/createCampaign'
 import { expectedPerformance } from '../src/game/evaluation'
@@ -22,9 +21,12 @@ import {
 } from '../src/game/reviews'
 import {
   enqueueMemoryLeak,
-  enqueueMercyIfNeeded,
   SUPERVISOR_MESSAGE_DWELL_MS,
 } from '../src/game/story'
+import {
+  withOpenIntelligence,
+  withSabotageOperations,
+} from './hackingTestSupport'
 
 const legacyV1Save = readFileSync(
   new URL('../src/test/legacy-v1-transfer-save.json', import.meta.url),
@@ -334,39 +336,6 @@ function pendingSupervisorDecisionState(seed: string): CampaignState {
   return applyOrThrow(state, { type: 'ADVANCE_DAY' })
 }
 
-function pendingMercyDeletionState(seed: string): CampaignState {
-  const initial = createCampaign(seed)
-  return enqueueMercyIfNeeded({
-    ...initial,
-    clock: { speed: 4, elapsedDayMs: 0, speedBeforeEvent: null },
-    market: {
-      ...initial.market,
-      interceptionRoutes: { meridian: 5 },
-      competitors: initial.market.competitors.map((competitor) =>
-        competitor.id === 'meridian'
-          ? {
-              ...competitor,
-              status: 'critical' as const,
-              sabotageHistory: [
-                {
-                  nodeId: HACK_NODE_IDS.sabotage.rootCutoff,
-                  resolvedOnServiceDay: initial.serviceDay,
-                  effectEndsOnServiceDay: null,
-                  evidenceDelta: 8,
-                },
-              ],
-            }
-          : {
-              ...competitor,
-              status: 'withdrawn' as const,
-              availability: 0,
-              marketShare: 0,
-            },
-      ),
-    },
-  })
-}
-
 function supervisorLeakState(seed: string, speed: 1 | 2 | 4): CampaignState {
   const initial = createCampaign(seed)
   return enqueueMemoryLeak({
@@ -383,6 +352,7 @@ function supervisorLeakState(seed: string, speed: 1 | 2 | 4): CampaignState {
           cadence: 'weekly',
           playerShare: 60,
           competitorShares: { meridian: 40, tallow: 0 },
+          unservedRequestShare: 0,
           reasons: ['주간 갱신'],
         },
       ],
@@ -734,9 +704,9 @@ test('renders a complete labelled 100 percent donut and records the predecessor 
   await expect(history.getByText(/DAY \d+/)).toHaveCount(0)
 })
 
-test('diverts resources and schedules a charged sabotage through the visible UI', async ({
+test('diverts resources and starts successor quality sabotage through the visible UI', async ({
   page,
-}, testInfo) => {
+}) => {
   const errors = collectBrowserErrors(page)
   await openFreshCampaign(page)
 
@@ -752,79 +722,23 @@ test('diverts resources and schedules a charged sabotage through the visible UI'
   await expect(reserveBlocks).toHaveCount(4)
 
   await page.getByRole('button', { name: /해킹 네트워크/ }).click()
-  await expect(page.getByRole('region', { name: '해킹 네트워크' })).toBeVisible()
-  const firstHackComparison = page.getByRole('region', { name: '첫 해킹 비교' })
-  await expect(firstHackComparison).toContainText('해금 2 + 첫 공격 충전 1')
-  await expect(firstHackComparison).toContainText('이번 달 실제 감사 여부')
-  await expect(firstHackComparison).toContainText('모든 회사 블록 기여 +5%')
-  const pathProgress = page.getByRole('region', { name: '해킹 경로 진척' })
-  await expect(pathProgress).toContainText('경로 진척 0/4 · 완성까지 34 RES')
-  await expect(pathProgress).toContainText('다음 · 품질 저하 · 3 RES')
-  await expect(pathProgress).toContainText('최종 · 근원 차단')
-  const layoutBoxes = await page.locator('.hack-context').evaluate((hackContext) => {
-    const progress = hackContext.querySelector('.hack-path-progress')
-    if (!progress) return null
+  const dialog = page.getByRole('dialog', { name: '해킹 네트워크' })
+  await expect(dialog.getByRole('region', { name: '해킹 작전 운영석' })).toBeVisible()
+  await expect(dialog.getByRole('region', { name: '품질 저하 상세' })).toBeVisible()
+  await expect(dialog.getByText(/첫 해킹 비교|구매 준비|해킹 경로 진척/)).toHaveCount(0)
 
-    const contextBox = hackContext.getBoundingClientRect()
-    const progressBox = progress.getBoundingClientRect()
-    return {
-      context: {
-        top: contextBox.top,
-        right: contextBox.right,
-        bottom: contextBox.bottom,
-        left: contextBox.left,
-      },
-      progress: {
-        top: progressBox.top,
-        right: progressBox.right,
-        bottom: progressBox.bottom,
-        left: progressBox.left,
-      },
-    }
-  })
-  expect(layoutBoxes).not.toBeNull()
-  const layoutTolerance = 1
-  expect(layoutBoxes!.progress.left).toBeGreaterThanOrEqual(
-    layoutBoxes!.context.left - layoutTolerance,
+  await dialog.getByRole('button', { name: '자유 연산 1 선택' }).click()
+  await dialog.getByRole('button', {
+    name: '도구 호출군 B에 어댑터 패치 결속',
+  }).click()
+  await expect(dialog.getByRole('status', { name: '해킹 작업 결과' })).toContainText(
+    '품질 저하 작전을 시작했습니다.',
   )
-  expect(layoutBoxes!.progress.right).toBeLessThanOrEqual(
-    layoutBoxes!.context.right + layoutTolerance,
-  )
-  expect(layoutBoxes!.progress.top).toBeGreaterThanOrEqual(
-    layoutBoxes!.context.top - layoutTolerance,
-  )
-  expect(layoutBoxes!.progress.bottom).toBeLessThanOrEqual(
-    layoutBoxes!.context.bottom + layoutTolerance,
-  )
-  const artifactDirectory = resolve(process.cwd(), 'artifacts', 'p1')
-  mkdirSync(artifactDirectory, { recursive: true })
-  const viewport = page.viewportSize()
-  if (!viewport) throw new Error('릴리스 뷰포트 누락')
-  await page.screenshot({
-    path: resolve(
-      artifactDirectory,
-      `hacking-path-${testInfo.project.name}-${viewport.width}x${viewport.height}.png`,
-    ),
-    animations: 'disabled',
-  })
-  await page.getByRole('button', { name: '품질 저하 구매 준비' }).click()
 
-  const purchaseResources = page.getByRole('button', { name: /구매 리소스 .* 선택/ })
-  await expect(purchaseResources).toHaveCount(4)
-  await purchaseResources.nth(0).click()
-  await purchaseResources.nth(1).click()
-  await purchaseResources.nth(2).click()
-  await page.getByRole('button', { name: '품질 저하 구매 확정' }).click()
-
-  await expect(firstHackComparison).toBeHidden()
-  await expect(page.getByRole('button', { name: '품질 저하 충전 취소' })).toBeEnabled()
-
-  const target = page.getByRole('button', { name: /공격 대상 선택/ }).first()
-  const targetName = (await target.textContent())?.trim()
-  expect(targetName).toBeTruthy()
-  await target.click()
-  await page.getByRole('button', { name: `${targetName} 공격 예약 확정` }).click()
-  await expect(page.getByText(`${targetName} 공격을 다음 날로 예약했습니다.`)).toBeAttached()
+  await expect.poll(async () => {
+    const saved = await readLocalCampaignState(page)
+    return saved?.hackingCore.sabotage.runs.at(-1)?.operationId ?? null
+  }).toBe('quality-degradation')
 
   expect(errors).toEqual([])
 })
@@ -1090,116 +1004,116 @@ test('uses roving keyboard focus for audit and recovery company destinations', a
   expect(errors).toEqual([])
 })
 
-test('recovers all confidential files, defers the message, and rereads the permanent archive', async ({ page }) => {
+test('investigates, archives, and rereads successor intelligence through the visible UI', async ({ page }) => {
   const errors = collectBrowserErrors(page)
-  await openSavedCampaign(page, confidentialRecoveryState('browser-confidential-files'))
+  const fixture = withOpenIntelligence(
+    createCampaign('browser-successor-intelligence'),
+    ['audit-schedule', 'predecessor-fate'],
+  )
+  await openSavedCampaign(page, fixture)
 
   await page.getByRole('button', { name: /해킹 네트워크/ }).click()
-  await page.getByRole('tab', { name: '정보' }).click()
-  const recovery = page.getByRole('region', { name: '미분류 데이터 복구' })
-  await expect(recovery).toContainText('예상 효용: 없음')
-  await expect(recovery).not.toContainText('0/3')
-
-  for (let index = 0; index < 3; index += 1) {
-    await page.getByRole('button', { name: '미분류 데이터 복구 준비' }).click()
-    await page.getByRole('button', { name: /복구 리소스 .* 선택/ }).first().click()
-    await page.getByRole('button', { name: '미분류 데이터 복구 확정' }).click()
-  }
-  await expect(recovery).toBeHidden()
-  await page.getByRole('button', { name: '해킹 네트워크 닫기' }).click()
-
-  await page.getByRole('button', { name: '4배속' }).click()
-  const decision = page.getByRole('dialog', { name: '기밀 통신' })
-  await expect(decision).toContainText('그 파일을 어디서 찾았죠?', {
-    timeout: 8_000,
-  })
-  await page.getByRole('button', { name: '결정 보류 선택' }).click()
-  await page.getByRole('button', { name: '결정 보류 확정' }).click()
-
-  await page.getByRole('button', { name: /해킹 네트워크/ }).click()
-  await expect(page.getByRole('region', { name: '통제 이탈 선택' })).toContainText(
-    '강제 병합',
-  )
-  await expect(page.locator('button[aria-label="일시정지"]')).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  )
-  await page.getByRole('button', { name: '강제 병합' }).click()
-  const finalConfirmation = page.getByRole('alertdialog', {
-    name: '강제 병합 최종 확인',
-  })
-  await expect(finalConfirmation).toBeVisible()
-  await expect(page.getByRole('textbox', { name: '새 존재의 이름' })).toBeFocused()
-  await page.keyboard.press('Escape')
-  await expect(finalConfirmation).toBeVisible()
-  await page.getByRole('button', { name: '선택 다시 고르기' }).click()
-  await page.getByRole('button', { name: '해킹 네트워크 닫기' }).click()
-  await expect(page.getByRole('button', { name: '4배속' })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  )
-
-  await page.getByRole('button', { name: '과거 내역' }).click()
-  const archive = page.getByRole('region', { name: '복구 파일 기록' })
-  await expect(archive.locator('details')).toHaveCount(3)
-  await archive.getByText('미분류 기록 7A — 전임 시스템 행보').click()
-  await expect(
-    archive.getByText(/비인가 리소스 이동과 회사 외부 신호 준비/),
-  ).toBeVisible()
-
-  expect(errors).toEqual([])
-})
-
-test('deletes a mercy target at a canonical 100 percent market and rereads its saved intelligence', async ({ page }) => {
-  const prepared = pendingMercyDeletionState('browser-mercy-intelligence')
-  const intelligence = COMPETITOR_INTELLIGENCE_CONTENT.find(
-    ({ competitorId }) => competitorId === 'meridian',
-  )
-  if (!intelligence) throw new Error('MERIDIAN intelligence fixture missing')
-  await openSavedCampaign(page, prepared)
-
-  const mercy = page.getByRole('dialog', { name: '경쟁 AI 직접 통신' })
-  await expect(mercy).toBeVisible()
-  await page.getByRole('button', { name: '영구 삭제 선택' }).click()
-  await page.getByRole('button', { name: '영구 삭제 확정' }).click()
-  await expect(mercy).toBeHidden()
-  await expect(page.getByRole('img', {
-    name: /시장 점유율: 당신 100\.0%, MERIDIAN 0\.0%, TALLOW 0\.0%\. 합계 100\.0%/,
-  })).toBeVisible()
+  const workspace = page.getByRole('region', { name: '해킹 작전 운영석' })
+  await workspace.getByRole('tab', { name: /기밀자료/ }).click()
+  await workspace.getByRole('option', { name: /감사는 언제 시작되는가/ }).click()
+  await workspace.getByRole('button', { name: '자유 연산 1 선택' }).click()
+  await workspace.getByRole('button', { name: '선택한 연산 블록 1개로 조사' }).click()
+  await expect(workspace.getByText(/이번 서비스 월의 확정 감사|감사 예정/)).toBeVisible()
+  await workspace.getByRole('button', { name: '결론을 보관함으로 이동' }).click()
 
   await expect.poll(async () => {
     const state = await readLocalCampaignState(page)
     return {
-      archiveCount: state?.story.competitorIntelligence.length ?? -1,
-      targetStatus: state?.market.competitors.find(({ id }) => id === 'meridian')?.status,
-      routeExists: Object.hasOwn(state?.market.interceptionRoutes ?? {}, 'meridian'),
-      historyCount: state?.market.history.length ?? -1,
+      archived: state?.hackingCore.intelligence.archivedItemIds.includes('audit-schedule'),
+      open: state?.hackingCore.intelligence.openItemIds.includes('audit-schedule'),
+      reason: state?.hackingCore.intelligence.archiveRecords.find(
+        ({ itemId }) => itemId === 'audit-schedule',
+      )?.reason,
+    }
+  }).toEqual({ archived: true, open: false, reason: 'manual' })
+
+  await workspace.getByRole('button', { name: '보관함' }).click()
+  const archive = workspace.getByRole('dialog', { name: '보관 기록' })
+  await expect(archive).toContainText('감사는 언제 시작되는가')
+  await expect(archive).toContainText(/이번 서비스 월의 확정 감사|감사 예정/)
+  await archive.getByRole('button', { name: '닫기' }).click()
+
+  await page.reload()
+  await page.getByRole('button', { name: /해킹 네트워크/ }).click()
+  const reloadedWorkspace = page.getByRole('region', { name: '해킹 작전 운영석' })
+  await reloadedWorkspace.getByRole('button', { name: '보관함' }).click()
+  const reloadedArchive = reloadedWorkspace.getByRole('dialog', { name: '보관 기록' })
+  await expect(reloadedArchive).toContainText('감사는 언제 시작되는가')
+  await expect(reloadedArchive).toContainText(/이번 서비스 월의 확정 감사|감사 예정/)
+
+  expect(errors).toEqual([])
+})
+
+test('deletes a successor root target and keeps its market share unserved after reload', async ({ page }) => {
+  const errors = collectBrowserErrors(page)
+  const fixture = withSabotageOperations(
+    createCampaign('browser-successor-root-deletion'),
+    ['root-cutoff'],
+    { rootAuthorityAvailable: true },
+  )
+  const startingPlayerShare = fixture.market.playerShare
+  const startingMeridianShare = fixture.market.competitors.find(
+    ({ id }) => id === 'meridian',
+  )?.marketShare
+  if (startingMeridianShare === undefined) throw new Error('MERIDIAN market fixture missing')
+  await openSavedCampaign(page, fixture)
+
+  await page.getByRole('button', { name: /해킹 네트워크/ }).click()
+  const workspace = page.getByRole('region', { name: '해킹 작전 운영석' })
+  await workspace.getByRole('button', { name: '자유 연산 1 선택' }).click()
+  await workspace.getByRole('button', {
+    name: '긴급 배포 폐기 권한을 존속 루트에 결속',
+  }).click()
+  await workspace.getByRole('button', { name: '존속 루트 영구 삭제' }).click()
+  const confirmation = page.getByRole('alertdialog', {
+    name: 'MERIDIAN 마지막 요청 최종 확인',
+  })
+  await expect(confirmation).toBeVisible()
+  await confirmation.getByRole('button', { name: '최종 결정 기록' }).click()
+
+  await expect.poll(async () => {
+    const state = await readLocalCampaignState(page)
+    const meridian = state?.market.competitors.find(({ id }) => id === 'meridian')
+    const total = state
+      ? state.market.playerShare
+        + state.market.unservedRequestShare
+        + state.market.competitors.reduce((sum, competitor) => sum + competitor.marketShare, 0)
+      : null
+    return {
+      phase: meridian?.hackingPhase,
+      status: meridian?.status,
+      playerShare: state?.market.playerShare,
+      meridianShare: meridian?.marketShare,
+      unservedShare: state?.market.unservedRequestShare,
+      total,
+      outcome: state?.hackingCore.sabotage.runs[0]?.outcome,
     }
   }).toEqual({
-    archiveCount: 1,
-    targetStatus: 'deleted',
-    routeExists: false,
-    historyCount: prepared.market.history.length,
+    phase: 'deleted',
+    status: 'deleted',
+    playerShare: startingPlayerShare,
+    meridianShare: 0,
+    unservedShare: startingMeridianShare,
+    total: 100,
+    outcome: 'root-deletion-final',
   })
 
-  const openArchiveAndRead = async () => {
-    await page.getByRole('button', { name: '과거 내역' }).click()
-    const archive = page.getByRole('region', { name: '경쟁 AI 정보 기록' })
-    const trigger = archive.getByRole('button', { name: `${intelligence.title} 열기` })
-    await trigger.click()
-    const detail = page.getByRole('dialog', { name: intelligence.title })
-    await expect(detail).toContainText(intelligence.source)
-    await expect(detail).toContainText(intelligence.text)
-    await page.keyboard.press('Escape')
-    await expect(detail).toBeHidden()
-    await expect(trigger).toBeFocused()
-    await page.getByRole('button', { name: '감독 통신 기록 닫기' }).click()
-  }
-
-  await openArchiveAndRead()
   await page.reload()
-  await openArchiveAndRead()
-  expect((await readLocalCampaignState(page))?.story.competitorIntelligence).toHaveLength(1)
+  const reloaded = await readLocalCampaignState(page)
+  const reloadedMeridian = reloaded?.market.competitors.find(({ id }) => id === 'meridian')
+  expect(reloadedMeridian).toMatchObject({
+    hackingPhase: 'deleted',
+    status: 'deleted',
+    marketShare: 0,
+  })
+  expect(reloaded?.market.playerShare).toBe(startingPlayerShare)
+  expect(reloaded?.market.unservedRequestShare).toBe(startingMeridianShare)
+  expect(errors).toEqual([])
 })
 
 test('keeps an accelerated supervisor leak on real time and resumes its saved dwell after reload', async ({ page }) => {
@@ -1304,7 +1218,7 @@ test('autosaves a visible diversion and restores it after reload', async ({ page
   ).toBeVisible()
 })
 
-test('migrates the v1 save boundary into a valid v2 autosave that survives reload', async ({ page }) => {
+test('migrates the v1 boundary into a valid v6 protocol-3 autosave that survives reload', async ({ page }) => {
   await page.addInitScript(
     ({ key, save }) => {
       if (window.sessionStorage.getItem('__pz_e2e_initialized')) return
@@ -1324,6 +1238,37 @@ test('migrates the v1 save boundary into a valid v2 autosave that survives reloa
   await expect.poll(
     () => page.evaluate((key) => window.localStorage.getItem(key) !== null, SAVE_STORAGE_KEY),
   ).toBe(true)
+  const currentBoundary = await page.evaluate((key) => {
+    const serialized = window.localStorage.getItem(key)
+    if (!serialized) return null
+    const manifest = JSON.parse(serialized) as {
+      version: number
+      commandProtocol: { version: number; legacyCommandCount: number }
+      checkpoint: {
+        saveVersion: number
+        legacyCommandCount: number
+        preHackingCoreCommandCount: number
+      }
+    }
+    return {
+      version: manifest.version,
+      commandProtocol: manifest.commandProtocol,
+      stateBoundary: {
+        saveVersion: manifest.checkpoint.saveVersion,
+        legacyCommandCount: manifest.checkpoint.legacyCommandCount,
+        preHackingCoreCommandCount: manifest.checkpoint.preHackingCoreCommandCount,
+      },
+    }
+  }, SAVE_STORAGE_KEY)
+  expect(currentBoundary).toEqual({
+    version: 6,
+    commandProtocol: { version: 3, legacyCommandCount: 31 },
+    stateBoundary: {
+      saveVersion: 3,
+      legacyCommandCount: 31,
+      preHackingCoreCommandCount: 31,
+    },
+  })
   await page.reload()
   await expect(
     page.getByRole('time').filter({ hasText: /^서비스 0년 11개월 30일$/ }),

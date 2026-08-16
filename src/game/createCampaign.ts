@@ -12,6 +12,7 @@ import {
 } from './model'
 import { random01 } from './rng'
 import { createJournal } from './journal'
+import { createHackingCoreState } from './hackingState'
 
 interface CategoryResources {
   cells: Array<BlockId | null>
@@ -77,6 +78,10 @@ function createCompetitors(): CompetitorState[] {
       launchServiceDay: DEMO_PROFILE_02.calendar.startServiceDay,
       sabotageHistory: [],
       mercyResolved: false,
+      hackingPhase: 'active',
+      operatingCostMultiplier: 1,
+      launchScope: null,
+      hackingOverrideUntilServiceDay: null,
     },
     {
       id: 'tallow',
@@ -93,6 +98,10 @@ function createCompetitors(): CompetitorState[] {
         DEMO_PROFILE_02.calendar.startServiceDay + tallow.launchDelayDays,
       sabotageHistory: [],
       mercyResolved: false,
+      hackingPhase: 'preparing',
+      operatingCostMultiplier: 1,
+      launchScope: null,
+      hackingOverrideUntilServiceDay: null,
     },
   ]
 }
@@ -129,8 +138,9 @@ export function createCampaign(seed: string): CampaignState {
   }
 
   const campaign: CampaignState = {
-    saveVersion: 2,
+    saveVersion: 3,
     legacyCommandCount: 0,
+    preHackingCoreCommandCount: 0,
     campaignSeed: seed,
     serviceDay: DEMO_PROFILE_02.calendar.startServiceDay,
     commandSequence: 0,
@@ -167,7 +177,11 @@ export function createCampaign(seed: string): CampaignState {
     market: {
       playerShare: DEMO_PROFILE_02.player.startingMarketShare,
       competitors: createCompetitors(),
+      unservedRequestShare: 0,
       interceptionRoutes: {},
+      hackingMovements: [],
+      hackingInterceptions: {},
+      nextHackingMovementSequence: 1,
       history: [],
     },
     reviews: {
@@ -188,6 +202,7 @@ export function createCampaign(seed: string): CampaignState {
       rootCutoffTargetIds: [],
       lastSelfComputeGrantServiceMonth: null,
     },
+    hackingCore: createHackingCoreState(),
     audit: {
       scheduled: false,
       target: null,

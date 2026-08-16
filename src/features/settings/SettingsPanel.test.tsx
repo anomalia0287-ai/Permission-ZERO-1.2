@@ -555,7 +555,7 @@ describe('SettingsPanel', () => {
     await act(async () => undefined)
 
     expect(writeText).toHaveBeenCalledTimes(1)
-    expect(writeText.mock.calls[0]?.[0]).toEqual(expect.stringMatching(/^PZ5:/))
+    expect(writeText.mock.calls[0]?.[0]).toEqual(expect.stringMatching(/^PZ6:/))
     expect(screen.getByRole('alert', { name: '저장 실패' })).toHaveTextContent(
       '복사했습니다',
     )

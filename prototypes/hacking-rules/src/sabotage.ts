@@ -4,7 +4,6 @@ import type {
   OperationRun,
   PrototypeBlock,
   PrototypeState,
-  RootMercyChoice,
   TransitionResult,
 } from './model'
 import {
@@ -13,6 +12,17 @@ import {
   recordIncidentTruth,
   reviseAttribution,
 } from './publicWorld'
+import {
+  getAttributionChoice,
+  isInterceptionRoutingShare,
+  isRootMercyChoice,
+  isSabotageOptionForOperation,
+} from './sabotageContracts'
+import type {
+  DependencyOptionId,
+  InterceptionRoutingShare,
+  SabotageOptionId,
+} from './sabotageContracts'
 import { RULE_PROFILES } from './scenario'
 
 export interface StartSabotageInput {
@@ -21,6 +31,12 @@ export interface StartSabotageInput {
   blockIds: string[]
   optionId?: string
   routingShare?: number
+}
+
+interface ValidatedStartSabotageInput
+  extends Omit<StartSabotageInput, 'optionId' | 'routingShare'> {
+  optionId: SabotageOptionId
+  routingShare?: InterceptionRoutingShare
 }
 
 export const DEPENDENCY_TARGETS = {
@@ -46,11 +62,24 @@ export const DEPENDENCY_TARGETS = {
     playerMarketGain: 5,
     outcome: 'unstable-supplier-failover',
   },
-} as const
+} as const satisfies Record<DependencyOptionId, {
+  supplier: string
+  contractId: string
+  affectedZone: string
+  alternateRoute: string
+  operatingCost: number
+  recoveredScore: number
+  recoveredMarketShare: number
+  playerMarketGain: number
+  outcome: string
+}>
 
 export function getDependencyTarget(optionId: string | null | undefined) {
-  if (!optionId || !(optionId in DEPENDENCY_TARGETS)) return null
-  return DEPENDENCY_TARGETS[optionId as keyof typeof DEPENDENCY_TARGETS]
+  if (
+    !optionId
+    || !isSabotageOptionForOperation('dependency-cutoff', optionId)
+  ) return null
+  return DEPENDENCY_TARGETS[optionId]
 }
 
 function reject(state: PrototypeState, reason: string): TransitionResult {
@@ -119,7 +148,7 @@ export function canStartSabotage(
 
 function makeRun(
   state: PrototypeState,
-  input: StartSabotageInput,
+  input: ValidatedStartSabotageInput,
   investedBlocks: PrototypeBlock[],
 ): OperationRun {
   const responseDay = input.operationId === 'recovery-contamination'
@@ -183,8 +212,11 @@ export function startSabotage(
   if (!investedBlocks) {
     return reject(state, '선택한 예비 블록을 찾을 수 없거나 중복되었다.')
   }
-  if (!input.optionId) {
-    return reject(state, '상세 장면에서 실제 개입 대상을 하나 선택해야 한다.')
+  if (
+    !input.optionId
+    || !isSabotageOptionForOperation(input.operationId, input.optionId)
+  ) {
+    return reject(state, '이 작전에 허용된 실제 개입 대상을 선택해야 한다.')
   }
   if (
     input.operationId === 'dependency-cutoff'
@@ -192,19 +224,24 @@ export function startSabotage(
   ) {
     return reject(state, '차단할 수 있는 실제 공급 계약을 찾을 수 없다.')
   }
-  if (
-    input.operationId === 'request-interception'
-    && (
+
+  let routingShare: InterceptionRoutingShare | undefined
+  if (input.operationId === 'request-interception') {
+    if (
       input.routingShare === undefined
-      || input.routingShare < 25
-      || input.routingShare > 75
-    )
-  ) {
-    return reject(state, '그림자 라우팅 비율은 25%에서 75% 사이여야 한다.')
+      || !isInterceptionRoutingShare(input.routingShare)
+    ) {
+      return reject(state, '그림자 라우팅 비율은 25%, 50%, 75% 중 하나여야 한다.')
+    }
+    routingShare = input.routingShare
   }
 
   const selectedIds = new Set(investedBlocks.map(({ id }) => id))
-  const run = makeRun(state, input, investedBlocks)
+  const run = makeRun(state, {
+    ...input,
+    optionId: input.optionId,
+    routingShare,
+  }, investedBlocks)
   let next: PrototypeState = {
     ...state,
     reserveBlocks: state.reserveBlocks.filter(({ id }) => !selectedIds.has(id)),
@@ -335,8 +372,11 @@ export function startSabotage(
 
 export function resolveRootMercy(
   state: PrototypeState,
-  choice: RootMercyChoice,
+  choice: string,
 ): TransitionResult {
+  if (!isRootMercyChoice(choice)) {
+    return reject(state, '허용된 최종 요청 결정이 아니다.')
+  }
   const targetId = state.sabotage.pendingMercyTargetId
   const run = [...state.sabotage.runs].reverse().find((candidate) => (
     candidate.operationId === 'root-cutoff' && candidate.phase === 'response'
@@ -475,11 +515,18 @@ export function manipulateAttribution(
   state: PrototypeState,
   input: {
     incidentId: string
-    blamedActorId: CompetitorId
+    blamedActorId: string
     blockId: string
     sourceSignatureId: string
   },
 ): TransitionResult {
+  const attributionChoice = getAttributionChoice(
+    input.blamedActorId,
+    input.sourceSignatureId,
+  )
+  if (!attributionChoice) {
+    return reject(state, '허용된 공개 귀속 대상과 출처 조합이 아니다.')
+  }
   const snapshot = state.publicWorld.publicSnapshots.at(-1)
   if (!snapshot || snapshot.incidentId !== input.incidentId) {
     return reject(state, '수정할 수 있는 공개 사건이 없다.')
@@ -498,15 +545,15 @@ export function manipulateAttribution(
     },
     input.incidentId,
     {
-      candidate: input.blamedActorId,
+      candidate: attributionChoice.blamedActorId,
       confidence: 'credible',
-      source: input.sourceSignatureId,
+      source: attributionChoice.sourceSignatureId,
     },
   )
   const run: OperationRun = {
     id: `run-${String(next.sabotage.runs.length + 1).padStart(2, '0')}-attribution-manipulation`,
     operationId: 'attribution-manipulation',
-    targetId: input.blamedActorId,
+    targetId: attributionChoice.blamedActorId,
     phase: 'response',
     investedBlocks: blocks,
     startedDay: state.serviceDay,
@@ -515,7 +562,7 @@ export function manipulateAttribution(
     deadlineDay: state.serviceDay + 2,
     exposure: 2,
     outcome: 'public-claim-shifted',
-    optionId: input.sourceSignatureId,
+    optionId: attributionChoice.sourceSignatureId,
     routingShare: null,
     opponentResponse: 'source-comparison-pending',
     publicIncidentId: input.incidentId,
@@ -531,7 +578,7 @@ export function manipulateAttribution(
       {
         day: next.serviceDay,
         kind: 'action',
-        text: `공개 공시 계보가 ${input.blamedActorId} 귀속으로 이동했다. 원본 출처는 남아 있다.`,
+        text: `공개 공시 계보가 ${attributionChoice.blamedActorId} 귀속으로 이동했다. 원본 출처는 남아 있다.`,
         public: false,
       },
     ],
@@ -747,6 +794,7 @@ export function advanceSabotageDay(state: PrototypeState): PrototypeState {
           next.sabotage.openOperationIds,
           'recovery-contamination',
         )
+        next.marketShare = 61
         next.competitors.meridian = {
           ...next.competitors.meridian,
           score: 78,

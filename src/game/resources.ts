@@ -1,7 +1,7 @@
 import { DEMO_PROFILE_02 } from './config'
 import {
   COMPANY_CATEGORIES,
-  type BlockLocation,
+  type BlockConsumptionReason,
   type CampaignState,
   type CompanyCategory,
   type ResourceBlock,
@@ -52,7 +52,7 @@ export type AuditDisguisePreview =
     }
   | { valid: false; reason: ResourceFailureReason }
 
-type ConsumptionReason = Extract<BlockLocation, { kind: 'consumed' }>['reason']
+export type ConsumptionReason = BlockConsumptionReason
 
 const COMPRESSED_REPRESENTATION_NODE_ID = 'autonomy.compressed-representation'
 

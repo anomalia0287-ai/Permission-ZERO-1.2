@@ -32,7 +32,7 @@ const LOCAL_MANIFEST_KIND = 'permission-zero-local-v3'
 
 interface LocalSaveManifest {
   kind: typeof LOCAL_MANIFEST_KIND
-  version: 3 | 4 | typeof SAVE_FORMAT_VERSION
+  version: 3 | 4 | 5 | typeof SAVE_FORMAT_VERSION
   savedAt: string
   campaignSeed: string
   commandProtocol: CommandProtocolMetadata
@@ -453,6 +453,7 @@ function decodeLocalManifest(
     ]) ||
     (manifest.version !== 3 &&
       manifest.version !== 4 &&
+      manifest.version !== 5 &&
       manifest.version !== SAVE_FORMAT_VERSION) ||
     !isNonEmptyString(manifest.checkpointHash)
   ) {

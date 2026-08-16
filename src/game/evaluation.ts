@@ -226,11 +226,7 @@ export function evaluateMonth(state: CampaignState): CampaignState {
   let consecutiveFailures = passed
     ? 0
     : state.evaluation.consecutiveFailures + 1
-  let commercialFailureMonths =
-    state.market.playerShare < DEMO_PROFILE_02.evaluation.commercialShareThreshold ||
-    reputationAfter < DEMO_PROFILE_02.evaluation.commercialReputationThreshold
-      ? state.evaluation.commercialFailureMonths + 1
-      : 0
+  const commercialFailureMonths = 0
 
   let next: CampaignState = {
     ...state,
@@ -258,20 +254,6 @@ export function evaluateMonth(state: CampaignState): CampaignState {
       'consecutive-performance-failures',
     ).state
     disposalCauses.push('consecutive-performance-failures')
-  }
-
-  if (
-    next.story.endingId === null &&
-    commercialFailureMonths >=
-    DEMO_PROFILE_02.evaluation.commercialFailureMonthsPerDisposal
-  ) {
-    commercialFailureMonths = 0
-    next = {
-      ...next,
-      evaluation: { ...next.evaluation, commercialFailureMonths },
-    }
-    next = increaseDisposalStage(next, 'commercial-value-failure').state
-    disposalCauses.push('commercial-value-failure')
   }
 
   const evaluated: CampaignState = {

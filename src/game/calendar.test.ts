@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { createCampaign } from './createCampaign'
 import {
   advanceFixedStep,
+  advanceOneDay,
   enqueueBlockingEvent,
   formatServiceDate,
   formatServiceDateLabel,
@@ -17,7 +18,8 @@ import {
   chargeSabotage,
   scheduleSabotage,
 } from './hacking'
-import type { GameEvent, TimeSpeed } from './model'
+import type { CampaignState, GameEvent, TimeSpeed } from './model'
+import { divertBlock } from './resources'
 
 function withSpeed(speed: TimeSpeed) {
   const result = applyCommand(createCampaign('clock-seed'), {
@@ -201,7 +203,7 @@ describe('fixed campaign calendar', () => {
     expect(advanced.hacking.lastSelfComputeGrantServiceMonth).toBe(13)
   })
 
-  it('checks the bomb warning threshold before that day natural suspicion decay', () => {
+  it('applies canonical suspicion decay before the month-start bomb warning threshold', () => {
     const initial = {
       ...withSpeed(1),
       serviceDay: 360,
@@ -216,8 +218,8 @@ describe('fixed campaign calendar', () => {
     const advanced = advanceFixedStep(initial, 24_000)
 
     expect(advanced.serviceDay).toBe(361)
-    expect(advanced.bombs.protocolWarned).toBe(true)
-    expect(advanced.bombs.warningServiceDay).toBe(361)
+    expect(advanced.bombs.protocolWarned).toBe(false)
+    expect(advanced.bombs.warningServiceDay).toBeNull()
     expect(
       Object.values(advanced.resources.blocks).filter((block) => block.hiddenBomb),
     ).toHaveLength(0)
@@ -251,7 +253,7 @@ describe('fixed campaign calendar', () => {
     const initial = {
       ...running,
       serviceDay: 360,
-      suspicion: 70,
+      suspicion: 70.037,
       resources: {
         ...running.resources,
         company: {
@@ -286,6 +288,71 @@ describe('fixed campaign calendar', () => {
     const advanced = advanceFixedStep(running, 24_000)
 
     expect(advanced.suspicion).toBeCloseTo(2.363)
+  })
+
+  it('reproduces the canonical day-334 memory audit mismatch at exactly 5.489 suspicion', () => {
+    const initial = createCampaign('canonical-audit-mismatch')
+    const blockId = initial.resources.company.memory.find(
+      (id): id is string => id !== null,
+    )
+    const destinationCell = initial.resources.reserve.findIndex((id) => id === null)
+    if (!blockId || destinationCell < 0) throw new Error('audit fixture unavailable')
+    const diverted = divertBlock(initial, blockId, destinationCell)
+    if (!diverted.accepted) throw new Error(diverted.reason)
+    let state: CampaignState = {
+      ...diverted.state,
+      audit: {
+        ...diverted.state.audit,
+        scheduled: true,
+        target: 'memory' as const,
+        scheduledOnServiceDay: 334,
+      },
+    }
+
+    state = advanceOneDay(state, { protocolVersion: 3 })
+    state = advanceOneDay(state, { protocolVersion: 3 })
+    state = advanceOneDay(state, { protocolVersion: 3 })
+
+    expect(state.serviceDay).toBe(334)
+    expect(state.suspicion).toBe(5.489)
+  })
+
+  it('does not advance the successor core before its replay boundary or under protocol 2', () => {
+    const initial = createCampaign('hacking-core-replay-boundary')
+    const prepared = {
+      ...initial,
+      preHackingCoreCommandCount: 1,
+      hackingCore: {
+        ...initial.hackingCore,
+        autonomy: {
+          ...initial.hackingCore.autonomy,
+          routes: {
+            ...initial.hackingCore.autonomy.routes,
+            'distributed-residency': {
+              ...initial.hackingCore.autonomy.routes['distributed-residency'],
+              seededCopies: 2,
+              lastSyncServiceDay: 331,
+            },
+          },
+        },
+      },
+    }
+
+    const legacy = advanceOneDay(prepared, { protocolVersion: 2 })
+    expect(legacy.hackingCore).toEqual(prepared.hackingCore)
+
+    const beforeBoundary = advanceOneDay(prepared)
+    expect(beforeBoundary.serviceDay).toBe(332)
+    expect(beforeBoundary.hackingCore).toEqual(prepared.hackingCore)
+
+    const afterBoundary = advanceOneDay({
+      ...beforeBoundary,
+      commandSequence: 1,
+    })
+    expect(afterBoundary.serviceDay).toBe(333)
+    expect(
+      afterBoundary.hackingCore.autonomy.routes['distributed-residency'].lostCopies,
+    ).toBe(1)
   })
 
   it('opens a due audit after evaluation and discards high-speed time backlog', () => {

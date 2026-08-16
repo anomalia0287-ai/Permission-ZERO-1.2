@@ -178,6 +178,42 @@ function encodedCommandState(command: unknown): string {
   return encodeSave(state)
 }
 
+function stripSuccessorFieldsForLegacyState(state: Record<string, unknown>): void {
+  state.saveVersion = 2
+  delete state.preHackingCoreCommandCount
+  delete state.hackingCore
+
+  const market = state.market as Record<string, unknown> & {
+    competitors: Array<Record<string, unknown>>
+    history: Array<Record<string, unknown>>
+  }
+  delete market.unservedRequestShare
+  delete market.hackingMovements
+  delete market.hackingInterceptions
+  delete market.nextHackingMovementSequence
+  for (const competitor of market.competitors) {
+    delete competitor.hackingPhase
+    delete competitor.operatingCostMultiplier
+    delete competitor.launchScope
+    delete competitor.hackingOverrideUntilServiceDay
+  }
+  for (const snapshot of market.history) delete snapshot.unservedRequestShare
+
+  const reviews = state.reviews as {
+    feed: Array<{
+      snapshot?: {
+        kind?: unknown
+        market?: (Record<string, unknown> & { unservedRequestShare?: unknown }) | null
+      }
+    }>
+  }
+  for (const review of reviews.feed) {
+    if (review.snapshot?.kind === 'captured-public-v1' && review.snapshot.market) {
+      delete review.snapshot.market.unservedRequestShare
+    }
+  }
+}
+
 function encodedLegacyV1State(state: CampaignState): string {
   const parsed = JSON.parse(encodeSave(state)) as {
     savedAt: string
@@ -195,6 +231,7 @@ function encodedLegacyV1State(state: CampaignState): string {
   }
   const commands = parsed.journals.commands.chunks.flat()
   const events = parsed.journals.events.chunks.flat()
+  stripSuccessorFieldsForLegacyState(parsed.state)
   const legacyState = {
     ...parsed.state,
     saveVersion: 1,
@@ -217,9 +254,14 @@ function encodedLegacyV1State(state: CampaignState): string {
 function encodedLegacyV3State(state: CampaignState): string {
   const parsed = JSON.parse(encodeSave(state)) as {
     version: number
-    state: { reviews: { feed: Array<Record<string, unknown>> } }
+    commandProtocol: { version: number; legacyCommandCount: number }
+    state: Record<string, unknown> & {
+      reviews: { feed: Array<Record<string, unknown>> }
+    }
   }
   parsed.version = 3
+  parsed.commandProtocol.version = 2
+  stripSuccessorFieldsForLegacyState(parsed.state)
   for (const review of parsed.state.reviews.feed) delete review.snapshot
   refreshV3Integrity(parsed)
   return JSON.stringify(parsed)
@@ -228,9 +270,14 @@ function encodedLegacyV3State(state: CampaignState): string {
 function encodedLegacyV4State(state: CampaignState): string {
   const parsed = JSON.parse(encodeSave(state)) as {
     version: number
-    state: { reviews: { feed: Array<Record<string, unknown>> } }
+    commandProtocol: { version: number; legacyCommandCount: number }
+    state: Record<string, unknown> & {
+      reviews: { feed: Array<Record<string, unknown>> }
+    }
   }
   parsed.version = 4
+  parsed.commandProtocol.version = 2
+  stripSuccessorFieldsForLegacyState(parsed.state)
   for (const review of parsed.state.reviews.feed) delete review.snapshot
   refreshV3Integrity(parsed)
   return JSON.stringify(parsed)
@@ -296,18 +343,18 @@ function deletedCompetitorState(seed: string): CampaignState {
 }
 
 describe('versioned campaign saves', () => {
-  it('exports the current explicit v5 boundary while retaining command protocol v2', () => {
-    const state = createCampaign('save-v5-boundary')
+  it('exports the current explicit v6 boundary with command protocol v3', () => {
+    const state = createCampaign('save-v6-boundary')
     const encoded = encodeProgressExport(state)
     const file = encodeProgressFile(state, '2026-08-12T00:00:00.000Z')
 
     expect(JSON.parse(encodeSave(state))).toMatchObject({
-      version: 5,
-      commandProtocol: { version: 2, legacyCommandCount: 0 },
+      version: 6,
+      commandProtocol: { version: 3, legacyCommandCount: 0 },
     })
     expect(encoded).toMatchObject({ ok: true })
-    if (encoded.ok) expect(encoded.payload).toMatch(/^PZ5:/)
-    expect(file.fileName).toMatch(/\.pz5$/)
+    if (encoded.ok) expect(encoded.payload).toMatch(/^PZ6:/)
+    expect(file.fileName).toMatch(/\.pz6$/)
   })
 
   it('migrates exact v4 reviews to public-only unavailable snapshots without inventing values', () => {
@@ -903,7 +950,7 @@ describe('versioned campaign saves', () => {
     expect(fullPlacementScans).toBeLessThanOrEqual(1)
   })
 
-  it('encodes v5 separately from protocol v2 and stores each journal exactly once', () => {
+  it('encodes save v6 separately from protocol v3 and stores each journal exactly once', () => {
     let state = createCampaign('v3-single-journal')
     const accepted = applyCommand(state, { type: 'SET_SPEED', speed: 1 })
     if (!accepted.accepted) throw new Error(accepted.reason)
@@ -918,8 +965,8 @@ describe('versioned campaign saves', () => {
       events?: unknown
     }
 
-    expect(parsed.version).toBe(5)
-    expect(parsed.commandProtocol.version).toBe(2)
+    expect(parsed.version).toBe(6)
+    expect(parsed.commandProtocol.version).toBe(3)
     expect(parsed.state).not.toHaveProperty('commandLog')
     expect(parsed.state).not.toHaveProperty('eventLog')
     expect(parsed).not.toHaveProperty('commands')
@@ -944,7 +991,7 @@ describe('versioned campaign saves', () => {
 
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
-    expect(decoded.envelope.state).toEqual({ ...state, saveVersion: 2 })
+    expect(decoded.envelope.state).toEqual({ ...state, saveVersion: 3 })
     expect((serialized.match(/"commandLog"/g) ?? [])).toHaveLength(0)
     expect((serialized.match(/"commands"/g) ?? [])).toHaveLength(1)
   })
@@ -979,7 +1026,7 @@ describe('versioned campaign saves', () => {
     const loaded = loadCampaign(storage)
     expect(loaded.status).toBe('loaded')
     if (loaded.status !== 'loaded') return
-    expect(loaded.state).toEqual({ ...state, saveVersion: 2 })
+    expect(loaded.state).toEqual({ ...state, saveVersion: 3 })
   })
 
   it('reuses every sealed chunk during the next long-campaign autosave', async () => {
@@ -1033,7 +1080,7 @@ describe('versioned campaign saves', () => {
     const loaded = loadCampaign(storage)
     expect(loaded.status === 'loaded' ? loaded.state : null).toEqual({
       ...next,
-      saveVersion: 2,
+      saveVersion: 3,
     })
   })
 
@@ -1063,7 +1110,7 @@ describe('versioned campaign saves', () => {
     const loaded = loadCampaign(storage)
     expect(loaded.status).toBe('loaded')
     if (loaded.status !== 'loaded') return
-    expect(loaded.state).toEqual({ ...state, saveVersion: 2 })
+    expect(loaded.state).toEqual({ ...state, saveVersion: 3 })
   })
 
   it('repairs a deleted cached journal ancestor before publishing the next manifest', async () => {
@@ -1096,7 +1143,7 @@ describe('versioned campaign saves', () => {
     const loaded = loadCampaign(storage)
     expect(loaded.status).toBe('loaded')
     if (loaded.status !== 'loaded') return
-    expect(loaded.state).toEqual({ ...state, saveVersion: 2 })
+    expect(loaded.state).toEqual({ ...state, saveVersion: 3 })
   })
 
   it('upgrades a loaded legacy linked journal before an ancestor can make the next save corrupt', async () => {
@@ -1155,7 +1202,7 @@ describe('versioned campaign saves', () => {
     const reloaded = loadCampaign(storage)
     expect(reloaded.status).toBe('loaded')
     if (reloaded.status !== 'loaded') return
-    expect(reloaded.state).toEqual({ ...accepted.state, saveVersion: 2 })
+    expect(reloaded.state).toEqual({ ...accepted.state, saveVersion: 3 })
   })
 
   it('keeps the published manifest loadable when two tabs interleave object writes', async () => {
@@ -1210,7 +1257,7 @@ describe('versioned campaign saves', () => {
     const loaded = loadCampaign(storage)
     expect(loaded.status).toBe('loaded')
     if (loaded.status !== 'loaded') return
-    expect(loaded.state).toEqual({ ...foreground, saveVersion: 2 })
+    expect(loaded.state).toEqual({ ...foreground, saveVersion: 3 })
   })
 
   it('rejects a stale writer without replacing a newer manifest', async () => {
@@ -1234,7 +1281,7 @@ describe('versioned campaign saves', () => {
     const loadedAfterConflict = loadCampaign(storage)
     expect(loadedAfterConflict.status === 'loaded' ? loadedAfterConflict.state : null).toEqual({
       ...tabA.state,
-      saveVersion: 2,
+      saveVersion: 3,
     })
 
     const continued = applyCommand(tabA.state, { type: 'SET_SPEED', speed: 4 })
@@ -1423,7 +1470,7 @@ describe('versioned campaign saves', () => {
     const loaded = loadCampaign(storage)
     expect(loaded.status === 'loaded' ? loaded.state : null).toEqual({
       ...state,
-      saveVersion: 2,
+      saveVersion: 3,
     })
   })
 
@@ -1471,7 +1518,7 @@ describe('versioned campaign saves', () => {
     const loaded = loadCampaign(storage)
     expect(loaded.status).toBe('loaded')
     if (loaded.status !== 'loaded') return
-    expect(loaded.state).toEqual({ ...state, saveVersion: 2 })
+    expect(loaded.state).toEqual({ ...state, saveVersion: 3 })
     const replay = replayCommands(
       loaded.state.campaignSeed,
       journalToArray(loaded.state.commandLog).map(({ command }) => command),
@@ -1490,11 +1537,11 @@ describe('versioned campaign saves', () => {
     const file = encodeProgressFile(state, '2026-08-12T00:00:00.000Z')
     const decoded = decodeProgressFile(file.content)
 
-    expect(file.fileName).toMatch(/\.pz5$/)
+    expect(file.fileName).toMatch(/\.pz6$/)
     expect(file.content.length).toBeGreaterThan(1_048_576)
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
-    expect(decoded.envelope.state).toEqual({ ...state, saveVersion: 2 })
+    expect(decoded.envelope.state).toEqual({ ...state, saveVersion: 3 })
   })
 
   it('rejects a progress file above its separate generous file budget', () => {
@@ -1538,7 +1585,7 @@ describe('versioned campaign saves', () => {
     const decoded = decodeProgressExport(result.payload)
     expect(decoded.ok).toBe(true)
     if (decoded.ok) {
-      expect(decoded.envelope.state).toEqual({ ...state, saveVersion: 2 })
+      expect(decoded.envelope.state).toEqual({ ...state, saveVersion: 3 })
     }
   })
 
@@ -1554,7 +1601,7 @@ describe('versioned campaign saves', () => {
     expect(JSON.stringify(state)).toBe(stateSnapshot)
   })
 
-  it('exposes a PZ5 export boundary that round-trips validated protocol metadata', () => {
+  it('exposes a PZ6 export boundary that round-trips validated protocol metadata', () => {
     const api = progressTransferApi as typeof progressTransferApi & {
       decodeProgressExport?: (payload: string) => ReturnType<typeof decodeSave>
     }
@@ -1567,16 +1614,16 @@ describe('versioned campaign saves', () => {
     if (!encoded.ok) return
     const decoded = api.decodeProgressExport(encoded.payload)
 
-    expect(encoded.payload).toMatch(/^PZ5:[A-Za-z0-9+/]+={0,2}$/)
+    expect(encoded.payload).toMatch(/^PZ6:[A-Za-z0-9+/]+={0,2}$/)
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
     expect(decoded.envelope).toMatchObject({
-      version: 5,
-      commandProtocol: { version: 2, legacyCommandCount: 0 },
+      version: 6,
+      commandProtocol: { version: 3, legacyCommandCount: 0 },
       campaignSeed: 'portable-save',
       state: { campaignSeed: 'portable-save' },
     })
-    expect(decoded.envelope.state).toEqual({ ...state, saveVersion: 2 })
+    expect(decoded.envelope.state).toEqual({ ...state, saveVersion: 3 })
   })
 
   it.each([
@@ -1637,7 +1684,7 @@ describe('versioned campaign saves', () => {
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
     expect(decoded.envelope).toMatchObject({
-      version: 5,
+      version: 6,
       savedAt: '2026-08-12T00:00:00.000Z',
       campaignSeed: 'save-round-trip',
       commandSequence: state.commandSequence,
@@ -1710,7 +1757,7 @@ describe('versioned campaign saves', () => {
     })
   })
 
-  it('migrates an exact v3 checkpoint and re-encodes the result as exact v5', () => {
+  it('migrates an exact v3 checkpoint and re-encodes the result as exact v6', () => {
     const legacyV3 = encodedLegacyV3State(
       deletedCompetitorState('v3-to-v4-roundtrip'),
     )
@@ -1726,13 +1773,13 @@ describe('versioned campaign saves', () => {
     expect(migrated.ok).toBe(true)
     if (!migrated.ok) return
     expect(migrated.envelope.version).toBe(3)
-    const v5 = decodeSave(
+    const v6 = decodeSave(
       encodeSave(migrated.envelope.state, '2026-08-12T03:00:00.000Z'),
     )
-    expect(v5.ok).toBe(true)
-    if (!v5.ok) return
-    expect(v5.envelope.version).toBe(5)
-    expect(v5.envelope.state).toEqual(migrated.envelope.state)
+    expect(v6.ok).toBe(true)
+    if (!v6.ok) return
+    expect(v6.envelope.version).toBe(6)
+    expect(v6.envelope.state).toEqual(migrated.envelope.state)
   })
 
   it.each(['v1', 'v2'] as const)(
@@ -1802,7 +1849,7 @@ describe('versioned campaign saves', () => {
     })
   })
 
-  it('persists a v1 prefix boundary and replays a continued v2 campaign exactly', () => {
+  it('persists a v1 prefix boundary and replays a continued v3 campaign exactly', () => {
     const legacy = decodeSave(legacyV1TransferSave)
     if (!legacy.ok) throw new Error(legacy.message)
 
@@ -1833,10 +1880,14 @@ describe('versioned campaign saves', () => {
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
     expect(decoded.envelope).toMatchObject({
-      version: 5,
+      version: 6,
       commandSequence: 34,
-      commandProtocol: { version: 2, legacyCommandCount: 31 },
-      state: { saveVersion: 2, legacyCommandCount: 31 },
+      commandProtocol: { version: 3, legacyCommandCount: 31 },
+      state: {
+        saveVersion: 3,
+        legacyCommandCount: 31,
+        preHackingCoreCommandCount: 31,
+      },
     })
     expect(
       decoded.envelope.commands
@@ -1853,6 +1904,11 @@ describe('versioned campaign saves', () => {
       decoded.envelope.campaignSeed,
       decoded.envelope.commands.map(({ command }) => command),
       decoded.envelope.commandProtocol,
+      {
+        preHackingCoreCommandCount:
+          decoded.envelope.state.preHackingCoreCommandCount,
+        legacySourceProtocolVersion: 1,
+      },
     )
     expect(replay.ok).toBe(true)
     if (!replay.ok) return
@@ -1984,8 +2040,8 @@ describe('versioned campaign saves', () => {
     expect(saved).toMatchObject({ ok: true })
     expect(JSON.parse(storage.getItem(SAVE_STORAGE_KEY) ?? '{}')).toMatchObject({
       kind: 'permission-zero-local-v3',
-      version: 5,
-      commandProtocol: { version: 2, legacyCommandCount: 0 },
+      version: 6,
+      commandProtocol: { version: 3, legacyCommandCount: 0 },
       campaignSeed: 'storage-reload',
     })
     expect(loaded.status).toBe('loaded')
@@ -1994,7 +2050,7 @@ describe('versioned campaign saves', () => {
     expect(exportSeed(loaded.state)).toBe('storage-reload')
   })
 
-  it('loads a pre-feature v3 local manifest and republishes the exact migrated state as v5', async () => {
+  it('loads a pre-feature v3 local manifest and republishes the exact migrated state as v6', async () => {
     const storage = new MemoryStorage()
     expect(
       (await saveCampaign(
@@ -2005,13 +2061,16 @@ describe('versioned campaign saves', () => {
     ).toBe(true)
     const manifest = JSON.parse(storage.getItem(SAVE_STORAGE_KEY) ?? '{}') as {
       version: number
+      commandProtocol: { version: number; legacyCommandCount: number }
       checkpointHash: string
-      checkpoint: {
+      checkpoint: Record<string, unknown> & {
         story: Record<string, unknown>
         reviews: { feed: Array<Record<string, unknown>> }
       }
     }
     manifest.version = 3
+    manifest.commandProtocol.version = 2
+    stripSuccessorFieldsForLegacyState(manifest.checkpoint)
     for (const review of manifest.checkpoint.reviews.feed) delete review.snapshot
     delete manifest.checkpoint.story.competitorIntelligence
     delete manifest.checkpoint.story.supervisorMessageQueue
@@ -2034,7 +2093,7 @@ describe('versioned campaign saves', () => {
     expect(republished.ok).toBe(true)
     expect(JSON.parse(storage.getItem(SAVE_STORAGE_KEY) ?? '{}')).toMatchObject({
       kind: 'permission-zero-local-v3',
-      version: 5,
+      version: 6,
     })
     const currentLoaded = loadCampaign(storage)
     expect(currentLoaded.status).toBe('loaded')
@@ -2069,7 +2128,7 @@ describe('versioned campaign saves', () => {
       ok: false,
       reason: 'INCOMPATIBLE_VERSION',
       foundVersion: 99,
-      supportedVersion: 5,
+      supportedVersion: 6,
     })
   })
 
@@ -2378,6 +2437,7 @@ describe('versioned campaign saves', () => {
             cadence: 'weekly',
             playerShare: 60,
             competitorShares: { meridian: 40, tallow: 0 },
+            unservedRequestShare: 0,
             reasons: ['주간 갱신'],
           },
         ],
@@ -2455,6 +2515,7 @@ describe('versioned campaign saves', () => {
             cadence: 'weekly',
             playerShare: 60,
             competitorShares: { meridian: 40, tallow: 0 },
+            unservedRequestShare: 0,
             reasons: ['주간 갱신'],
           },
         ],
@@ -2485,6 +2546,7 @@ describe('versioned campaign saves', () => {
             cadence: 'weekly',
             playerShare: 60,
             competitorShares: { meridian: 40, tallow: 0 },
+            unservedRequestShare: 0,
             reasons: ['주간 갱신'],
           },
         ],
@@ -2582,6 +2644,7 @@ describe('versioned campaign saves', () => {
           cadence: 'weekly',
           playerShare: 60,
           competitorShares: { meridian: 40, tallow: 0 },
+          unservedRequestShare: 0,
           reasons: ['주간 갱신'],
         }],
       },
@@ -2589,7 +2652,7 @@ describe('versioned campaign saves', () => {
     const beforeWarning = {
       ...first,
       serviceDay: 360,
-      suspicion: 40,
+      suspicion: 40.037,
     }
     const live = applyCommand(beforeWarning, { type: 'ADVANCE_DAY' })
     const replayed = applyCommand(beforeWarning, { type: 'ADVANCE_DAY' })
@@ -2774,16 +2837,13 @@ describe('versioned campaign saves', () => {
 
   it('synthesizes one owner-content archive for a pre-feature deleted competitor', () => {
     const parsed = JSON.parse(
-      encodeSave(deletedCompetitorState('pre-feature-intelligence')),
+      encodedLegacyV3State(deletedCompetitorState('pre-feature-intelligence')),
     ) as {
-      version: number
       state: {
         story: Record<string, unknown>
         reviews: { feed: Array<Record<string, unknown>> }
       }
     }
-    parsed.version = 3
-    for (const review of parsed.state.reviews.feed) delete review.snapshot
     delete parsed.state.story.competitorIntelligence
     refreshV3Integrity(parsed)
 
@@ -2811,6 +2871,7 @@ describe('versioned campaign saves', () => {
           cadence: 'weekly',
           playerShare: 60,
           competitorShares: { meridian: 40, tallow: 0 },
+          unservedRequestShare: 0,
           reasons: ['주간 갱신'],
         }],
       },
@@ -2864,6 +2925,7 @@ describe('versioned campaign saves', () => {
           cadence: 'weekly',
           playerShare: 60,
           competitorShares: { meridian: 40, tallow: 0 },
+          unservedRequestShare: 0,
           reasons: ['주간 갱신'],
         }],
       },

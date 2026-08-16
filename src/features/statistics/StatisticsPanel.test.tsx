@@ -18,6 +18,7 @@ describe('StatisticsPanel', () => {
         cadence: 'weekly',
         playerShare: 58.5,
         competitorShares: { meridian: 41.5, tallow: 0 },
+        unservedRequestShare: 0,
         reasons: ['주간 정규화'],
       },
       {
@@ -25,6 +26,7 @@ describe('StatisticsPanel', () => {
         cadence: 'weekly',
         playerShare: 57.25,
         competitorShares: { meridian: 42.75, tallow: 0 },
+        unservedRequestShare: 0,
         reasons: ['주간 정규화'],
       },
     ]
@@ -73,6 +75,7 @@ describe('StatisticsPanel', () => {
         meridian: 40 - (index % 10) / 10,
         tallow: 0,
       },
+      unservedRequestShare: 0,
       reasons: [`snapshot-${index}`],
     }))
 

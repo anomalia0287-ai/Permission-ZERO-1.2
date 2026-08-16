@@ -46,12 +46,16 @@ export function publicMarketCalculationInputs(state: CampaignState): string[] {
         ? [`${competitor.name} 요청 가로채기 +${percentagePoints.toFixed(1)}%p`]
         : []
     })
+  const unservedInput = state.market.unservedRequestShare > 0
+    ? [`처리되지 않은 요청 ${state.market.unservedRequestShare.toFixed(1)}%`]
+    : []
 
   return [
     `평균 성능 ${averagePerformance.toFixed(1)} / 기대 ${expectation.toFixed(1)}`,
     `평판 ${state.reputation}`,
     ...competitorInputs,
     ...interceptionInputs,
+    ...unservedInput,
   ]
 }
 
@@ -84,6 +88,12 @@ function advanceMeridian(
   if (competitor.status === 'withdrawn' || competitor.status === 'deleted') {
     return { ...competitor, availability: 0, marketShare: 0 }
   }
+  if (
+    competitor.hackingOverrideUntilServiceDay !== null
+    && competitor.hackingOverrideUntilServiceDay >= state.serviceDay
+  ) {
+    return competitor
+  }
 
   const profile = DEMO_PROFILE_02.competitors.meridian
   const recovery =
@@ -113,6 +123,8 @@ function advanceMeridian(
     serviceScore,
     availability,
     researchProgress: 1,
+    hackingPhase: 'active',
+    hackingOverrideUntilServiceDay: null,
   }
 }
 
@@ -123,6 +135,12 @@ function advanceTallow(
   if (competitor.status === 'withdrawn' || competitor.status === 'deleted') {
     return { ...competitor, availability: 0, marketShare: 0 }
   }
+  if (
+    competitor.hackingOverrideUntilServiceDay !== null
+    && competitor.hackingOverrideUntilServiceDay >= state.serviceDay
+  ) {
+    return competitor
+  }
 
   const launchDay = competitor.launchServiceDay
   if (launchDay === null) {
@@ -132,6 +150,7 @@ function advanceTallow(
       availability: 0,
       marketShare: 0,
       researchProgress: 0,
+      hackingPhase: 'preparing',
     }
   }
 
@@ -148,6 +167,7 @@ function advanceTallow(
         0,
         1,
       ),
+      hackingPhase: 'preparing',
     }
   }
 
@@ -185,6 +205,8 @@ function advanceTallow(
     reputation: clamp(profile.reputation + activeDays * 0.035, 0, 100),
     availability,
     researchProgress: 1,
+    hackingPhase: 'active',
+    hackingOverrideUntilServiceDay: null,
   }
 }
 
@@ -283,6 +305,7 @@ export function recordMarketSnapshot(
               marketShare,
             ]),
           ),
+          unservedRequestShare: normalized.market.unservedRequestShare,
           reasons: [...reasons],
         },
       ],
@@ -298,6 +321,7 @@ export function applyCurrentMarketShares(state: CampaignState): CampaignState {
     market: {
       ...state.market,
       playerShare: shares.player,
+      unservedRequestShare: 0,
       competitors: state.market.competitors.map((competitor) => ({
         ...competitor,
         marketShare: shares.competitors[competitor.id] ?? 0,

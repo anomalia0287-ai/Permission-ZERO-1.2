@@ -24,6 +24,7 @@ function leakState(seed = 'resume-marker'): CampaignState {
           cadence: 'weekly',
           playerShare: 60,
           competitorShares: { meridian: 40, tallow: 0 },
+          unservedRequestShare: 0,
           reasons: ['주간 갱신'],
         },
       ],

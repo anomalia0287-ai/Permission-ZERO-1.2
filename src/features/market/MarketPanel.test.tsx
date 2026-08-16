@@ -89,6 +89,7 @@ describe('MarketPanel', () => {
         cadence: 'weekly',
         playerShare: 55,
         competitorShares: { meridian: 45, tallow: 0 },
+        unservedRequestShare: 0,
         reasons: ['이전 공개 입력'],
       },
       {
@@ -96,6 +97,7 @@ describe('MarketPanel', () => {
         cadence: 'weekly',
         playerShare: 57.25,
         competitorShares: { meridian: 42.75, tallow: 0 },
+        unservedRequestShare: 0,
         reasons: ['현재 공개 입력'],
       },
     ]

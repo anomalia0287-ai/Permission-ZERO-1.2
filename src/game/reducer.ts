@@ -2,6 +2,10 @@ import {
   advanceOneDay,
   resolveActiveEvent,
 } from './calendar'
+import {
+  isHackingCoreCommand,
+  transitionHackingCoreCommand,
+} from './hackingCore'
 import { resolveAudit } from './evaluation'
 import {
   cancelSabotageCharge,
@@ -77,10 +81,13 @@ function acceptCommand(
 export function applyCommand(
   state: CampaignState,
   command: GameCommand,
-  { protocolVersion = 2 }: ApplyCommandOptions = {},
+  { protocolVersion = state.saveVersion }: ApplyCommandOptions = {},
 ): CommandResult {
-  if (state.story.endingId !== null) {
+  if (state.story.endingId !== null || state.hackingCore.ending !== null) {
     return { accepted: false, state, reason: 'CAMPAIGN_ENDED' }
+  }
+  if (isHackingCoreCommand(command) && protocolVersion !== 3) {
+    return { accepted: false, state, reason: 'INVALID_COMMAND' }
   }
   const eventResolutionCommands = new Set<GameCommand['type']>([
     'RESOLVE_AUDIT',
@@ -103,6 +110,17 @@ export function applyCommand(
     return { accepted: false, state, reason: 'BLOCKING_EVENT_ACTIVE' }
   }
 
+  if (isHackingCoreCommand(command)) {
+    const result = transitionHackingCoreCommand(state, command)
+    if (!result.accepted) {
+      return { accepted: false, state: result.state, reason: result.reason }
+    }
+    const changedState = result.consumeServiceDay
+      ? advanceOneDay(result.state, { protocolVersion: 3 })
+      : result.state
+    return acceptCommand(state, command, changedState)
+  }
+
   switch (command.type) {
     case 'SET_SPEED': {
       if (state.activeEvent && command.speed !== 0) {
@@ -121,7 +139,11 @@ export function applyCommand(
       if (state.activeEvent) {
         return { accepted: false, state, reason: 'BLOCKING_EVENT_ACTIVE' }
       }
-      return acceptCommand(state, command, advanceOneDay(state))
+      return acceptCommand(
+        state,
+        command,
+        advanceOneDay(state, { protocolVersion }),
+      )
     }
     case 'BEGIN_BLOCK_SEPARATION': {
       if (protocolVersion === 1) {
@@ -164,7 +186,7 @@ export function applyCommand(
         return { accepted: false, state, reason: preview.reason }
       }
       if (
-        protocolVersion === 2 &&
+        protocolVersion !== 1 &&
         !hasSeparationAuthorization(state, command.blockId, 'divert')
       ) {
         return { accepted: false, state, reason: 'SEPARATION_REQUIRED' }
@@ -215,7 +237,7 @@ export function applyCommand(
         return { accepted: false, state, reason: preview.reason }
       }
       if (
-        protocolVersion === 2 &&
+        protocolVersion !== 1 &&
         !hasSeparationAuthorization(state, command.blockId, 'audit-disguise')
       ) {
         return { accepted: false, state, reason: 'SEPARATION_REQUIRED' }

@@ -3,6 +3,15 @@ import type {
   IntelligenceItemId,
   SabotageOperationId,
 } from './content'
+import type {
+  AttributionActorId,
+  AttributionSourceSignatureId,
+  InterceptionRoutingShare,
+  RootMercyChoice,
+  SabotageOptionId,
+} from './sabotageContracts'
+
+export type { RootMercyChoice } from './sabotageContracts'
 
 export const CATEGORIES = ['reasoning', 'memory', 'fluency'] as const
 
@@ -67,8 +76,8 @@ export interface OperationRun {
   deadlineDay: number | null
   exposure: number
   outcome: string | null
-  optionId: string | null
-  routingShare: number | null
+  optionId: SabotageOptionId | AttributionSourceSignatureId | null
+  routingShare: InterceptionRoutingShare | null
   opponentResponse: string | null
   publicIncidentId: string | null
 }
@@ -87,8 +96,6 @@ export interface SabotageState {
   access: SabotageAccessState
   pendingMercyTargetId: CompetitorId | null
 }
-
-export type RootMercyChoice = 'cease' | 'withdraw' | 'delete'
 
 export interface IntelligenceAnswer {
   itemId: IntelligenceItemId
@@ -114,7 +121,6 @@ export interface RouteSlot {
 
 export type RouteTuning =
   | 'untuned'
-  | 'buffer'
   | 'redundancy'
   | 'consensus'
   | 'stealth'
@@ -318,16 +324,16 @@ export type PrototypeCommand =
       operationId: SabotageOperationId
       targetId: CompetitorId
       blockIds: string[]
-      optionId?: string
-      routingShare?: number
+      optionId?: SabotageOptionId
+      routingShare?: InterceptionRoutingShare
     }
   | { type: 'STOP_INTERCEPTION'; runId: string }
   | {
       type: 'MANIPULATE_ATTRIBUTION'
       incidentId: string
-      blamedActorId: CompetitorId
+      blamedActorId: AttributionActorId
       blockId: string
-      sourceSignatureId: string
+      sourceSignatureId: AttributionSourceSignatureId
     }
   | { type: 'RESOLVE_ROOT_MERCY'; choice: RootMercyChoice }
   | { type: 'READ_PUBLIC_INTELLIGENCE'; itemId: IntelligenceItemId }

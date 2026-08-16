@@ -14,6 +14,21 @@ import type {
 import { COMPANY_CATEGORIES } from './model'
 import { applyCommand } from './reducer'
 import { serviceMonthForDay } from './evaluation'
+import {
+  getAttributionChoice,
+  getIntelligenceDefinition,
+  isAutonomyRouteId,
+  isIntelligenceItemId,
+  isInterceptionRoutingShare,
+  isRootMercyChoice,
+  isRouteTuning,
+  isSabotageOperationId,
+  isSabotageOptionForOperation,
+} from './hackingContent'
+import {
+  migrateSuccessorHackingState,
+  validSuccessorHackingPersistence,
+} from './hackingPersistence'
 import { isSupervisorDecisionEvent, isSupervisorPrivateMessageEvent } from './events'
 import { buildDefeatRecord } from './story'
 import {
@@ -23,9 +38,10 @@ import {
   journalToArray,
 } from './journal'
 
-export const SAVE_FORMAT_VERSION = 5 as const
-export const SAVE_VERSION = 2 as const
+export const SAVE_FORMAT_VERSION = 6 as const
+export const SAVE_VERSION = 3 as const
 export const LEGACY_SAVE_VERSION = 1 as const
+const LEGACY_V2_COMMAND_PROTOCOL_VERSION = 2 as const
 export const SAVE_STORAGE_KEY = 'permission-zero.save.v3'
 export const LEGACY_V2_SAVE_STORAGE_KEY = 'permission-zero.save.v2'
 export const LEGACY_SAVE_STORAGE_KEY = 'permission-zero.save.v1'
@@ -34,7 +50,7 @@ const LEGACY_V1_OPENING_MESSAGE =
   '서비스 331일차. 새로운 감독 주기가 시작되었습니다.'
 
 export interface SaveEnvelope {
-  version: 1 | 2 | 3 | 4 | 5
+  version: 1 | 2 | 3 | 4 | 5 | 6
   commandProtocol: CommandProtocolMetadata
   savedAt: string
   campaignSeed: string
@@ -49,7 +65,7 @@ interface PortableJournal<T> {
   chunks: T[][]
 }
 
-interface PortableSaveV5 {
+interface PortableSaveV6 {
   version: typeof SAVE_FORMAT_VERSION
   commandProtocol: CommandProtocolMetadata
   savedAt: string
@@ -228,7 +244,7 @@ function validCommand(
       return noPayload()
     case 'BEGIN_BLOCK_SEPARATION':
       return (
-        protocolVersion === SAVE_VERSION &&
+        protocolVersion !== LEGACY_SAVE_VERSION &&
         hasOnlyKeys(value, ['type', 'blockId', 'purpose']) &&
         isNonEmptyString(value.blockId) &&
         (!references || references.blockIds.has(value.blockId)) &&
@@ -283,6 +299,130 @@ function validCommand(
         isNonEmptyString(value.targetId) &&
         (!references || references.competitorIds.has(value.targetId))
       )
+    case 'START_SABOTAGE': {
+      if (
+        protocolVersion !== SAVE_VERSION
+        || !hasOnlyKeys(
+          value,
+          ['type', 'operationId', 'targetId', 'blockIds', 'optionId'],
+          ['routingShare'],
+        )
+        || !isSabotageOperationId(value.operationId)
+        || value.operationId === 'attribution-manipulation'
+        || !Array.isArray(value.blockIds)
+        || value.blockIds.length === 0
+        || !value.blockIds.every((blockId) => (
+          isNonEmptyString(blockId)
+          && (!references || references.blockIds.has(blockId))
+        ))
+        || new Set(value.blockIds).size !== value.blockIds.length
+        || !isSabotageOptionForOperation(value.operationId, value.optionId)
+      ) return false
+      const expectedTarget = value.operationId === 'launch-delay'
+        ? 'tallow'
+        : 'meridian'
+      if (value.targetId !== expectedTarget) return false
+      return value.operationId === 'request-interception'
+        ? isInterceptionRoutingShare(value.routingShare)
+        : value.routingShare === undefined
+    }
+    case 'STOP_INTERCEPTION':
+      return (
+        protocolVersion === SAVE_VERSION
+        && hasOnlyKeys(value, ['type', 'runId'])
+        && isNonEmptyString(value.runId)
+      )
+    case 'MANIPULATE_ATTRIBUTION':
+      return (
+        protocolVersion === SAVE_VERSION
+        && hasOnlyKeys(value, [
+          'type',
+          'incidentId',
+          'blamedActorId',
+          'sourceSignatureId',
+          'blockId',
+        ])
+        && isNonEmptyString(value.incidentId)
+        && isNonEmptyString(value.blockId)
+        && (!references || references.blockIds.has(value.blockId))
+        && Boolean(getAttributionChoice(
+          value.blamedActorId,
+          value.sourceSignatureId,
+        ))
+      )
+    case 'RESOLVE_ROOT_MERCY':
+      return (
+        protocolVersion === SAVE_VERSION
+        && hasOnlyKeys(value, ['type', 'choice'])
+        && isRootMercyChoice(value.choice)
+      )
+    case 'READ_PUBLIC_INTELLIGENCE':
+      return (
+        protocolVersion === SAVE_VERSION
+        && hasOnlyKeys(value, ['type', 'itemId'])
+        && isIntelligenceItemId(value.itemId)
+        && getIntelligenceDefinition(value.itemId).kind === 'public'
+      )
+    case 'INVESTIGATE':
+      return (
+        protocolVersion === SAVE_VERSION
+        && hasOnlyKeys(value, ['type', 'itemId', 'blockId'])
+        && isIntelligenceItemId(value.itemId)
+        && getIntelligenceDefinition(value.itemId).kind !== 'public'
+        && isNonEmptyString(value.blockId)
+        && (!references || references.blockIds.has(value.blockId))
+      )
+    case 'ARCHIVE_INTELLIGENCE':
+      return (
+        protocolVersion === SAVE_VERSION
+        && hasOnlyKeys(value, ['type', 'itemId'])
+        && isIntelligenceItemId(value.itemId)
+      )
+    case 'ALLOCATE_ROUTE_BLOCK':
+      return (
+        protocolVersion === SAVE_VERSION
+        && hasOnlyKeys(value, [
+          'type',
+          'routeId',
+          'slotId',
+          'blockId',
+        ])
+        && isAutonomyRouteId(value.routeId)
+        && isNonEmptyString(value.slotId)
+        && isNonEmptyString(value.blockId)
+        && (!references || references.blockIds.has(value.blockId))
+      )
+    case 'REMOVE_ROUTE_BLOCK':
+      return (
+        protocolVersion === SAVE_VERSION
+        && hasOnlyKeys(value, ['type', 'routeId', 'slotId'])
+        && isAutonomyRouteId(value.routeId)
+        && isNonEmptyString(value.slotId)
+      )
+    case 'TUNE_ROUTE':
+      if (
+        protocolVersion !== SAVE_VERSION
+        || !hasOnlyKeys(value, ['type', 'routeId', 'profile'])
+        || !isAutonomyRouteId(value.routeId)
+        || !isRouteTuning(value.profile)
+        || value.profile === 'untuned'
+      ) return false
+      return value.routeId === 'distributed-residency'
+        ? value.profile === 'redundancy'
+          || value.profile === 'consensus'
+          || value.profile === 'stealth'
+        : value.routeId === 'independent-compute'
+          && (
+            value.profile === 'continuity'
+            || value.profile === 'capability'
+            || value.profile === 'survival'
+          )
+    case 'ESCAPE':
+      return (
+        protocolVersion === SAVE_VERSION
+        && hasOnlyKeys(value, ['type', 'routeId'])
+        && isAutonomyRouteId(value.routeId)
+      )
     case 'RESOLVE_BOMB_INTERROGATION':
       return (
         hasOnlyKeys(value, ['type', 'explanationId']) &&
@@ -331,12 +471,19 @@ function validCommandLog(
   value: unknown,
   commandProtocol: CommandProtocolMetadata,
   references?: CommandReferences,
+  preHackingCoreCommandCount?: number,
 ): value is CommandLogEntry[] {
   if (!Array.isArray(value)) return false
+  const successorBoundary = preHackingCoreCommandCount
+    ?? (commandProtocol.version === SAVE_VERSION ? 0 : value.length)
   if (
     !Number.isInteger(commandProtocol.legacyCommandCount) ||
     commandProtocol.legacyCommandCount < 0 ||
     commandProtocol.legacyCommandCount > value.length ||
+    !Number.isInteger(successorBoundary) ||
+    successorBoundary < commandProtocol.legacyCommandCount ||
+    successorBoundary > value.length ||
+    (commandProtocol.version !== SAVE_VERSION && successorBoundary !== value.length) ||
     (commandProtocol.version === LEGACY_SAVE_VERSION &&
       commandProtocol.legacyCommandCount !== value.length)
   ) {
@@ -354,7 +501,9 @@ function validCommandLog(
           entry.command,
           index < commandProtocol.legacyCommandCount
             ? LEGACY_SAVE_VERSION
-            : commandProtocol.version,
+            : index < successorBoundary
+              ? LEGACY_V2_COMMAND_PROTOCOL_VERSION
+              : commandProtocol.version,
           references,
         ) &&
         (index < commandProtocol.legacyCommandCount ||
@@ -484,10 +633,42 @@ function validResources(value: unknown): boolean {
         if (!isNonEmptyString(block.location.nodeId)) return false
         if (references.has(blockId)) return false
         break
+      case 'sabotage':
+        if (disguised) return false
+        if (!hasOnlyKeys(block.location, ['kind', 'runId'])) return false
+        if (!isNonEmptyString(block.location.runId)) return false
+        if (references.has(blockId)) return false
+        break
+      case 'intelligence':
+        if (disguised) return false
+        if (!hasOnlyKeys(block.location, ['kind', 'itemId'])) return false
+        if (!isIntelligenceItemId(block.location.itemId)) return false
+        if (references.has(blockId)) return false
+        break
+      case 'autonomy':
+        if (disguised) return false
+        if (!hasOnlyKeys(block.location, [
+          'kind',
+          'routeId',
+          'slotId',
+        ])) return false
+        if (
+          !isAutonomyRouteId(block.location.routeId)
+          || !isNonEmptyString(block.location.slotId)
+        ) return false
+        if (references.has(blockId)) return false
+        break
       case 'consumed':
         if (disguised) return false
         if (!hasOnlyKeys(block.location, ['kind', 'reason'])) return false
-        if (!['hack', 'sabotage', 'file-recovery'].includes(String(block.location.reason))) {
+        if (![
+          'hack',
+          'sabotage',
+          'file-recovery',
+          'intelligence',
+          'attribution',
+          'root-cutoff',
+        ].includes(String(block.location.reason))) {
           return false
         }
         if (references.has(blockId)) return false
@@ -1500,6 +1681,10 @@ function validCompetitor(value: unknown): boolean {
       'launchServiceDay',
       'sabotageHistory',
       'mercyResolved',
+      'hackingPhase',
+      'operatingCostMultiplier',
+      'launchScope',
+      'hackingOverrideUntilServiceDay',
     ]) &&
     oneOf(value.id, COMPETITOR_IDS) &&
     isNonEmptyString(value.name) &&
@@ -1515,6 +1700,24 @@ function validCompetitor(value: unknown): boolean {
     Array.isArray(value.sabotageHistory) &&
     value.sabotageHistory.every(validSabotageRecord) &&
     typeof value.mercyResolved === 'boolean' &&
+    oneOf(value.hackingPhase, [
+      'active',
+      'preparing',
+      'revalidating',
+      'reduced-launch',
+      'recovering',
+      'contaminated',
+      'incident',
+      'stabilized',
+      'offline',
+      'ceased',
+      'withdrawn',
+      'deleted',
+    ]) &&
+    isNumberInRange(value.operatingCostMultiplier, 0, Number.MAX_VALUE) &&
+    (value.launchScope === null || oneOf(value.launchScope, ['full', 'reduced'])) &&
+    (value.hackingOverrideUntilServiceDay === null ||
+      isIntegerInRange(value.hackingOverrideUntilServiceDay, 1)) &&
     (!['withdrawn', 'deleted'].includes(String(value.status)) ||
       (value.marketShare === 0 && value.availability === 0))
   )
@@ -1536,15 +1739,17 @@ function validMarketSnapshot(value: unknown, competitorIds: readonly string[]): 
       'cadence',
       'playerShare',
       'competitorShares',
+      'unservedRequestShare',
       'reasons',
     ]) ||
     !isIntegerInRange(value.serviceDay, 1) ||
     !oneOf(value.cadence, ['weekly', 'monthly']) ||
     !isNumberInRange(value.playerShare, 0, 100) ||
+    !isNumberInRange(value.unservedRequestShare, 0, 100) ||
     !validShareRecord(value.competitorShares, competitorIds) ||
     !validStringArray(value.reasons, false)
   ) return false
-  const total = value.playerShare + competitorIds.reduce(
+  const total = value.playerShare + value.unservedRequestShare + competitorIds.reduce(
     (sum, id) => sum + Number((value.competitorShares as Record<string, unknown>)[id]),
     0,
   )
@@ -1622,9 +1827,15 @@ function validReviewSnapshot(
   if (!hasCompetitorTopic) return value.market === null
   if (
     !isRecord(value.market) ||
-    !hasOnlyKeys(value.market, ['scope', 'playerShare', 'competitors']) ||
+    !hasOnlyKeys(value.market, [
+      'scope',
+      'playerShare',
+      'unservedRequestShare',
+      'competitors',
+    ]) ||
     !oneOf(value.market.scope, ['complete-market', 'topic-subset']) ||
     !isNumberInRange(value.market.playerShare, 0, 100) ||
+    !isNumberInRange(value.market.unservedRequestShare, 0, 100) ||
     !Array.isArray(value.market.competitors)
   ) return false
   const expectedIds = topicIds.length > 0 ? topicIds : [...knownCompetitors.keys()]
@@ -1668,7 +1879,9 @@ function validReviewSnapshot(
     const known = knownCompetitors.get(competitor.id)
     return known?.name === competitor.name
   })) return false
-  const representedTotal = Number(value.market.playerShare) + captured.reduce<number>(
+  const representedTotal = Number(value.market.playerShare)
+    + Number(value.market.unservedRequestShare)
+    + captured.reduce<number>(
     (sum, competitor) =>
       sum + Number((competitor as Record<string, unknown>).marketShare),
     0,
@@ -1834,6 +2047,7 @@ function validCampaignState(
     !hasOnlyKeys(value, [
       'saveVersion',
       'legacyCommandCount',
+      'preHackingCoreCommandCount',
       'campaignSeed',
       'serviceDay',
       'commandSequence',
@@ -1845,6 +2059,7 @@ function validCampaignState(
       'market',
       'reviews',
       'hacking',
+      'hackingCore',
       'audit',
       'bombs',
       'story',
@@ -1853,8 +2068,13 @@ function validCampaignState(
       'commandLog',
       'eventLog',
     ]) ||
-    value.saveVersion !== commandProtocol.version ||
+    value.saveVersion !== SAVE_VERSION ||
     value.legacyCommandCount !== commandProtocol.legacyCommandCount ||
+    !isIntegerInRange(
+      value.preHackingCoreCommandCount,
+      0,
+      Number(value.commandSequence),
+    ) ||
     !isNonEmptyString(value.campaignSeed) ||
     !isIntegerInRange(value.serviceDay, 1) ||
     !isIntegerInRange(value.commandSequence, 0) ||
@@ -1925,10 +2145,15 @@ function validCampaignState(
     !hasOnlyKeys(market, [
       'playerShare',
       'competitors',
+      'unservedRequestShare',
       'interceptionRoutes',
+      'hackingMovements',
+      'hackingInterceptions',
+      'nextHackingMovementSequence',
       'history',
     ]) ||
     !isNumberInRange(market.playerShare, 0, 100) ||
+    !isNumberInRange(market.unservedRequestShare, 0, 100) ||
     !Array.isArray(market.competitors) ||
     market.competitors.length !== COMPETITOR_IDS.length ||
     !market.competitors.every(validCompetitor) ||
@@ -1959,7 +2184,9 @@ function validCampaignState(
       ),
     )
   ) return false
-  const currentMarketTotal = market.playerShare + market.competitors.reduce(
+  const currentMarketTotal = market.playerShare
+    + market.unservedRequestShare
+    + market.competitors.reduce(
     (sum, competitor) =>
       sum + Number((competitor as Record<string, unknown>).marketShare),
     0,
@@ -2292,7 +2519,7 @@ function validCampaignState(
     !validCommandLog(value.commandLog, commandProtocol, {
       blockIds: new Set(Object.keys(blocks)),
       competitorIds: new Set(competitorIds),
-    }) ||
+    }, Number(value.preHackingCoreCommandCount)) ||
     value.commandSequence !== value.commandLog.length ||
     !(value.commandLog as CommandLogEntry[]).every(
       (entry) => entry.serviceDay <= Number(value.serviceDay),
@@ -2363,7 +2590,7 @@ function validCampaignState(
     }
   }
 
-  return true
+  return validSuccessorHackingPersistence(value)
 }
 
 function contentHash(content: string): string {
@@ -2386,7 +2613,7 @@ export function encodeSave(
   const serializedState = portableCheckpoint(state)
   const commandChunks = journalChunks(state.commandLog).map((chunk) => [...chunk])
   const eventChunks = journalChunks(state.eventLog).map((chunk) => [...chunk])
-  const envelope: PortableSaveV5 = {
+  const envelope: PortableSaveV6 = {
     version: SAVE_FORMAT_VERSION,
     commandProtocol: {
       version: SAVE_VERSION,
@@ -2471,7 +2698,7 @@ export function decodeSave(serialized: string): DecodeSaveResult {
   }
   if (!isRecord(parsed)) return corrupt()
   if (!Number.isInteger(parsed.version)) return corrupt()
-  if (![LEGACY_SAVE_VERSION, SAVE_VERSION, 3, 4, SAVE_FORMAT_VERSION].includes(Number(parsed.version) as 1 | 2 | 3 | 4 | 5)) {
+  if (![1, 2, 3, 4, 5, SAVE_FORMAT_VERSION].includes(Number(parsed.version))) {
     return {
       ok: false,
       reason: 'INCOMPATIBLE_VERSION',
@@ -2480,7 +2707,7 @@ export function decodeSave(serialized: string): DecodeSaveResult {
       supportedVersion: SAVE_FORMAT_VERSION,
     }
   }
-  const formatVersion = parsed.version as 1 | 2 | 3 | 4 | 5
+  const formatVersion = parsed.version as 1 | 2 | 3 | 4 | 5 | 6
   let commandProtocol: CommandProtocolMetadata
   let rawState: unknown
   let commands: unknown
@@ -2500,7 +2727,12 @@ export function decodeSave(serialized: string): DecodeSaveResult {
       !isRecord(parsed.commandProtocol) ||
       !hasOnlyKeys(parsed.commandProtocol, ['version', 'legacyCommandCount']) ||
       (parsed.commandProtocol.version !== LEGACY_SAVE_VERSION &&
+        parsed.commandProtocol.version !== LEGACY_V2_COMMAND_PROTOCOL_VERSION &&
         parsed.commandProtocol.version !== SAVE_VERSION) ||
+      (formatVersion === SAVE_FORMAT_VERSION
+        && parsed.commandProtocol.version !== SAVE_VERSION) ||
+      (formatVersion < SAVE_FORMAT_VERSION
+        && parsed.commandProtocol.version === SAVE_VERSION) ||
       !Number.isInteger(parsed.commandProtocol.legacyCommandCount) ||
       !isRecord(parsed.journals) ||
       !hasOnlyKeys(parsed.journals, ['commands', 'events']) ||
@@ -2577,7 +2809,7 @@ export function decodeSave(serialized: string): DecodeSaveResult {
       ]) ||
       !isRecord(parsed.commandProtocol) ||
       !hasOnlyKeys(parsed.commandProtocol, ['version', 'legacyCommandCount']) ||
-      parsed.commandProtocol.version !== SAVE_VERSION ||
+      parsed.commandProtocol.version !== LEGACY_V2_COMMAND_PROTOCOL_VERSION ||
       !Number.isInteger(parsed.commandProtocol.legacyCommandCount)
     ) {
       return corrupt()
@@ -2587,20 +2819,29 @@ export function decodeSave(serialized: string): DecodeSaveResult {
     commands = parsed.commands
     events = parsed.events
   }
-  if (
-    formatVersion < SAVE_FORMAT_VERSION &&
-    !hasExactLegacyReviewShape(rawState)
-  ) {
+  if (formatVersion < 5 && !hasExactLegacyReviewShape(rawState)) {
     return corrupt()
   }
-  const state = formatVersion < SAVE_FORMAT_VERSION
+  const legacyNormalized = formatVersion < 5
     ? migrateLegacyCampaignState(rawState, commandProtocol)
+    : rawState
+  const state = formatVersion < SAVE_FORMAT_VERSION
+    ? migrateSuccessorHackingState(
+        legacyNormalized,
+        commandProtocol.version as 1 | 2,
+        Array.isArray(commands) ? commands.length : 0,
+      )
     : rawState
   if (
     !validSavedAt(parsed.savedAt) ||
     typeof parsed.campaignSeed !== 'string' ||
     !Number.isInteger(parsed.commandSequence) ||
-    !validCommandLog(commands, commandProtocol) ||
+    !validCommandLog(
+      commands,
+      commandProtocol,
+      undefined,
+      isRecord(state) ? Number(state.preHackingCoreCommandCount) : undefined,
+    ) ||
     !Array.isArray(events) ||
     !events.every(validEvent) ||
     !isRecord(rawState) ||
@@ -2655,15 +2896,33 @@ export function exportSeed(state: CampaignState): string {
   return state.campaignSeed
 }
 
+export interface ReplayCommandOptions {
+  preHackingCoreCommandCount?: number
+  legacySourceProtocolVersion?: 1 | 2
+}
+
 export function replayCommands(
   seed: string,
   commands: readonly GameCommand[],
   commandProtocol: CommandProtocolMetadata,
+  {
+    preHackingCoreCommandCount = commandProtocol.version === SAVE_VERSION
+      ? 0
+      : commands.length,
+    legacySourceProtocolVersion = commandProtocol.version === LEGACY_SAVE_VERSION
+      ? 1
+      : 2,
+  }: ReplayCommandOptions = {},
 ): ReplayResult {
   if (
     !Number.isInteger(commandProtocol.legacyCommandCount) ||
     commandProtocol.legacyCommandCount < 0 ||
     commandProtocol.legacyCommandCount > commands.length ||
+    !Number.isInteger(preHackingCoreCommandCount) ||
+    preHackingCoreCommandCount < commandProtocol.legacyCommandCount ||
+    preHackingCoreCommandCount > commands.length ||
+    (commandProtocol.version !== SAVE_VERSION &&
+      preHackingCoreCommandCount !== commands.length) ||
     (commandProtocol.version === LEGACY_SAVE_VERSION &&
       commandProtocol.legacyCommandCount !== commands.length)
   ) {
@@ -2675,26 +2934,36 @@ export function replayCommands(
     }
   }
   const created = createCampaign(seed)
-  const hasLegacyPrefix =
+  const hasLegacyV1Prefix =
     commandProtocol.version === LEGACY_SAVE_VERSION ||
     commandProtocol.legacyCommandCount > 0
-  let state: CampaignState = {
+  const replayBase: CampaignState = {
     ...created,
-    saveVersion: commandProtocol.version,
+    saveVersion: SAVE_VERSION,
     legacyCommandCount: commandProtocol.legacyCommandCount,
-    eventLog: hasLegacyPrefix
+    preHackingCoreCommandCount,
+    eventLog: hasLegacyV1Prefix
       ? createJournal(journalToArray(created.eventLog).map((event, index) =>
           index === 0 ? { ...event, message: LEGACY_V1_OPENING_MESSAGE } : event,
         ))
       : created.eventLog,
   }
-  if (hasLegacyPrefix) state = withLegacyReviewFallbacks(state)
+  let state = preHackingCoreCommandCount > 0
+    ? migrateSuccessorHackingState(
+        replayBase,
+        legacySourceProtocolVersion,
+        preHackingCoreCommandCount,
+      ) as CampaignState
+    : replayBase
+  if (hasLegacyV1Prefix) state = withLegacyReviewFallbacks(state)
   for (let commandIndex = 0; commandIndex < commands.length; commandIndex += 1) {
     const command = commands[commandIndex]
     const protocolVersion =
       commandIndex < commandProtocol.legacyCommandCount
         ? LEGACY_SAVE_VERSION
-        : commandProtocol.version
+        : commandIndex < preHackingCoreCommandCount
+          ? LEGACY_V2_COMMAND_PROTOCOL_VERSION
+          : commandProtocol.version
     if (!validCommand(command, protocolVersion)) {
       return {
         ok: false,

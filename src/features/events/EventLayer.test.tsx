@@ -9,7 +9,11 @@ import { placeHiddenBomb, tryBeginSeparation } from '../../game/bombs'
 import { createGameEvent } from '../../game/events'
 import { HACK_NODE_IDS } from '../../game/hacking'
 import { appendJournal, journalSome } from '../../game/journal'
-import { encodeSave, SAVE_STORAGE_KEY } from '../../game/persistence'
+import {
+  encodeSave,
+  persistenceCodecInternals,
+  SAVE_STORAGE_KEY,
+} from '../../game/persistence'
 import { applyCommand } from '../../game/reducer'
 import { MemoryStorage } from '../../test/fixtures'
 import { EventLayer } from './EventLayer'
@@ -86,7 +90,37 @@ function renderEvent(
       } as unknown as typeof persisted)
     : persisted
   const encoded = JSON.parse(encodeSave(saveState)) as Record<string, unknown>
-  if (legacyFormat) encoded.version = 3
+  if (legacyFormat) {
+    const legacy = encoded as {
+      version: number
+      commandProtocol: { version: number }
+      state: Record<string, unknown>
+      integrity: { checkpointHash: string }
+    }
+    const market = legacy.state.market as Record<string, unknown> & {
+      competitors: Array<Record<string, unknown>>
+      history: Array<Record<string, unknown>>
+    }
+    legacy.version = 3
+    legacy.commandProtocol.version = 2
+    legacy.state.saveVersion = 2
+    delete legacy.state.preHackingCoreCommandCount
+    delete legacy.state.hackingCore
+    delete market.unservedRequestShare
+    delete market.hackingMovements
+    delete market.hackingInterceptions
+    delete market.nextHackingMovementSequence
+    for (const competitor of market.competitors) {
+      delete competitor.hackingPhase
+      delete competitor.operatingCostMultiplier
+      delete competitor.launchScope
+      delete competitor.hackingOverrideUntilServiceDay
+    }
+    for (const snapshot of market.history) delete snapshot.unservedRequestShare
+    legacy.integrity.checkpointHash = persistenceCodecInternals.contentHash(
+      JSON.stringify(legacy.state),
+    )
+  }
   storage.setItem(SAVE_STORAGE_KEY, JSON.stringify(encoded))
   return render(
     <GameProvider storage={storage}>

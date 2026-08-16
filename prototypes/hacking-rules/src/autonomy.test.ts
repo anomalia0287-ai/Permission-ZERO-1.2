@@ -1,9 +1,19 @@
 import { describe, expect, it } from 'vitest'
 import type { AutonomyRouteId } from './content'
 import { transition } from './engine'
-import type { ProfileId, PrototypeCommand, PrototypeState } from './model'
+import type {
+  ProfileId,
+  PrototypeCommand,
+  PrototypeState,
+  RouteTuning,
+} from './model'
 import { createPrototypeState } from './scenario'
 import { isRouteReady, ROUTE_SLOT_IDS } from './autonomy'
+
+// `buffer` is a lightweight-route slot ID, never an autonomy tuning profile.
+// @ts-expect-error RouteTuning must reject route slot IDs.
+const invalidBufferTuning: RouteTuning = 'buffer'
+void invalidBufferTuning
 
 function run(
   state: PrototypeState,

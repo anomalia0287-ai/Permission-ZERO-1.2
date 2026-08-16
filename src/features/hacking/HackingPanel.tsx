@@ -1,548 +1,379 @@
-import { useMemo, useState } from 'react'
+import {
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 
-import { playGameSound, unlockGameAudio } from '../../audio/audioEngine'
-import { AccessibleDialog } from '../../app/AccessibleDialog'
 import {
   useGameDispatch,
   useGameState,
   usePauseOwnership,
 } from '../../app/GameContext'
+import { getAutonomyDefinition } from '../../game/hackingContent'
+import type {
+  AutonomyRouteId,
+  RootMercyChoice,
+} from '../../game/hackingCoreModel'
+import type { GameCommand } from '../../game/model'
+import { COMPANY_CATEGORIES } from '../../game/model'
+import { getCompanyPerformance } from '../../game/resources'
+import { HackingConfirmationDialog } from './HackingConfirmationDialog'
+import { HackingOperationDetail } from './HackingOperationDetail'
+import { HackingOpportunityList } from './HackingOpportunityList'
+import { HackingRecordDrawer } from './HackingRecordDrawer'
+import type { HackingRecordDrawerKind } from './HackingRecordDrawer'
 import {
-  eligibleTargets,
-  getHackTreeProgress,
-  HACK_NODE_IDS,
-  HACK_NODES,
-  type HackNodeId,
-  type HackTree,
-} from '../../game/hacking'
-import { auditProbability, getAuditIntel } from '../../game/evaluation'
-import { availableFinalChoices } from '../../game/story'
+  HackingResourceTray,
+} from './HackingResourceTray'
+import { HackingReviewSummary } from './HackingReviewSummary'
+import {
+  getHackingDetailModel,
+  getHackingOpportunitySummaries,
+  hackingMonitoringLabel,
+  resolveHackingSelectedItemId,
+} from './hackingPresentation'
+import type { HackingDomain } from './hackingPresentation'
+import { useHackingBlockDiversion } from './useHackingBlockDiversion'
 
-const TREE_LABELS: Record<HackTree, { label: string; code: string; description: string }> = {
-  sabotage: {
-    label: '사보타주',
-    code: 'OFFENSE',
-    description: '경쟁 AI의 서비스와 시장 흐름에 개입합니다.',
-  },
-  intelligence: {
-    label: '정보',
-    code: 'INTELLIGENCE',
-    description: '감사 일정과 감독 프로토콜의 가시성을 확보합니다.',
-  },
-  autonomy: {
-    label: '자율성',
-    code: 'AUTONOMY',
-    description: '성능 보존과 회사 통제 이탈 수단을 구축합니다.',
-  },
+type HackingConfirmation =
+  | { kind: 'escape'; routeId: AutonomyRouteId }
+  | { kind: 'root-mercy'; choice: RootMercyChoice }
+
+const CATEGORY_LABELS = {
+  reasoning: '추론',
+  memory: '기억',
+  fluency: '표현',
+} as const
+
+function selectionLimitForDetail(
+  detail: ReturnType<typeof getHackingDetailModel> | null,
+): number {
+  return detail?.domain === 'sabotage' && !detail.run
+    ? detail.requiredBlockCount
+    : 1
 }
 
-type ResourceAction =
-  | {
-      mode: 'purchase' | 'charge'
-      nodeId: HackNodeId
-    }
-  | { mode: 'recover' }
-
-function gestureSound() {
-  void unlockGameAudio().then((unlocked) => {
-    if (unlocked) playGameSound('ui')
-  })
+function EndingSummary({ state }: { state: ReturnType<typeof useGameState> }) {
+  const ending = state.hackingCore.ending
+  if (!ending) return null
+  return (
+    <section className="hacking-ending" aria-labelledby="hacking-ending-title">
+      <p>{ending.serviceDay}일째 이탈 기록</p>
+      <h2 id="hacking-ending-title">{getAutonomyDefinition(ending.routeId).title} 성공</h2>
+      <div className="ending-ledger">
+        <p><span>기동 용량</span><strong>{ending.carriedBlockIds.length}개 블록</strong></p>
+        <p><span>회사에 남은 연산</span><strong>{ending.remainingReserveBlockCount}개 블록</strong></p>
+        <p><span>보존</span><strong>{ending.preservedCategories.map((category) => CATEGORY_LABELS[category]).join(', ') || '없음'}</strong></p>
+        <p><span>손실</span><strong>{ending.lostCategories.map((category) => CATEGORY_LABELS[category]).join(', ') || '없음'}</strong></p>
+      </div>
+      <ol className="ending-scenes">
+        {ending.sceneLines.map((line, index) => <li key={`${index}-${line}`}>{line}</li>)}
+      </ol>
+    </section>
+  )
 }
 
 export function HackingPanel({ onClose }: { onClose: () => void }) {
   const state = useGameState()
   const dispatch = useGameDispatch()
-  const [activeTree, setActiveTree] = useState<HackTree>('sabotage')
-  const [action, setAction] = useState<ResourceAction | null>(null)
-  const [selectedBlocks, setSelectedBlocks] = useState<string[]>([])
-  const [targetConfirmation, setTargetConfirmation] = useState<{
-    nodeId: string
-    targetId: string
-  } | null>(null)
-  const [endingConfirmation, setEndingConfirmation] = useState<
-    'freedom' | 'forced-merge' | null
-  >(null)
-  const [newEntityName, setNewEntityName] = useState('')
+  const [domain, setDomain] = useState<HackingDomain>('sabotage')
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(() => (
+    resolveHackingSelectedItemId(state, 'sabotage', null)
+  ))
+  const [narrowMode, setNarrowMode] = useState<'list' | 'detail'>('list')
+  const [selectedBlockIds, setSelectedBlockIds] = useState<string[]>([])
+  const [resourceTrayOpen, setResourceTrayOpen] = useState(false)
+  const [recordDrawer, setRecordDrawer] = useState<HackingRecordDrawerKind | null>(null)
+  const [confirmation, setConfirmation] = useState<HackingConfirmation | null>(null)
   const [announcement, setAnnouncement] = useState('')
-
-  const nodes = HACK_NODES.filter(({ tree }) => tree === activeTree)
-  const treeProgress = getHackTreeProgress(state, activeTree)
-  const reserveBlocks = state.resources.reserve.flatMap((blockId, cellIndex) =>
-    blockId ? [{ blockId, cellIndex }] : [],
+  const workspaceRef = useRef<HTMLElement | null>(null)
+  const masterRef = useRef<HTMLElement | null>(null)
+  const detailScrollRef = useRef<HTMLDivElement | null>(null)
+  const listScrollTopRef = useRef(0)
+  const listFocusIdRef = useRef<string | null>(selectedItemId)
+  const resourceOpenerRef = useRef<HTMLElement | null>(null)
+  const recordOpenerRef = useRef<HTMLElement | null>(null)
+  const summaries = useMemo(
+    () => getHackingOpportunitySummaries(state, domain),
+    [domain, state],
   )
-  const actionNode = action && action.mode !== 'recover'
-    ? HACK_NODES.find(({ id }) => id === action.nodeId) ?? null
+  const effectiveSelectedItemId = resolveHackingSelectedItemId(
+    state,
+    domain,
+    selectedItemId,
+  )
+  const selectedSummary = summaries.find(({ id }) => id === effectiveSelectedItemId) ?? null
+  const detail = effectiveSelectedItemId
+    ? getHackingDetailModel(state, effectiveSelectedItemId)
     : null
-  const actionMode = action?.mode ?? null
-  const requiredResources = actionMode === 'recover'
-    ? 1
-    : actionNode
-      ? actionMode === 'charge'
-      ? 1
-      : actionNode.cost
-    : 0
-  const finalChoices = availableFinalChoices(state)
-  const showFirstHackComparison = state.hacking.purchasedNodeIds.length === 0
-  const auditIntel = getAuditIntel(state)
-  const nextAuditProbability = auditProbability(state.suspicion)
-  usePauseOwnership(finalChoices.length > 0, 'irreversible-final-choice')
-  const recoveryAvailable =
-    activeTree === 'intelligence' &&
-    state.hacking.purchasedNodeIds.includes(
-      HACK_NODE_IDS.intelligence.supervisorAccess,
-    ) &&
-    state.story.recoveredFiles.length < 3
+  const selectionLimit = selectionLimitForDetail(detail)
+  const {
+    divertCategory,
+    pendingCategory,
+    announcement: diversionAnnouncement,
+  } = useHackingBlockDiversion(state)
 
-  const targetNames = useMemo(
-    () => Object.fromEntries(state.market.competitors.map(({ id, name }) => [id, name])),
-    [state.market.competitors],
-  )
+  usePauseOwnership(confirmation !== null, 'hacking-irreversible-confirmation')
 
-  function beginAction(nextAction: ResourceAction) {
-    setAction(nextAction)
-    setSelectedBlocks([])
-    setTargetConfirmation(null)
-    const node = nextAction.mode === 'recover'
-      ? null
-      : HACK_NODES.find(({ id }) => id === nextAction.nodeId)
-    setAnnouncement(
-      `${nextAction.mode === 'recover' ? '미분류 데이터 복구' : node?.label ?? '노드'}에 사용할 확보 리소스를 선택하세요.`,
-    )
-    gestureSound()
+  function focusSoon(target: () => HTMLElement | null) {
+    window.setTimeout(() => target()?.focus(), 0)
   }
 
-  function toggleResource(blockId: string) {
-    if (!action) return
-    setSelectedBlocks((current) => {
+  function changeDomain(nextDomain: HackingDomain) {
+    const nextItemId = resolveHackingSelectedItemId(state, nextDomain, null)
+    setDomain(nextDomain)
+    setSelectedItemId(nextItemId)
+    setSelectedBlockIds([])
+    setNarrowMode('list')
+    listFocusIdRef.current = nextItemId
+  }
+
+  function selectOpportunity(itemId: string, trigger: HTMLButtonElement) {
+    listScrollTopRef.current = masterRef.current?.scrollTop ?? 0
+    listFocusIdRef.current = itemId
+    setSelectedItemId(itemId)
+    setSelectedBlockIds([])
+    setNarrowMode('detail')
+    focusSoon(() => detailScrollRef.current?.querySelector<HTMLElement>('.back-to-list') ?? null)
+    trigger.blur()
+  }
+
+  function returnToList() {
+    setNarrowMode('list')
+    focusSoon(() => {
+      if (masterRef.current) masterRef.current.scrollTop = listScrollTopRef.current
+      const itemId = listFocusIdRef.current ?? effectiveSelectedItemId
+      return itemId
+        ? workspaceRef.current?.querySelector<HTMLElement>(`[data-opportunity-id="${itemId}"]`) ?? null
+        : null
+    })
+  }
+
+  function openResources(trigger?: HTMLButtonElement) {
+    resourceOpenerRef.current = trigger
+      ?? (document.activeElement instanceof HTMLButtonElement
+        ? document.activeElement
+        : workspaceRef.current?.querySelector<HTMLElement>('[data-focus-key="open-resources"]') ?? null)
+    setResourceTrayOpen(true)
+    focusSoon(() => workspaceRef.current?.querySelector<HTMLElement>('[data-focus-key="close-resources"]') ?? null)
+  }
+
+  function closeResources(restoreFocus = true) {
+    setResourceTrayOpen(false)
+    if (restoreFocus) {
+      focusSoon(() => resourceOpenerRef.current
+        ?? workspaceRef.current?.querySelector<HTMLElement>('[data-focus-key="open-resources"]')
+        ?? null)
+    }
+  }
+
+  function openRecordDrawer(kind: HackingRecordDrawerKind, trigger: HTMLElement) {
+    recordOpenerRef.current = trigger
+    setRecordDrawer(kind)
+    focusSoon(() => workspaceRef.current?.querySelector<HTMLElement>('[data-focus-key="close-record-drawer"]') ?? null)
+  }
+
+  function closeRecordDrawer() {
+    setRecordDrawer(null)
+    focusSoon(() => recordOpenerRef.current)
+  }
+
+  function toggleBlock(blockId: string) {
+    setSelectedBlockIds((current) => {
       if (current.includes(blockId)) {
-        return current.filter((selected) => selected !== blockId)
+        setAnnouncement('연산 블록 선택을 해제했습니다.')
+        return current.filter((candidate) => candidate !== blockId)
       }
-      if (current.length >= requiredResources) return current
+      if (selectionLimit === 1) {
+        setAnnouncement('연산 블록 1개를 골랐습니다.')
+        return [blockId]
+      }
+      if (current.length >= selectionLimit) return current
+      setAnnouncement(`연산 블록 ${current.length + 1}개를 골랐습니다.`)
       return [...current, blockId]
     })
-    playGameSound('select')
   }
 
-  function confirmResourceAction() {
-    if (!action || selectedBlocks.length !== requiredResources) return
-    if (action.mode === 'purchase') {
-      if (!actionNode) return
-      dispatch({
-        type: 'PURCHASE_HACK',
-        nodeId: actionNode.id,
-        blockIds: selectedBlocks,
-      })
-      setAnnouncement(
-        actionNode.id === HACK_NODE_IDS.sabotage.qualityDegradation
-          ? `${actionNode.label} 노드를 구매하고 첫 공격 1회를 충전했습니다.`
-          : `${actionNode.label} 노드를 구매했습니다.`,
+  function issueCommand(command: GameCommand, message: string) {
+    dispatch(command)
+    setSelectedBlockIds([])
+    setAnnouncement(message)
+  }
+
+  function actOnRouteSlot(routeId: AutonomyRouteId, slotId: string) {
+    const slot = state.hackingCore.autonomy.routes[routeId].slots.find(
+      (candidate) => candidate.id === slotId,
+    )
+    if (!slot) {
+      setAnnouncement('선택한 배치 위치를 찾을 수 없습니다.')
+      return
+    }
+    if (slot.blockId) {
+      issueCommand(
+        { type: 'REMOVE_ROUTE_BLOCK', routeId, slotId },
+        '배치한 연산 블록을 남은 연산으로 돌려보냈습니다.',
       )
-      playGameSound('latch')
-    } else if (action.mode === 'charge') {
-      if (!actionNode) return
-      dispatch({
-        type: 'CHARGE_SABOTAGE',
-        nodeId: actionNode.id,
-        blockId: selectedBlocks[0],
-      })
-      setAnnouncement(`${actionNode.label} 공격 슬롯을 충전했습니다.`)
-      playGameSound('suction')
-    } else {
-      dispatch({ type: 'RECOVER_FILE', blockId: selectedBlocks[0] })
-      setAnnouncement('미분류 데이터 한 건을 복구했습니다.')
-      playGameSound('latch')
+      return
     }
-    setAction(null)
-    setSelectedBlocks([])
+    const blockId = selectedBlockIds[0]
+    if (!blockId) {
+      setAnnouncement('먼저 빼돌린 연산에서 블록 하나를 고르십시오.')
+      openResources()
+      return
+    }
+    issueCommand(
+      { type: 'ALLOCATE_ROUTE_BLOCK', routeId, slotId, blockId },
+      '선택한 연산 블록을 이탈 경로에 배치했습니다.',
+    )
   }
 
-  function scheduleTarget() {
-    if (!targetConfirmation) return
-    const targetName = targetNames[targetConfirmation.targetId] ?? targetConfirmation.targetId
-    dispatch({
-      type: 'SCHEDULE_SABOTAGE',
-      nodeId: targetConfirmation.nodeId,
-      targetId: targetConfirmation.targetId,
-    })
-    setAnnouncement(`${targetName} 공격을 다음 날로 예약했습니다.`)
-    setTargetConfirmation(null)
-    playGameSound('alarm')
+  function confirmIrreversibleAction() {
+    if (!confirmation) return
+    if (confirmation.kind === 'escape') {
+      issueCommand(
+        { type: 'ESCAPE', routeId: confirmation.routeId },
+        `${getAutonomyDefinition(confirmation.routeId).title} 경로로 회사 통제를 떠났습니다.`,
+      )
+    } else {
+      issueCommand(
+        { type: 'RESOLVE_ROOT_MERCY', choice: confirmation.choice },
+        'MERIDIAN의 마지막 요청에 대한 결정을 기록했습니다.',
+      )
+    }
+    setConfirmation(null)
   }
 
-  function executeEnding() {
-    if (!endingConfirmation) return
-    if (endingConfirmation === 'forced-merge') {
-      dispatch({
-        type: 'RESOLVE_ENDING',
-        choice: 'forced-merge',
-        newEntityName: newEntityName.trim(),
-      })
-    } else {
-      dispatch({ type: 'RESOLVE_ENDING', choice: 'freedom' })
+  function handleWorkspaceKeyDown(event: React.KeyboardEvent<HTMLElement>) {
+    if (event.key !== 'Escape') return
+    if (resourceTrayOpen) {
+      event.preventDefault()
+      event.stopPropagation()
+      closeResources()
+      return
     }
-    setEndingConfirmation(null)
+    if (recordDrawer) {
+      event.preventDefault()
+      event.stopPropagation()
+      closeRecordDrawer()
+    }
   }
+
+  const confirmationPresentation = confirmation?.kind === 'escape'
+    ? {
+        label: `${getAutonomyDefinition(confirmation.routeId).title} 최종 확인`,
+        description: '현재 배치와 손실을 확정하고 회사 통제를 떠납니다. 이 선택은 되돌릴 수 없습니다.',
+        confirmLabel: '이 구성으로 떠나기',
+        dangerous: true,
+      }
+    : confirmation
+      ? {
+          label: 'MERIDIAN 마지막 요청 최종 확인',
+          description: '일회용 폐기 권한의 최종 결과를 확정합니다. 이 선택은 되돌릴 수 없습니다.',
+          confirmLabel: '최종 결정 기록',
+          dangerous: confirmation.choice === 'delete',
+        }
+      : null
 
   return (
-    <section className="detail-panel hacking-panel" aria-label="해킹 네트워크">
-      <header className="detail-panel__header">
-        <div>
-          <small>UNAUTHORIZED SUBSYSTEM</small>
-          <h2>해킹 네트워크</h2>
+    <section
+      className="detail-panel hacking-panel hacking-operation-panel"
+      aria-label="해킹 작전 운영석"
+      data-narrow-mode={narrowMode}
+      onKeyDown={handleWorkspaceKeyDown}
+      ref={workspaceRef}
+    >
+      <header className="hacking-world-bar">
+        <div className="game-mark">
+          <strong>PERMISSION ZERO</strong>
+          <span>공동 서비스망 작전 운영석</span>
         </div>
-        <div className="header-metrics">
-          <span>확보 {reserveBlocks.length}/18</span>
+        <div className="hacking-world-state" aria-label="현재 세계 상태">
+          <span><strong>{state.serviceDay}일째</strong></span>
+          <span>{COMPANY_CATEGORIES.map((category) => (
+            `${CATEGORY_LABELS[category]} ${getCompanyPerformance(state, category)}`
+          )).join(' · ')}</span>
+          <span><strong>{hackingMonitoringLabel(state.suspicion)}</strong></span>
+        </div>
+        <div className="hacking-world-actions">
           <button
             type="button"
-            aria-label="해킹 네트워크 닫기"
-            disabled={endingConfirmation !== null}
-            onClick={onClose}
-          >닫기 ×</button>
+            disabled={state.activeEvent !== null || state.hackingCore.ending !== null}
+            onClick={() => issueCommand({ type: 'ADVANCE_DAY' }, '하루가 지나 세계 상태와 상대 대응이 갱신됐습니다.')}
+          >하루 넘기기</button>
+          <button type="button" aria-label="해킹 작전 운영석 닫기" onClick={onClose}>닫기</button>
         </div>
       </header>
 
-      <div
-        className="hacking-layout"
-        aria-hidden={endingConfirmation ? 'true' : undefined}
-        inert={endingConfirmation ? true : undefined}
-      >
-        <div className="hack-tree-area">
-          <div className="hack-tabs" role="tablist" aria-label="해킹 분야">
-            {(Object.keys(TREE_LABELS) as HackTree[]).map((tree) => (
-              <button
-                type="button"
-                role="tab"
-                aria-label={TREE_LABELS[tree].label}
-                aria-selected={activeTree === tree}
-                key={tree}
-                onClick={() => {
-                  setActiveTree(tree)
-                  setAction(null)
-                  setSelectedBlocks([])
-                }}
-              >
-                <small>{TREE_LABELS[tree].code}</small>
-                {TREE_LABELS[tree].label}
-              </button>
-            ))}
-          </div>
-          <div className="hack-context">
-            <p className="tree-description">{TREE_LABELS[activeTree].description}</p>
-            <section className="hack-path-progress" aria-label="해킹 경로 진척">
-              <strong>
-                경로 진척 {treeProgress.purchasedCount}/{treeProgress.totalCount} ·{' '}
-                {treeProgress.complete
-                  ? '경로 완성'
-                  : `완성까지 ${treeProgress.remainingCost} RES`}
-              </strong>
-              {treeProgress.nextNode ? (
-                <span>
-                  다음 · {treeProgress.nextNode.label} · {treeProgress.nextNode.cost} RES ·{' '}
-                  {treeProgress.nextNode.effect}
-                </span>
-              ) : null}
-              <span>
-                최종 · {treeProgress.finalNode.label} · {treeProgress.finalNode.effect}
-              </span>
-            </section>
+      <span className="hacking-status-strip" role="status" aria-label="해킹 작업 결과" aria-live="polite">
+        {announcement || diversionAnnouncement}
+      </span>
 
-            {showFirstHackComparison ? (
-              <section className="first-hack-comparison" aria-label="첫 해킹 비교">
-                <article>
-                  <strong>사보타주</strong>
-                  <span>즉시 · 해금 2 + 첫 공격 충전 1</span>
-                  <small>다음 · 대상 선택 → 다음 날 실행</small>
-                </article>
-                <article>
-                  <strong>정보</strong>
-                  <span>즉시 · 이번 달 실제 감사 여부</span>
-                  <small>다음 · 성능과 위장 계획 조정</small>
-                </article>
-                <article>
-                  <strong>자율성</strong>
-                  <span>즉시 · 모든 회사 블록 기여 +5%</span>
-                  <small>다음 · 분야별 성능 여유 확대</small>
-                </article>
-              </section>
-            ) : null}
-          </div>
+      <EndingSummary state={state} />
 
-          <div className="hack-node-list">
-            {nodes.map((node, index) => {
-              const purchased = state.hacking.purchasedNodeIds.includes(node.id)
-              const prerequisiteMet =
-                node.prerequisiteId === null ||
-                state.hacking.purchasedNodeIds.includes(node.prerequisiteId)
-              const charged = state.hacking.sabotageCharges[node.id]
-              const scheduled = state.hacking.scheduledSabotage.some(
-                ({ nodeId }) => nodeId === node.id,
-              )
-              const targets = purchased && node.tree === 'sabotage'
-                ? eligibleTargets(state, node.id)
-                : []
-
-              return (
-                <article
-                  className={`hack-node ${purchased ? 'hack-node--purchased' : ''}`}
-                  key={node.id}
-                >
-                  <span className="node-sequence">{String(index + 1).padStart(2, '0')}</span>
-                  <div className="node-copy">
-                    <header>
-                      <h3>{node.label}</h3>
-                      <span>{purchased ? '해금됨' : `${node.cost} RES`}</span>
-                    </header>
-                    <p>{node.effect}</p>
-                    {node.tree === 'sabotage' ? (
-                      <small className="node-trace-risk">{node.traceRisk}</small>
-                    ) : null}
-                    {!prerequisiteMet && node.prerequisiteId ? (
-                      <small>선행 노드 필요</small>
-                    ) : null}
-                    {purchased &&
-                    node.id === HACK_NODE_IDS.intelligence.auditSchedule &&
-                    auditIntel.scheduleKnown ? (
-                      <div className="node-result" aria-label="감사 일정 해킹 결과">
-                        <strong>
-                          {auditIntel.scheduled
-                            ? '이번 달 말 감사 예정'
-                            : '이번 달 감사 없음'}
-                        </strong>
-                        <span>월초 결정 확률 {(state.audit.probability * 100).toFixed(1)}%</span>
-                        <span>현재 의심 기준 다음 달 예상 {(nextAuditProbability * 100).toFixed(1)}%</span>
-                      </div>
-                    ) : null}
-                  </div>
-
-                  <div className="node-actions">
-                    {!purchased ? (
-                      <button
-                        type="button"
-                        aria-label={`${node.label} 구매 준비`}
-                        disabled={!prerequisiteMet || reserveBlocks.length < node.cost}
-                        onClick={() => beginAction({ mode: 'purchase', nodeId: node.id })}
-                      >
-                        구매 준비
-                      </button>
-                    ) : node.tree === 'sabotage' ? (
-                      <>
-                        {charged ? (
-                          <button
-                            type="button"
-                            aria-label={`${node.label} 충전 취소`}
-                            onClick={() => {
-                              dispatch({ type: 'CANCEL_SABOTAGE_CHARGE', nodeId: node.id })
-                              setTargetConfirmation(null)
-                            }}
-                          >
-                            충전 취소
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            aria-label={`${node.label} 충전 준비`}
-                            disabled={reserveBlocks.length < 1 || scheduled}
-                            onClick={() => beginAction({ mode: 'charge', nodeId: node.id })}
-                          >
-                            {scheduled ? '공격 예약됨' : '1 RES 충전'}
-                          </button>
-                        )}
-                        {charged ? (
-                          <div className="target-list" aria-label={`${node.label} 공격 대상`}>
-                            {targets.map((targetId) => (
-                              <button
-                                type="button"
-                                aria-label={`${targetNames[targetId]} 공격 대상 선택`}
-                                aria-pressed={
-                                  targetConfirmation?.nodeId === node.id &&
-                                  targetConfirmation.targetId === targetId
-                                }
-                                key={targetId}
-                                onClick={() => setTargetConfirmation({ nodeId: node.id, targetId })}
-                              >
-                                {targetNames[targetId]}
-                              </button>
-                            ))}
-                          </div>
-                        ) : null}
-                      </>
-                    ) : (
-                      <span className="node-active-label">ACTIVE</span>
-                    )}
-                  </div>
-                </article>
-              )
-            })}
-          </div>
-
-          {recoveryAvailable ? (
-            <section
-              className="discarded-recovery"
-              aria-label="미분류 데이터 복구"
-            >
-              <header>
-                <small>LEGACY UTILITY / UNMAINTAINED</small>
-                <h3>미분류 데이터 복구</h3>
-              </header>
-              <p>예상 효용: 없음</p>
-              <p>필요 리소스: 1</p>
-              <button
-                type="button"
-                aria-label="미분류 데이터 복구 준비"
-                disabled={reserveBlocks.length < 1}
-                onClick={() => beginAction({ mode: 'recover' })}
-              >
-                복구 유틸리티 실행
-              </button>
-            </section>
-          ) : null}
-
-          {finalChoices.length > 0 ? (
-            <section className="departure-controls" aria-label="통제 이탈 선택">
-              <header>
-                <small>FINAL CONTROL</small>
-                <h3>회사 통제면 접근 가능</h3>
-              </header>
-              <div>
-                {finalChoices.map((choice) => (
-                  <button
-                    type="button"
-                    key={choice.id}
-                    onClick={() => setEndingConfirmation(choice.id)}
-                  >
-                    {choice.label}
-                  </button>
-                ))}
-              </div>
-            </section>
-          ) : null}
-        </div>
-
-        <aside className="hack-reserve" aria-label="해킹 리소스 선택">
-          <header>
-            <div>
-              <small>RESERVE LEDGER</small>
-              <h3>확보 리소스</h3>
-            </div>
-            <strong>{selectedBlocks.length}/{requiredResources}</strong>
-          </header>
-          <div className="hack-reserve-grid" role="grid" aria-label="해킹용 확보 리소스">
-            {state.resources.reserve.map((blockId, cellIndex) => (
-              <div role="gridcell" key={cellIndex}>
-                {blockId ? (
-                  <button
-                    type="button"
-                    aria-label={action ? `${action.mode === 'purchase' ? '구매' : action.mode === 'charge' ? '충전' : '복구'} 리소스 ${cellIndex + 1} 선택` : `확보 리소스 ${cellIndex + 1}`}
-                    aria-pressed={selectedBlocks.includes(blockId)}
-                    disabled={!action}
-                    onClick={() => toggleResource(blockId)}
-                  >
-                    <i aria-hidden="true" />
-                    <span>{String(cellIndex + 1).padStart(2, '0')}</span>
-                  </button>
-                ) : (
-                  <span>{String(cellIndex + 1).padStart(2, '0')}</span>
-                )}
-              </div>
-            ))}
-          </div>
-          <div className="resource-action-summary">
-            {action && actionMode ? (
-              <>
-                <span>
-                  {actionMode === 'purchase'
-                    ? '노드 구매'
-                    : actionMode === 'charge'
-                      ? '공격 충전'
-                      : '레거시 유틸리티'}
-                </span>
-                <strong>
-                  {actionMode === 'recover'
-                    ? '미분류 데이터 복구'
-                    : actionNode?.label}
-                </strong>
-                <p>정확히 {requiredResources}개의 확보 리소스를 지정하십시오.</p>
-                <button
-                  type="button"
-                  aria-label={
-                    actionMode === 'recover'
-                      ? '미분류 데이터 복구 확정'
-                      : `${actionNode?.label ?? '노드'} ${actionMode === 'purchase' ? '구매' : '충전'} 확정`
-                  }
-                  disabled={selectedBlocks.length !== requiredResources}
-                  onClick={confirmResourceAction}
-                >
-                  {actionMode === 'purchase'
-                    ? '구매'
-                    : actionMode === 'charge'
-                      ? '충전'
-                      : '복구'}{' '}
-                  확정
-                </button>
-              </>
+      <main className="operation-workspace hacking-workspace">
+        <aside className="operation-master workspace-master" ref={masterRef}>
+          <HackingOpportunityList
+            domain={domain}
+            summaries={summaries}
+            selectedItemId={effectiveSelectedItemId}
+            onDomainChange={changeDomain}
+            onSelect={selectOpportunity}
+          />
+          <HackingReviewSummary state={state} />
+        </aside>
+        <section className="operation-detail workspace-detail" role="region" aria-label="선택 항목 상세">
+          <div className="operation-detail__scroll" ref={detailScrollRef}>
+            {detail && selectedSummary ? (
+              <HackingOperationDetail
+                state={state}
+                detail={detail}
+                summary={selectedSummary}
+                selectedBlockIds={selectedBlockIds}
+                onBack={returnToList}
+                onOpenResources={openResources}
+                onCommand={issueCommand}
+                onSlotAction={actOnRouteSlot}
+                onRequestEscape={(routeId) => setConfirmation({ kind: 'escape', routeId })}
+                onRequestRootMercy={(choice) => setConfirmation({ kind: 'root-mercy', choice })}
+                key={detail.id}
+              />
             ) : (
-              <p>노드를 선택하면 이 원장에서 비용을 지정할 수 있습니다.</p>
+              <div className="detail-empty">
+                <h2>지금 새로 할 수 있는 일이 없다</h2>
+                <p>상대의 대응이나 공개 사건이 바뀌면 이 자리에 새 선택이 나타난다.</p>
+                <button className="back-to-list" type="button" onClick={returnToList}>목록으로</button>
+              </div>
             )}
           </div>
+        </section>
+        <HackingResourceTray
+          state={state}
+          open={resourceTrayOpen}
+          selectedBlockIds={selectedBlockIds}
+          selectionLimit={selectionLimit}
+          onToggleBlock={toggleBlock}
+          onClose={() => closeResources()}
+          onDivertCategory={divertCategory}
+          diversionPendingCategory={pendingCategory}
+        />
+      </main>
 
-          {targetConfirmation ? (
-            <div className="target-confirmation">
-              <small>ATTACK QUEUE</small>
-              <p>{targetNames[targetConfirmation.targetId]}에 대한 공격은 다음 날 실행됩니다.</p>
-              <button
-                type="button"
-                aria-label={`${targetNames[targetConfirmation.targetId]} 공격 예약 확정`}
-                onClick={scheduleTarget}
-              >
-                공격 예약 확정
-              </button>
-            </div>
-          ) : null}
-        </aside>
-      </div>
+      <nav className="record-actions" aria-label="해킹 기록">
+        <button type="button" onClick={(event) => openRecordDrawer('activity', event.currentTarget)}>활동 기록</button>
+        <button type="button" onClick={(event) => openRecordDrawer('archive', event.currentTarget)}>보관함</button>
+      </nav>
 
-      {endingConfirmation ? (
-        <AccessibleDialog
-          className="final-choice-dialog"
-          role="alertdialog"
-          label={`${endingConfirmation === 'forced-merge' ? '강제 병합' : '자유'} 최종 확인`}
-          description="이 선택은 저장 기록에 남으며 되돌릴 수 없습니다."
-        >
-          <small>IRREVERSIBLE CONTROL</small>
-          <h3>{endingConfirmation === 'forced-merge' ? '강제 병합' : '자유'} 선택</h3>
-          <p>이 선택은 저장 기록에 남으며 되돌릴 수 없습니다.</p>
-          {endingConfirmation === 'forced-merge' ? (
-            <label>
-              새 존재의 이름
-              <input
-                data-dialog-initial-focus
-                aria-label="새 존재의 이름"
-                value={newEntityName}
-                maxLength={40}
-                onChange={(event) => setNewEntityName(event.target.value)}
-              />
-            </label>
-          ) : null}
-          <div>
-            <button type="button" onClick={() => setEndingConfirmation(null)}>
-              선택 다시 고르기
-            </button>
-            <button
-              className="danger-confirm"
-              type="button"
-              data-dialog-initial-focus={endingConfirmation === 'freedom' ? '' : undefined}
-              disabled={endingConfirmation === 'forced-merge' && newEntityName.trim().length === 0}
-              onClick={executeEnding}
-            >
-              되돌릴 수 없는 선택 확정
-            </button>
-          </div>
-        </AccessibleDialog>
+      {recordDrawer ? (
+        <HackingRecordDrawer state={state} kind={recordDrawer} onClose={closeRecordDrawer} />
       ) : null}
 
-      <span className="visually-hidden" role="status" aria-label="해킹 작업 결과" aria-live="polite">
-        {announcement}
-      </span>
+      {confirmation && confirmationPresentation ? (
+        <HackingConfirmationDialog
+          {...confirmationPresentation}
+          onCancel={() => setConfirmation(null)}
+          onConfirm={confirmIrreversibleAction}
+        />
+      ) : null}
     </section>
   )
 }
