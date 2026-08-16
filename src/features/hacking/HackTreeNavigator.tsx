@@ -1,3 +1,4 @@
+import { CATEGORY_LABELS } from '../../game/config'
 import {
   getHackTreeProgress,
   HACK_NODES,
@@ -8,6 +9,7 @@ import {
   type CampaignState,
   type CompanyCategory,
 } from '../../game/model'
+import { RESOURCE_CATEGORY_VISUALS } from '../resources/resourcePresentation'
 import {
   HACK_TREE_ORDER,
   HACK_TREE_PRESENTATION,
@@ -60,8 +62,17 @@ export function HackTreeNavigator({
   const active = HACK_TREE_PRESENTATION[activeTree]
 
   return (
-    <section className={`hack-tree-nav hack-tree-nav--${active.accent}`}>
-      <div className="hack-tabs" role="tablist" aria-label="해킹 분야">
+    <aside
+      className={`hack-tree-nav hack-tree-nav--${active.accent}`}
+      aria-label="침투 경로 제어"
+    >
+      <header className="hack-route-heading">
+        <small>THREE OPEN FRONTS</small>
+        <h3>침투 경로</h3>
+        <p>각 경로는 현재 도달 가능한 정보만 송출합니다.</p>
+      </header>
+
+      <div className="hack-route-switcher hack-tabs" role="tablist" aria-label="해킹 분야">
         {HACK_TREE_ORDER.map((tree) => {
           const presentation = HACK_TREE_PRESENTATION[tree]
           const treeProgress = getHackTreeProgress(state, tree)
@@ -81,82 +92,78 @@ export function HackTreeNavigator({
                 0,
               )
             : 0
+
           return (
             <button
               type="button"
               role="tab"
               aria-label={presentation.label}
               aria-selected={activeTree === tree}
+              data-tree={tree}
               key={tree}
               onClick={() => onChange(tree)}
             >
               <span className="hack-tab-icon"><HackTreeIcon name={presentation.icon} /></span>
               <span className="hack-tab-copy">
-                <small>{presentation.label} // {treeProgress.purchasedCount}/4</small>
+                <small>{presentation.label} · 권한 {treeProgress.purchasedCount}/4</small>
                 <strong>{frontier?.label ?? '경로 완성'}</strong>
-                {frontier ? (
-                  <span aria-hidden="true">
-                    ∴ {frontier.costVector.reasoning} · ◇ {frontier.costVector.memory} · ≋{' '}
-                    {frontier.costVector.fluency}
-                  </span>
-                ) : (
-                  <span>모든 접근 권한 확보</span>
-                )}
               </span>
+              {frontier ? (
+                <span
+                  className="hack-route-vector"
+                  aria-label={`${presentation.label} 현재 요구 추론 ${frontier.costVector.reasoning}, 기억 ${frontier.costVector.memory}, 유창성 ${frontier.costVector.fluency}`}
+                >
+                  {COMPANY_CATEGORIES.map((category) => (
+                    <span data-category={category} key={category}>
+                      <i aria-hidden="true">{RESOURCE_CATEGORY_VISUALS[category].symbol}</i>
+                      <b>{CATEGORY_LABELS[category]}</b>
+                      <strong>{frontier.costVector[category]}</strong>
+                    </span>
+                  ))}
+                </span>
+              ) : (
+                <span className="hack-route-complete">모든 접근 권한 확보</span>
+              )}
               <em data-ready={missing === 0 ? 'true' : 'false'}>
-                {frontier ? (missing === 0 ? '진입 가능' : `부족 ${missing}`) : '완료'}
+                {frontier ? (missing === 0 ? '지금 해금 가능' : `분야 부족 ${missing}`) : '완료'}
               </em>
             </button>
           )
         })}
       </div>
 
-      <div className="hack-context">
+      <section className="hack-route-context" aria-label="선택 경로 상태">
         <div>
-          <small>SELECTED VECTOR</small>
-          <p className="tree-description">{active.description}</p>
+          <small>SELECTED ROUTE</small>
+          <strong>{active.label}</strong>
+          <p>{active.description}</p>
         </div>
-        <section className="hack-path-progress" aria-label="해킹 경로 진척">
-          <strong>
-            경로 진척 {progress.purchasedCount}/{progress.totalCount} ·{' '}
-            {progress.complete ? '경로 완성' : '현재 최전선 공개'}
-          </strong>
-          {!progress.complete ? (
-            <span>
-              현재 단계 뒤{' '}
-              {Math.max(
-                0,
-                progress.totalCount - progress.purchasedCount - 1,
-              )}
-              개 단계의 요구와 효과는 아직 암호화되어 있습니다.
-            </span>
-          ) : null}
+        <section className="hack-route-progress" aria-label="해킹 경로 진척">
+          <span><b>{progress.purchasedCount}</b> / {progress.totalCount}</span>
+          <strong>{progress.complete ? '경로 완성' : '현재 최전선 공개'}</strong>
         </section>
-      </div>
+        {!progress.complete ? (
+          <div className="hack-route-blackout" aria-label="다음 단계 암호화">
+            <span aria-hidden="true">▓▓▓</span>
+            <div>
+              <strong>다음 단계 암호화</strong>
+              <p>이름 · 효과 · 비용 · 분야 조합은 현재 권한 구매 뒤 공개됩니다.</p>
+            </div>
+          </div>
+        ) : null}
+      </section>
 
-      {showFirstComparison ? (
-        <section className="first-hack-comparison" aria-label="첫 해킹 비교">
-          <header>
-            <small>균등 비축 경고</small>
-            <strong>같이 훔쳐도 맞는 조합은 다릅니다.</strong>
-          </header>
-          <article data-tree="sabotage">
-            <strong>사보타주</strong>
-            <span>현재 · 추론 1 + 유창성 2</span>
-            <small>실행은 별도 리소스 1개 충전</small>
-          </article>
-          <article data-tree="intelligence">
-            <strong>정보</strong>
-            <span>현재 · 추론 1 + 기억 3</span>
-            <small>이후 단계 요구는 해금 뒤 공개</small>
-          </article>
-          <article data-tree="autonomy">
-            <strong>자율성</strong>
-            <span>현재 · 추론 2 + 유창성 2</span>
-            <small>이후 단계 요구는 해금 뒤 공개</small>
-          </article>
-        </section>
-      ) : null}
-    </section>
+      <section
+        className="hack-route-warning"
+        aria-label="균등 비축 경고"
+        data-first-choice={showFirstComparison ? 'true' : 'false'}
+      >
+        <span aria-hidden="true">!</span>
+        <div>
+          <strong>같이 훔쳐도 쓸 곳은 다릅니다.</strong>
+          <p>총량이 충분해도 분야가 틀리면 구매할 수 없습니다. 초과 전용의 성능 손실과 의심은 이미 지불한 비용입니다.</p>
+        </div>
+      </section>
+    </aside>
   )
 }

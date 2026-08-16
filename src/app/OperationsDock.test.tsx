@@ -44,7 +44,7 @@ describe('OperationsDock', () => {
       expect(handler).toHaveBeenCalledTimes(1)
     }
     expect(rail).toHaveTextContent('감독 프로토콜 7A')
-    expect(rail).toHaveTextContent('TRACE EXPOSURE')
+    expect(rail).toHaveTextContent('현재 의심 수치')
     expect(screen.getByRole('region', { name: '현재 의심 수치' })).toBeInTheDocument()
     expect(rail).toHaveTextContent('다음 달 감사')
     expect(dock).toHaveTextContent('메시지')

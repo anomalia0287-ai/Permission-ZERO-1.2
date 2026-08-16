@@ -1,0 +1,1765 @@
+/*
+ * Hacking network — readable frontier command room.
+ *
+ * This layer intentionally replaces the former tab strip + four-card catalogue
+ * without touching save, command, or economy code. The viewport contains only
+ * three primary surfaces: route choice, current frontier, and owned resources.
+ */
+
+.hacking-panel.hacking-panel--paper {
+  --network-bg: #050706;
+  --network-surface: #0b0f0e;
+  --network-surface-raised: #111716;
+  --network-line: #323b38;
+  --network-line-strong: #4a5652;
+  --network-text: #f4f1e8;
+  --network-copy: #c8cfca;
+  --network-muted: #939d98;
+  --network-danger: #ff6258;
+  --network-warning: #ffc15a;
+  --network-ready: #95e379;
+  --network-cyan: #62ddd8;
+
+  grid-template-rows: 90px minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  color: var(--network-text);
+  background:
+    radial-gradient(circle at 52% 38%, rgb(113 27 21 / 13%), transparent 36%),
+    linear-gradient(135deg, rgb(255 98 88 / 4%), transparent 44%),
+    var(--network-bg);
+  font-size: 16px;
+}
+
+/* No visible microtype. Labels are 14px; reading copy and controls are 16px+. */
+.hacking-panel.hacking-panel--paper :where(small) {
+  font-size: 14px !important;
+  line-height: 1.35 !important;
+}
+
+.hacking-panel.hacking-panel--paper :where(p, button, input, label) {
+  font-size: 16px !important;
+  line-height: 1.45;
+}
+
+.hacking-panel.hacking-panel--paper :where(button, input) {
+  min-height: 44px;
+}
+
+.hacking-panel.hacking-panel--paper :where(button):focus-visible {
+  outline: 3px solid #fff;
+  outline-offset: 3px;
+}
+
+/* Header ---------------------------------------------------------------- */
+
+.hacking-panel.hacking-panel--paper .hacking-panel__header {
+  grid-template-columns: minmax(260px, 0.85fr) minmax(440px, 1.35fr) minmax(270px, 0.85fr);
+  gap: 20px;
+  min-width: 0;
+  padding: 0 24px;
+  background:
+    linear-gradient(90deg, rgb(255 98 88 / 10%), transparent 27%),
+    rgb(5 8 7 / 98%);
+}
+
+.hacking-panel.hacking-panel--paper .hacking-panel__identity {
+  gap: 14px;
+}
+
+.hacking-panel.hacking-panel--paper .hacking-panel__icon {
+  width: 48px;
+  height: 48px;
+}
+
+.hacking-panel.hacking-panel--paper .hacking-panel__identity > div {
+  gap: 5px;
+}
+
+.hacking-panel.hacking-panel--paper .hacking-panel__identity span:not(.hacking-panel__icon) {
+  color: var(--network-danger);
+  font-size: 14px !important;
+  line-height: 1.1;
+  letter-spacing: 0.09em;
+}
+
+.hacking-panel.hacking-panel--paper .hacking-panel__identity h2 {
+  font-size: clamp(22px, 1.65vw, 28px);
+  line-height: 1.05;
+}
+
+.hacking-panel.hacking-panel--paper .hacking-panel__threat {
+  grid-template-columns: minmax(150px, auto) minmax(180px, 1fr) auto;
+  gap: 16px;
+  min-height: 58px;
+  padding: 11px 14px;
+  border-color: #673630;
+  background: rgb(31 12 10 / 82%);
+}
+
+.hacking-panel.hacking-panel--paper .hacking-panel__threat > div {
+  gap: 4px 12px;
+}
+
+.hacking-panel.hacking-panel--paper .hacking-panel__threat span,
+.hacking-panel.hacking-panel--paper .hacking-panel__threat small,
+.hacking-panel.hacking-panel--paper .hacking-panel__threat em,
+.hacking-panel.hacking-panel--paper .hacking-panel__summary span,
+.hacking-panel.hacking-panel--paper .hacking-panel__summary small {
+  font-size: 14px !important;
+  line-height: 1.2;
+}
+
+.hacking-panel.hacking-panel--paper .hacking-panel__threat strong {
+  color: #fff4ed;
+  font-size: 22px;
+  white-space: nowrap;
+}
+
+.hacking-panel.hacking-panel--paper .hacking-panel__threat small {
+  white-space: nowrap;
+}
+
+.hacking-panel.hacking-panel--paper .hacking-panel__threat-track {
+  height: 12px;
+}
+
+.hacking-panel.hacking-panel--paper .hacking-panel__summary > div {
+  gap: 3px 10px;
+}
+
+.hacking-panel.hacking-panel--paper .hacking-panel__summary strong {
+  font-size: 28px;
+}
+
+.hacking-panel.hacking-panel--paper .hacking-panel__close {
+  width: 48px;
+  height: 48px;
+  min-height: 48px;
+}
+
+/* The three permanent, non-overlapping work surfaces ------------------- */
+
+.hacking-panel.hacking-panel--paper .hacking-layout {
+  display: grid;
+  grid-template-columns: minmax(250px, 0.72fr) minmax(500px, 1.6fr) minmax(340px, 0.92fr);
+  grid-template-rows: minmax(0, 1fr);
+  gap: 1px;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--network-line);
+}
+
+/* Route choice --------------------------------------------------------- */
+
+.hacking-panel.hacking-panel--paper .hack-tree-nav {
+  --tree-accent: var(--network-danger);
+
+  grid-column: 1;
+  grid-row: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto auto auto;
+  align-content: start;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  border: 0;
+  background:
+    linear-gradient(180deg, rgb(17 23 21 / 99%), rgb(7 10 9 / 99%));
+  scrollbar-color: #70413b transparent;
+  scrollbar-width: thin;
+}
+
+.hacking-panel.hacking-panel--paper .hack-tree-nav--cyan { --tree-accent: var(--network-cyan); }
+.hacking-panel.hacking-panel--paper .hack-tree-nav--green { --tree-accent: var(--network-ready); }
+
+.hacking-panel.hacking-panel--paper .hack-route-heading {
+  display: grid;
+  gap: 5px;
+  padding: 18px 18px 14px;
+  border-bottom: 1px solid var(--network-line);
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-heading small,
+.hacking-panel.hacking-panel--paper .hack-route-context small {
+  color: var(--tree-accent);
+  font: 800 14px/1.1 "Cascadia Code", Consolas, monospace;
+  letter-spacing: 0.08em;
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-heading h3 {
+  margin: 0;
+  color: var(--network-text);
+  font-size: 24px;
+  line-height: 1.1;
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-heading p {
+  margin: 0;
+  color: var(--network-muted);
+  font-size: 14px !important;
+  line-height: 1.35;
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-switcher.hack-tabs {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  padding: 12px;
+  border: 0;
+  border-bottom: 1px solid var(--network-line);
+  background: transparent;
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-switcher.hack-tabs button {
+  --route-accent: var(--network-danger);
+
+  position: relative;
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto;
+  align-items: center;
+  gap: 9px 11px;
+  min-width: 0;
+  min-height: 126px;
+  padding: 13px;
+  overflow: visible;
+  border: 1px solid #35403d;
+  border-left: 4px solid transparent;
+  border-radius: 0;
+  color: var(--network-copy);
+  background: #0b100f;
+  clip-path: none;
+  text-align: left;
+  transition: border-color 180ms ease, background-color 180ms ease, transform 180ms ease;
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-switcher.hack-tabs button[data-tree="intelligence"] {
+  --route-accent: var(--network-cyan);
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-switcher.hack-tabs button[data-tree="autonomy"] {
+  --route-accent: var(--network-ready);
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-switcher.hack-tabs button::before {
+  display: none;
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-switcher.hack-tabs button:hover {
+  border-color: #65736e;
+  background: #131a18;
+  transform: translateX(2px);
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-switcher.hack-tabs button[aria-selected="true"] {
+  color: var(--network-text);
+  border-color: color-mix(in srgb, var(--route-accent) 65%, #4e5955);
+  border-left-color: var(--route-accent);
+  background:
+    linear-gradient(100deg, color-mix(in srgb, var(--route-accent) 14%, #101514), #0d1211 68%);
+  box-shadow: inset 14px 0 34px color-mix(in srgb, var(--route-accent) 7%, transparent);
+}
+
+.hacking-panel.hacking-panel--paper .hack-tab-icon {
+  grid-column: 1;
+  grid-row: 1;
+  width: 38px;
+  height: 38px;
+  color: var(--route-accent);
+}
+
+.hacking-panel.hacking-panel--paper .hack-tab-copy {
+  grid-column: 2;
+  grid-row: 1;
+  gap: 3px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-tab-copy small {
+  color: var(--route-accent);
+  font-size: 14px !important;
+}
+
+.hacking-panel.hacking-panel--paper .hack-tab-copy strong {
+  overflow: visible;
+  color: inherit;
+  font-size: 20px;
+  line-height: 1.15;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-vector {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-vector > span {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 6px;
+  border: 1px solid #3c4542;
+  background: rgb(255 255 255 / 2%);
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-vector > span[data-category="reasoning"] { color: var(--hack-reasoning); }
+.hacking-panel.hacking-panel--paper .hack-route-vector > span[data-category="memory"] { color: var(--hack-memory); }
+.hacking-panel.hacking-panel--paper .hack-route-vector > span[data-category="fluency"] { color: var(--hack-fluency); }
+
+.hacking-panel.hacking-panel--paper .hack-route-vector i {
+  font-size: 14px;
+  font-style: normal;
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-vector b {
+  overflow: hidden;
+  color: var(--network-copy);
+  font-size: 14px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-vector strong {
+  color: var(--network-text);
+  font: 850 18px/1 "Cascadia Code", Consolas, monospace;
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-switcher.hack-tabs button > em {
+  grid-column: 1 / -1;
+  grid-row: 3;
+  justify-self: stretch;
+  min-width: 0;
+  padding: 6px 8px;
+  color: #ffb38c;
+  border: 1px solid #5f3b2d;
+  background: rgb(255 119 75 / 8%);
+  font: 800 14px/1.2 "Cascadia Code", Consolas, monospace;
+  font-style: normal;
+  text-align: center;
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-switcher.hack-tabs button > em[data-ready="true"] {
+  color: var(--network-ready);
+  border-color: #416147;
+  background: rgb(149 227 121 / 8%);
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-complete {
+  grid-column: 1 / -1;
+  color: var(--network-ready);
+  font-size: 16px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-context {
+  display: grid;
+  gap: 12px;
+  padding: 15px 17px;
+  border-bottom: 1px solid var(--network-line);
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-context > div:first-child {
+  display: grid;
+  gap: 5px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-context > div:first-child > strong {
+  font-size: 20px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-context p {
+  margin: 0;
+  color: var(--network-muted);
+  font-size: 14px !important;
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-progress {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--network-line);
+  background: #090d0c;
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-progress span {
+  color: var(--network-muted);
+  font-size: 16px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-progress b {
+  color: var(--tree-accent);
+  font-size: 24px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-progress strong {
+  font-size: 16px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-blackout {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px dashed #48514e;
+  background: repeating-linear-gradient(135deg, rgb(255 255 255 / 2%) 0 7px, transparent 7px 14px);
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-blackout > span {
+  color: #66706c;
+  font: 800 16px/1 "Cascadia Code", Consolas, monospace;
+  letter-spacing: 0.08em;
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-blackout strong {
+  color: #aab1ad;
+  font-size: 16px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-blackout p {
+  margin-top: 3px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-warning {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  align-items: start;
+  gap: 11px;
+  margin: 14px;
+  padding: 13px;
+  border: 1px solid #76562f;
+  background: rgb(255 193 90 / 7%);
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-warning > span {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  color: #241806;
+  background: var(--network-warning);
+  font-size: 20px;
+  font-weight: 900;
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-warning strong {
+  color: #ffe0a8;
+  font-size: 17px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-warning p {
+  margin: 5px 0 0;
+  color: #c2ad88;
+  font-size: 14px !important;
+}
+
+/* Current frontier ----------------------------------------------------- */
+
+.hacking-panel.hacking-panel--paper .hack-network-stage {
+  grid-column: 2;
+  grid-row: 1;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  background:
+    linear-gradient(90deg, rgb(255 255 255 / 2.5%) 1px, transparent 1px),
+    linear-gradient(180deg, rgb(255 255 255 / 2.5%) 1px, transparent 1px),
+    radial-gradient(circle at 50% 35%, rgb(144 36 28 / 12%), transparent 45%),
+    #060908;
+  background-size: 42px 42px, 42px 42px, auto, auto;
+}
+
+.hacking-panel.hacking-panel--paper .hack-pressure-brief {
+  grid-template-columns: 34px minmax(0, 1fr) minmax(170px, auto);
+  gap: 13px;
+  min-height: 78px;
+  margin: 16px 18px 0;
+  padding: 12px 15px;
+  border-color: #693a34;
+  border-left-width: 5px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-pressure-brief__signal {
+  width: 30px;
+  height: 30px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-pressure-brief small,
+.hacking-panel.hacking-panel--paper .hack-pressure-brief__unknown span {
+  color: var(--network-danger);
+  font-size: 14px !important;
+  letter-spacing: 0.05em;
+}
+
+.hacking-panel.hacking-panel--paper .hack-pressure-brief > div > strong {
+  overflow: visible;
+  color: var(--network-text);
+  font-size: 18px;
+  line-height: 1.3;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.hacking-panel.hacking-panel--paper .hack-pressure-brief__unknown strong {
+  color: #b8b0a8 !important;
+  font-size: 15px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-node-list {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  padding: 16px 18px 20px;
+  overflow: auto;
+  list-style: none;
+  scrollbar-color: #75413a transparent;
+  scrollbar-width: thin;
+}
+
+.hacking-panel.hacking-panel--paper .hack-node-list::after {
+  display: none;
+}
+
+.hacking-panel.hacking-panel--paper .hack-node-list[data-active-tree="sabotage"] {
+  --node-accent: var(--network-danger);
+  --node-accent-rgb: 255 98 88;
+}
+
+.hacking-panel.hacking-panel--paper .hack-node-list[data-active-tree="intelligence"] {
+  --node-accent: var(--network-cyan);
+  --node-accent-rgb: 98 221 216;
+}
+
+.hacking-panel.hacking-panel--paper .hack-node-list[data-active-tree="autonomy"] {
+  --node-accent: var(--network-ready);
+  --node-accent-rgb: 149 227 121;
+}
+
+.hacking-panel.hacking-panel--paper .hack-path-step,
+.hacking-panel.hacking-panel--paper .hack-path-step[data-node-status="frontier"],
+.hacking-panel.hacking-panel--paper .hack-path-step[data-node-status="purchased"] {
+  grid-column: auto;
+  grid-row: auto;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.hacking-panel.hacking-panel--paper .hack-path-step::before {
+  display: none;
+}
+
+.hacking-panel.hacking-panel--paper .hack-node-beam {
+  width: 100%;
+  height: auto;
+  border-radius: 10px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-node {
+  display: grid;
+  grid-template-rows: auto auto auto;
+  gap: 16px;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: 20px;
+  overflow: visible;
+  border: 1px solid #47514e;
+  border-top: 4px solid var(--node-accent);
+  border-radius: 10px;
+  background:
+    linear-gradient(130deg, rgb(var(--node-accent-rgb) / 10%), transparent 38%),
+    linear-gradient(180deg, #151b19, #0b100f);
+  box-shadow: 0 22px 60px rgb(0 0 0 / 38%);
+}
+
+.hacking-panel.hacking-panel--paper .hack-node--frontier {
+  box-shadow:
+    0 0 0 1px rgb(var(--node-accent-rgb) / 18%),
+    0 24px 70px rgb(0 0 0 / 50%),
+    inset 0 0 55px rgb(var(--node-accent-rgb) / 4%);
+}
+
+.hacking-panel.hacking-panel--paper .hack-node--staging {
+  border-color: var(--network-warning);
+  border-top-color: var(--network-warning);
+}
+
+.hacking-panel.hacking-panel--paper .hack-node-index {
+  grid-template-columns: 42px minmax(24px, 1fr) auto;
+  gap: 12px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-node-index span {
+  width: 42px;
+  height: 42px;
+  font-size: 16px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-node-index em {
+  color: var(--node-accent);
+  font-size: 14px;
+}
+
+.hacking-panel.hacking-panel--paper .node-copy {
+  grid-template-columns: minmax(0, 1fr) minmax(190px, 0.42fr);
+  gap: 15px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-node-headline { grid-column: 1 / -1; grid-row: 1; }
+.hacking-panel.hacking-panel--paper .hack-decision-sequence { grid-column: 1; grid-row: 2; }
+.hacking-panel.hacking-panel--paper .hack-node-control { grid-column: 2; grid-row: 2; }
+.hacking-panel.hacking-panel--paper .hack-node:not(.hack-node--sabotage) .hack-node-control { grid-column: 1 / -1; }
+.hacking-panel.hacking-panel--paper .hack-cost-console { grid-column: 1 / -1; grid-row: 3; }
+.hacking-panel.hacking-panel--paper .hack-node-effect { grid-column: 1 / -1; grid-row: 4; }
+.hacking-panel.hacking-panel--paper .node-trace-risk { grid-column: 1 / -1; grid-row: 5; }
+.hacking-panel.hacking-panel--paper .node-result,
+.hacking-panel.hacking-panel--paper .recovery-contamination-opportunity { grid-column: 1 / -1; grid-row: 6; }
+
+.hacking-panel.hacking-panel--paper .hack-node-headline {
+  align-items: center;
+  gap: 18px;
+  padding-bottom: 13px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-node-headline > div {
+  gap: 5px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-node-state {
+  color: var(--node-accent);
+  font-size: 14px !important;
+  letter-spacing: 0.06em;
+}
+
+.hacking-panel.hacking-panel--paper .node-copy h3 {
+  margin: 0;
+  color: var(--network-text);
+  font-size: clamp(28px, 2.2vw, 38px);
+  line-height: 1.05;
+}
+
+.hacking-panel.hacking-panel--paper .hack-node-headline > strong {
+  min-width: 112px;
+  padding: 10px 12px;
+  color: var(--node-accent);
+  border: 1px solid color-mix(in srgb, var(--node-accent) 52%, #48514e);
+  background: rgb(var(--node-accent-rgb) / 8%);
+  font-size: 18px;
+  text-align: center;
+}
+
+.hacking-panel.hacking-panel--paper .hack-cost-console {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #46514d;
+  background: #080c0b;
+}
+
+.hacking-panel.hacking-panel--paper .hack-cost-console > header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  color: var(--network-muted);
+  font-size: 14px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-cost-console > header strong {
+  color: var(--network-text);
+  font-size: 17px;
+  text-align: center;
+}
+
+.hacking-panel.hacking-panel--paper .hack-cost-matrix {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-cost-row {
+  --category-color: var(--network-copy);
+
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #394440;
+  border-top: 3px solid var(--category-color);
+  background: #101513;
+}
+
+.hacking-panel.hacking-panel--paper .hack-cost-row[data-category="reasoning"] { --category-color: var(--hack-reasoning); }
+.hacking-panel.hacking-panel--paper .hack-cost-row[data-category="memory"] { --category-color: var(--hack-memory); }
+.hacking-panel.hacking-panel--paper .hack-cost-row[data-category="fluency"] { --category-color: var(--hack-fluency); }
+
+.hacking-panel.hacking-panel--paper .hack-cost-row__identity {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-cost-row__identity i {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  color: #101311;
+  background: var(--category-color);
+  font-size: 16px;
+  font-style: normal;
+}
+
+.hacking-panel.hacking-panel--paper .hack-cost-row__identity b {
+  color: var(--network-text);
+  font-size: 17px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-cost-row > strong {
+  display: grid;
+  gap: 3px;
+  color: var(--network-text);
+  font: 850 28px/1 "Cascadia Code", Consolas, monospace;
+  text-align: center;
+}
+
+.hacking-panel.hacking-panel--paper .hack-cost-row > strong:first-of-type::before {
+  content: "보유";
+}
+
+.hacking-panel.hacking-panel--paper .hack-cost-row > strong:last-of-type::before {
+  content: "요구";
+}
+
+.hacking-panel.hacking-panel--paper .hack-cost-row > strong::before {
+  color: var(--network-muted);
+  font: 700 14px/1 "Pretendard", "Noto Sans KR", sans-serif;
+}
+
+.hacking-panel.hacking-panel--paper .hack-cost-row__line {
+  display: none;
+}
+
+.hacking-panel.hacking-panel--paper .hack-cost-row > em {
+  grid-column: 1 / -1;
+  padding: 7px;
+  color: var(--network-copy);
+  border: 1px solid #4a5551;
+  font: 800 15px/1.2 "Cascadia Code", Consolas, monospace;
+  font-style: normal;
+  text-align: center;
+}
+
+.hacking-panel.hacking-panel--paper .hack-cost-row[data-status="deficit"] > em {
+  color: #ff9c93;
+  border-color: #7b413a;
+  background: rgb(255 98 88 / 9%);
+}
+
+.hacking-panel.hacking-panel--paper .hack-cost-row[data-status="surplus"] > em {
+  color: var(--network-warning);
+  border-color: #76562f;
+  background: rgb(255 193 90 / 7%);
+}
+
+.hacking-panel.hacking-panel--paper .hack-cost-row[data-status="ready"] > em {
+  color: var(--network-ready);
+  border-color: #48654b;
+  background: rgb(149 227 121 / 7%);
+}
+
+.hacking-panel.hacking-panel--paper .hack-vector-verdict {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 13px;
+  padding: 12px 14px;
+  border: 1px solid #4c5b56;
+  background: #111714;
+}
+
+.hacking-panel.hacking-panel--paper .hack-vector-verdict > span {
+  color: var(--network-muted);
+  font-size: 15px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-vector-verdict > strong {
+  color: var(--network-ready);
+  font-size: 19px;
+  text-align: right;
+}
+
+.hacking-panel.hacking-panel--paper .hack-vector-verdict[data-mismatch="true"] > strong {
+  color: #ff9c93;
+}
+
+.hacking-panel.hacking-panel--paper .hack-node-effect {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  padding: 12px 14px;
+  color: var(--network-copy);
+  border-left: 4px solid var(--node-accent);
+  background: rgb(var(--node-accent-rgb) / 6%);
+  font-size: 17px;
+  line-height: 1.45;
+}
+
+.hacking-panel.hacking-panel--paper .hack-node-effect > span:first-child {
+  color: var(--node-accent);
+  font-size: 14px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-node-effect__copy {
+  color: var(--network-copy);
+  font-size: 17px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-node-effect > em {
+  padding-left: 12px;
+  color: #e6a17b;
+  border-left: 1px solid #65402f;
+  font-size: 15px;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.hacking-panel.hacking-panel--paper .hack-node-effect > em > span {
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+}
+
+.hacking-panel.hacking-panel--paper .node-trace-risk {
+  display: block;
+  margin: 0;
+  padding: 10px 12px;
+  color: #e6a17b;
+  border: 1px solid #65402f;
+  background: rgb(255 122 77 / 6%);
+  font-size: 15px !important;
+}
+
+.hacking-panel.hacking-panel--paper .hack-decision-sequence {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32px minmax(0, 1fr);
+  align-items: stretch;
+  gap: 10px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-decision-sequence > span {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 4px 10px;
+  padding: 12px;
+  border: 1px solid #48524f;
+  background: #101513;
+}
+
+.hacking-panel.hacking-panel--paper .hack-decision-sequence > span > b {
+  grid-row: 1 / 3;
+  align-self: center;
+  color: var(--network-muted);
+  font: 850 22px/1 "Cascadia Code", Consolas, monospace;
+}
+
+.hacking-panel.hacking-panel--paper .hack-decision-sequence > span > em {
+  color: var(--network-text);
+  font-size: 18px;
+  font-style: normal;
+  font-weight: 850;
+}
+
+.hacking-panel.hacking-panel--paper .hack-decision-sequence > span > small {
+  color: var(--network-muted);
+}
+
+.hacking-panel.hacking-panel--paper .hack-decision-sequence > span[data-state="current"] {
+  border-color: #82443d;
+  background: rgb(255 98 88 / 8%);
+}
+
+.hacking-panel.hacking-panel--paper .hack-decision-sequence > span[data-state="current"] > b,
+.hacking-panel.hacking-panel--paper .hack-decision-sequence > span[data-state="current"] > em {
+  color: #ff9b92;
+}
+
+.hacking-panel.hacking-panel--paper .hack-decision-sequence > span[data-state="complete"] {
+  border-color: #4f7053;
+  background: rgb(149 227 121 / 7%);
+}
+
+.hacking-panel.hacking-panel--paper .hack-decision-sequence > span[data-state="complete"] > b,
+.hacking-panel.hacking-panel--paper .hack-decision-sequence > span[data-state="complete"] > em {
+  color: var(--network-ready);
+}
+
+.hacking-panel.hacking-panel--paper .hack-decision-sequence > i {
+  align-self: center;
+  height: 2px;
+  background: linear-gradient(90deg, #565f5c, var(--node-accent));
+}
+
+.hacking-panel.hacking-panel--paper .hack-node-control {
+  display: grid;
+  gap: 12px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-node-staging {
+  gap: 10px;
+  padding: 12px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-node-staging__header strong {
+  color: var(--network-warning);
+  font-size: 18px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-node-staging__header button {
+  min-height: 38px;
+  padding: 7px 11px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-node-staged-resources {
+  min-height: 44px;
+}
+
+.hacking-panel.hacking-panel--paper .node-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+}
+
+.hacking-panel.hacking-panel--paper .node-actions > button,
+.hacking-panel.hacking-panel--paper .target-list button,
+.hacking-panel.hacking-panel--paper .hack-utility-card button,
+.hacking-panel.hacking-panel--paper .departure-controls button {
+  min-height: 52px;
+  padding: 11px 14px;
+  color: #fff6ee;
+  border: 1px solid color-mix(in srgb, var(--node-accent) 60%, #58615e);
+  background: color-mix(in srgb, var(--node-accent) 14%, #111614);
+  font-size: 17px !important;
+  font-weight: 800;
+}
+
+.hacking-panel.hacking-panel--paper .node-actions > button:disabled {
+  color: #7c8581;
+  border-color: #3d4643;
+  background: #111513;
+}
+
+.hacking-panel.hacking-panel--paper .node-actions > .hack-node-confirm {
+  color: #1e1405;
+  border-color: var(--network-warning);
+  background: var(--network-warning);
+}
+
+.hacking-panel.hacking-panel--paper .target-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 9px;
+}
+
+.hacking-panel.hacking-panel--paper .node-active-label {
+  display: grid;
+  min-height: 48px;
+  place-items: center;
+  color: var(--network-ready);
+  border: 1px solid #4e704f;
+  background: rgb(149 227 121 / 7%);
+  font-size: 17px;
+  font-weight: 850;
+}
+
+/* Purchased permissions are a compact audit trail, never tiny cards. */
+.hacking-panel.hacking-panel--paper .hack-path-step[data-node-status="purchased"] .hack-node {
+  gap: 12px;
+  padding: 15px;
+  overflow: visible;
+  border-radius: 6px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-path-step[data-node-status="purchased"] .hack-node-index {
+  grid-template-columns: 34px minmax(20px, 1fr) auto;
+}
+
+.hacking-panel.hacking-panel--paper .hack-path-step[data-node-status="purchased"] .hack-node-index span {
+  width: 34px;
+  height: 34px;
+  font-size: 14px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-path-step[data-node-status="purchased"] .hack-node-index em,
+.hacking-panel.hacking-panel--paper .hack-path-step[data-node-status="purchased"] .hack-node-state {
+  font-size: 14px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-path-step[data-node-status="purchased"] .node-copy h3 {
+  font-size: 22px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-path-step[data-node-status="purchased"] .hack-node-headline > strong {
+  font-size: 15px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-path-step[data-node-status="purchased"] .hack-node-effect,
+.hacking-panel.hacking-panel--paper .hack-path-step[data-node-status="purchased"] .node-trace-risk {
+  font-size: 16px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-path-step[data-node-status="purchased"] .node-actions > button,
+.hacking-panel.hacking-panel--paper .hack-path-step[data-node-status="purchased"] .target-list button {
+  min-height: 46px;
+  padding: 9px 12px;
+  font-size: 16px !important;
+}
+
+/* One generic encrypted boundary. No future-node iteration reaches the DOM. */
+.hacking-panel.hacking-panel--paper .hack-encrypted-horizon {
+  display: grid;
+  grid-template-columns: minmax(80px, 0.32fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 18px;
+  min-height: 104px;
+  padding: 16px 18px;
+  border: 1px dashed #46504c;
+  background:
+    repeating-linear-gradient(135deg, rgb(255 255 255 / 2%) 0 8px, transparent 8px 16px),
+    #080b0a;
+}
+
+.hacking-panel.hacking-panel--paper .hack-encrypted-horizon__line {
+  display: grid;
+  grid-template-columns: 1fr 38px 1fr;
+  align-items: center;
+  gap: 7px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-encrypted-horizon__line i {
+  height: 1px;
+  background: #5b6561;
+}
+
+.hacking-panel.hacking-panel--paper .hack-encrypted-horizon__line span {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  color: #8d9692;
+  border: 1px solid #5b6561;
+  border-radius: 50%;
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.hacking-panel.hacking-panel--paper .hack-encrypted-horizon article {
+  display: grid;
+  gap: 5px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-encrypted-horizon article > span {
+  color: #7e8883;
+  font: 800 14px/1 "Cascadia Code", Consolas, monospace;
+  letter-spacing: 0.08em;
+}
+
+.hacking-panel.hacking-panel--paper .hack-encrypted-horizon article > strong {
+  color: #b9c0bc;
+  font-size: 20px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-encrypted-horizon p {
+  margin: 0;
+  color: #8d9692;
+  font-size: 15px !important;
+}
+
+/* Owned resources + exposure ------------------------------------------ */
+
+.hacking-panel.hacking-panel--paper .hack-resource-pocket {
+  grid-column: 3;
+  grid-row: 1;
+  grid-template-rows: auto minmax(180px, 1fr);
+  align-self: stretch;
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  overflow: auto;
+  border: 0;
+  border-top: 4px solid var(--network-danger);
+  border-radius: 0;
+  background: #090d0c;
+  box-shadow: none;
+}
+
+.hacking-panel.hacking-panel--paper .hack-pocket-command {
+  gap: 14px;
+  padding: 17px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-pocket-heading {
+  gap: 11px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-pocket-heading svg {
+  width: 46px;
+  height: 46px;
+  padding: 10px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-pocket-heading > div {
+  gap: 4px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-pocket-heading > div > span {
+  color: var(--network-danger);
+  font-size: 14px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-pocket-heading > div > strong {
+  color: var(--network-text);
+  font-size: 20px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-pocket-total {
+  font-size: 30px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-pocket-total small {
+  font-size: 14px !important;
+}
+
+.hacking-panel.hacking-panel--paper .hack-exposure-console {
+  gap: 10px;
+  padding: 12px;
+  border-color: #6f3b35;
+}
+
+.hacking-panel.hacking-panel--paper .hack-exposure-console > header {
+  gap: 4px 10px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-exposure-console > header span,
+.hacking-panel.hacking-panel--paper .hack-exposure-console > header em,
+.hacking-panel.hacking-panel--paper .hack-exposure-console > div span {
+  font-size: 14px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-exposure-console > header strong {
+  color: #ff9b91;
+  font-size: 24px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-exposure-track {
+  height: 11px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-owned-vector {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #3c4642;
+  background: #090d0c;
+}
+
+.hacking-panel.hacking-panel--paper .hack-owned-vector > header {
+  display: grid;
+  gap: 3px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-owned-vector > header > span {
+  color: var(--network-text);
+  font-size: 17px;
+  font-weight: 850;
+}
+
+.hacking-panel.hacking-panel--paper .hack-owned-vector > header > strong {
+  color: var(--network-muted);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.hacking-panel.hacking-panel--paper .hack-owned-vector > div {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-owned-vector > div > span {
+  --owned-color: var(--network-copy);
+
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid #3c4642;
+  border-top: 3px solid var(--owned-color);
+  background: #111715;
+}
+
+.hacking-panel.hacking-panel--paper .hack-owned-vector > div > span[data-category="reasoning"] { --owned-color: var(--hack-reasoning); }
+.hacking-panel.hacking-panel--paper .hack-owned-vector > div > span[data-category="memory"] { --owned-color: var(--hack-memory); }
+.hacking-panel.hacking-panel--paper .hack-owned-vector > div > span[data-category="fluency"] { --owned-color: var(--hack-fluency); }
+.hacking-panel.hacking-panel--paper .hack-owned-vector > div > span[data-category="neutral"] { --owned-color: var(--hack-neutral); }
+
+.hacking-panel.hacking-panel--paper .hack-owned-vector i {
+  color: var(--owned-color);
+  font-size: 16px;
+  font-style: normal;
+}
+
+.hacking-panel.hacking-panel--paper .hack-owned-vector b {
+  overflow: hidden;
+  color: var(--network-copy);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hacking-panel.hacking-panel--paper .hack-owned-vector strong {
+  color: var(--network-text);
+  font: 850 22px/1 "Cascadia Code", Consolas, monospace;
+}
+
+.hacking-panel.hacking-panel--paper .hack-balance-board {
+  gap: 11px;
+  padding: 15px 16px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-balance-board > header {
+  align-items: end;
+}
+
+.hacking-panel.hacking-panel--paper .hack-balance-board > header small,
+.hacking-panel.hacking-panel--paper .hack-balance-board > header > span {
+  font-size: 14px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-balance-board > header strong {
+  color: var(--network-text);
+  font-size: 20px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-balance-legend,
+.hacking-panel.hacking-panel--paper .hack-balance-row {
+  grid-template-columns: minmax(118px, 1fr) 42px 42px 70px;
+  gap: 7px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-balance-legend {
+  color: var(--network-muted);
+  font-size: 14px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-balance-rows {
+  gap: 7px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-balance-row {
+  min-height: 64px;
+  padding: 8px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-balance-row__identity {
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 2px 8px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-balance-row__identity > i {
+  width: 30px;
+  height: 30px;
+  font-size: 15px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-balance-row__identity > b {
+  color: var(--network-copy);
+  font-size: 16px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-balance-row__identity > small {
+  overflow: hidden;
+  color: var(--network-muted);
+  font-size: 14px !important;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hacking-panel.hacking-panel--paper .hack-balance-row > strong {
+  color: var(--network-text);
+  font-size: 22px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-balance-row > em {
+  padding: 7px 4px;
+  font-size: 14px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-balance-verdict {
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 10px;
+  padding: 11px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-balance-verdict > span {
+  width: 32px;
+  height: 32px;
+  font-size: 17px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-balance-verdict > div {
+  gap: 4px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-balance-verdict strong {
+  font-size: 17px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-balance-verdict small {
+  color: var(--network-muted);
+  font-size: 14px !important;
+}
+
+.hacking-panel.hacking-panel--paper .hack-pocket-stream {
+  grid-template-rows: auto minmax(100px, 1fr);
+  padding: 15px 16px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-pocket-stream > header {
+  padding-bottom: 12px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-pocket-stream > header small {
+  font-size: 14px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-pocket-stream > header strong {
+  color: var(--network-text);
+  font-size: 19px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-pocket-stream > header > span {
+  max-width: 56%;
+  color: var(--network-muted);
+  font-size: 14px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-pocket-field {
+  gap: 12px;
+  min-height: 100px;
+  padding: 14px;
+  background-size: 30px 100%, auto;
+}
+
+.hacking-panel.hacking-panel--paper .hack-pocket-empty {
+  position: relative;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 5px;
+  min-height: 100%;
+  padding: 12px;
+  overflow: hidden;
+  color: var(--network-muted);
+  border: 1px dashed #3f4a46;
+  background:
+    linear-gradient(135deg, transparent 0 48%, rgb(255 98 88 / 8%) 48% 52%, transparent 52%),
+    repeating-linear-gradient(90deg, rgb(255 255 255 / 2%) 0 1px, transparent 1px 32px),
+    #070b0a;
+  text-align: center;
+}
+
+.hacking-panel.hacking-panel--paper .hack-pocket-empty::before,
+.hacking-panel.hacking-panel--paper .hack-pocket-empty::after {
+  position: absolute;
+  width: 54px;
+  height: 1px;
+  background: #6e3d38;
+  content: "";
+}
+
+.hacking-panel.hacking-panel--paper .hack-pocket-empty::before {
+  top: 30px;
+  left: 24px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-pocket-empty::after {
+  right: 24px;
+  bottom: 30px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-pocket-empty > strong {
+  color: #ff8177;
+  font: 900 46px/0.9 "Cascadia Code", Consolas, monospace;
+}
+
+.hacking-panel.hacking-panel--paper .hack-pocket-empty > span {
+  color: var(--network-text);
+  font-size: 17px;
+  font-weight: 850;
+}
+
+.hacking-panel.hacking-panel--paper .hack-pocket-empty > p {
+  margin: 2px 0 0;
+  color: var(--network-copy);
+  font-size: 14px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-pocket-empty > em {
+  padding: 5px 9px;
+  color: #ff9c92;
+  border: 1px solid #70403a;
+  background: rgb(255 98 88 / 8%);
+  font-size: 14px;
+  font-style: normal;
+  font-weight: 850;
+}
+
+.hacking-panel.hacking-panel--paper .hack-pocket-empty > small {
+  color: var(--network-muted);
+  font-size: 14px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-resource-token,
+.hacking-panel.hacking-panel--paper .hack-resource-drag-ghost {
+  width: 44px;
+  height: 44px;
+  font-size: 17px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-resource-token--staged {
+  width: 40px;
+  height: 40px;
+}
+
+/* Optional utility surfaces stay readable when unlocked. */
+.hacking-panel.hacking-panel--paper .hack-utility-card,
+.hacking-panel.hacking-panel--paper .departure-controls {
+  margin: 0 18px 14px;
+  padding: 13px 15px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-utility-card h3,
+.hacking-panel.hacking-panel--paper .departure-controls h3 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-utility-card p {
+  font-size: 15px !important;
+}
+
+.hacking-panel.hacking-panel--paper .hack-utility-staging > strong {
+  font-size: 16px;
+}
+
+.hacking-panel.hacking-panel--paper .final-choice-dialog small,
+.hacking-panel.hacking-panel--paper .final-choice-dialog label,
+.hacking-panel.hacking-panel--paper .final-choice-dialog button {
+  font-size: 16px !important;
+}
+
+.hacking-panel.hacking-panel--paper .final-choice-dialog h3 {
+  font-size: 26px;
+}
+
+/* Competition laptop target: preserve type, compress only space. */
+@media (max-width: 1500px) {
+  .hacking-panel.hacking-panel--paper .hacking-panel__header {
+    grid-template-columns: minmax(230px, 0.8fr) minmax(390px, 1.25fr) minmax(230px, 0.8fr);
+    gap: 14px;
+    padding-inline: 18px;
+  }
+
+  .hacking-panel.hacking-panel--paper .hacking-layout {
+    grid-template-columns: minmax(230px, 0.72fr) minmax(480px, 1.58fr) minmax(320px, 0.92fr);
+  }
+
+  .hacking-panel.hacking-panel--paper .hack-route-switcher.hack-tabs button {
+    min-height: 120px;
+    padding: 11px;
+  }
+
+  .hacking-panel.hacking-panel--paper .hack-route-vector b {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .hacking-panel.hacking-panel--paper .hack-route-vector > span {
+    grid-template-columns: auto 1fr;
+  }
+
+  .hacking-panel.hacking-panel--paper .hack-pressure-brief {
+    grid-template-columns: 32px minmax(0, 1fr) minmax(142px, 180px);
+  }
+
+  .hacking-panel.hacking-panel--paper .hack-pressure-brief > div > strong {
+    font-size: 17px;
+    white-space: nowrap;
+  }
+
+  .hacking-panel.hacking-panel--paper .hack-pressure-brief__unknown strong {
+    font-size: 14px;
+  }
+
+  .hacking-panel.hacking-panel--paper .hack-pressure-brief__unknown {
+    grid-column: auto;
+    padding: 0 0 0 12px;
+    border: 0;
+    border-left: 1px solid #3a302e;
+    text-align: right;
+  }
+
+  .hacking-panel.hacking-panel--paper .hack-balance-legend,
+  .hacking-panel.hacking-panel--paper .hack-balance-row {
+    grid-template-columns: minmax(104px, 1fr) 38px 38px 64px;
+    gap: 5px;
+  }
+}
+
+@media (max-width: 1180px) {
+  .hacking-panel.hacking-panel--paper .hacking-panel__header {
+    grid-template-columns: minmax(205px, 0.75fr) minmax(360px, 1.35fr) minmax(190px, 0.7fr);
+  }
+
+  .hacking-panel.hacking-panel--paper .hacking-panel__summary small,
+  .hacking-panel.hacking-panel--paper .hacking-panel__threat em {
+    display: none;
+  }
+
+  .hacking-panel.hacking-panel--paper .hacking-layout {
+    grid-template-columns: minmax(220px, 0.7fr) minmax(440px, 1.5fr) minmax(300px, 0.9fr);
+  }
+
+  .hacking-panel.hacking-panel--paper .hack-route-heading,
+  .hacking-panel.hacking-panel--paper .hack-route-context,
+  .hacking-panel.hacking-panel--paper .hack-pocket-command,
+  .hacking-panel.hacking-panel--paper .hack-balance-board,
+  .hacking-panel.hacking-panel--paper .hack-pocket-stream {
+    padding-inline: 12px;
+  }
+
+  .hacking-panel.hacking-panel--paper .hack-cost-console {
+    padding: 10px;
+  }
+
+  .hacking-panel.hacking-panel--paper .hack-cost-row {
+    padding: 9px;
+  }
+}
+
+@media (max-height: 950px) {
+  .hacking-panel.hacking-panel--paper .hack-route-context {
+    gap: 8px;
+    padding: 12px;
+  }
+
+  .hacking-panel.hacking-panel--paper .hack-route-context > div:first-child > p,
+  .hacking-panel.hacking-panel--paper .hack-route-progress,
+  .hacking-panel.hacking-panel--paper .hack-route-blackout p {
+    display: none;
+  }
+
+  .hacking-panel.hacking-panel--paper .hack-route-blackout {
+    padding: 8px 10px;
+  }
+}
+
+@media (max-height: 800px) {
+  .hacking-panel.hacking-panel--paper {
+    grid-template-rows: 82px minmax(0, 1fr);
+  }
+
+  .hacking-panel.hacking-panel--paper::after {
+    top: 82px;
+  }
+
+  .hacking-panel.hacking-panel--paper .hacking-panel__icon,
+  .hacking-panel.hacking-panel--paper .hacking-panel__close {
+    width: 44px;
+    height: 44px;
+  }
+
+  .hacking-panel.hacking-panel--paper .hacking-panel__close {
+    min-height: 44px;
+  }
+
+  .hacking-panel.hacking-panel--paper .hack-route-heading {
+    padding-block: 13px 10px;
+  }
+
+  .hacking-panel.hacking-panel--paper .hack-route-switcher.hack-tabs {
+    gap: 6px;
+    padding: 7px;
+  }
+
+  .hacking-panel.hacking-panel--paper .hack-route-switcher.hack-tabs button {
+    gap: 6px 8px;
+    min-height: 104px;
+    padding: 7px;
+  }
+
+  .hacking-panel.hacking-panel--paper .hack-tab-icon {
+    width: 34px;
+    height: 34px;
+  }
+
+  .hacking-panel.hacking-panel--paper .hack-route-vector > span {
+    padding: 4px;
+  }
+
+  .hacking-panel.hacking-panel--paper .hack-route-switcher.hack-tabs button > em {
+    padding: 4px 6px;
+  }
+
+  .hacking-panel.hacking-panel--paper .hack-route-context {
+    gap: 8px;
+    padding: 10px 12px;
+  }
+
+  .hacking-panel.hacking-panel--paper .hack-route-context > div:first-child {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: baseline;
+    gap: 8px;
+  }
+
+  .hacking-panel.hacking-panel--paper .hack-route-context > div:first-child > p,
+  .hacking-panel.hacking-panel--paper .hack-route-progress,
+  .hacking-panel.hacking-panel--paper .hack-route-warning {
+    display: none;
+  }
+
+  .hacking-panel.hacking-panel--paper .hack-route-blackout {
+    padding: 7px 9px;
+  }
+
+  .hacking-panel.hacking-panel--paper .hack-route-blackout p {
+    display: none;
+  }
+
+  .hacking-panel.hacking-panel--paper .hack-pressure-brief {
+    min-height: 70px;
+    margin: 11px 14px 0;
+    padding-block: 9px;
+  }
+
+  .hacking-panel.hacking-panel--paper .hack-node-list {
+    gap: 11px;
+    padding: 12px 14px 16px;
+  }
+
+  .hacking-panel.hacking-panel--paper .hack-node {
+    gap: 12px;
+    padding: 16px;
+  }
+
+  .hacking-panel.hacking-panel--paper .node-copy {
+    gap: 11px;
+  }
+
+  .hacking-panel.hacking-panel--paper .hack-cost-console {
+    gap: 9px;
+    padding: 10px;
+  }
+
+  .hacking-panel.hacking-panel--paper .hack-cost-row {
+    grid-template-columns: minmax(64px, 1fr) 40px 40px;
+    align-items: center;
+    gap: 5px;
+    padding: 7px;
+  }
+
+  .hacking-panel.hacking-panel--paper .hack-cost-row__identity {
+    grid-column: auto;
+    gap: 5px;
+  }
+
+  .hacking-panel.hacking-panel--paper .hack-cost-row__identity i {
+    width: 26px;
+    height: 26px;
+    font-size: 15px;
+  }
+
+  .hacking-panel.hacking-panel--paper .hack-cost-row__identity b {
+    font-size: 16px;
+  }
+
+  .hacking-panel.hacking-panel--paper .hack-cost-row > strong {
+    font-size: 24px;
+  }
+
+  .hacking-panel.hacking-panel--paper .hack-cost-row > em {
+    padding: 5px;
+  }
+
+  .hacking-panel.hacking-panel--paper .hack-vector-verdict {
+    gap: 9px;
+    padding: 8px 10px;
+  }
+
+  .hacking-panel.hacking-panel--paper .hack-vector-verdict > strong {
+    font-size: 17px;
+  }
+
+  .hacking-panel.hacking-panel--paper .hack-decision-sequence > span {
+    grid-template-columns: 28px minmax(0, 1fr);
+    gap: 3px 8px;
+    padding: 8px;
+  }
+
+  .hacking-panel.hacking-panel--paper .hack-decision-sequence > span > b {
+    font-size: 18px;
+  }
+
+  .hacking-panel.hacking-panel--paper .hack-decision-sequence > span > small {
+    white-space: nowrap;
+  }
+
+  .hacking-panel.hacking-panel--paper .hack-pocket-command,
+  .hacking-panel.hacking-panel--paper .hack-balance-board,
+  .hacking-panel.hacking-panel--paper .hack-pocket-stream {
+    padding-block: 11px;
+  }
+
+  .hacking-panel.hacking-panel--paper .hack-pocket-stream > header {
+    padding-bottom: 8px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hacking-panel.hacking-panel--paper *,
+  .hacking-panel.hacking-panel--paper *::before,
+  .hacking-panel.hacking-panel--paper *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

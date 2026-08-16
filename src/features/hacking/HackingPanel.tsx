@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from 'react'
 
+import '../../styles/hacking-network.css'
 import { playGameSound, unlockGameAudio } from '../../audio/audioEngine'
 import { AccessibleDialog } from '../../app/AccessibleDialog'
 import {
@@ -124,13 +125,13 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
         ? `투입 대기 — ${staging.stagedBlockIds.length}/${staging.target.requiredResources} 연결됨.`
         : `실행 자원 ${staging.stagedBlockIds.length}/${staging.target.requiredResources} 연결됨.`
     : pendingExecutionNode
-      ? `${pendingExecutionNode.label} 해금 완료 — 실행은 자동 시작되지 않습니다. 별도 자원 1개를 장착하거나 다음 해금을 비축하십시오.`
+      ? `${pendingExecutionNode.label} 권한 구매 완료 — 실행 자원 1개를 별도 장착`
     : activeFrontierNode
       ? shortfallTotal === 0
         ? `${activeFrontierNode.label} 요구 조합 확보 — 침투 조합을 준비하십시오.`
         : `${focusedShortfalls
             .map(({ category, amount }) => `${CATEGORY_LABELS[category]} ${amount}`)
-            .join(' · ')} 부족 — 회사 자원장에서 직접 전용하십시오.`
+            .join(' · ')} 부족 → 직접 전용`
       : treeProgress.complete
         ? '이 경로의 모든 접근 권한이 열렸습니다.'
         : '공개된 최전선 신호를 기다리는 중입니다.'
@@ -319,7 +320,7 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
             </svg>
           </span>
           <div>
-            <span>BLACKSITE // 비인가 침투망</span>
+            <span>BLACKSITE // 제한 정보 침투망</span>
             <h2>{message(settings.locale, 'hacking.panel.title', {})}</h2>
           </div>
         </div>
@@ -338,9 +339,9 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
         </section>
         <div className="hacking-panel__summary">
           <div>
-            <span>확보 자원</span>
-            <strong>{reserveBlocks.length}</strong>
-            <small>{pendingExecutionNode ? '해금됨 · 실행 자원 미장착' : '상한 없음 · 흔적은 잔류'}</small>
+              <span>현재 보유</span>
+              <strong>{reserveBlocks.length}</strong>
+              <small>{pendingExecutionNode ? '권한 구매됨 · 실행 대기' : '용량 제한 없음 · 절도 위험 누적'}</small>
           </div>
           <button
             type="button"
@@ -377,12 +378,12 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
           <section className="hack-pressure-brief" aria-label="다음 해킹 행동">
             <span className="hack-pressure-brief__signal" aria-hidden="true"><i /></span>
             <div>
-              <small>NEXT ACTION // {nextActionLabel}</small>
+              <small>지금 할 일 // {nextActionLabel}</small>
               <strong>{nextAction}</strong>
             </div>
             <div className="hack-pressure-brief__unknown">
-              <span>다음 단계</span>
-              <strong>비용 · 효과 암호화</strong>
+              <span>미래 신호</span>
+              <strong>상세 정보 차단</strong>
             </div>
           </section>
           <HackNodePath
@@ -430,7 +431,6 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
           reserveBlocks={reserveBlocks}
           stagedBlockIds={staging.stagedBlockIds}
           target={staging.target}
-          focusNode={focusedNode}
           nextAuditProbability={nextAuditProbability}
           suspicionBand={suspicionBand}
           getActiveTargetElement={getActiveTargetElement}

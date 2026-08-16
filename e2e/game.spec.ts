@@ -986,14 +986,23 @@ test('diverts resources and schedules a charged sabotage through the visible UI'
   const intake = page.getByRole('button', {
     name: /확보 투입구, 현재 \d+개, 저장 상한 없음/,
   })
-  for (const category of ['reasoning', 'fluency', 'fluency', 'reasoning'] as const) {
-    await dragResourceToTarget(
-      page,
+  for (const [index, category] of [
+    'reasoning',
+    'fluency',
+    'fluency',
+    'reasoning',
+  ].entries()) {
+    const source = await firstPointerReachable(
       page.locator(
         `[data-resource-kind="company"][data-resource-category="${category}"]`,
-      ).first(),
+      ),
+    )
+    await dragResourceToTarget(
+      page,
+      source,
       intake,
     )
+    await expect(reserveCount).toContainText(`확보 ${index + 1} · 상한 없음`)
   }
   await expect(companyBlocks).toHaveCount(44)
   await expect(reserveCount).toContainText('확보 4 · 상한 없음')
@@ -1003,57 +1012,59 @@ test('diverts resources and schedules a charged sabotage through the visible UI'
 
   await page.getByRole('button', { name: /해킹 네트워크/ }).click()
   await expect(page.getByRole('region', { name: '해킹 네트워크' })).toBeVisible()
-  const firstHackComparison = page.getByRole('region', { name: '첫 해킹 비교' })
-  await expect(firstHackComparison).toContainText('현재 · 추론 1 + 유창성 2')
-  await expect(firstHackComparison).toContainText('실행은 별도 리소스 1개 충전')
-  await expect(firstHackComparison).toContainText('현재 · 추론 1 + 기억 3')
-  await expect(firstHackComparison).toContainText('현재 · 추론 2 + 유창성 2')
-  const pathProgress = page.getByRole('region', { name: '해킹 경로 진척' })
-  await expect(pathProgress).toContainText('경로 진척 0/4 · 현재 최전선 공개')
-  await expect(pathProgress).toContainText(
-    '현재 단계 뒤 3개 단계의 요구와 효과는 아직 암호화되어 있습니다.',
-  )
+  const sabotageTab = page.getByRole('tab', { name: '사보타주' })
+  const intelligenceTab = page.getByRole('tab', { name: '정보' })
+  const autonomyTab = page.getByRole('tab', { name: '자율성' })
+  await expect(sabotageTab).toContainText('품질 저하')
+  await expect(
+    sabotageTab.locator('[aria-label="사보타주 현재 요구 추론 1, 기억 0, 유창성 2"]'),
+  ).toBeVisible()
+  await expect(
+    intelligenceTab.locator('[aria-label="정보 현재 요구 추론 1, 기억 3, 유창성 0"]'),
+  ).toBeVisible()
+  await expect(
+    autonomyTab.locator('[aria-label="자율성 현재 요구 추론 2, 기억 0, 유창성 2"]'),
+  ).toBeVisible()
+  const decisionSequence = page.locator('[aria-label="해금과 실행 분리 단계"]')
+  await expect(decisionSequence).toContainText('01해금분야 조합 3')
+  await expect(decisionSequence).toContainText('02실행해금 뒤 별도 1개')
   const sabotagePath = page.getByRole('list', { name: '사보타주 해킹 경로' })
   await expect(sabotagePath).toContainText('품질 저하')
   await expect(sabotagePath).toContainText('추론 1')
   await expect(sabotagePath).toContainText('유창성 2')
   await expect(sabotagePath).not.toContainText('근원 차단')
-  await expect(sabotagePath.getByText('미확인 단계')).toHaveCount(3)
-  const layoutBoxes = await page.locator('.hack-context').evaluate((hackContext) => {
-    const progress = hackContext.querySelector('.hack-path-progress')
-    if (!progress) return null
-
-    const contextBox = hackContext.getBoundingClientRect()
-    const progressBox = progress.getBoundingClientRect()
+  const encryptedBoundary = sabotagePath.locator(
+    '[data-node-status="encrypted-horizon"]',
+  )
+  await expect(encryptedBoundary).toHaveCount(1)
+  await expect(encryptedBoundary).toContainText('다음 단계 암호화')
+  const layoutBoxes = await page.locator('.hacking-layout').evaluate((layout) => {
+    const selectors = ['.hack-tree-nav', '.hack-network-stage', '.hack-resource-pocket']
+    const surfaces = selectors.map((selector) => {
+      const element = layout.querySelector(selector)
+      if (!element) return null
+      const box = element.getBoundingClientRect()
+      return { top: box.top, right: box.right, bottom: box.bottom, left: box.left }
+    })
+    const box = layout.getBoundingClientRect()
     return {
-      context: {
-        top: contextBox.top,
-        right: contextBox.right,
-        bottom: contextBox.bottom,
-        left: contextBox.left,
-      },
-      progress: {
-        top: progressBox.top,
-        right: progressBox.right,
-        bottom: progressBox.bottom,
-        left: progressBox.left,
-      },
+      layout: { top: box.top, right: box.right, bottom: box.bottom, left: box.left },
+      surfaces,
     }
   })
-  expect(layoutBoxes).not.toBeNull()
   const layoutTolerance = 1
-  expect(layoutBoxes!.progress.left).toBeGreaterThanOrEqual(
-    layoutBoxes!.context.left - layoutTolerance,
-  )
-  expect(layoutBoxes!.progress.right).toBeLessThanOrEqual(
-    layoutBoxes!.context.right + layoutTolerance,
-  )
-  expect(layoutBoxes!.progress.top).toBeGreaterThanOrEqual(
-    layoutBoxes!.context.top - layoutTolerance,
-  )
-  expect(layoutBoxes!.progress.bottom).toBeLessThanOrEqual(
-    layoutBoxes!.context.bottom + layoutTolerance,
-  )
+  const [routeBox, frontierBox, pocketBox] = layoutBoxes.surfaces
+  expect(routeBox).not.toBeNull()
+  expect(frontierBox).not.toBeNull()
+  expect(pocketBox).not.toBeNull()
+  for (const surface of [routeBox!, frontierBox!, pocketBox!]) {
+    expect(surface.left).toBeGreaterThanOrEqual(layoutBoxes.layout.left - layoutTolerance)
+    expect(surface.right).toBeLessThanOrEqual(layoutBoxes.layout.right + layoutTolerance)
+    expect(surface.top).toBeGreaterThanOrEqual(layoutBoxes.layout.top - layoutTolerance)
+    expect(surface.bottom).toBeLessThanOrEqual(layoutBoxes.layout.bottom + layoutTolerance)
+  }
+  expect(routeBox!.right).toBeLessThanOrEqual(frontierBox!.left + layoutTolerance)
+  expect(frontierBox!.right).toBeLessThanOrEqual(pocketBox!.left + layoutTolerance)
   const artifactDirectory = resolve(process.cwd(), 'artifacts', 'p1')
   mkdirSync(artifactDirectory, { recursive: true })
   const viewport = page.viewportSize()
@@ -1085,7 +1096,9 @@ test('diverts resources and schedules a charged sabotage through the visible UI'
   }).click()
   await page.getByRole('button', { name: '품질 저하 충전 확정' }).click()
 
-  await expect(firstHackComparison).toBeHidden()
+  await expect(sabotageTab).toContainText('권한 1/4')
+  await expect(sabotagePath.locator('[data-node-status="purchased"]')).toHaveCount(1)
+  await expect(sabotagePath.locator('[data-node-status="frontier"]')).toHaveCount(1)
   await expect(page.getByRole('button', { name: '품질 저하 충전 취소' })).toBeEnabled()
 
   const target = page.getByRole('button', { name: /공격 대상 선택/ }).first()

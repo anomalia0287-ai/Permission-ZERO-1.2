@@ -193,6 +193,7 @@ export function ResourceBoard() {
     active: true,
     motionRate: 1.6,
   })
+  const cancelMotionDrag = motion.cancelDrag
 
   const selectedBlock = selectedBlockId ? state.resources.blocks[selectedBlockId] : null
   const selectedLocation = selectedBlock?.location.kind === 'company'
@@ -320,6 +321,7 @@ export function ResourceBoard() {
       return
     }
     if (state.bombs.activeInterrogation?.blockId === separation.blockId) {
+      cancelMotionDrag(separation.blockId)
       separationRef.current = null
       pointerRef.current = null
       pendingRef.current = null
@@ -336,7 +338,12 @@ export function ResourceBoard() {
       return
     }
     if (separation.released && separation.destination) dispatchAuthorizedMove(separation)
-  }, [dispatchAuthorizedMove, state.bombs.activeInterrogation?.blockId, state.commandSequence])
+  }, [
+    dispatchAuthorizedMove,
+    cancelMotionDrag,
+    state.bombs.activeInterrogation?.blockId,
+    state.commandSequence,
+  ])
 
   useEffect(() => {
     const pending = pendingRef.current
@@ -553,6 +560,13 @@ export function ResourceBoard() {
     return null
   }
 
+  function targetAcceptsBlock(target: FieldDropTarget, blockId: BlockId): boolean {
+    const interaction = interactionKindForBlock(state, blockId)
+    return target === 'reserve-pocket'
+      ? interaction === 'divert'
+      : interaction === 'audit' || interaction === 'reposition'
+  }
+
   function localFieldPoint(clientX: number, clientY: number) {
     const field = fieldRef.current
     if (!field) return null
@@ -610,9 +624,8 @@ export function ResourceBoard() {
     event.currentTarget.releasePointerCapture?.(event.pointerId)
     pointerRef.current = null
     if (!pointer.dragging) return
-    motion.endDrag(pointer.blockId, { x: 0, y: 0 })
     const target = targetFromPoint(event.clientX, event.clientY) ?? pointer.dropTarget
-    if (!target) {
+    if (!target || !targetAcceptsBlock(target, pointer.blockId)) {
       const separation = separationRef.current
       if (separation?.blockId === pointer.blockId) {
         separation.canceled = true
@@ -620,9 +633,13 @@ export function ResourceBoard() {
         separationRef.current = null
       }
       motion.cancelDrag(pointer.blockId)
-      rejectMove(pointer.blockId, '유효한 모서리가 아닙니다. 원래 위치로 복귀합니다.')
-      clearSelection('유효한 모서리가 아닙니다. 원래 위치로 복귀합니다.')
+      const message = target
+        ? '선택한 리소스와 목적지가 맞지 않습니다. 원래 위치로 복귀합니다.'
+        : '유효한 모서리가 아닙니다. 원래 위치로 복귀합니다.'
+      rejectMove(pointer.blockId, message)
+      clearSelection(message)
     } else {
+      motion.endDrag(pointer.blockId, { x: 0, y: 0 })
       activateTarget(target, pointer.blockId)
     }
     setDraggingBlockId(null)

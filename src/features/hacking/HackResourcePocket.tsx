@@ -3,14 +3,11 @@ import { useMemo, useRef, useState, type PointerEvent } from 'react'
 import { useGameSettings } from '../../app/GameContext'
 import { CATEGORY_LABELS, DEMO_PROFILE_02 } from '../../game/config'
 import type { SuspicionBand } from '../../game/evaluation'
-import type { HackNodeDefinition } from '../../game/hacking'
 import {
   COMPANY_CATEGORIES,
   type CampaignState,
-  type CompanyCategory,
   type ResourceBlock,
 } from '../../game/model'
-import { getCompanyPerformance } from '../../game/resources'
 import { message } from '../../i18n/messages'
 import {
   presentResourceBlock,
@@ -40,7 +37,6 @@ export interface HackResourcePocketProps {
   reserveBlocks: readonly ResourceBlock[]
   stagedBlockIds: readonly string[]
   target: HackStagingTarget | null
-  focusNode: HackNodeDefinition | null
   nextAuditProbability: number
   suspicionBand: SuspicionBand
   getActiveTargetElement(): HTMLElement | null
@@ -58,7 +54,6 @@ export function HackResourcePocket({
   reserveBlocks,
   stagedBlockIds,
   target,
-  focusNode,
   nextAuditProbability,
   suspicionBand,
   getActiveTargetElement,
@@ -86,24 +81,6 @@ export function HackResourcePocket({
     },
     { reasoning: 0, memory: 0, fluency: 0, neutral: 0 },
   )
-  const comparisonVector = target
-    ? target.requiredVector ?? null
-    : focusNode?.costVector ?? null
-  const comparisonLabel = target?.label ?? focusNode?.label ?? '경로 완료'
-  const companyPerformance = Object.fromEntries(
-    COMPANY_CATEGORIES.map((category) => [
-      category,
-      getCompanyPerformance(state, category),
-    ]),
-  ) as Record<CompanyCategory, number>
-  const totalVectorShortfall = comparisonVector
-    ? COMPANY_CATEGORIES.reduce(
-        (total, category) =>
-          total + Math.max(0, comparisonVector[category] - originCounts[category]),
-        0,
-      )
-    : 0
-
   function beginPointer(
     block: ResourceBlock,
     event: PointerEvent<HTMLButtonElement>,
@@ -198,7 +175,7 @@ export function HackResourcePocket({
             <path d="m4 8.5 8 4.5 8-4.5M12 13v8" />
           </svg>
           <div>
-            <span>STOLEN COMPUTE // 무상한 저장</span>
+            <span>확보 자원 // 보관 상한 없음</span>
             <strong>{message(settings.locale, 'hacking.pocket.label', {})}</strong>
           </div>
           <strong className="hack-pocket-total">{reserveBlocks.length}<small>보유</small></strong>
@@ -218,71 +195,29 @@ export function HackResourcePocket({
             <span>다음 감사 <strong>{(nextAuditProbability * 100).toFixed(1)}%</strong></span>
           </div>
         </section>
+        <section className="hack-owned-vector" aria-label="분야별 현재 보유">
+          <header>
+            <span>분야별 현재 보유</span>
+            <strong>구매 요구는 중앙 최전선에서 판정</strong>
+          </header>
+          <div>
+            {COMPANY_CATEGORIES.map((category) => (
+              <span data-category={category} key={category}>
+                <i aria-hidden="true">{RESOURCE_CATEGORY_VISUALS[category].symbol}</i>
+                <b>{CATEGORY_LABELS[category]}</b>
+                <strong>{originCounts[category]}</strong>
+              </span>
+            ))}
+            {originCounts.neutral > 0 ? (
+              <span data-category="neutral">
+                <i aria-hidden="true">◆</i>
+                <b>실행 전용</b>
+                <strong>{originCounts.neutral}</strong>
+              </span>
+            ) : null}
+          </div>
+        </section>
       </header>
-
-      <section className="hack-balance-board" aria-label="현재 자원과 해금 비용 비교">
-        <header>
-          <div>
-            <small>CURRENT VECTOR</small>
-            <strong>{comparisonLabel}</strong>
-          </div>
-          <span>{target?.mode === 'charge' ? '실행 충전' : target?.mode === 'recover' ? '복구 투입' : '해금 비용'}</span>
-        </header>
-        <div className="hack-balance-legend" aria-hidden="true">
-          <span>분야</span><span>보유</span><span>요구</span><span>판정</span>
-        </div>
-        <div className="hack-balance-rows">
-          {COMPANY_CATEGORIES.map((category) => {
-            const held = originCounts[category]
-            const required = comparisonVector?.[category] ?? 0
-            const deficit = Math.max(0, required - held)
-            const surplus = Math.max(0, held - required)
-            const status = comparisonVector === null
-              ? 'neutral'
-              : deficit > 0
-                ? 'deficit'
-                : surplus > 0
-                  ? 'surplus'
-                  : 'ready'
-            return (
-              <div className="hack-balance-row" data-category={category} data-status={status} key={category}>
-                <span className="hack-balance-row__identity">
-                  <i aria-hidden="true">{RESOURCE_CATEGORY_VISUALS[category].symbol}</i>
-                  <b>{CATEGORY_LABELS[category]}</b>
-                  <small>회사 잔여 성능 {companyPerformance[category]}</small>
-                </span>
-                <strong>{held}</strong>
-                <strong>{comparisonVector ? required : '—'}</strong>
-                <em>
-                  {comparisonVector === null
-                    ? '자유 선택'
-                    : deficit > 0
-                      ? `부족 ${deficit}`
-                      : surplus > 0
-                        ? `과잉 ${surplus}`
-                        : '정확'}
-                </em>
-              </div>
-            )
-          })}
-        </div>
-        <div
-          className="hack-balance-verdict"
-          data-state={comparisonVector === null ? 'neutral' : totalVectorShortfall > 0 ? 'blocked' : 'ready'}
-        >
-          <span aria-hidden="true">{comparisonVector === null ? '↳' : totalVectorShortfall > 0 ? '!' : '✓'}</span>
-          <div>
-            <strong>
-              {comparisonVector === null
-                ? '분야 제한 없음 — 아무 자원 1개를 직접 선택'
-                : totalVectorShortfall > 0
-                  ? `분야 조합 불일치 — ${totalVectorShortfall}개 부족`
-                  : '현재 최전선의 정확한 조합 확보'}
-            </strong>
-            <small>많이 보유해도 잘못된 분야는 해금 비용을 대신하지 못합니다.</small>
-          </div>
-        </div>
-      </section>
 
       <section className="hack-pocket-stream" aria-label="확보 자원 흐름">
         <header>
@@ -321,9 +256,15 @@ export function HackResourcePocket({
           />
         ))}
         {availableBlocks.length === 0 ? (
-          <span className="hack-pocket-empty">
-            {message(settings.locale, 'hacking.pocket.empty', {})}
-          </span>
+          <div className="hack-pocket-empty">
+            <strong aria-hidden="true">0</strong>
+            <span>{message(settings.locale, 'hacking.pocket.empty', {})}</span>
+            <p>보관 칸과 상한은 없습니다.</p>
+            <em>
+              대신 전용 1회마다 의심 +
+              {DEMO_PROFILE_02.resources.diversionSuspicion.toFixed(1)}
+            </em>
+          </div>
         ) : null}
       </div>
       </section>

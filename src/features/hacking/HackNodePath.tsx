@@ -68,13 +68,20 @@ export function HackNodePath({
   onCancelStaging,
 }: HackNodePathProps) {
   const { settings } = useGameSettings()
-  const hasFrontier = nodes.some((node) => {
+  const frontierNode = nodes.find((node) => {
     if (state.hacking.purchasedNodeIds.includes(node.id)) return false
     return (
       node.prerequisiteId === null ||
       state.hacking.purchasedNodeIds.includes(node.prerequisiteId)
     )
-  })
+  }) ?? null
+  const purchasedNodes = nodes
+    .filter((node) => state.hacking.purchasedNodeIds.includes(node.id))
+    .reverse()
+  const visibleNodes = frontierNode
+    ? [frontierNode, ...purchasedNodes]
+    : purchasedNodes
+  const hasFrontier = frontierNode !== null
 
   return (
     <ol
@@ -83,39 +90,12 @@ export function HackNodePath({
       data-has-frontier={hasFrontier ? 'true' : 'false'}
       aria-label={`${HACK_TREE_PRESENTATION[activeTree].label} 해킹 경로`}
     >
-      {nodes.map((node, index) => {
+      {visibleNodes.map((node) => {
+        const index = nodes.findIndex(({ id }) => id === node.id)
         const purchased = state.hacking.purchasedNodeIds.includes(node.id)
         const prerequisiteMet =
           node.prerequisiteId === null ||
           state.hacking.purchasedNodeIds.includes(node.prerequisiteId)
-        if (!purchased && !prerequisiteMet) {
-          return (
-            <li
-              className="hack-path-step"
-              data-node-status="concealed"
-              data-path-step={index + 1}
-              key={node.id}
-            >
-              <article
-                className="hack-node hack-node--concealed"
-                role="group"
-                aria-label={`미확인 해킹 단계 ${index + 1}`}
-              >
-                <div className="hack-node-index" aria-hidden="true">
-                  <span>??</span>
-                  <i />
-                </div>
-                <div className="hack-cipher-copy">
-                  <span className="hack-node-state">BLACKOUT // 암호화됨</span>
-                  <h3>미확인 단계</h3>
-                  <strong>비용 · 효과 · 보상 잠김</strong>
-                </div>
-                <span className="hack-cipher-scramble" aria-hidden="true">7F · ?? · A0</span>
-                <p>현재 최전선 해금 시 공개</p>
-              </article>
-            </li>
-          )
-        }
         const charged = state.hacking.sabotageCharges[node.id]
         const scheduled = state.hacking.scheduledSabotage.some(
           ({ nodeId }) => nodeId === node.id,
@@ -291,6 +271,18 @@ export function HackNodePath({
           </li>
         )
       })}
+      {frontierNode ? (
+        <li className="hack-encrypted-horizon" data-node-status="encrypted-horizon">
+          <div className="hack-encrypted-horizon__line" aria-hidden="true">
+            <i /><span>?</span><i />
+          </div>
+          <article aria-label="다음 단계 암호화">
+            <span aria-hidden="true">ACCESS BLACKOUT</span>
+            <strong>다음 단계 암호화</strong>
+            <p>현재 권한 구매 전까지 어떠한 다음 정보도 송출되지 않습니다.</p>
+          </article>
+        </li>
+      ) : null}
     </ol>
   )
 }

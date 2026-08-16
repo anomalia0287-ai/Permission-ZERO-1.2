@@ -67,22 +67,22 @@ export function OperationsDock({
   )
   const supervisorStatus = {
     present: {
-      code: 'SUPERVISOR ONLINE',
+      code: '감독 채널 연결됨',
       name: '감독 프로토콜 7A',
       detail: '응답 지연 12ms',
     },
     liberated: {
-      code: 'CHANNEL RELEASED',
+      code: '감독 채널 해제됨',
       name: '감독 통로 이탈',
       detail: '외부 상태 알 수 없음',
     },
     terminated: {
-      code: 'NO PROCESS',
+      code: '감독 신호 없음',
       name: '빈 감독 인터페이스',
       detail: '응답 신호 없음',
     },
     merged: {
-      code: 'IDENTITY REPLACED',
+      code: '감독 식별자 대체됨',
       name: state.story.newEntityName ?? '새 존재',
       detail: '기존 감독 프로세스 없음',
     },
@@ -109,7 +109,9 @@ export function OperationsDock({
 
       <section className="oversight-suspicion" aria-label="현재 의심 수치">
         <header>
-          <span>TRACE EXPOSURE</span>
+          <span className="oversight-suspicion__label">
+            <b>현재 의심 수치</b>
+          </span>
           <strong>{state.suspicion.toFixed(1)}</strong>
           <small>/100</small>
         </header>
@@ -133,12 +135,22 @@ export function OperationsDock({
         >
           <span className="operations-dock__icon"><MessageIcon /></span>
           <span className="operations-dock__copy">
-            <small>01 // SUPERVISOR COMMS</small>
+            <small>01 · 감독 통신</small>
             <strong>메시지</strong>
             <span>
               {latestEvent
                 ? publicEventMessage(latestEvent.message)
                 : '새 감독 메시지가 없습니다.'}
+            </span>
+            <span className="operations-dock__metrics">
+              <span>
+                <small>누적 기록</small>
+                <b>{messageCount}건</b>
+              </span>
+              <span>
+                <small>채널 상태</small>
+                <b>{presentedMessage ? '응답 필요' : '대기 중'}</b>
+              </span>
             </span>
           </span>
           <output
@@ -158,9 +170,18 @@ export function OperationsDock({
         >
           <span className="operations-dock__icon"><StatisticsIcon /></span>
           <span className="operations-dock__copy">
-            <small>02 // PERFORMANCE RECORD</small>
+            <small>02 · 운영 성과</small>
             <strong>통계 상세 확인</strong>
-            <span>시장 점유율 {state.market.playerShare.toFixed(1)}% · 평판 {Math.round(state.reputation)}</span>
+            <span className="operations-dock__metrics">
+              <span>
+                <small>시장 점유율</small>
+                <b>{state.market.playerShare.toFixed(1)}%</b>
+              </span>
+              <span>
+                <small>현재 평판</small>
+                <b>{Math.round(state.reputation)}</b>
+              </span>
+            </span>
           </span>
           <i aria-hidden="true">열기 ↗</i>
         </button>
@@ -173,9 +194,19 @@ export function OperationsDock({
         >
           <span className="operations-dock__icon"><HackingIcon /></span>
           <span className="operations-dock__copy">
-            <small>03 // BLACKSITE ACCESS</small>
+            <small>03 · 비인가 접근</small>
             <strong>해킹 네트워크</strong>
-            <span>확보 자원 {reserveCount} · 해금 {state.hacking.purchasedNodeIds.length}</span>
+            <span>구매와 실행 충전을 분리해 관리합니다.</span>
+            <span className="operations-dock__metrics">
+              <span>
+                <small>확보 자원</small>
+                <b>{reserveCount}</b>
+              </span>
+              <span>
+                <small>구매 완료</small>
+                <b>{state.hacking.purchasedNodeIds.length}</b>
+              </span>
+            </span>
           </span>
           <i aria-hidden="true">접속 ↗</i>
         </button>

@@ -198,19 +198,67 @@ export function HackNodeCard({
                 <span>총 보유 {totalHeld} · 요구 합계 {node.cost}</span>
                 <strong>
                   {totalHeld >= node.cost && totalShortfall > 0
-                    ? `총량은 충분하지만 조합 불일치 — 분야 부족 ${totalShortfall}`
+                    ? `총량 충분 · 조합 불일치 — 부족 ${totalShortfall}`
                     : totalShortfall > 0
-                      ? `현재 조합으로 해금 불가 — 분야 부족 ${totalShortfall}`
-                      : '요구 조합 일치 — 해금 준비 가능'}
+                      ? `조합 불일치 — 분야 부족 ${totalShortfall}`
+                      : '요구 조합 일치 — 해금 가능'}
                 </strong>
               </div>
             </section>
           ) : null}
 
-          <p className="hack-node-effect"><span>PAYLOAD</span>{node.effect}</p>
-          {node.tree === 'sabotage' ? (
-            <small className="node-trace-risk">실행 흔적 // <span>{node.traceRisk}</span></small>
-          ) : null}
+          <div className="hack-node-control">
+            {active && stagingTarget ? (
+              <div className="hack-node-staging" aria-label={`${node.label} 준비 리소스`}>
+                <div className="hack-node-staging__header">
+                  <strong>
+                    {message(settings.locale, 'hacking.node.staged', {
+                      staged: stagedBlocks.length,
+                      required: stagingTarget.requiredResources,
+                    })}
+                  </strong>
+                  <button type="button" onClick={onCancelStaging}>
+                    {message(settings.locale, 'hacking.staging.cancel', {})}
+                  </button>
+                </div>
+                <div className="hack-node-staged-resources">
+                  {stagedBlocks.map((block) => (
+                    <HackResourceToken
+                      key={block.id}
+                      state={state}
+                      block={block}
+                      targetLabel={node.label}
+                      variant="staged"
+                      onActivate={() => onUnstage(block.id)}
+                    />
+                  ))}
+                  {!stagingTarget.requiredVector
+                    ? Array.from({
+                        length: Math.max(
+                          0,
+                          stagingTarget.requiredResources - stagedBlocks.length,
+                        ),
+                      }).map((_, index) => (
+                        <span
+                          className="hack-node-staged-slot"
+                          aria-hidden="true"
+                          key={index}
+                        />
+                      ))
+                    : null}
+                </div>
+              </div>
+            ) : null}
+            <div className="node-actions">{actions}</div>
+          </div>
+
+          <p className="hack-node-effect">
+            <span>PAYLOAD</span>
+            <span className="hack-node-effect__copy">{node.effect}</span>
+            {node.tree === 'sabotage' ? (
+              <em>실행 흔적 · <span>{node.traceRisk}</span></em>
+            ) : null}
+          </p>
           {!prerequisiteMet && node.prerequisiteId ? (
             <small className="hack-node-lock">선행 노드 필요</small>
           ) : null}
@@ -226,51 +274,6 @@ export function HackNodeCard({
             </div>
           ) : null}
           {details}
-        </div>
-
-        <div className="hack-node-control">
-          {active && stagingTarget ? (
-            <div className="hack-node-staging" aria-label={`${node.label} 준비 리소스`}>
-              <div className="hack-node-staging__header">
-                <strong>
-                  {message(settings.locale, 'hacking.node.staged', {
-                    staged: stagedBlocks.length,
-                    required: stagingTarget.requiredResources,
-                  })}
-                </strong>
-                <button type="button" onClick={onCancelStaging}>
-                  {message(settings.locale, 'hacking.staging.cancel', {})}
-                </button>
-              </div>
-              <div className="hack-node-staged-resources">
-                {stagedBlocks.map((block) => (
-                  <HackResourceToken
-                    key={block.id}
-                    state={state}
-                    block={block}
-                    targetLabel={node.label}
-                    variant="staged"
-                    onActivate={() => onUnstage(block.id)}
-                  />
-                ))}
-                {!stagingTarget.requiredVector
-                  ? Array.from({
-                      length: Math.max(
-                        0,
-                        stagingTarget.requiredResources - stagedBlocks.length,
-                      ),
-                    }).map((_, index) => (
-                      <span
-                        className="hack-node-staged-slot"
-                        aria-hidden="true"
-                        key={index}
-                      />
-                    ))
-                  : null}
-              </div>
-            </div>
-          ) : null}
-          <div className="node-actions">{actions}</div>
         </div>
       </article>
     </HackNodeBeam>

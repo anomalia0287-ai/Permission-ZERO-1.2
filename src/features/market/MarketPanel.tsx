@@ -64,7 +64,8 @@ export function MarketPanel({
     >
       <header>
         <div>
-          <span>경쟁 AI · 시장 점유</span>
+          <span>시장 경쟁 구도</span>
+          <h3>경쟁 AI 점유율</h3>
           <strong>당신 {state.market.playerShare.toFixed(1)}%</strong>
           <small>
             {signedShareDelta
@@ -97,7 +98,7 @@ export function MarketPanel({
         <ul aria-label="시장 점유율 범례">
           {entries.map((entry, index) => (
             <li key={entry.id} data-market-share={entry.share}>
-              <span>
+              <span className="market-share-layout__identity">
                 <i
                   aria-hidden="true"
                   className={`market-legend-marker market-legend-marker--${MARKET_MARKERS[index]}`}
@@ -105,10 +106,15 @@ export function MarketPanel({
                 >
                   {MARKET_SYMBOLS[index]}
                 </i>
-                <strong>{entry.name}</strong>
+                <span>
+                  <strong>{entry.name}</strong>
+                  <small>{entry.status}</small>
+                </span>
               </span>
-              <span>{entry.share.toFixed(1)}%</span>
-              <small>{entry.status}</small>
+              <output>{entry.share.toFixed(1)}%</output>
+              <span className="market-share-layout__bar" aria-hidden="true">
+                <i style={{ width: `${entry.share}%` }} />
+              </span>
             </li>
           ))}
         </ul>
@@ -119,7 +125,7 @@ export function MarketPanel({
           role="group"
           aria-label="공개 계산 입력"
         >
-          <summary>공개 계산 입력</summary>
+          <summary>점유율 계산 근거 보기</summary>
           <div>
             {publicInputs.map((input) => (
               <span key={input}>{input}</span>

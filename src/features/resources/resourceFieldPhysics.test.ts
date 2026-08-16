@@ -1344,7 +1344,7 @@ describe('fixed-step collisions and boundaries', () => {
 })
 
 describe('dragging and controller lifecycle', () => {
-  it('clamps a far-away dragged pointer inside bounds and outside obstacles', () => {
+  it('clamps a far-away dragged pointer to field bounds without treating glass as a wall', () => {
     const bounds = { width: 300, height: 200 }
     const obstacles = [{ id: 'pocket', left: 240, top: 0, right: 300, bottom: 80 }]
     const result = dragResourceBody(
@@ -1359,7 +1359,43 @@ describe('dragging and controller lifecycle', () => {
     expect(result.vx).toBe(0)
     expect(result.vy).toBe(0)
     expectBodyInsideBounds(result, bounds)
-    expectBodyOutsideObstacle(result, obstacles[0])
+    expect(result.x).toBe(290)
+    expect(result.y).toBe(10)
+    expect(result.x).toBeGreaterThanOrEqual(obstacles[0].left)
+    expect(result.x).toBeLessThanOrEqual(obstacles[0].right)
+    expect(result.y).toBeGreaterThanOrEqual(obstacles[0].top)
+    expect(result.y).toBeLessThanOrEqual(obstacles[0].bottom)
+  })
+
+  it('lets a held body cross glass while the same glass reflects a free body', () => {
+    const bounds = { width: 240, height: 140 }
+    const obstacle = { id: 'glass', left: 100, top: 0, right: 120, bottom: 140 }
+    const controller = new ResourceMotionController({
+      ids: ['held'],
+      bounds,
+      radius: 10,
+      obstacles: [obstacle],
+    })
+
+    expect(controller.beginDrag('held')).toBe(true)
+    expect(controller.dragTo('held', { x: 110, y: 70 })).toBe(true)
+    expect(controller.snapshot().bodies.get('held')).toMatchObject({
+      x: 110,
+      y: 70,
+      mode: 'dragged',
+    })
+    expect(controller.dragTo('held', { x: 160, y: 70 })).toBe(true)
+    expect(controller.snapshot().bodies.get('held')!.x).toBe(160)
+
+    const reflected = stepResourceBodies(
+      makeBodies(makeBody('free', { x: 90, y: 70, vx: 24, vy: 3 })),
+      bounds,
+      [obstacle],
+      RESOURCE_FIXED_STEP_SECONDS,
+    ).get('free')!
+    expectBodyOutsideObstacle(reflected, obstacle)
+    expect(reflected.vx).toBeLessThan(0)
+    expect(reflected.vy).toBe(3)
   })
 
   it('treats a dragged body as a fixed kinematic collider', () => {
@@ -1434,7 +1470,7 @@ describe('dragging and controller lifecycle', () => {
     }
   })
 
-  it('contains an expected obstacle-resolution failure before committing a drag candidate', () => {
+  it('restores the exact valid pre-drag state after cancellation inside joined obstacles', () => {
     const obstacles = [
       { id: 'a', left: 0, top: 0, right: 20, bottom: 20 },
       { id: 'b', left: 20, top: 0, right: 40, bottom: 20 },
@@ -1445,14 +1481,16 @@ describe('dragging and controller lifecycle', () => {
       radius: 10,
       obstacles,
     })
+    const origin = controller.snapshot()
     expect(controller.beginDrag('x')).toBe(true)
-    const beforeRejectedDrag = controller.snapshot()
-
-    expect(() => {
-      expect(controller.dragTo('x', { x: 0, y: 0 })).toBe(false)
-    }).not.toThrow()
-
-    expect(controller.snapshot()).toEqual(beforeRejectedDrag)
+    expect(controller.dragTo('x', { x: 20, y: 10 })).toBe(true)
+    expect(controller.snapshot().bodies.get('x')).toMatchObject({
+      x: 20,
+      y: 10,
+      mode: 'dragged',
+    })
+    expect(() => controller.cancelDrag('x')).not.toThrow()
+    expect(controller.snapshot()).toEqual(origin)
     expect(() => controller.step(RESOURCE_FIXED_STEP_SECONDS)).not.toThrow()
     const stepped = controller.snapshot()
     expectNonOverlapping(stepped.bodies)
@@ -1462,6 +1500,23 @@ describe('dragging and controller lifecycle', () => {
         expectBodyOutsideObstacle(body, obstacle)
       }
     }
+  })
+
+  it('restores rather than trapping a body when release occurs inside glass', () => {
+    const obstacle = { id: 'glass', left: 100, top: 0, right: 120, bottom: 140 }
+    const controller = new ResourceMotionController({
+      ids: ['held', 'free'],
+      bounds: { width: 240, height: 140 },
+      radius: 10,
+      obstacles: [obstacle],
+    })
+    const origin = controller.snapshot()
+
+    expect(controller.beginDrag('held')).toBe(true)
+    expect(controller.dragTo('held', { x: 110, y: 70 })).toBe(true)
+    expect(() => controller.endDrag('held', { x: 40, y: 0 })).not.toThrow()
+    expect(controller.snapshot()).toEqual(origin)
+    expect(() => controller.step(RESOURCE_FIXED_STEP_SECONDS)).not.toThrow()
   })
 
   it('keeps the exact supported-field wall drag local or rejects it atomically', () => {

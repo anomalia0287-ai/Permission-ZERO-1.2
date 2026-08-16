@@ -148,7 +148,8 @@ export function ReviewFeed({
   onOpenHistory: (trigger: HTMLButtonElement) => void
   onOpenHacking?: (trigger: HTMLButtonElement) => void
 }) {
-  const reviews = pageFromNewest(useGameState().reviews.feed, 0, 6).items
+  const state = useGameState()
+  const reviews = pageFromNewest(state.reviews.feed, 0, 6).items
   const [selectedReview, setSelectedReview] = useState<ReviewFeedEntry | null>(null)
   const detailReturnFocusRef = useRef<HTMLButtonElement | null>(null)
 
@@ -164,14 +165,14 @@ export function ReviewFeed({
         <span className="panel-index">01</span>
         <div>
           <h2>유저 리뷰</h2>
-          <p>PUBLIC RESPONSE STREAM</p>
+          <p>최근 {reviews.length} / 누적 {state.reviews.feed.length}</p>
         </div>
         <button
           type="button"
           aria-label="전체 리뷰 기록"
           onClick={(event) => onOpenHistory(event.currentTarget)}
         >
-          전체
+          전체 기록 ↗
         </button>
       </header>
       <div className="review-stream" aria-live="polite">

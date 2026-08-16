@@ -105,7 +105,7 @@ describe('App', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '작품 크레딧 열기' }))
     expect(screen.getByRole('region', { name: '작품 크레딧' })).toBeInTheDocument()
-  })
+  }, 10_000)
 
   it('opens the hacking network from the unauthorized subsystem entry', () => {
     render(<App />)

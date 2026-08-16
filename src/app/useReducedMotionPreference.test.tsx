@@ -973,8 +973,9 @@ describe('review regressions for live geometry reconciliation', () => {
     expect(capture.current!.beginDrag('alpha')).toBe(true)
     expect(capture.current!.dragTo('alpha', { x: 320, y: 60 })).toBe(true)
     const dragged = capture.current!.getSnapshot().bodies.get('alpha')!
-    expect(dragged.x).toBeCloseTo(285, 8)
+    expect(dragged.x).toBe(320)
     expect(dragged.y).toBe(60)
+    expect(bodyIsOutsideObstacle(dragged, expectedPocket)).toBe(false)
   })
 
   it('fails closed for impossible geometry and recovers exactly once on a later valid measure', () => {

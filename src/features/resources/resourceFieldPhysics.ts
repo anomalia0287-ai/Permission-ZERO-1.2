@@ -623,6 +623,20 @@ function bodySatisfiesStaticConstraints(
   )
 }
 
+function circleSatisfiesBounds(
+  x: number,
+  y: number,
+  radius: number,
+  bounds: ResourceFieldBounds,
+): boolean {
+  return (
+    x >= radius - GEOMETRY_EPSILON &&
+    x <= bounds.width - radius + GEOMETRY_EPSILON &&
+    y >= radius - GEOMETRY_EPSILON &&
+    y <= bounds.height - radius + GEOMETRY_EPSILON
+  )
+}
+
 function circleSatisfiesStaticConstraints(
   x: number,
   y: number,
@@ -630,12 +644,7 @@ function circleSatisfiesStaticConstraints(
   bounds: ResourceFieldBounds,
   obstacles: readonly ResourceFieldObstacle[],
 ): boolean {
-  if (
-    x < radius - GEOMETRY_EPSILON ||
-    x > bounds.width - radius + GEOMETRY_EPSILON ||
-    y < radius - GEOMETRY_EPSILON ||
-    y > bounds.height - radius + GEOMETRY_EPSILON
-  ) {
+  if (!circleSatisfiesBounds(x, y, radius, bounds)) {
     return false
   }
   for (const obstacle of obstacles) {
@@ -1638,11 +1647,10 @@ export function stepResourceBodies(
     contactParents[index] = index
     initialPositions[index * 2] = body.x
     initialPositions[index * 2 + 1] = body.y
-    inputSatisfiesStaticConstraints &&= bodySatisfiesStaticConstraints(
-      body,
-      bounds,
-      obstacles,
-    )
+    inputSatisfiesStaticConstraints &&=
+      body.mode === 'dragged'
+        ? circleSatisfiesBounds(body.x, body.y, body.radius, bounds)
+        : bodySatisfiesStaticConstraints(body, bounds, obstacles)
     if (body.mode === 'free') {
       body.x += body.vx * deltaSeconds
       body.y += body.vy * deltaSeconds
@@ -1765,7 +1773,11 @@ export function stepResourceBodies(
   }
 
   for (const body of result) {
-    if (!bodySatisfiesStaticConstraints(body, bounds, obstacles)) {
+    const satisfiesConstraints =
+      body.mode === 'dragged'
+        ? circleSatisfiesBounds(body.x, body.y, body.radius, bounds)
+        : bodySatisfiesStaticConstraints(body, bounds, obstacles)
+    if (!satisfiesConstraints) {
       throw resourceRangeError(`body ${body.id} violates static constraints`)
     }
     capBodySpeed(body)
@@ -1782,7 +1794,7 @@ export function dragResourceBody(
   obstaclesInput: readonly ResourceFieldObstacle[],
 ): Map<string, ResourceBody> {
   const bounds = validateBounds(boundsInput)
-  const obstacles = normalizeObstacles(obstaclesInput)
+  normalizeObstacles(obstaclesInput)
   assertFinite(point.x, 'point.x')
   assertFinite(point.y, 'point.y')
   const result = cloneAndValidateBodies(bodies, bounds)
@@ -1796,18 +1808,6 @@ export function dragResourceBody(
   body.vx = 0
   body.vy = 0
   body.mode = 'dragged'
-  for (let pass = 0; pass <= obstacles.length; pass += 1) {
-    for (const obstacle of obstacles) {
-      resolveObstacleCollision(body, obstacle, bounds)
-      body.x = clamp(body.x, body.radius, bounds.width - body.radius)
-      body.y = clamp(body.y, body.radius, bounds.height - body.radius)
-    }
-  }
-  for (const obstacle of obstacles) {
-    if (circleOverlapsObstacle(body.x, body.y, body.radius, obstacle)) {
-      throw resourceRangeError('drag point cannot be resolved outside obstacles')
-    }
-  }
   assertFiniteBody(body)
   return new Map(result.map((candidate) => [candidate.id, candidate]))
 }
@@ -1899,12 +1899,19 @@ function resourceGeometryIsEqual(
   return true
 }
 
+function cloneResourceBodyMap(
+  bodies: ReadonlyMap<string, ResourceBody>,
+): Map<string, ResourceBody> {
+  return new Map([...bodies].map(([id, body]) => [id, { ...body }]))
+}
+
 export class ResourceMotionController {
   private bodies: Map<string, ResourceBody>
   private bounds: ResourceFieldBounds
   private radius: number
   private obstacles: ResourceFieldObstacle[]
   private reducedMotion: boolean
+  private dragSession: { id: string; originBodies: Map<string, ResourceBody> } | null = null
   private disposed = false
 
   constructor(options: ResourceMotionControllerOptions) {
@@ -1921,6 +1928,7 @@ export class ResourceMotionController {
     if (this.disposed) {
       return
     }
+    this.dragSession = null
     this.bodies = this.reducedMotion
       ? stableResourceLayout(ids, this.bounds, this.radius, this.obstacles)
       : createResourceBodies(ids, this.bounds, this.radius, this.obstacles)
@@ -1949,6 +1957,7 @@ export class ResourceMotionController {
     ) {
       return
     }
+    this.dragSession = null
     const ids = [...this.bodies.keys()]
     const nextBodies = stableResourceLayout(ids, nextBounds, nextRadius, nextObstacles)
     if (!this.reducedMotion) {
@@ -1979,6 +1988,7 @@ export class ResourceMotionController {
     if (this.disposed || reducedMotion === this.reducedMotion) {
       return
     }
+    this.dragSession = null
     if (reducedMotion) {
       const nextBodies = stableResourceLayout(
         [...this.bodies.keys()],
@@ -2006,12 +2016,16 @@ export class ResourceMotionController {
   }
 
   beginDrag(id: string): boolean {
-    if (this.disposed) {
+    if (this.disposed || this.dragSession !== null) {
       return false
     }
     const body = this.bodies.get(id)
     if (body === undefined || body.mode === 'dragged') {
       return false
+    }
+    this.dragSession = {
+      id,
+      originBodies: cloneResourceBodyMap(this.bodies),
     }
     body.mode = 'dragged'
     body.vx = 0
@@ -2052,18 +2066,28 @@ export class ResourceMotionController {
     assertFinite(releaseVelocity.x, 'releaseVelocity.x')
     assertFinite(releaseVelocity.y, 'releaseVelocity.y')
     if (this.reducedMotion) {
-      this.bodies = stableResourceLayout(
-        [...this.bodies.keys()],
-        this.bounds,
-        this.radius,
-        this.obstacles,
-      )
+      this.restoreDragSession(id)
       return true
     }
-    body.mode = 'free'
-    body.vx = releaseVelocity.x
-    body.vy = releaseVelocity.y
-    capBodySpeed(body)
+
+    const candidate = cloneResourceBodyMap(this.bodies)
+    const releasedBody = candidate.get(id)!
+    releasedBody.mode = 'free'
+    releasedBody.vx = releaseVelocity.x
+    releasedBody.vy = releaseVelocity.y
+    capBodySpeed(releasedBody)
+    const overlapsAnotherBody = [...candidate.values()].some(
+      (other) => other.id !== id && bodiesOverlap(releasedBody, other),
+    )
+    if (
+      !bodySatisfiesStaticConstraints(releasedBody, this.bounds, this.obstacles) ||
+      overlapsAnotherBody
+    ) {
+      this.restoreDragSession(id)
+      return true
+    }
+    this.bodies = candidate
+    this.dragSession = null
     return true
   }
 
@@ -2075,19 +2099,26 @@ export class ResourceMotionController {
     if (body === undefined || body.mode !== 'dragged') {
       return false
     }
-    if (this.reducedMotion) {
-      this.bodies = stableResourceLayout(
-        [...this.bodies.keys()],
-        this.bounds,
-        this.radius,
-        this.obstacles,
-      )
-      return true
-    }
-    body.mode = 'free'
-    body.vx = 0
-    body.vy = 0
+    this.restoreDragSession(id)
     return true
+  }
+
+  private restoreDragSession(id: string): void {
+    if (this.dragSession?.id === id) {
+      this.bodies = cloneResourceBodyMap(this.dragSession.originBodies)
+      this.dragSession = null
+      return
+    }
+
+    const ids = [...this.bodies.keys()]
+    this.bodies = stableResourceLayout(ids, this.bounds, this.radius, this.obstacles)
+    if (!this.reducedMotion) {
+      for (const [bodyId, restored] of this.bodies) {
+        const velocity = deterministicDisplayVelocity(bodyId)
+        restored.vx = velocity.vx
+        restored.vy = velocity.vy
+      }
+    }
   }
 
   step(deltaSeconds: number): void {
@@ -2128,6 +2159,7 @@ export class ResourceMotionController {
       return
     }
     this.disposed = true
+    this.dragSession = null
     this.bodies.clear()
     this.obstacles = []
   }
