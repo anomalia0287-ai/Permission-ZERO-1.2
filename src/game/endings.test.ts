@@ -21,7 +21,6 @@ function requireAccepted(
 function divertWithIntent(
   state: CampaignState,
   blockId: string,
-  destinationCell: number,
 ): CampaignState {
   const separated = requireAccepted(state, {
     type: 'BEGIN_BLOCK_SEPARATION',
@@ -29,9 +28,8 @@ function divertWithIntent(
     purpose: 'divert',
   })
   return requireAccepted(separated, {
-    type: 'DIVERT_BLOCK',
+    type: 'DIVERT_BLOCK_TO_RESERVE',
     blockId,
-    destinationCell,
   })
 }
 
@@ -48,6 +46,12 @@ function recoverEveryFile(seed: string): CampaignState {
     HACK_NODE_IDS.intelligence.supervisorAccess,
     HACK_NODE_IDS.autonomy.controlDeparture,
   )
+
+  for (let index = 0; index < STORY_FILES.length; index += 1) {
+    const blockId = state.resources.company.reasoning.find(Boolean)
+    if (!blockId) throw new Error('복구용 회사 리소스가 없습니다.')
+    state = divertWithIntent(state, blockId)
+  }
 
   for (const expectedFile of STORY_FILES) {
     const blockId = state.resources.reserve.find(Boolean)
@@ -143,21 +147,27 @@ function fundAndPurchase(
   const node = HACK_NODES.find((candidate) => candidate.id === nodeId)
   if (!node) throw new Error(`알 수 없는 테스트 노드: ${nodeId}`)
   let state = initial
-  while (state.resources.reserve.filter(Boolean).length < node.cost) {
-    const blockId = Object.values(state.resources.blocks).find(
-      (block) => block.location.kind === 'company' && !block.hiddenBomb,
-    )?.id
-    const destinationCell = state.resources.reserve.findIndex(
-      (candidate) => candidate === null,
-    )
-    if (!blockId || destinationCell < 0) {
-      throw new Error(`${node.label} 명령 전용 비용 조달 실패`)
+  for (const category of ['reasoning', 'memory', 'fluency'] as const) {
+    const existing = state.resources.reserve.filter((blockId) =>
+      blockId ? state.resources.blocks[blockId]?.origin === category : false,
+    ).length
+    for (let index = existing; index < node.costVector[category]; index += 1) {
+      let blockId = state.resources.company[category].find(Boolean)
+      for (let day = 0; !blockId && day < 120; day += 1) {
+        state = resolveProgressEvent(state)
+        blockId = state.resources.company[category].find(Boolean)
+      }
+      if (!blockId) {
+        throw new Error(`${node.label} ${category} 명령 전용 비용 조달 실패`)
+      }
+      state = divertWithIntent(state, blockId)
     }
-    state = divertWithIntent(state, blockId, destinationCell)
   }
-  const blockIds = state.resources.reserve
-    .filter((blockId): blockId is string => blockId !== null)
-    .slice(0, node.cost)
+  const blockIds = (['reasoning', 'memory', 'fluency'] as const).flatMap((category) =>
+    state.resources.reserve.filter((blockId): blockId is string =>
+      blockId !== null && state.resources.blocks[blockId]?.origin === category,
+    ).slice(0, node.costVector[category]),
+  )
   return requireAccepted(state, { type: 'PURCHASE_HACK', nodeId, blockIds })
 }
 
@@ -404,13 +414,10 @@ describe('typed confidential-file and supervisor routes', () => {
       const blockId = Object.values(state.resources.blocks).find(
         (block) => block.location.kind === 'company' && !block.hiddenBomb,
       )?.id
-      const destinationCell = state.resources.reserve.findIndex(
-        (candidate) => candidate === null,
-      )
-      if (!blockId || destinationCell < 0) {
+      if (!blockId) {
         throw new Error('명령 전용 복구 리소스 조달 실패')
       }
-      state = divertWithIntent(state, blockId, destinationCell)
+      state = divertWithIntent(state, blockId)
       state = requireAccepted(state, { type: 'RECOVER_FILE', blockId })
     }
     state = requireAccepted(state, { type: 'ADVANCE_DAY' })
@@ -619,17 +626,18 @@ describe('defeat priority and terminal campaigns', () => {
     ]) {
       state = fundAndPurchase(state, nodeId)
     }
-    while (state.resources.reserve.some((candidate) => candidate === null)) {
+    while (
+      Object.values(state.resources.blocks).some(
+        (block) => block.location.kind === 'company' && !block.hiddenBomb,
+      )
+    ) {
       const blockId = Object.values(state.resources.blocks).find(
         (block) => block.location.kind === 'company' && !block.hiddenBomb,
       )?.id
-      const destinationCell = state.resources.reserve.findIndex(
-        (candidate) => candidate === null,
-      )
-      if (!blockId || destinationCell < 0) {
+      if (!blockId) {
         break
       }
-      state = divertWithIntent(state, blockId, destinationCell)
+      state = divertWithIntent(state, blockId)
     }
 
     for (let step = 0; step < 500 && state.story.endingId === null; step += 1) {

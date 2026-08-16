@@ -629,6 +629,18 @@ body {
   font-size: 0.58rem;
 }
 
+.game-shell .stolen-resource-breakdown {
+  position: absolute;
+  bottom: 5px;
+  left: 13px;
+  display: flex;
+  max-width: 105px;
+  flex-wrap: wrap;
+  gap: 3px 6px;
+  color: rgb(255 253 248 / 86%);
+  font: 700 0.43rem/1 "Cascadia Code", Consolas, monospace;
+}
+
 .game-shell .stolen-resource-stack {
   top: 12px;
   right: 12px;

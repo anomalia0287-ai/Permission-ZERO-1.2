@@ -57,7 +57,7 @@ describe('App', () => {
     expect(screen.getByRole('region', { name: '유저 리뷰' })).toBeInTheDocument()
     expect(screen.queryByRole('region', { name: '감독관' })).not.toBeInTheDocument()
     expect(screen.getByRole('group', { name: '움직이는 회사 리소스 필드' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '확보 투입구, 현재 3개, 최대 18개' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '확보 투입구, 현재 0개, 저장 상한 없음' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '감사 위장 모서리, 감사 기간에 활성화' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: '월별 성능 추세' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: '경쟁 AI 현황' })).toBeInTheDocument()
@@ -76,7 +76,8 @@ describe('App', () => {
     expect(screen.getByLabelText('감독 메시지 1개')).toHaveTextContent('1')
     expect(screen.queryByRole('region', { name: '최근 감독 메시지' })).not.toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: /회사 리소스 .* 블록/ })).toHaveLength(48)
-    expect(screen.getByLabelText('확보 리소스 수량')).toHaveTextContent(/확보\s*3\s*\/\s*18/)
+    expect(screen.getByLabelText('확보 리소스 수량')).toHaveTextContent('상한 없음')
+    expect(screen.getByLabelText('확보 리소스 수량')).toHaveTextContent(/확보\s*0/)
   })
 
   it('connects the one-screen entries to their full detail panels', () => {

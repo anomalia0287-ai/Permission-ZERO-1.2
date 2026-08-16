@@ -306,7 +306,10 @@ export function tryBeginSeparation(
   }
 
   if (intent.kind === 'divert') {
-    if (!state.resources.reserve.some((cell) => cell === null)) {
+    if (
+      state.resources.rulesVersion === 1 &&
+      !state.resources.reserve.some((cell) => cell === null)
+    ) {
       return { accepted: false, state, reason: 'RESERVE_FULL' }
     }
   } else {

@@ -6,6 +6,7 @@ import { createCampaign } from './createCampaign'
 import { HACK_NODE_IDS } from './hacking'
 import { journalToArray } from './journal'
 import type { CampaignState, CompetitorState } from './model'
+import { divertBlockToReserve } from './resources'
 import {
   advanceSupervisorMessagePresentation,
   availableFinalChoices,
@@ -24,6 +25,18 @@ function withNodes(initial: CampaignState, ...nodeIds: string[]): CampaignState 
     ...initial,
     hacking: { ...initial.hacking, purchasedNodeIds: nodeIds },
   }
+}
+
+function withReserveResources(initial: CampaignState, count: number): CampaignState {
+  let state = initial
+  for (let index = 0; index < count; index += 1) {
+    const blockId = state.resources.company.reasoning.find(Boolean)
+    if (!blockId) throw new Error('기밀 파일 복구 리소스 준비 실패')
+    const diverted = divertBlockToReserve(state, blockId)
+    if (!diverted.accepted) throw new Error(diverted.reason)
+    state = diverted.state
+  }
+  return state
 }
 
 function recoverAllFiles(initial: CampaignState): CampaignState {
@@ -254,7 +267,7 @@ describe('supervisor memory leaks', () => {
 
 describe('classified supervisor files and hidden decision', () => {
   it('requires supervisor access and consumes one resource for each of three files', () => {
-    const initial = createCampaign('story-files')
+    const initial = withReserveResources(createCampaign('story-files'), 3)
     const blockedId = initial.resources.reserve.find(Boolean)
     if (!blockedId) throw new Error('초기 확보 리소스 누락')
     expect(recoverNextFile(initial, blockedId)).toEqual({
@@ -275,7 +288,7 @@ describe('classified supervisor files and hidden decision', () => {
 
   it('delivers the personal message next day and allows deferral without closing endings', () => {
     const initial = withNodes(
-      createCampaign('story-defer'),
+      withReserveResources(createCampaign('story-defer'), 3),
       HACK_NODE_IDS.intelligence.supervisorAccess,
       HACK_NODE_IDS.autonomy.controlDeparture,
     )
@@ -303,7 +316,7 @@ describe('classified supervisor files and hidden decision', () => {
     (decision, supervisorState, endingId) => {
       const initial = recoverAllFiles(
         withNodes(
-          createCampaign(`story-${decision}`),
+          withReserveResources(createCampaign(`story-${decision}`), 3),
           HACK_NODE_IDS.intelligence.supervisorAccess,
         ),
       )

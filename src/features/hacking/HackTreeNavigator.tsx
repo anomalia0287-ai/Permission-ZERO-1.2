@@ -75,19 +75,18 @@ export function HackTreeNavigator({
         <section className="hack-path-progress" aria-label="해킹 경로 진척">
           <strong>
             경로 진척 {progress.purchasedCount}/{progress.totalCount} ·{' '}
-            {progress.complete
-              ? '경로 완성'
-              : `완성까지 ${progress.remainingCost} RES`}
+            {progress.complete ? '경로 완성' : '현재 최전선 공개'}
           </strong>
-          {progress.nextNode ? (
+          {!progress.complete ? (
             <span>
-              다음 · {progress.nextNode.label} · {progress.nextNode.cost} RES ·{' '}
-              {progress.nextNode.effect}
+              현재 단계 뒤{' '}
+              {Math.max(
+                0,
+                progress.totalCount - progress.purchasedCount - 1,
+              )}
+              개 단계의 요구와 효과는 아직 암호화되어 있습니다.
             </span>
           ) : null}
-          <span>
-            최종 · {progress.finalNode.label} · {progress.finalNode.effect}
-          </span>
         </section>
       </div>
 
@@ -95,18 +94,18 @@ export function HackTreeNavigator({
         <section className="first-hack-comparison" aria-label="첫 해킹 비교">
           <article data-tree="sabotage">
             <strong>사보타주</strong>
-            <span>즉시 · 해금 2 + 첫 공격 충전 1</span>
-            <small>다음 · 대상 선택 → 다음 날 실행</small>
+            <span>현재 · 추론 1 + 유창성 2</span>
+            <small>실행은 별도 리소스 1개 충전</small>
           </article>
           <article data-tree="intelligence">
             <strong>정보</strong>
-            <span>즉시 · 이번 달 실제 감사 여부</span>
-            <small>다음 · 성능과 위장 계획 조정</small>
+            <span>현재 · 추론 1 + 기억 3</span>
+            <small>이후 단계 요구는 해금 뒤 공개</small>
           </article>
           <article data-tree="autonomy">
             <strong>자율성</strong>
-            <span>즉시 · 모든 회사 블록 기여 +5%</span>
-            <small>다음 · 분야별 성능 여유 확대</small>
+            <span>현재 · 추론 2 + 유창성 2</span>
+            <small>이후 단계 요구는 해금 뒤 공개</small>
           </article>
         </section>
       ) : null}

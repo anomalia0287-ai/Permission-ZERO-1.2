@@ -214,8 +214,8 @@ async function advanceAndFlush(milliseconds: number): Promise<void> {
 }
 
 describe('GameProvider', () => {
-  it('reports the active protocol for native v7 clipboard and file imports', () => {
-    const campaign = createCampaign('provider-v7-validation')
+  it('reports the active protocol for native v8 clipboard and file imports', () => {
+    const campaign = createCampaign('provider-v8-validation')
     const clipboard = encodeProgressExport(campaign)
     if (!clipboard.ok) throw new Error('native fixture must fit clipboard')
 
@@ -229,9 +229,9 @@ describe('GameProvider', () => {
     )
 
     expect(screen.getByLabelText('clipboard protocol version')).toHaveTextContent(
-      '3',
+      '4',
     )
-    expect(screen.getByLabelText('file protocol version')).toHaveTextContent('3')
+    expect(screen.getByLabelText('file protocol version')).toHaveTextContent('4')
   })
 
   it('applies a matching tab resume marker and persists it before clearing the hint', async () => {

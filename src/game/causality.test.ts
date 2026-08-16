@@ -1201,7 +1201,7 @@ describe('causal revision effects and deterministic IDs', () => {
 
     const hash = Math.floor(
       random01(
-        `${first.campaignSeed}|causal-rules-2|3@1`,
+        `${first.campaignSeed}|causal-rules-2|4@1`,
         first.causality.rulesVersion,
         'causal-effect',
         7,

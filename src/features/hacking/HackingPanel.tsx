@@ -64,7 +64,13 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
     return block ? [block] : []
   })
   const reserveBlockIds = reserveBlocks.map(({ id }) => id)
-  const staging = useHackResourceStaging({ reserveBlockIds })
+  const reserveBlockOrigins = Object.fromEntries(
+    reserveBlocks.map(({ id, origin }) => [id, origin]),
+  )
+  const staging = useHackResourceStaging({
+    reserveBlockIds,
+    reserveBlockOrigins,
+  })
   const stagedBlocks = staging.stagedBlockIds.flatMap((blockId) => {
     const block = state.resources.blocks[blockId]
     return block ? [block] : []
@@ -116,6 +122,9 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
       nodeId: node.id,
       label: node.label,
       requiredResources: mode === 'purchase' ? node.cost : 1,
+      ...(mode === 'purchase'
+        ? { requiredVector: { ...node.costVector } }
+        : {}),
     }
     staging.begin(target)
     setTargetConfirmation(null)
@@ -173,11 +182,7 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
 
     if (target.mode === 'purchase' && target.nodeId) {
       dispatch({ type: 'PURCHASE_HACK', nodeId: target.nodeId, blockIds })
-      setAnnouncement(
-        target.nodeId === HACK_NODE_IDS.sabotage.qualityDegradation
-          ? `${target.label} 노드를 구매하고 첫 공격 1회를 충전했습니다.`
-          : `${target.label} 노드를 구매했습니다.`,
-      )
+      setAnnouncement(`${target.label} 노드를 구매했습니다.`)
       playGameSound('latch')
     } else if (target.mode === 'charge' && target.nodeId) {
       dispatch({ type: 'CHARGE_SABOTAGE', nodeId: target.nodeId, blockId: blockIds[0] })
@@ -265,7 +270,6 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
           <strong>
             {message(settings.locale, 'hacking.pocket.count', {
               count: reserveBlocks.length,
-              capacity: state.resources.reserve.length,
             })}
           </strong>
           <button

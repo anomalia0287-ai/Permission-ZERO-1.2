@@ -4,7 +4,7 @@ import { REVIEW_CONTENT } from '../content/reviews.ko'
 import { createCampaign } from './createCampaign'
 import type { CampaignState, CompanyCategory } from './model'
 import { generateWeeklyReviews } from './reviews'
-import { divertBlock } from './resources'
+import { divertBlockToReserve } from './resources'
 
 function generateWeek(initial: CampaignState, serviceDay: number): CampaignState {
   return generateWeeklyReviews({ ...initial, serviceDay })
@@ -30,9 +30,8 @@ function depleteCategory(
   let state = initial
   for (let index = 0; index < count; index += 1) {
     const blockId = state.resources.company[category].find(Boolean)
-    const destination = state.resources.reserve.findIndex((id) => id === null)
-    if (!blockId || destination < 0) throw new Error('리뷰 성능 상태 준비 실패')
-    const result = divertBlock(state, blockId, destination)
+    if (!blockId) throw new Error('리뷰 성능 상태 준비 실패')
+    const result = divertBlockToReserve(state, blockId)
     if (!result.accepted) throw new Error(result.reason)
     state = result.state
   }

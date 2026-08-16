@@ -6,8 +6,8 @@
 
 - 실행 가능한 제품의 기준 폴더는 저장소 루트다.
 - 제품 기준 브랜치는 `main`이다.
-- 현재 해킹·자원장 통합 WIP는 `codex/hacking-integration-stage-2b-2`에서 진행한다.
-- 손실 방지 기준점은 로컬 체크포인트 `26a448c`다. 이 커밋은 출시 완료나 `main` 병합 승인을 뜻하지 않는다.
+- 현재 해킹·자원장 통합 WIP는 `codex/hacking-integration-stage-2b-2`에서 진행한다. 이 브랜치에는 P0 자원 경제가 구현·검증됐지만 아직 `main` 병합 승인을 받지 않았다.
+- 기존 WIP 손실 방지 기준점은 로컬 체크포인트 `26a448c`, P0 직전 녹색 기준선은 `cca38a2`다. 어느 커밋도 출시 완료나 `main` 병합 승인을 뜻하지 않는다.
 - 현재 해킹·확보 자원 규칙 정본은 `docs/superpowers/specs/2026-08-16-hacking-resource-uncertainty-contract.ko.md`다.
 - `agent/permission-zero-demo`는 과거 제품 워크트리 브랜치다. 제품 내용과 V의 크레딧 정정은 `main`에 포함됐다.
 - `codex/hacking-rules-prototype`은 독립 해킹 프로토타입 보존 브랜치다. 현재 제품 통합 출처로 사용하지 않는다.
@@ -30,12 +30,12 @@ pnpm verify
 
 ## 코드 책임 경계
 
-- `src/game/persistence.ts` — 저장 포맷 v1~v7 인코딩·정확 검증·마이그레이션과 명령 프로토콜·리플레이 부트스트랩을 함께 받는 구간별 명령 리플레이
-- `src/game/commandProtocol.ts` — 명령 프로토콜 v1·v2·v3 타임라인, 구간 검증·활성화·지문과 과거 경계 이관
+- `src/game/persistence.ts` — 현재 저장 포맷 v8 인코딩, v1~v7 정확 검증·마이그레이션과 명령 프로토콜·리플레이 부트스트랩을 함께 받는 구간별 명령 리플레이
+- `src/game/commandProtocol.ts` — 명령 프로토콜 v1·v2·v3·v4 타임라인, 구간 검증·활성화·지문과 과거 경계 이관
 - `src/game/replayBootstrap.ts` — 동결된 v1/v2 시작 사건과 연속 `legacy-save` 리뷰 접두사의 독립 재현 출처, 정확 검증·정규화
-- `src/game/campaignStorage.ts` — 브라우저 로컬 저장, v7 최상위 리플레이 부트스트랩 권위와 해시, Web Locks, 탭 충돌, 증분 저널 캐시
+- `src/game/campaignStorage.ts` — 브라우저 로컬 저장, v8 최상위 리플레이 부트스트랩 권위와 해시, Web Locks, 탭 충돌, 증분 저널 캐시
 - `src/game/causality.ts` — 인과 규칙 v2의 사건 관계와 단일 롤백 계열 자식, 증거 접근, 비공개 진실/공개 귀속 분리, append-only 수정과 효과 멱등성
-- `src/game/progressTransfer.ts` — 현재 `PZ7`·`.pz7` 출력과 `PZ2`~`PZ6`·`.pz2`~`.pz6` 가져오기 호환 및 전송 한계
+- `src/game/progressTransfer.ts` — 현재 `PZ8`·`.pz8` 출력과 `PZ2`~`PZ7`·`.pz2`~`.pz7` 가져오기 호환 및 전송 한계
 - `src/styles/global.css` — 셸과 기본 작업 화면만 담당하는 공통 스타일
 - `src/styles/connected-details.css`, `hacking.css`, `statistics.css`, `settings.css`, `overlays.css` — 상세 화면별 스타일
 
@@ -84,5 +84,5 @@ git worktree add .worktrees/permission-zero-design-mockup codex/permission-zero-
 - 다른 브랜치의 dirty 파일을 제품 변경으로 추정하지 않는다.
 - 보존 브랜치는 현재 사양과 다시 대조하지 않고 병합하지 않는다.
 - 저장 형식, 명령 프로토콜, 결정론적 난수 흐름을 바꾸면 마이그레이션과 리플레이 테스트를 함께 수정한다.
-- 명령 타임라인만으로 시작 사건·과거 리뷰 접두사를 추론하지 않는다. v7은 최상위 `replayBootstrap`을 무결성에 묶고, v1~v6은 원본 exact 검증 뒤에만 이를 합성한다.
+- 명령 타임라인만으로 시작 사건·과거 리뷰 접두사를 추론하지 않는다. 현재 v8은 최상위 `replayBootstrap`을 무결성에 묶고, v1~v7은 각 원본을 exact 검증한 뒤에만 현재 런타임으로 이관한다.
 - 자동 테스트 통과와 시각·재미 승인을 구분한다.

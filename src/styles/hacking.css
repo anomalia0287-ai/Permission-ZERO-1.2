@@ -486,6 +486,25 @@
     #fffef9;
 }
 
+.hack-node--concealed {
+  border-style: dashed;
+  border-top-color: #aaa69c;
+  background:
+    repeating-linear-gradient(
+      -45deg,
+      rgb(90 88 80 / 4%) 0 8px,
+      transparent 8px 16px
+    ),
+    #f2f0e9;
+  box-shadow: none;
+}
+
+.hack-node--concealed:hover {
+  border-color: #aaa69c;
+  box-shadow: none;
+  transform: none;
+}
+
 .hack-node--staging {
   border-color: var(--hack-orange);
   box-shadow:
@@ -558,6 +577,43 @@
   color: #5c5c55;
   background: #eeece4;
   font: 750 0.54rem/1 "Cascadia Code", Consolas, monospace;
+}
+
+.hack-cost-vector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.hack-cost-vector span,
+.hack-staged-vector span {
+  padding: 4px 6px;
+  border: 1px solid #d9d4c8;
+  border-radius: 999px;
+  color: #5c5c55;
+  background: #eeece4;
+  font: 750 0.49rem/1 "Cascadia Code", Consolas, monospace;
+}
+
+.hack-cost-vector span[data-category="reasoning"],
+.hack-staged-vector span[data-category="reasoning"] {
+  border-color: #f0bec2;
+  color: #8b2f38;
+  background: #fff0f1;
+}
+
+.hack-cost-vector span[data-category="memory"],
+.hack-staged-vector span[data-category="memory"] {
+  border-color: #aee0e2;
+  color: #087477;
+  background: #ecfafa;
+}
+
+.hack-cost-vector span[data-category="fluency"],
+.hack-staged-vector span[data-category="fluency"] {
+  border-color: #bfe4b7;
+  color: #33742a;
+  background: #eef9eb;
 }
 
 .hack-node--purchased .node-copy header > strong {
@@ -675,6 +731,13 @@
   flex-wrap: wrap;
   gap: 7px;
   min-height: 32px;
+}
+
+.hack-staged-vector {
+  display: flex;
+  width: 100%;
+  flex-wrap: wrap;
+  gap: 5px;
 }
 
 .hack-node-staged-slot {
@@ -922,6 +985,12 @@
 .hack-pocket-heading span {
   color: var(--hack-muted);
   font-size: 0.55rem;
+}
+
+.hack-pocket-heading small {
+  color: #6a6b64;
+  font-size: 0.49rem;
+  line-height: 1.35;
 }
 
 .hack-resource-pocket > header p {

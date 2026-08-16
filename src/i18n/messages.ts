@@ -79,7 +79,7 @@ export interface MessageArguments {
   'hacking.panel.eyebrow': NoMessageArguments
   'hacking.panel.close': NoMessageArguments
   'hacking.pocket.label': NoMessageArguments
-  'hacking.pocket.count': { count: number; capacity: number }
+  'hacking.pocket.count': { count: number }
   'hacking.pocket.idle': NoMessageArguments
   'hacking.pocket.empty': NoMessageArguments
   'hacking.pocket.target': {

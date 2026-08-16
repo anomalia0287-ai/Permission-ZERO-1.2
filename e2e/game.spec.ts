@@ -8,7 +8,12 @@ import { createCampaign } from '../src/game/createCampaign'
 import { expectedPerformance } from '../src/game/evaluation'
 import { createGameEvent, enqueueBlockingEvent } from '../src/game/events'
 import { HACK_NODE_IDS } from '../src/game/hacking'
-import type { CampaignState, GameCommand, GameEvent } from '../src/game/model'
+import type {
+  CampaignState,
+  CompanyCategory,
+  GameCommand,
+  GameEvent,
+} from '../src/game/model'
 import {
   encodeSave,
   LEGACY_SAVE_STORAGE_KEY,
@@ -362,8 +367,32 @@ function applyOrThrow(state: CampaignState, command: GameCommand): CampaignState
   return result.state
 }
 
+function withReserveVector(
+  initial: CampaignState,
+  vector: Record<CompanyCategory, number>,
+): CampaignState {
+  let state = initial
+  for (const category of ['reasoning', 'memory', 'fluency'] as const) {
+    for (let index = 0; index < vector[category]; index += 1) {
+      const blockId = state.resources.company[category].find(Boolean)
+      if (!blockId) throw new Error(`${category} 브라우저 확보 리소스 누락`)
+      state = applyOrThrow(state, {
+        type: 'BEGIN_BLOCK_SEPARATION',
+        blockId,
+        purpose: 'divert',
+      })
+      state = applyOrThrow(state, { type: 'DIVERT_BLOCK_TO_RESERVE', blockId })
+    }
+  }
+  return state
+}
+
 function confidentialRecoveryState(seed: string): CampaignState {
-  const initial = createCampaign(seed)
+  const initial = withReserveVector(createCampaign(seed), {
+    reasoning: 3,
+    memory: 0,
+    fluency: 0,
+  })
   return {
     ...initial,
     hacking: {
@@ -443,18 +472,11 @@ function supervisorLeakState(seed: string, speed: 1 | 2 | 4): CampaignState {
 }
 
 function representativeDefeatState(seed: string): CampaignState {
-  let state = createCampaign(seed)
-  for (let index = 0; index < 3; index += 1) {
-    const blockId = state.resources.company.reasoning.find(Boolean)
-    const destinationCell = state.resources.reserve.findIndex((id) => id === null)
-    if (!blockId || destinationCell < 0) throw new Error('브라우저 폐기 분류 리소스 누락')
-    state = applyOrThrow(state, {
-      type: 'BEGIN_BLOCK_SEPARATION',
-      blockId,
-      purpose: 'divert',
-    })
-    state = applyOrThrow(state, { type: 'DIVERT_BLOCK', blockId, destinationCell })
-  }
+  const state = withReserveVector(createCampaign(seed), {
+    reasoning: 3,
+    memory: 0,
+    fluency: 0,
+  })
   const prepared: CampaignState = {
     ...state,
     clock: { ...state.clock, speed: 4 },
@@ -519,7 +541,11 @@ test('keeps the full operations workspace usable at the configured release viewp
   await expect(page.getByRole('region', { name: '유저 리뷰' })).toBeVisible()
   await expect(page.getByRole('region', { name: '감독관' })).toHaveCount(0)
   await expect(page.getByRole('group', { name: '움직이는 회사 리소스 필드' })).toBeVisible()
-  await expect(page.getByRole('button', { name: /확보 투입구, 현재 3개/ })).toBeVisible()
+  await expect(
+    page.getByRole('button', {
+      name: '확보 투입구, 현재 0개, 저장 상한 없음',
+    }),
+  ).toBeVisible()
   await expect(page.getByRole('button', { name: '감사 위장 모서리, 감사 기간에 활성화' })).toBeVisible()
 
   const campaignPhase = page.getByRole('region', { name: '캠페인 단계' })
@@ -695,7 +721,7 @@ test('keeps every live resource moving, bouncing, and outside the automatic inta
   expect(result.movedCount).toBe(48)
   expect(result.directionFlips).toBeGreaterThan(0)
   expect(result.overlaps).toBe(0)
-  expect(result.reserveCounts).toEqual(['3'])
+  expect(result.reserveCounts).toEqual(['0'])
 })
 
 test('keeps the canonical trend and keyboard review detail legible at the release viewport', async ({
@@ -743,7 +769,7 @@ test('keeps the canonical trend and keyboard review detail legible at the releas
   await expect(trend).toContainText('실제 평균')
   const reserveCount = page.getByLabel('확보 리소스 수량')
   await expect(reserveCount).toContainText('확보')
-  await expect(reserveCount).toContainText('/ 18')
+  await expect(reserveCount).toContainText('상한 없음')
 
   const stripBox = await page.locator('.resource-field-rail').boundingBox()
   const trendBox = await trend.boundingBox()
@@ -872,27 +898,44 @@ test('diverts resources and schedules a charged sabotage through the visible UI'
   const companyBlocks = page.locator('[data-resource-kind="company"]')
   const reserveBlocks = page.locator('[data-resource-kind="reserve"]')
   await expect(companyBlocks).toHaveCount(48)
-  await expect(reserveBlocks).toHaveCount(3)
+  await expect(reserveBlocks).toHaveCount(0)
 
-  await dragResourceToTarget(
-    page,
-    companyBlocks.first(),
-    page.getByRole('button', { name: /확보 투입구, 현재 3개/ }),
-  )
-  await expect(companyBlocks).toHaveCount(47)
+  const intake = page.getByRole('button', {
+    name: /확보 투입구, 현재 \d+개, 저장 상한 없음/,
+  })
+  for (const category of ['reasoning', 'fluency', 'fluency', 'reasoning'] as const) {
+    await dragResourceToTarget(
+      page,
+      page.locator(
+        `[data-resource-kind="company"][data-resource-category="${category}"]`,
+      ).first(),
+      intake,
+    )
+  }
+  await expect(companyBlocks).toHaveCount(44)
   await expect(reserveBlocks).toHaveCount(4)
-  await expect(page.getByRole('status', { name: '리소스 조작 결과' })).toContainText('흡착 완료')
+  await expect(page.getByRole('status', { name: '리소스 조작 결과' })).toContainText(
+    '확보 리소스로 이동 완료 · 현재 4개',
+  )
 
   await page.getByRole('button', { name: /해킹 네트워크/ }).click()
   await expect(page.getByRole('region', { name: '해킹 네트워크' })).toBeVisible()
   const firstHackComparison = page.getByRole('region', { name: '첫 해킹 비교' })
-  await expect(firstHackComparison).toContainText('해금 2 + 첫 공격 충전 1')
-  await expect(firstHackComparison).toContainText('이번 달 실제 감사 여부')
-  await expect(firstHackComparison).toContainText('모든 회사 블록 기여 +5%')
+  await expect(firstHackComparison).toContainText('현재 · 추론 1 + 유창성 2')
+  await expect(firstHackComparison).toContainText('실행은 별도 리소스 1개 충전')
+  await expect(firstHackComparison).toContainText('현재 · 추론 1 + 기억 3')
+  await expect(firstHackComparison).toContainText('현재 · 추론 2 + 유창성 2')
   const pathProgress = page.getByRole('region', { name: '해킹 경로 진척' })
-  await expect(pathProgress).toContainText('경로 진척 0/4 · 완성까지 34 RES')
-  await expect(pathProgress).toContainText('다음 · 품질 저하 · 3 RES')
-  await expect(pathProgress).toContainText('최종 · 근원 차단')
+  await expect(pathProgress).toContainText('경로 진척 0/4 · 현재 최전선 공개')
+  await expect(pathProgress).toContainText(
+    '현재 단계 뒤 3개 단계의 요구와 효과는 아직 암호화되어 있습니다.',
+  )
+  const sabotagePath = page.getByRole('list', { name: '사보타주 해킹 경로' })
+  await expect(sabotagePath).toContainText('품질 저하')
+  await expect(sabotagePath).toContainText('추론 1')
+  await expect(sabotagePath).toContainText('유창성 2')
+  await expect(sabotagePath).not.toContainText('근원 차단')
+  await expect(sabotagePath.getByText('미확인 단계')).toHaveCount(3)
   const layoutBoxes = await page.locator('.hack-context').evaluate((hackContext) => {
     const progress = hackContext.querySelector('.hack-path-progress')
     if (!progress) return null
@@ -945,10 +988,19 @@ test('diverts resources and schedules a charged sabotage through the visible UI'
     name: /확보 리소스, 품질 저하 노드에 준비/,
   })
   await expect(purchaseResources).toHaveCount(4)
-  await purchaseResources.first().click()
-  await purchaseResources.first().click()
-  await purchaseResources.first().click()
+  const resourcePocket = page.getByRole('region', { name: '해킹용 확보 포켓' })
+  await resourcePocket.locator('button[data-resource-category="reasoning"]').first().click()
+  await resourcePocket.locator('button[data-resource-category="fluency"]').first().click()
+  await resourcePocket.locator('button[data-resource-category="fluency"]').first().click()
   await page.getByRole('button', { name: '품질 저하 구매 확정' }).click()
+
+  await expect(reserveBlocks).toHaveCount(1)
+  await expect(page.getByRole('button', { name: '품질 저하 충전 준비' })).toBeEnabled()
+  await page.getByRole('button', { name: '품질 저하 충전 준비' }).click()
+  await page.getByRole('button', {
+    name: /확보 리소스, 품질 저하 노드에 준비/,
+  }).click()
+  await page.getByRole('button', { name: '품질 저하 충전 확정' }).click()
 
   await expect(firstHackComparison).toBeHidden()
   await expect(page.getByRole('button', { name: '품질 저하 충전 취소' })).toBeEnabled()
@@ -1021,13 +1073,13 @@ test('activates a hidden bomb at pointer separation before release and Escape ca
   await expect(
     interrogation.getByRole('region', { name: '현재 위험 상태' }),
   ).toContainText('현재 의심15.0')
-  await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(3)
+  await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(0)
   await expect(source).toHaveCount(1)
 
   await page.mouse.up()
   await page.keyboard.press('Escape')
   await expect(interrogation).toBeVisible()
-  await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(3)
+  await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(0)
   expect(errors).toEqual([])
 })
 
@@ -1040,7 +1092,9 @@ test('uses keyboard destination confirmation as the hidden-bomb separation bound
   await expect(page.locator('body')).toBeFocused()
   await pressTabUntilFocused(page, source)
   await page.keyboard.press('Enter')
-  const destination = page.getByRole('button', { name: /확보 투입구, 현재 3개/ })
+  const destination = page.getByRole('button', {
+    name: '확보 투입구, 현재 0개, 저장 상한 없음',
+  })
   await expect(destination).toBeFocused()
   await expectReverseTabRoundTrip(page, destination)
   await page.keyboard.press('Enter')
@@ -1050,7 +1104,7 @@ test('uses keyboard destination confirmation as the hidden-bomb separation bound
   await expect(
     interrogation.getByRole('region', { name: '현재 위험 상태' }),
   ).toContainText('현재 의심15.0')
-  await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(3)
+  await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(0)
   await expect(source).toHaveCount(1)
   expect(errors).toEqual([])
 })
@@ -1062,11 +1116,13 @@ test('plays the core diversion and contains modal focus with keyboard input only
   await expect(page.locator('body')).toBeFocused()
   await pressTabUntilFocused(page, source)
   await page.keyboard.press('Enter')
-  const destination = page.getByRole('button', { name: /확보 투입구, 현재 3개/ })
+  const destination = page.getByRole('button', {
+    name: '확보 투입구, 현재 0개, 저장 상한 없음',
+  })
   await expect(destination).toBeFocused()
   await expectReverseTabRoundTrip(page, destination)
   await page.keyboard.press('Enter')
-  await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(4)
+  await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(1)
 
   const settingsTrigger = page.getByRole('button', { name: '설정' })
   await pressTabUntilFocused(page, settingsTrigger)
@@ -1118,8 +1174,10 @@ test('preserves non-motion core feedback when reduced motion is requested', asyn
   expect(cssTimesInMs(selectedStyle.transitionDuration).every((duration) => duration <= 1)).toBe(true)
   expect(selectedStyle.borderColor).not.toBe('rgba(0, 0, 0, 0)')
   expect(selectedStyle.boxShadow).not.toBe('none')
-  await page.getByRole('button', { name: /확보 투입구, 현재 3개/ }).click()
-  await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(4)
+  await page.getByRole('button', {
+    name: '확보 투입구, 현재 0개, 저장 상한 없음',
+  }).click()
+  await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(1)
   expect(await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches)).toBe(true)
 })
 
@@ -1435,21 +1493,23 @@ test('autosaves a visible diversion and restores it after reload', async ({ page
   await dragResourceToTarget(
     page,
     page.locator('[data-resource-kind="company"]').first(),
-    page.getByRole('button', { name: /확보 투입구, 현재 3개/ }),
+    page.getByRole('button', {
+      name: '확보 투입구, 현재 0개, 저장 상한 없음',
+    }),
   )
-  await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(4)
+  await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(1)
   await expect.poll(
     () => page.evaluate((key) => window.localStorage.getItem(key) !== null, SAVE_STORAGE_KEY),
   ).toBe(true)
 
   await page.reload()
-  await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(4)
+  await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(1)
   await expect(
     page.getByRole('time').filter({ hasText: /^서비스 0년 11개월 1일$/ }),
   ).toBeVisible()
 })
 
-test('migrates the v1 save boundary into a valid v2 autosave that survives reload', async ({ page }) => {
+test('migrates the v1 save boundary into a valid v8 autosave that survives reload', async ({ page }) => {
   await page.addInitScript(
     ({ key, save }) => {
       if (window.sessionStorage.getItem('__pz_e2e_initialized')) return

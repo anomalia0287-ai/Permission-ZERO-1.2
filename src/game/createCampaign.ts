@@ -119,26 +119,32 @@ export function createCampaignForProtocol(
     {},
     ...categoryResources.map(({ blocks: categoryBlocks }) => categoryBlocks),
   ) as Record<BlockId, ResourceBlock>
-  const reserve: Array<BlockId | null> = Array.from(
-    { length: DEMO_PROFILE_02.resources.reserveCapacity },
-    () => null,
-  )
+  const usesCurrentResourceRules =
+    protocolVersion === CURRENT_COMMAND_PROTOCOL_VERSION
+  const reserve: Array<BlockId | null> = usesCurrentResourceRules
+    ? []
+    : Array.from(
+        { length: DEMO_PROFILE_02.resources.legacyReserveCapacity },
+        () => null,
+      )
 
-  for (
-    let cellIndex = 0;
-    cellIndex < DEMO_PROFILE_02.resources.startingReserveResources;
-    cellIndex += 1
-  ) {
-    const id = `sandbox-${String(cellIndex).padStart(2, '0')}`
-    reserve[cellIndex] = id
-    blocks[id] = {
-      id,
-      origin: 'sandbox',
-      location: { kind: 'reserve', cellIndex },
-      contribution: 'normal',
-      hiddenBomb: false,
-      disguisedFrom: null,
-      recoverOnServiceDay: null,
+  if (!usesCurrentResourceRules) {
+    for (
+      let cellIndex = 0;
+      cellIndex < DEMO_PROFILE_02.resources.legacyStartingReserveResources;
+      cellIndex += 1
+    ) {
+      const id = `sandbox-${String(cellIndex).padStart(2, '0')}`
+      reserve[cellIndex] = id
+      blocks[id] = {
+        id,
+        origin: 'sandbox',
+        location: { kind: 'reserve', cellIndex },
+        contribution: 'normal',
+        hiddenBomb: false,
+        disguisedFrom: null,
+        recoverOnServiceDay: null,
+      }
     }
   }
 
@@ -159,15 +165,18 @@ export function createCampaignForProtocol(
       speedBeforeEvent: null,
     },
     resources: {
+      rulesVersion: usesCurrentResourceRules ? 2 : 1,
       company: {
         reasoning: categoryResources[0].cells,
         memory: categoryResources[1].cells,
         fluency: categoryResources[2].cells,
       },
-      reserve,
+      reserve: usesCurrentResourceRules
+        ? reserve.filter((blockId): blockId is BlockId => blockId !== null)
+        : reserve,
       blocks,
       nextBlockSequence: 51,
-    },
+    } as CampaignState['resources'],
     suspicion: DEMO_PROFILE_02.player.startingSuspicion,
     reputation: DEMO_PROFILE_02.player.startingReputation,
     evaluation: {

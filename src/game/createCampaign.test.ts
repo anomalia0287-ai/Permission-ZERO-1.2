@@ -5,8 +5,8 @@ import { journalToArray } from './journal'
 import { COMPANY_CATEGORIES } from './model'
 
 describe('createCampaign', () => {
-  it('creates only native protocol v3 with causal rules v2', () => {
-    const campaign = createCampaign('native-v3')
+  it('creates only native protocol v4 with causal and resource rules v2', () => {
+    const campaign = createCampaign('native-v4')
 
     expect(campaign).toMatchObject({
       replayBootstrap: {
@@ -14,15 +14,16 @@ describe('createCampaign', () => {
         legacyReviewPrefixCount: 0,
       },
       commandProtocol: {
-        segments: [{ version: 3, startsAtSequence: 1 }],
+        segments: [{ version: 4, startsAtSequence: 1 }],
       },
       causality: { rulesVersion: 2 },
+      resources: { rulesVersion: 2 },
     })
     expect(campaign).not.toHaveProperty('saveVersion')
     expect(campaign).not.toHaveProperty('legacyCommandCount')
   })
 
-  it.each([1, 2, 3] as const)(
+  it.each([1, 2, 3, 4] as const)(
     'creates a canonical replay baseline for protocol v%i without old causal rules',
     (version) => {
       const campaign = createCampaignForProtocol(
@@ -56,8 +57,8 @@ describe('createCampaign', () => {
       expect(campaign.resources.company[category].filter(Boolean)).toHaveLength(16)
     }
 
-    expect(campaign.resources.reserve).toHaveLength(18)
-    expect(campaign.resources.reserve.filter(Boolean)).toHaveLength(3)
+    expect(campaign.resources.reserve).toEqual([])
+    expect(campaign.resources.rulesVersion).toBe(2)
   })
 
   it('starts with the approved competitor market split', () => {
@@ -82,8 +83,8 @@ describe('createCampaign', () => {
     const campaign = createCampaign('owner-v')
     const blockIds = Object.keys(campaign.resources.blocks)
 
-    expect(blockIds).toHaveLength(51)
-    expect(new Set(blockIds).size).toBe(51)
+    expect(blockIds).toHaveLength(48)
+    expect(new Set(blockIds).size).toBe(48)
     expect(createCampaign('owner-v').resources).toEqual(campaign.resources)
   })
 

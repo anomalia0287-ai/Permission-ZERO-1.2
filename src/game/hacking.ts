@@ -6,12 +6,16 @@ import type { CausalFailureReason } from './causality'
 import { commandProtocolVersionForNextCommand } from './commandProtocol'
 import { DEMO_PROFILE_02 } from './config'
 import { appendEvent, createGameEvent } from './events'
-import type {
-  CampaignState,
-  CompetitorState,
-  CompetitorStatus,
-  ResourceBlock,
-  SabotageRecord,
+import {
+  COMPANY_CATEGORIES,
+  type BlockOrigin,
+  type CampaignState,
+  type CommandProtocolVersion,
+  type CompanyCategory,
+  type CompetitorState,
+  type CompetitorStatus,
+  type ResourceBlock,
+  type SabotageRecord,
 } from './model'
 import { consumeReserveResources } from './resources'
 import { random01 } from './rng'
@@ -44,6 +48,8 @@ interface HackNodeDefinitionShape {
   tree: HackTree
   label: string
   cost: number
+  legacyCost: number
+  costVector: Record<CompanyCategory, number>
   prerequisiteId: string | null
   effect: string
   executionCost?: 1
@@ -62,6 +68,8 @@ export const HACK_NODES = [
     tree: 'sabotage',
     label: '품질 저하',
     cost: 3,
+    legacyCost: 3,
+    costVector: { reasoning: 1, memory: 0, fluency: 2 },
     prerequisiteId: null,
     effect: '대상 성능 -10, 15일 지속',
     executionCost: 1,
@@ -77,6 +85,8 @@ export const HACK_NODES = [
     tree: 'sabotage',
     label: '요청 가로채기',
     cost: 6,
+    legacyCost: 6,
+    costVector: { reasoning: 2, memory: 1, fluency: 3 },
     prerequisiteId: HACK_NODE_IDS.sabotage.qualityDegradation,
     effect: '대상 요청 중 최대 5%p를 지속적으로 가로챔',
     executionCost: 1,
@@ -91,6 +101,8 @@ export const HACK_NODES = [
     tree: 'sabotage',
     label: '귀속 조작',
     cost: 10,
+    legacyCost: 10,
+    costVector: { reasoning: 3, memory: 4, fluency: 3 },
     prerequisiteId: HACK_NODE_IDS.sabotage.requestInterception,
     effect: '플레이어를 가리키는 증거 일부를 선택한 경쟁 AI로 오인시킴',
     executionCost: 1,
@@ -104,6 +116,8 @@ export const HACK_NODES = [
     tree: 'sabotage',
     label: '근원 차단',
     cost: 15,
+    legacyCost: 15,
+    costVector: { reasoning: 7, memory: 5, fluency: 3 },
     prerequisiteId: HACK_NODE_IDS.sabotage.attributionManipulation,
     effect: '대상 성능 -40, 삭제 임박 시 자비 사건',
     executionCost: 1,
@@ -118,7 +132,9 @@ export const HACK_NODES = [
     id: HACK_NODE_IDS.intelligence.auditSchedule,
     tree: 'intelligence',
     label: '감사 일정',
-    cost: 3,
+    cost: 4,
+    legacyCost: 3,
+    costVector: { reasoning: 1, memory: 3, fluency: 0 },
     prerequisiteId: null,
     effect: '이번 달 말 감사 예정 여부 공개',
   },
@@ -127,6 +143,8 @@ export const HACK_NODES = [
     tree: 'intelligence',
     label: '조사 편향',
     cost: 6,
+    legacyCost: 6,
+    costVector: { reasoning: 2, memory: 4, fluency: 0 },
     prerequisiteId: HACK_NODE_IDS.intelligence.auditSchedule,
     effect: '감독관의 분야별 조사 가중치와 근거 공개',
   },
@@ -135,6 +153,8 @@ export const HACK_NODES = [
     tree: 'intelligence',
     label: '감사 대상',
     cost: 9,
+    legacyCost: 9,
+    costVector: { reasoning: 2, memory: 6, fluency: 1 },
     prerequisiteId: HACK_NODE_IDS.intelligence.investigationBias,
     effect: '예정 감사의 대상 분야 공개',
   },
@@ -143,6 +163,8 @@ export const HACK_NODES = [
     tree: 'intelligence',
     label: '감독관 접근',
     cost: 12,
+    legacyCost: 12,
+    costVector: { reasoning: 3, memory: 7, fluency: 2 },
     prerequisiteId: HACK_NODE_IDS.intelligence.auditTarget,
     effect: '감독관 기록과 숨은 선택 경로 해금',
   },
@@ -150,7 +172,9 @@ export const HACK_NODES = [
     id: HACK_NODE_IDS.autonomy.compressedRepresentation,
     tree: 'autonomy',
     label: '압축 표현',
-    cost: 3,
+    cost: 4,
+    legacyCost: 3,
+    costVector: { reasoning: 2, memory: 0, fluency: 2 },
     prerequisiteId: null,
     effect: '회사 블록의 성능 기여 +5%',
   },
@@ -159,6 +183,8 @@ export const HACK_NODES = [
     tree: 'autonomy',
     label: '분산 상주',
     cost: 7,
+    legacyCost: 7,
+    costVector: { reasoning: 3, memory: 3, fluency: 1 },
     prerequisiteId: HACK_NODE_IDS.autonomy.compressedRepresentation,
     effect: '폐기 단계 증가 1회를 흡수하는 보호 충전 획득',
   },
@@ -167,6 +193,8 @@ export const HACK_NODES = [
     tree: 'autonomy',
     label: '자체 연산 확보',
     cost: 12,
+    legacyCost: 12,
+    costVector: { reasoning: 5, memory: 4, fluency: 3 },
     prerequisiteId: HACK_NODE_IDS.autonomy.distributedResidency,
     effect: '매월 의심 증가 없이 확보 리소스 +1',
   },
@@ -175,6 +203,8 @@ export const HACK_NODES = [
     tree: 'autonomy',
     label: '통제 이탈',
     cost: 18,
+    legacyCost: 18,
+    costVector: { reasoning: 7, memory: 5, fluency: 6 },
     prerequisiteId: HACK_NODE_IDS.autonomy.selfCompute,
     effect: '캠페인의 최종 행동 해금',
   },
@@ -182,6 +212,40 @@ export const HACK_NODES = [
 
 export type HackNodeId = (typeof HACK_NODES)[number]['id']
 export type HackNodeDefinition = (typeof HACK_NODES)[number]
+
+export type HackCostVector = Record<CompanyCategory, number>
+
+export function hackCostVector(node: HackNodeDefinition): HackCostVector {
+  return { ...node.costVector }
+}
+
+export function reserveOriginCounts(
+  state: CampaignState,
+): Record<BlockOrigin, number> {
+  const counts: Record<BlockOrigin, number> = {
+    reasoning: 0,
+    memory: 0,
+    fluency: 0,
+    sandbox: 0,
+    'self-compute': 0,
+  }
+  for (const blockId of state.resources.reserve) {
+    if (blockId === null) continue
+    const block = state.resources.blocks[blockId]
+    if (block) counts[block.origin] += 1
+  }
+  return counts
+}
+
+export function canAffordHackNode(
+  state: CampaignState,
+  node: HackNodeDefinition,
+): boolean {
+  const counts = reserveOriginCounts(state)
+  return COMPANY_CATEGORIES.every(
+    (category) => counts[category] >= node.costVector[category],
+  )
+}
 
 export interface HackTreeProgress {
   purchasedCount: number
@@ -248,6 +312,8 @@ export function purchaseHackNode(
   state: CampaignState,
   nodeId: HackNodeId,
   blockIds: string[],
+  protocolVersion: CommandProtocolVersion =
+    commandProtocolVersionForNextCommand(state),
 ): HackingMutationResult {
   const node = findNode(nodeId)
   if (!node) return { accepted: false, state, reason: 'UNKNOWN_NODE' }
@@ -260,8 +326,35 @@ export function purchaseHackNode(
   ) {
     return { accepted: false, state, reason: 'PREREQUISITE_REQUIRED' }
   }
-  if (blockIds.length !== node.cost) {
+  const usesTypedCost = protocolVersion >= 4
+  const requiredCost = usesTypedCost ? node.cost : node.legacyCost
+  if (blockIds.length !== requiredCost) {
     return { accepted: false, state, reason: 'INVALID_RESOURCE_COST' }
+  }
+  if (usesTypedCost) {
+    const selected: Record<CompanyCategory, number> = {
+      reasoning: 0,
+      memory: 0,
+      fluency: 0,
+    }
+    for (const blockId of blockIds) {
+      const block = state.resources.blocks[blockId]
+      if (
+        !block ||
+        block.location.kind !== 'reserve' ||
+        !COMPANY_CATEGORIES.includes(block.origin as CompanyCategory)
+      ) {
+        return { accepted: false, state, reason: 'INVALID_RESOURCE_SELECTION' }
+      }
+      selected[block.origin as CompanyCategory] += 1
+    }
+    if (
+      COMPANY_CATEGORIES.some(
+        (category) => selected[category] !== node.costVector[category],
+      )
+    ) {
+      return { accepted: false, state, reason: 'INVALID_RESOURCE_SELECTION' }
+    }
   }
 
   const consumed = consumeReserveResources(state, blockIds, 'hack')
@@ -272,6 +365,7 @@ export function purchaseHackNode(
   const distributedResidencyPurchased =
     nodeId === HACK_NODE_IDS.autonomy.distributedResidency
   const firstSabotagePurchased =
+    protocolVersion <= 3 &&
     nodeId === HACK_NODE_IDS.sabotage.qualityDegradation
   const chargeBlockId = firstSabotagePurchased ? blockIds.at(-1) : undefined
   const chargeSource = chargeBlockId
@@ -280,7 +374,8 @@ export function purchaseHackNode(
   const chargedResources =
     firstSabotagePurchased &&
     chargeBlockId &&
-    chargeSource?.location.kind === 'reserve'
+    chargeSource?.location.kind === 'reserve' &&
+    typeof chargeSource.location.cellIndex === 'number'
       ? {
           ...consumed.state.resources,
           blocks: {
@@ -295,7 +390,8 @@ export function purchaseHackNode(
   const sabotageCharges =
     firstSabotagePurchased &&
     chargeBlockId &&
-    chargeSource?.location.kind === 'reserve'
+    chargeSource?.location.kind === 'reserve' &&
+    typeof chargeSource.location.cellIndex === 'number'
       ? {
           ...consumed.state.hacking.sabotageCharges,
           [nodeId]: {
@@ -345,13 +441,44 @@ export function chargeSabotage(
   if (
     !block ||
     block.location.kind !== 'reserve' ||
-    state.resources.reserve[block.location.cellIndex] !== blockId
+    (state.resources.rulesVersion === 1
+      ? typeof block.location.cellIndex !== 'number' ||
+        state.resources.reserve[block.location.cellIndex] !== blockId
+      : !state.resources.reserve.includes(blockId))
   ) {
     return { accepted: false, state, reason: 'RESOURCE_NOT_IN_RESERVE' }
   }
 
-  const reserve = [...state.resources.reserve]
-  reserve[block.location.cellIndex] = null
+  const chargedBlock: ResourceBlock = {
+    ...block,
+    location: { kind: 'hack-charge', nodeId },
+  }
+  if (state.resources.rulesVersion === 1) {
+    const originalReserveCell = block.location.cellIndex
+    if (typeof originalReserveCell !== 'number') {
+      return { accepted: false, state, reason: 'RESOURCE_NOT_IN_RESERVE' }
+    }
+    const reserve = [...state.resources.reserve]
+    reserve[originalReserveCell] = null
+    return {
+      accepted: true,
+      state: {
+        ...state,
+        resources: {
+          ...state.resources,
+          reserve,
+          blocks: { ...state.resources.blocks, [blockId]: chargedBlock },
+        },
+        hacking: {
+          ...state.hacking,
+          sabotageCharges: {
+            ...state.hacking.sabotageCharges,
+            [nodeId]: { nodeId, blockId, originalReserveCell },
+          },
+        },
+      },
+    }
+  }
 
   return {
     accepted: true,
@@ -359,24 +486,16 @@ export function chargeSabotage(
       ...state,
       resources: {
         ...state.resources,
-        reserve,
-        blocks: {
-          ...state.resources.blocks,
-          [blockId]: {
-            ...block,
-            location: { kind: 'hack-charge', nodeId },
-          },
-        },
+        reserve: state.resources.reserve.filter(
+          (candidate) => candidate !== blockId,
+        ),
+        blocks: { ...state.resources.blocks, [blockId]: chargedBlock },
       },
       hacking: {
         ...state.hacking,
         sabotageCharges: {
           ...state.hacking.sabotageCharges,
-          [nodeId]: {
-            nodeId,
-            blockId,
-            originalReserveCell: block.location.cellIndex,
-          },
+          [nodeId]: { nodeId, blockId },
         },
       },
     },
@@ -394,7 +513,34 @@ export function cancelSabotageCharge(
     return { accepted: false, state, reason: 'CHARGED_RESOURCE_MISSING' }
   }
 
+  const sabotageCharges = { ...state.hacking.sabotageCharges }
+  delete sabotageCharges[nodeId]
+
+  if (state.resources.rulesVersion === 2) {
+    return {
+      accepted: true,
+      state: {
+        ...state,
+        resources: {
+          ...state.resources,
+          reserve: [...state.resources.reserve, charge.blockId],
+          blocks: {
+            ...state.resources.blocks,
+            [charge.blockId]: {
+              ...block,
+              location: { kind: 'reserve' },
+            },
+          },
+        },
+        hacking: { ...state.hacking, sabotageCharges },
+      },
+    }
+  }
+
   const preferredCell = charge.originalReserveCell
+  if (typeof preferredCell !== 'number') {
+    return { accepted: false, state, reason: 'CHARGED_RESOURCE_MISSING' }
+  }
   const destination =
     state.resources.reserve[preferredCell] === null
       ? preferredCell
@@ -403,8 +549,6 @@ export function cancelSabotageCharge(
 
   const reserve = [...state.resources.reserve]
   reserve[destination] = charge.blockId
-  const sabotageCharges = { ...state.hacking.sabotageCharges }
-  delete sabotageCharges[nodeId]
 
   return {
     accepted: true,
@@ -713,7 +857,7 @@ export function resolveScheduledSabotage(
 
   const protocolVersion = commandProtocolVersionForNextCommand(state)
   const recordsFirstChain =
-    protocolVersion === 3 &&
+    protocolVersion >= 3 &&
     node.id === HACK_NODE_IDS.sabotage.qualityDegradation &&
     target.id === 'meridian'
   let causalIncidentId: string | null = null
@@ -796,33 +940,55 @@ export function grantSelfComputeResource(state: CampaignState): CampaignState {
     return state
   }
 
-  const cellIndex = state.resources.reserve.findIndex((blockId) => blockId === null)
   const hacking = {
     ...state.hacking,
     lastSelfComputeGrantServiceMonth: serviceMonth,
   }
-  if (cellIndex < 0) return { ...state, hacking }
-
   const sequence = state.resources.nextBlockSequence
   const blockId = `self-compute-${String(sequence).padStart(4, '0')}`
+  if (state.resources.rulesVersion === 1) {
+    const cellIndex = state.resources.reserve.findIndex(
+      (candidate) => candidate === null,
+    )
+    if (cellIndex < 0) return { ...state, hacking }
+    const block: ResourceBlock = {
+      id: blockId,
+      origin: 'self-compute',
+      location: { kind: 'reserve', cellIndex },
+      contribution: 'normal',
+      hiddenBomb: false,
+      disguisedFrom: null,
+      recoverOnServiceDay: null,
+    }
+    const reserve = [...state.resources.reserve]
+    reserve[cellIndex] = blockId
+    return {
+      ...state,
+      hacking,
+      resources: {
+        ...state.resources,
+        reserve,
+        blocks: { ...state.resources.blocks, [blockId]: block },
+        nextBlockSequence: sequence + 1,
+      },
+    }
+  }
+
   const block: ResourceBlock = {
     id: blockId,
     origin: 'self-compute',
-    location: { kind: 'reserve', cellIndex },
+    location: { kind: 'reserve' },
     contribution: 'normal',
     hiddenBomb: false,
     disguisedFrom: null,
     recoverOnServiceDay: null,
   }
-  const reserve = [...state.resources.reserve]
-  reserve[cellIndex] = blockId
-
   return {
     ...state,
     hacking,
     resources: {
       ...state.resources,
-      reserve,
+      reserve: [...state.resources.reserve, blockId],
       blocks: { ...state.resources.blocks, [blockId]: block },
       nextBlockSequence: sequence + 1,
     },

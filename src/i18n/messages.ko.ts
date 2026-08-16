@@ -100,8 +100,8 @@ export const koMessages = {
   'hacking.panel.eyebrow': () => '운영 확장 도구',
   'hacking.panel.close': () => '해킹 네트워크 닫기',
   'hacking.pocket.label': () => '해킹용 확보 포켓',
-  'hacking.pocket.count': ({ count, capacity }) =>
-    `확보 ${formatNumber(count)} / ${formatNumber(capacity)}`,
+  'hacking.pocket.count': ({ count }) =>
+    `확보 ${formatNumber(count)} · 상한 없음`,
   'hacking.pocket.idle': () => '노드를 선택하면 확보 리소스를 직접 놓을 수 있습니다.',
   'hacking.pocket.empty': () => '준비 가능한 확보 리소스 없음',
   'hacking.pocket.target': ({ target, staged, required }) =>

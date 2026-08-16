@@ -1,7 +1,13 @@
 import type { ReactNode } from 'react'
 
 import { useGameSettings } from '../../app/GameContext'
-import type { CampaignState, ResourceBlock } from '../../game/model'
+import { CATEGORY_LABELS } from '../../game/config'
+import {
+  COMPANY_CATEGORIES,
+  type CampaignState,
+  type CompanyCategory,
+  type ResourceBlock,
+} from '../../game/model'
 import { HACK_NODES } from '../../game/hacking'
 import { message } from '../../i18n/messages'
 import { HackResourceToken } from './HackResourceToken'
@@ -38,6 +44,15 @@ export function HackNodeCard({
 }: HackNodeCardProps) {
   const { settings } = useGameSettings()
   const active = stagingTarget?.nodeId === node.id
+  const stagedCounts = stagedBlocks.reduce(
+    (counts, block) => {
+      if (COMPANY_CATEGORIES.includes(block.origin as CompanyCategory)) {
+        counts[block.origin as CompanyCategory] += 1
+      }
+      return counts
+    },
+    { reasoning: 0, memory: 0, fluency: 0 },
+  )
 
   return (
     <article
@@ -66,7 +81,20 @@ export function HackNodeCard({
             </span>
             <h3>{node.label}</h3>
           </div>
-          <strong>{purchased ? '완료' : `${node.cost} RES`}</strong>
+          {purchased ? (
+            <strong>완료</strong>
+          ) : (
+            <div
+              className="hack-cost-vector"
+              aria-label={`해금 요구 추론 ${node.costVector.reasoning}, 기억 ${node.costVector.memory}, 유창성 ${node.costVector.fluency}`}
+            >
+              {COMPANY_CATEGORIES.map((category) => (
+                <span data-category={category} key={category}>
+                  {CATEGORY_LABELS[category]} {node.costVector[category]}
+                </span>
+              ))}
+            </div>
+          )}
         </header>
         <p>{node.effect}</p>
         {node.tree === 'sabotage' ? (
@@ -93,6 +121,16 @@ export function HackNodeCard({
               </button>
             </div>
             <div className="hack-node-staged-resources">
+              {stagingTarget.requiredVector ? (
+                <div className="hack-staged-vector" aria-label="분야별 준비 현황">
+                  {COMPANY_CATEGORIES.map((category) => (
+                    <span data-category={category} key={category}>
+                      {CATEGORY_LABELS[category]} {stagedCounts[category]}/
+                      {stagingTarget.requiredVector?.[category] ?? 0}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
               {stagedBlocks.map((block) => (
                 <HackResourceToken
                   key={block.id}
@@ -103,11 +141,20 @@ export function HackNodeCard({
                   onActivate={() => onUnstage(block.id)}
                 />
               ))}
-              {Array.from({
-                length: Math.max(0, stagingTarget.requiredResources - stagedBlocks.length),
-              }).map((_, index) => (
-                <span className="hack-node-staged-slot" aria-hidden="true" key={index} />
-              ))}
+              {!stagingTarget.requiredVector
+                ? Array.from({
+                    length: Math.max(
+                      0,
+                      stagingTarget.requiredResources - stagedBlocks.length,
+                    ),
+                  }).map((_, index) => (
+                    <span
+                      className="hack-node-staged-slot"
+                      aria-hidden="true"
+                      key={index}
+                    />
+                  ))
+                : null}
             </div>
           </div>
         ) : null}

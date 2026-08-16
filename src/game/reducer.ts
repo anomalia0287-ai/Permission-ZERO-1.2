@@ -19,9 +19,11 @@ import type {
 import { resolveBombInterrogation, tryBeginSeparation } from './bombs'
 import {
   divertBlock,
+  divertBlockToReserve,
   moveDisguiseBlock,
   previewAuditDisguise,
   previewDiversion,
+  previewUnboundedDiversion,
   repositionDisguisedBlock,
 } from './resources'
 import {
@@ -245,6 +247,9 @@ export function applyCommand(
       return acceptCommand(state, command, result.state)
     }
     case 'DIVERT_BLOCK': {
+      if (protocolVersion >= 4) {
+        return { accepted: false, state, reason: 'INVALID_COMMAND' }
+      }
       const preview = previewDiversion(
         state,
         command.blockId,
@@ -379,6 +384,7 @@ export function applyCommand(
         state,
         command.nodeId as HackNodeId,
         command.blockIds,
+        protocolVersion,
       )
       if (!result.accepted) {
         return {
@@ -422,8 +428,33 @@ export function applyCommand(
       }
       return acceptCommand(state, command, result.state)
     }
+    case 'DIVERT_BLOCK_TO_RESERVE': {
+      if (protocolVersion < 4) {
+        return { accepted: false, state, reason: 'INVALID_COMMAND' }
+      }
+      const preview = previewUnboundedDiversion(state, command.blockId)
+      if (!preview.valid) {
+        return {
+          accepted: false,
+          state,
+          reason: commandFailureReason(preview.reason),
+        }
+      }
+      if (!hasSeparationAuthorization(state, command.blockId, 'divert')) {
+        return { accepted: false, state, reason: 'SEPARATION_REQUIRED' }
+      }
+      const result = divertBlockToReserve(state, command.blockId)
+      if (!result.accepted) {
+        return {
+          accepted: false,
+          state,
+          reason: commandFailureReason(result.reason),
+        }
+      }
+      return acceptCommand(state, command, result.state)
+    }
     case 'EXECUTE_SABOTAGE_FOLLOW_UP': {
-      if (protocolVersion !== 3) {
+      if (protocolVersion < 3) {
         return { accepted: false, state, reason: 'INVALID_COMMAND' }
       }
       const result = executeRecoveryContamination(

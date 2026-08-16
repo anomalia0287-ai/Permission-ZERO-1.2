@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { createCampaign } from '../../game/createCampaign'
+import { createCampaign, createCampaignForProtocol } from '../../game/createCampaign'
 import {
+  chargeSabotage,
   grantSelfComputeResource,
   HACK_NODE_IDS,
   purchaseHackNode,
@@ -14,7 +15,7 @@ import type {
 import { decodeSave, encodeSave } from '../../game/persistence'
 import {
   consumeReserveResources,
-  divertBlock,
+  divertBlockToReserve,
   moveDisguiseBlock,
   repositionDisguisedBlock,
   restoreDisguiseBlocks,
@@ -337,7 +338,7 @@ describe('resource presentation', () => {
   it('uses a category-valued origin for real reserve and hack-charge locations', () => {
     const initial = createCampaign('presentation-origin-location')
     const reasoningBlock = firstCompanyBlock(initial, 'reasoning')
-    const diverted = divertBlock(initial, reasoningBlock.id, 3)
+    const diverted = divertBlockToReserve(initial, reasoningBlock.id)
     if (!diverted.accepted) throw new Error(diverted.reason)
 
     expect(
@@ -351,20 +352,40 @@ describe('resource presentation', () => {
       symbol: '∴',
     })
 
-    const sandboxCosts = diverted.state.resources.reserve.slice(0, 2)
-    if (sandboxCosts.some((blockId) => blockId === null)) {
-      throw new Error('초기 확보 자원이 없습니다.')
-    }
-    const purchased = purchaseHackNode(
+    const secondReasoning = firstCompanyBlock(diverted.state, 'reasoning')
+    const withChargeToken = divertBlockToReserve(
       diverted.state,
+      secondReasoning.id,
+    )
+    if (!withChargeToken.accepted) throw new Error(withChargeToken.reason)
+    const firstFluency = firstCompanyBlock(withChargeToken.state, 'fluency')
+    const withFirstFluency = divertBlockToReserve(
+      withChargeToken.state,
+      firstFluency.id,
+    )
+    if (!withFirstFluency.accepted) throw new Error(withFirstFluency.reason)
+    const secondFluency = firstCompanyBlock(withFirstFluency.state, 'fluency')
+    const withExactVector = divertBlockToReserve(
+      withFirstFluency.state,
+      secondFluency.id,
+    )
+    if (!withExactVector.accepted) throw new Error(withExactVector.reason)
+    const purchased = purchaseHackNode(
+      withExactVector.state,
       HACK_NODE_IDS.sabotage.qualityDegradation,
-      [...(sandboxCosts as string[]), reasoningBlock.id],
+      [reasoningBlock.id, firstFluency.id, secondFluency.id],
     )
     if (!purchased.accepted) throw new Error(purchased.reason)
-    const charged = purchased.state.resources.blocks[reasoningBlock.id]
+    const chargedState = chargeSabotage(
+      purchased.state,
+      HACK_NODE_IDS.sabotage.qualityDegradation,
+      secondReasoning.id,
+    )
+    if (!chargedState.accepted) throw new Error(chargedState.reason)
+    const charged = chargedState.state.resources.blocks[secondReasoning.id]
 
     expect(charged.location.kind).toBe('hack-charge')
-    expect(presentResourceBlock(purchased.state, charged)).toMatchObject({
+    expect(presentResourceBlock(chargedState.state, charged)).toMatchObject({
       visualCategory: 'reasoning',
       shape: 'rounded-square',
       symbol: '∴',
@@ -372,7 +393,7 @@ describe('resource presentation', () => {
   })
 
   it('maps actual sandbox and self-compute reserve blocks to neutral tokens', () => {
-    const initial = createCampaign('presentation-neutral')
+    const initial = createCampaignForProtocol('presentation-neutral', 3)
     const sandboxId = initial.resources.reserve[0]
     if (!sandboxId) throw new Error('초기 sandbox 자원이 없습니다.')
 
@@ -386,10 +407,11 @@ describe('resource presentation', () => {
       remainingRecoveryDays: null,
     })
 
+    const current = createCampaign('presentation-self-compute')
     const eligible = {
-      ...initial,
+      ...current,
       hacking: {
-        ...initial.hacking,
+        ...current.hacking,
         purchasedNodeIds: [HACK_NODE_IDS.autonomy.selfCompute],
       },
     }
@@ -431,7 +453,7 @@ describe('resource presentation', () => {
   })
 
   it('throws RangeError instead of inventing visuals for invalid combinations', () => {
-    const state = createCampaign('presentation-invalid')
+    const state = createCampaignForProtocol('presentation-invalid', 3)
     const normal = firstCompanyBlock(state, 'reasoning')
     const disguised = disguiseBlock(state, 'reasoning', 'memory')
     const displaced = disguised.state.resources.blocks[disguised.blockId]

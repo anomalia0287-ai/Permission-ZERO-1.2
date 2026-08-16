@@ -30,7 +30,7 @@ function reserveIds(state: CampaignState, count: number): string[] {
 }
 
 function dueQualitySabotage(seed: string): CampaignState {
-  const initial = createCampaign(seed)
+  const initial = createCampaignForProtocol(seed, 3)
   const purchased = purchaseHackNode(
     initial,
     HACK_NODE_IDS.sabotage.qualityDegradation,
@@ -486,9 +486,8 @@ describe('applyCommand', () => {
 
     expect(
       applyCommand(initial, {
-        type: 'DIVERT_BLOCK',
+        type: 'DIVERT_BLOCK_TO_RESERVE',
         blockId,
-        destinationCell: 3,
       }),
     ).toEqual({ accepted: false, state: initial, reason: 'SEPARATION_REQUIRED' })
 
@@ -499,20 +498,21 @@ describe('applyCommand', () => {
     })
     if (!separated.accepted) throw new Error(separated.reason)
     const moved = applyCommand(separated.state, {
-      type: 'DIVERT_BLOCK',
+      type: 'DIVERT_BLOCK_TO_RESERVE',
       blockId,
-      destinationCell: 3,
     })
 
     expect(moved.accepted).toBe(true)
     if (!moved.accepted) return
-    expect(moved.state.resources.reserve[3]).toBe(blockId)
+    expect(moved.state.resources.reserve).toEqual([blockId])
     expect(
-      journalToArray(moved.state.commandLog).filter(({ command }) => command.type === 'DIVERT_BLOCK'),
+      journalToArray(moved.state.commandLog).filter(
+        ({ command }) => command.type === 'DIVERT_BLOCK_TO_RESERVE',
+      ),
     ).toHaveLength(1)
     expect(journalToArray(moved.state.commandLog).map(({ command }) => command.type)).toEqual([
       'BEGIN_BLOCK_SEPARATION',
-      'DIVERT_BLOCK',
+      'DIVERT_BLOCK_TO_RESERVE',
     ])
   })
 
@@ -578,7 +578,7 @@ describe('applyCommand', () => {
 
     expect(result.accepted).toBe(true)
     if (!result.accepted) return
-    expect(result.state.resources.reserve[3]).toBeNull()
+    expect(result.state.resources.reserve).toEqual([])
     expect(result.state.resources.blocks[placement.blockId]).toMatchObject({
       hiddenBomb: false,
       contribution: 'normal',
@@ -594,9 +594,8 @@ describe('applyCommand', () => {
     })
     expect(
       applyCommand(result.state, {
-        type: 'DIVERT_BLOCK',
+        type: 'DIVERT_BLOCK_TO_RESERVE',
         blockId: placement.blockId,
-        destinationCell: 3,
       }),
     ).toMatchObject({ accepted: false, reason: 'BLOCKING_EVENT_ACTIVE' })
   })

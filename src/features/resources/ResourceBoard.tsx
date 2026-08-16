@@ -24,7 +24,7 @@ import {
 import {
   getCompanyPerformance,
   previewAuditDisguise,
-  previewDiversion,
+  previewUnboundedDiversion,
   repositionDisguisedBlock,
   type DiversionPreview,
 } from '../../game/resources'
@@ -60,13 +60,12 @@ type DiversionReceipt = ValidDiversionPreview & {
 
 interface PendingDiversion {
   blockId: BlockId
-  destinationCell: number
   commandSequence: number
   preview: DiversionReceipt
 }
 
 type SeparationDestination =
-  | { kind: 'divert'; destinationCell: number }
+  | { kind: 'divert' }
   | {
       kind: 'audit-disguise'
       targetCategory: CompanyCategory
@@ -126,10 +125,7 @@ function interactionKindForBlock(
   ) {
     return 'reposition'
   }
-  return block.contribution === 'normal' &&
-    state.resources.reserve.some((cell) => cell === null)
-    ? 'divert'
-    : null
+  return block.contribution === 'normal' ? 'divert' : null
 }
 
 export function ResourceBoard() {
@@ -154,10 +150,11 @@ export function ResourceBoard() {
   const suppressClickRef = useRef(false)
   const returnTimerRef = useRef<number | null>(null)
 
-  const reserveCount = state.resources.reserve.filter(Boolean).length
+  const reserveCount = state.resources.reserve.reduce(
+    (count, blockId) => count + (blockId === null ? 0 : 1),
+    0,
+  )
   const liveExpectation = expectedPerformance(serviceMonthForDay(state.serviceDay))
-  const reserveFull = reserveCount === state.resources.reserve.length
-  const firstEmptyReserveCell = state.resources.reserve.findIndex((cell) => cell === null)
   const auditTarget = state.activeEvent?.type === 'audit' ? state.audit.target : null
   const companyBlocks = useMemo(
     () => COMPANY_CATEGORIES.flatMap((category) =>
@@ -205,15 +202,15 @@ export function ResourceBoard() {
     ? state.resources.company[companyDestinationCategory].findIndex((cell) => cell === null)
     : -1
   const effectivePreviewCell = previewCell ?? (
-    selectedInteraction === 'divert' ? firstEmptyReserveCell : firstEmptyCompanyCell
+    selectedInteraction === 'divert' ? -1 : firstEmptyCompanyCell
   )
 
   const diversionPreview = useMemo(() => {
-    if (!selectedBlockId || selectedInteraction !== 'divert' || effectivePreviewCell < 0) {
+    if (!selectedBlockId || selectedInteraction !== 'divert') {
       return null
     }
-    return previewDiversion(state, selectedBlockId, effectivePreviewCell)
-  }, [effectivePreviewCell, selectedBlockId, selectedInteraction, state])
+    return previewUnboundedDiversion(state, selectedBlockId)
+  }, [selectedBlockId, selectedInteraction, state])
 
   const auditPreview = useMemo(() => {
     if (
@@ -267,15 +264,10 @@ export function ResourceBoard() {
     separationRef.current = null
 
     if (separation.destination.kind === 'divert') {
-      const preview = previewDiversion(
-        state,
-        separation.blockId,
-        separation.destination.destinationCell,
-      )
+      const preview = previewUnboundedDiversion(state, separation.blockId)
       if (!preview.valid) return
       pendingRef.current = {
         blockId: separation.blockId,
-        destinationCell: separation.destination.destinationCell,
         commandSequence: state.commandSequence,
         preview: {
           ...preview,
@@ -285,9 +277,8 @@ export function ResourceBoard() {
         },
       }
       dispatch({
-        type: 'DIVERT_BLOCK',
+        type: 'DIVERT_BLOCK_TO_RESERVE',
         blockId: separation.blockId,
-        destinationCell: separation.destination.destinationCell,
       })
       return
     }
@@ -344,9 +335,12 @@ export function ResourceBoard() {
     if (!pending || state.commandSequence <= pending.commandSequence) return
     pendingRef.current = null
     const location = state.resources.blocks[pending.blockId]?.location
-    if (location?.kind === 'reserve' && location.cellIndex === pending.destinationCell) {
+    if (
+      location?.kind === 'reserve' &&
+      state.resources.reserve.includes(pending.blockId)
+    ) {
       setLastDiversionReceipt(pending.preview)
-      setAnnouncement(`확보 리소스 ${pending.destinationCell + 1}번에 흡착 완료`)
+      setAnnouncement(`확보 리소스로 이동 완료 · 현재 ${pending.preview.reserveAfter}개`)
       playGameSound('latch')
     } else if (state.bombs.activeInterrogation?.blockId === pending.blockId) {
       setAnnouncement('분리 중 이상 신호가 감지되었습니다. 감독관 응답이 필요합니다.')
@@ -357,7 +351,12 @@ export function ResourceBoard() {
     }
     setSelectedBlockId(null)
     setPreviewCell(null)
-  }, [state.bombs.activeInterrogation?.blockId, state.commandSequence, state.resources.blocks])
+  }, [
+    state.bombs.activeInterrogation?.blockId,
+    state.commandSequence,
+    state.resources.blocks,
+    state.resources.reserve,
+  ])
 
   useEffect(
     () => () => {
@@ -392,7 +391,7 @@ export function ResourceBoard() {
     }
     const interaction = interactionKindForBlock(state, blockId)
     if (!interaction) {
-      setAnnouncement(reserveFull && !auditTarget ? '확보 리소스 용량이 가득 찼습니다.' : '현재 이동할 수 없는 리소스입니다.')
+      setAnnouncement('현재 이동할 수 없는 리소스입니다.')
       playAfterUnlock('reject')
       return
     }
@@ -405,7 +404,7 @@ export function ResourceBoard() {
         ? block.disguisedFrom
         : null
     const destinationCell = interaction === 'divert'
-      ? firstEmptyReserveCell
+      ? null
       : destinationCategory
         ? state.resources.company[destinationCategory].findIndex((cell) => cell === null)
         : -1
@@ -442,13 +441,12 @@ export function ResourceBoard() {
   }
 
   function commitDiversion(blockId: BlockId) {
-    const destinationCell = state.resources.reserve.findIndex((cell) => cell === null)
-    const result = previewDiversion(state, blockId, destinationCell)
+    const result = previewUnboundedDiversion(state, blockId)
     if (!result.valid || state.activeEvent) {
       rejectMove(blockId, '확보 투입구가 현재 명령을 받을 수 없습니다. 원래 위치로 복귀합니다.')
       return
     }
-    const destination: SeparationDestination = { kind: 'divert', destinationCell }
+    const destination: SeparationDestination = { kind: 'divert' }
     const separation = separationRef.current
     if (separation?.blockId === blockId && separation.purpose === 'divert' && !separation.canceled) {
       separation.destination = destination
@@ -581,7 +579,7 @@ export function ResourceBoard() {
       pointer.dragging = true
       suppressClickRef.current = true
       setSelectedBlockId(pointer.blockId)
-      setPreviewCell(interaction === 'divert' ? firstEmptyReserveCell : firstEmptyCompanyCell)
+      setPreviewCell(interaction === 'divert' ? null : firstEmptyCompanyCell)
       setDraggingBlockId(pointer.blockId)
       motion.beginDrag(pointer.blockId)
       if (interaction === 'divert') beginSeparation(pointer.blockId, 'divert', null, false)
@@ -677,7 +675,7 @@ export function ResourceBoard() {
     buttons[(currentIndex + delta + buttons.length) % buttons.length]?.focus()
   }
 
-  const reserveTargetEnabled = !reserveFull && !state.activeEvent
+  const reserveTargetEnabled = !state.activeEvent
   const auditTargetEnabled = Boolean(auditTarget) || selectedInteraction === 'reposition'
   const statusContent = diversionPreview?.valid ? (
     <>

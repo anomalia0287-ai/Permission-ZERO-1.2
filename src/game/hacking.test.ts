@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { recordCausalIncident } from './causality'
 import { processCausalResponses } from './causalGameplay'
 import { DEMO_PROFILE_02 } from './config'
-import { createCampaign } from './createCampaign'
+import { createCampaign, createCampaignForProtocol } from './createCampaign'
 import {
   HACK_NODE_IDS,
   HACK_NODES,
@@ -17,10 +17,14 @@ import {
   resolveScheduledSabotage,
   scheduleSabotage,
 } from './hacking'
-import type { CampaignState } from './model'
+import type { CampaignState, CompanyCategory } from './model'
 import { decodeSave, encodeSave } from './persistence'
 import { applyCommand } from './reducer'
-import { divertBlock, getCompanyPerformance } from './resources'
+import {
+  divertBlock,
+  divertBlockToReserve,
+  getCompanyPerformance,
+} from './resources'
 
 function reserveIds(state: CampaignState, count: number): string[] {
   const ids = state.resources.reserve.filter((id): id is string => id !== null).slice(0, count)
@@ -28,7 +32,7 @@ function reserveIds(state: CampaignState, count: number): string[] {
   return ids
 }
 
-function addReserveResources(initial: CampaignState, count: number): CampaignState {
+function addLegacyReserveResources(initial: CampaignState, count: number): CampaignState {
   let state = initial
   for (let index = 0; index < count; index += 1) {
     const blockId = state.resources.company.reasoning.find(Boolean)
@@ -41,13 +45,56 @@ function addReserveResources(initial: CampaignState, count: number): CampaignSta
   return state
 }
 
+function addReserveVector(
+  initial: CampaignState,
+  vector: Record<CompanyCategory, number>,
+): CampaignState {
+  let state = initial
+  for (const category of ['reasoning', 'memory', 'fluency'] as const) {
+    const available = state.resources.reserve.filter((blockId) =>
+      blockId ? state.resources.blocks[blockId]?.origin === category : false,
+    ).length
+    for (let index = available; index < vector[category]; index += 1) {
+      const blockId = state.resources.company[category].find(Boolean)
+      if (!blockId) throw new Error(`${category} 추가 리소스 준비 실패`)
+      const result = divertBlockToReserve(state, blockId)
+      if (!result.accepted) throw new Error(result.reason)
+      state = result.state
+    }
+  }
+  return state
+}
+
+function reserveIdsForNode(
+  state: CampaignState,
+  node: (typeof HACK_NODES)[number],
+): string[] {
+  if (state.resources.rulesVersion === 1) {
+    return reserveIds(state, node.legacyCost)
+  }
+  return (['reasoning', 'memory', 'fluency'] as const).flatMap((category) =>
+    state.resources.reserve.filter((blockId): blockId is string =>
+      blockId !== null && state.resources.blocks[blockId]?.origin === category,
+    ).slice(0, node.costVector[category]),
+  )
+}
+
+function prepareForNode(
+  state: CampaignState,
+  nodeId: (typeof HACK_NODES)[number]['id'],
+): CampaignState {
+  const node = HACK_NODES.find((candidate) => candidate.id === nodeId)
+  if (!node) throw new Error('해킹 노드 정의 누락')
+  return addReserveVector(state, node.costVector)
+}
+
 function buy(
   state: CampaignState,
   nodeId: (typeof HACK_NODES)[number]['id'],
 ): CampaignState {
   const node = HACK_NODES.find((candidate) => candidate.id === nodeId)
   if (!node) throw new Error('해킹 노드 정의 누락')
-  const result = purchaseHackNode(state, nodeId, reserveIds(state, node.cost))
+  const result = purchaseHackNode(state, nodeId, reserveIdsForNode(state, node))
   if (!result.accepted) throw new Error(`해킹 구매 실패: ${result.reason}`)
   return result.state
 }
@@ -80,7 +127,7 @@ function schedule(
 
 function dueQualitySabotage(seed: string, targetId: string): CampaignState {
   const nodeId = HACK_NODE_IDS.sabotage.qualityDegradation
-  let state = buy(createCampaign(seed), nodeId)
+  let state = buy(createCampaignForProtocol(seed, 3), nodeId)
   state = cancelCharge(state, nodeId)
   const [blockId] = reserveIds(state, 1)
   state = charge(state, nodeId, blockId)
@@ -91,9 +138,9 @@ function dueQualitySabotage(seed: string, targetId: string): CampaignState {
 function dueRequestInterception(seed: string, targetId: string): CampaignState {
   const qualityNodeId = HACK_NODE_IDS.sabotage.qualityDegradation
   const nodeId = HACK_NODE_IDS.sabotage.requestInterception
-  let state = buy(createCampaign(seed), qualityNodeId)
+  let state = buy(createCampaignForProtocol(seed, 3), qualityNodeId)
   state = cancelCharge(state, qualityNodeId)
-  state = addReserveResources(state, 6)
+  state = addLegacyReserveResources(state, 6)
   state = buy(state, nodeId)
   const [blockId] = reserveIds(state, 1)
   state = charge(state, nodeId, blockId)
@@ -137,16 +184,24 @@ describe('typed hacking trees', () => {
     })
   })
 
-  it('defines three independent ordered trees whose first nodes all cost 3', () => {
+  it('defines three independent ordered trees with their approved first-node vectors', () => {
+    const expectedFirstNodes = {
+      sabotage: { cost: 3, costVector: { reasoning: 1, memory: 0, fluency: 2 } },
+      intelligence: { cost: 4, costVector: { reasoning: 1, memory: 3, fluency: 0 } },
+      autonomy: { cost: 4, costVector: { reasoning: 2, memory: 0, fluency: 2 } },
+    } as const
     for (const tree of ['sabotage', 'intelligence', 'autonomy'] as const) {
       const nodes = HACK_NODES.filter((node) => node.tree === tree)
       expect(nodes).toHaveLength(4)
-      expect(nodes[0]).toMatchObject({ cost: 3, prerequisiteId: null })
+      expect(nodes[0]).toMatchObject({
+        ...expectedFirstNodes[tree],
+        prerequisiteId: null,
+      })
       expect(nodes.slice(1).every((node) => node.prerequisiteId !== null)).toBe(true)
     }
   })
 
-  it('round-trips the twelve persisted node IDs through the v6 save boundary', () => {
+  it('round-trips the twelve persisted node IDs through the v8 save boundary', () => {
     const persistedNodeIds = [
       'sabotage.quality-degradation',
       'sabotage.request-interception',
@@ -184,21 +239,21 @@ describe('typed hacking trees', () => {
     )
   })
 
-  it('preserves the approved per-node costs and 104-block acquisition total', () => {
+  it('preserves the approved per-node costs and 106-block acquisition total', () => {
     const nodeIds = HACK_NODES.map(({ id }) => id)
     expect(nodeIds).toHaveLength(12)
     expect(new Set(nodeIds).size).toBe(12)
-    expect(HACK_NODES.reduce((total, node) => total + node.cost, 0)).toBe(104)
+    expect(HACK_NODES.reduce((total, node) => total + node.cost, 0)).toBe(106)
     expect(HACK_NODES.map(({ tree, cost }) => ({ tree, cost }))).toEqual([
       { tree: 'sabotage', cost: 3 },
       { tree: 'sabotage', cost: 6 },
       { tree: 'sabotage', cost: 10 },
       { tree: 'sabotage', cost: 15 },
-      { tree: 'intelligence', cost: 3 },
+      { tree: 'intelligence', cost: 4 },
       { tree: 'intelligence', cost: 6 },
       { tree: 'intelligence', cost: 9 },
       { tree: 'intelligence', cost: 12 },
-      { tree: 'autonomy', cost: 3 },
+      { tree: 'autonomy', cost: 4 },
       { tree: 'autonomy', cost: 7 },
       { tree: 'autonomy', cost: 12 },
       { tree: 'autonomy', cost: 18 },
@@ -209,25 +264,21 @@ describe('typed hacking trees', () => {
       ['sabotage', 'intelligence', 'autonomy'] as const
     ).map((tree) => getHackTreeProgress(initial, tree).remainingCost)
 
-    expect(remainingCosts).toEqual([34, 30, 40])
-    expect(remainingCosts.reduce((total, cost) => total + cost, 0)).toBe(104)
+    expect(remainingCosts).toEqual([34, 31, 41])
+    expect(remainingCosts.reduce((total, cost) => total + cost, 0)).toBe(106)
   })
 
-  it('keeps the 18-cell reserve cap and applies exactly 2.4 suspicion through real diversion commands', () => {
+  it('uses the unbounded v4 diversion command and applies exactly 2.4 suspicion', () => {
     const initial = createCampaign('task-5-reserve-diversion-economy')
     const blockId = initial.resources.company.reasoning.find(
       (candidate): candidate is string => candidate !== null,
     )
-    const destinationCell = initial.resources.reserve.findIndex(
-      (candidate) => candidate === null,
-    )
-    if (!blockId || destinationCell < 0) {
+    if (!blockId) {
       throw new Error('Task 5 diversion fixture is missing')
     }
 
-    expect(DEMO_PROFILE_02.resources.reserveCapacity).toBe(18)
     expect(DEMO_PROFILE_02.resources.diversionSuspicion).toBe(2.4)
-    expect(initial.resources.reserve).toHaveLength(18)
+    expect(initial.resources.reserve).toEqual([])
 
     const separated = applyCommand(initial, {
       type: 'BEGIN_BLOCK_SEPARATION',
@@ -237,42 +288,52 @@ describe('typed hacking trees', () => {
     expect(separated.accepted).toBe(true)
     if (!separated.accepted) return
     const diverted = applyCommand(separated.state, {
-      type: 'DIVERT_BLOCK',
+      type: 'DIVERT_BLOCK_TO_RESERVE',
       blockId,
-      destinationCell,
     })
     expect(diverted.accepted).toBe(true)
     if (!diverted.accepted) return
 
-    expect(diverted.state.resources.reserve).toHaveLength(18)
-    expect(diverted.state.resources.reserve[destinationCell]).toBe(blockId)
+    expect(diverted.state.resources.reserve).toEqual([blockId])
+    expect(diverted.state.resources.blocks[blockId].location).toEqual({ kind: 'reserve' })
     expect(diverted.state.suspicion - initial.suspicion).toBe(2.4)
     expect(
       diverted.state.commandLog.tail.map(({ command }) => command.type),
-    ).toEqual(['BEGIN_BLOCK_SEPARATION', 'DIVERT_BLOCK'])
+    ).toEqual(['BEGIN_BLOCK_SEPARATION', 'DIVERT_BLOCK_TO_RESERVE'])
   })
 
   it.each([
-    HACK_NODE_IDS.sabotage.qualityDegradation,
-    HACK_NODE_IDS.intelligence.auditSchedule,
-    HACK_NODE_IDS.autonomy.compressedRepresentation,
-  ])('buys the first %s path immediately with the starting resources', (nodeId) => {
+    { nodeId: HACK_NODE_IDS.sabotage.qualityDegradation, cost: 3 },
+    { nodeId: HACK_NODE_IDS.intelligence.auditSchedule, cost: 4 },
+    { nodeId: HACK_NODE_IDS.autonomy.compressedRepresentation, cost: 4 },
+  ])('buys the first $nodeId path after stealing its exact vector', ({ nodeId, cost }) => {
     const initial = createCampaign(`first-${nodeId}`)
-    const result = purchaseHackNode(initial, nodeId, reserveIds(initial, 3))
+    const prepared = prepareForNode(initial, nodeId)
+    const node = HACK_NODES.find((candidate) => candidate.id === nodeId)
+    if (!node) throw new Error('해킹 노드 정의 누락')
+    const result = purchaseHackNode(prepared, nodeId, reserveIdsForNode(prepared, node))
 
     expect(result.accepted).toBe(true)
     if (!result.accepted) return
     expect(result.state.hacking.purchasedNodeIds).toContain(nodeId)
     expect(result.state.resources.reserve.filter(Boolean)).toHaveLength(0)
-    expect(initial.resources.reserve.filter(Boolean)).toHaveLength(3)
+    expect(prepared.resources.reserve.filter(Boolean)).toHaveLength(cost)
+    expect(initial.resources.reserve).toEqual([])
   })
 
   it('rejects a later node until its previous node in the same tree is owned', () => {
-    const initial = addReserveResources(createCampaign('locked-node'), 3)
+    const initial = prepareForNode(
+      createCampaign('locked-node'),
+      HACK_NODE_IDS.sabotage.requestInterception,
+    )
+    const node = HACK_NODES.find(
+      ({ id }) => id === HACK_NODE_IDS.sabotage.requestInterception,
+    )
+    if (!node) throw new Error('해킹 노드 정의 누락')
     const result = purchaseHackNode(
       initial,
       HACK_NODE_IDS.sabotage.requestInterception,
-      reserveIds(initial, 6),
+      reserveIdsForNode(initial, node),
     )
 
     expect(result).toEqual({
@@ -283,9 +344,14 @@ describe('typed hacking trees', () => {
   })
 
   it('switches trees without surcharge and keeps every purchase permanently', () => {
-    let state = addReserveResources(createCampaign('tree-switch'), 6)
+    let state = prepareForNode(
+      createCampaign('tree-switch'),
+      HACK_NODE_IDS.sabotage.qualityDegradation,
+    )
     state = buy(state, HACK_NODE_IDS.sabotage.qualityDegradation)
+    state = prepareForNode(state, HACK_NODE_IDS.intelligence.auditSchedule)
     state = buy(state, HACK_NODE_IDS.intelligence.auditSchedule)
+    state = prepareForNode(state, HACK_NODE_IDS.autonomy.compressedRepresentation)
     state = buy(state, HACK_NODE_IDS.autonomy.compressedRepresentation)
 
     expect(state.hacking.purchasedNodeIds).toEqual([
@@ -304,18 +370,21 @@ describe('typed hacking trees', () => {
   })
 
   it('applies compressed representation immediately to all company blocks', () => {
-    const initial = createCampaign('compressed-purchase')
+    const initial = prepareForNode(
+      createCampaign('compressed-purchase'),
+      HACK_NODE_IDS.autonomy.compressedRepresentation,
+    )
     const compressed = buy(
       initial,
       HACK_NODE_IDS.autonomy.compressedRepresentation,
     )
 
-    expect(getCompanyPerformance(initial, 'reasoning')).toBe(16)
-    expect(getCompanyPerformance(compressed, 'reasoning')).toBeCloseTo(16.8)
+    expect(getCompanyPerformance(initial, 'reasoning')).toBe(14)
+    expect(getCompanyPerformance(compressed, 'reasoning')).toBeCloseTo(14.7)
   })
 
-  it('uses the first sabotage cost as two unlock resources plus one armed charge', () => {
-    const initial = createCampaign('first-sabotage-charge')
+  it('preserves protocol-v3 first-sabotage auto-charge semantics', () => {
+    const initial = createCampaignForProtocol('first-sabotage-charge', 3)
     const selected = reserveIds(initial, 3)
     const result = purchaseHackNode(
       initial,
@@ -346,9 +415,9 @@ describe('typed hacking trees', () => {
     })
   })
 
-  it('returns the first sabotage charge without refunding its two-block unlock', () => {
+  it('returns a protocol-v3 first-sabotage charge without refunding its two-block unlock', () => {
     const nodeId = HACK_NODE_IDS.sabotage.qualityDegradation
-    const initial = createCampaign('first-sabotage-cancel')
+    const initial = createCampaignForProtocol('first-sabotage-cancel', 3)
     const selected = reserveIds(initial, 3)
     const purchased = purchaseHackNode(initial, nodeId, selected)
     if (!purchased.accepted) throw new Error(purchased.reason)
@@ -377,8 +446,12 @@ describe('typed hacking trees', () => {
   })
 
   it('adds exactly one disposable distributed-residency protection charge', () => {
-    let state = addReserveResources(createCampaign('distributed-purchase'), 7)
+    let state = prepareForNode(
+      createCampaign('distributed-purchase'),
+      HACK_NODE_IDS.autonomy.compressedRepresentation,
+    )
     state = buy(state, HACK_NODE_IDS.autonomy.compressedRepresentation)
+    state = prepareForNode(state, HACK_NODE_IDS.autonomy.distributedResidency)
     state = buy(state, HACK_NODE_IDS.autonomy.distributedResidency)
 
     expect(state.evaluation.distributedResidencyCharges).toBe(1)
@@ -400,7 +473,7 @@ describe('typed hacking trees', () => {
     )
 
     expect(newId).toBeDefined()
-    expect(granted.resources.reserve.filter(Boolean)).toHaveLength(4)
+    expect(granted.resources.reserve.filter(Boolean)).toHaveLength(1)
     expect(granted.suspicion).toBe(17.3)
     expect(granted.hacking.lastSelfComputeGrantServiceMonth).toBe(13)
     expect(grantSelfComputeResource(granted)).toBe(granted)

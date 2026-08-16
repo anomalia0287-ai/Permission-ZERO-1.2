@@ -34,7 +34,8 @@ export type BlockLocation =
     }
   | {
       kind: 'reserve'
-      cellIndex: number
+      /** Present only while replaying the fixed-cell v1-v3 resource rules. */
+      cellIndex?: number
     }
   | {
       kind: 'hack-charge'
@@ -56,7 +57,10 @@ export interface ResourceBlock {
 }
 
 export interface ResourceState {
+  /** v1 is fixed-cell replay state; v2 is the current unbounded reserve. */
+  rulesVersion: 1 | 2
   company: Record<CompanyCategory, Array<BlockId | null>>
+  /** v2 persists no nulls; the wider element type supports transient v1 replay. */
   reserve: Array<BlockId | null>
   blocks: Record<BlockId, ResourceBlock>
   nextBlockSequence: number
@@ -308,7 +312,8 @@ export interface BombInterrogationRecord {
 export interface SabotageCharge {
   nodeId: string
   blockId: BlockId
-  originalReserveCell: number
+  /** Present only for fixed-cell v1-v3 cancellation replay. */
+  originalReserveCell?: number
 }
 
 export interface ScheduledSabotage {
@@ -351,6 +356,7 @@ export type GameCommand =
       purpose: 'divert' | 'audit-disguise'
     }
   | { type: 'DIVERT_BLOCK'; blockId: string; destinationCell: number }
+  | { type: 'DIVERT_BLOCK_TO_RESERVE'; blockId: string }
   | {
       type: 'MOVE_BLOCK_FOR_AUDIT'
       blockId: string
@@ -398,7 +404,7 @@ export interface CommandLogEntry {
   command: GameCommand
 }
 
-export type CommandProtocolVersion = 1 | 2 | 3
+export type CommandProtocolVersion = 1 | 2 | 3 | 4
 
 export interface CommandProtocolSegment {
   version: CommandProtocolVersion

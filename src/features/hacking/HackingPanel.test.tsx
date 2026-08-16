@@ -6,7 +6,9 @@ import { GameProvider } from '../../app/GameProvider'
 import { createCampaign } from '../../game/createCampaign'
 import { recordCausalEvidence, recordCausalIncident } from '../../game/causality'
 import { chargeSabotage, HACK_NODE_IDS } from '../../game/hacking'
+import type { CampaignState, CompanyCategory } from '../../game/model'
 import { encodeSave, SAVE_STORAGE_KEY } from '../../game/persistence'
+import { divertBlockToReserve } from '../../game/resources'
 import { MemoryStorage } from '../../test/fixtures'
 import { HackingPanel } from './HackingPanel'
 
@@ -29,8 +31,50 @@ function Probe() {
   )
 }
 
+function withReserveVector(
+  initial: CampaignState,
+  vector: Record<CompanyCategory, number>,
+): CampaignState {
+  let state = initial
+  for (const category of ['reasoning', 'memory', 'fluency'] as const) {
+    for (let index = 0; index < vector[category]; index += 1) {
+      const blockId = state.resources.company[category].find(Boolean)
+      if (!blockId) throw new Error(`${category} UI reserve fixture missing`)
+      const diverted = divertBlockToReserve(state, blockId)
+      if (!diverted.accepted) throw new Error(diverted.reason)
+      state = diverted.state
+    }
+  }
+  return state
+}
+
+function storageForState(state: CampaignState): MemoryStorage {
+  const storage = new MemoryStorage()
+  storage.setItem(SAVE_STORAGE_KEY, encodeSave(state))
+  return storage
+}
+
+function stageVector(
+  nodeLabel: string,
+  vector: Record<CompanyCategory, number>,
+): void {
+  const resources = screen.getAllByRole('button', {
+    name: new RegExp(`${nodeLabel} 노드에 준비`),
+  })
+  for (const category of ['reasoning', 'memory', 'fluency'] as const) {
+    resources
+      .filter((resource) => resource.getAttribute('data-resource-category') === category)
+      .slice(0, vector[category])
+      .forEach((resource) => fireEvent.click(resource))
+  }
+}
+
 function openRecoveryContaminationState() {
-  const initial = createCampaign('recovery-contamination-ui')
+  const initial = withReserveVector(createCampaign('recovery-contamination-ui'), {
+    reasoning: 1,
+    memory: 0,
+    fluency: 0,
+  })
   const nodeId = HACK_NODE_IDS.sabotage.qualityDegradation
   const withQuality = {
     ...initial,
@@ -119,7 +163,7 @@ function rect(left: number, top: number, width: number, height: number): DOMRect
 }
 
 describe('HackingPanel', () => {
-  it('shows the next and final qualitative payoff of the active path', () => {
+  it('shows only the current frontier and conceals every later requirement and payoff', () => {
     renderHacking()
 
     const sabotagePath = screen.getByRole('list', {
@@ -135,25 +179,27 @@ describe('HackingPanel', () => {
     const sabotageProgress = screen.getByRole('region', {
       name: '해킹 경로 진척',
     })
-    expect(sabotageProgress).toHaveTextContent('경로 진척 0/4 · 완성까지 34 RES')
+    expect(sabotageProgress).toHaveTextContent('경로 진척 0/4 · 현재 최전선 공개')
     expect(sabotageProgress).toHaveTextContent(
-      '다음 · 품질 저하 · 3 RES · 대상 성능 -10, 15일 지속',
+      '현재 단계 뒤 3개 단계의 요구와 효과는 아직 암호화되어 있습니다.',
     )
-    expect(sabotageProgress).toHaveTextContent(
-      '최종 · 근원 차단 · 대상 성능 -40, 삭제 임박 시 자비 사건',
-    )
+    expect(sabotagePath).toHaveTextContent('품질 저하')
+    expect(sabotagePath).toHaveTextContent('추론 1')
+    expect(sabotagePath).toHaveTextContent('유창성 2')
+    expect(sabotagePath).not.toHaveTextContent('근원 차단')
+    expect(within(sabotagePath).getAllByText('미확인 단계')).toHaveLength(3)
 
     fireEvent.click(screen.getByRole('tab', { name: '정보' }))
     const intelligenceProgress = screen.getByRole('region', {
       name: '해킹 경로 진척',
     })
-    expect(intelligenceProgress).toHaveTextContent('경로 진척 0/4 · 완성까지 30 RES')
-    expect(intelligenceProgress).toHaveTextContent(
-      '다음 · 감사 일정 · 3 RES · 이번 달 말 감사 예정 여부 공개',
-    )
-    expect(intelligenceProgress).toHaveTextContent(
-      '최종 · 감독관 접근 · 감독관 기록과 숨은 선택 경로 해금',
-    )
+    expect(intelligenceProgress).toHaveTextContent('경로 진척 0/4 · 현재 최전선 공개')
+    expect(intelligenceProgress).toHaveTextContent('현재 단계 뒤 3개 단계')
+    const intelligencePath = screen.getByRole('list', { name: '정보 해킹 경로' })
+    expect(intelligencePath).toHaveTextContent('감사 일정')
+    expect(intelligencePath).toHaveTextContent('추론 1')
+    expect(intelligencePath).toHaveTextContent('기억 3')
+    expect(intelligencePath).not.toHaveTextContent('감독관 접근')
   })
 
   it('marks a fully purchased path complete without a next-node line', () => {
@@ -166,10 +212,12 @@ describe('HackingPanel', () => {
     fireEvent.click(screen.getByRole('tab', { name: '자율성' }))
     const progress = screen.getByRole('region', { name: '해킹 경로 진척' })
     expect(progress).toHaveTextContent('경로 진척 4/4 · 경로 완성')
-    expect(progress).not.toHaveTextContent('다음 ·')
-    expect(progress).toHaveTextContent(
-      '최종 · 통제 이탈 · 캠페인의 최종 행동 해금',
+    expect(progress).not.toHaveTextContent('현재 단계 뒤')
+    const path = screen.getByRole('list', { name: '자율성 해킹 경로' })
+    expect(within(path).getByRole('group', { name: '통제 이탈 해킹 노드' })).toHaveTextContent(
+      '캠페인의 최종 행동 해금',
     )
+    expect(within(path).queryByText('미확인 단계')).not.toBeInTheDocument()
   })
 
   it('compares the immediate payoff and next action of all three first paths', () => {
@@ -177,26 +225,42 @@ describe('HackingPanel', () => {
 
     const comparison = screen.getByRole('region', { name: '첫 해킹 비교' })
     expect(comparison).toHaveTextContent('사보타주')
-    expect(comparison).toHaveTextContent('해금 2 + 첫 공격 충전 1')
+    expect(comparison).toHaveTextContent('현재 · 추론 1 + 유창성 2')
+    expect(comparison).toHaveTextContent('실행은 별도 리소스 1개 충전')
     expect(comparison).toHaveTextContent('정보')
-    expect(comparison).toHaveTextContent('이번 달 실제 감사 여부')
+    expect(comparison).toHaveTextContent('현재 · 추론 1 + 기억 3')
+    expect(comparison).toHaveTextContent('이후 단계 요구는 해금 뒤 공개')
     expect(comparison).toHaveTextContent('자율성')
-    expect(comparison).toHaveTextContent('모든 회사 블록 기여 +5%')
+    expect(comparison).toHaveTextContent('현재 · 추론 2 + 유창성 2')
   })
 
-  it('offers sabotage targets immediately after the first three-resource purchase', () => {
-    renderHacking()
+  it('separates a sabotage unlock from its explicit one-resource execution charge', () => {
+    const state = withReserveVector(createCampaign('separate-unlock-charge-ui'), {
+      reasoning: 2,
+      memory: 0,
+      fluency: 2,
+    })
+    renderHacking(storageForState(state))
 
     fireEvent.click(screen.getByRole('button', { name: '품질 저하 구매 준비' }))
-    screen
-      .getAllByRole('button', { name: /품질 저하 노드에 준비/ })
-      .slice(0, 3)
-      .forEach((resource) => fireEvent.click(resource))
+    stageVector('품질 저하', { reasoning: 1, memory: 0, fluency: 2 })
     const node = screen.getByRole('group', { name: '품질 저하 해킹 노드' })
     expect(node).toHaveTextContent('준비 3/3')
-    expect(screen.getByLabelText('reserve count')).toHaveTextContent('3')
+    expect(screen.getByLabelText('reserve count')).toHaveTextContent('4')
     fireEvent.click(screen.getByRole('button', { name: '품질 저하 구매 확정' }))
 
+    expect(screen.getByLabelText('reserve count')).toHaveTextContent('1')
+    expect(screen.getByLabelText('charged nodes')).toBeEmptyDOMElement()
+    expect(
+      screen.queryByRole('button', { name: 'MERIDIAN 공격 대상 선택' }),
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole('status', { name: '해킹 작업 결과' })).toHaveTextContent(
+      '품질 저하 노드를 구매했습니다.',
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '품질 저하 충전 준비' }))
+    fireEvent.click(screen.getByRole('button', { name: /품질 저하 노드에 준비/ }))
+    fireEvent.click(screen.getByRole('button', { name: '품질 저하 충전 확정' }))
     expect(screen.getByLabelText('charged nodes')).toHaveTextContent(
       HACK_NODE_IDS.sabotage.qualityDegradation,
     )
@@ -204,7 +268,7 @@ describe('HackingPanel', () => {
       screen.getByRole('button', { name: 'MERIDIAN 공격 대상 선택' }),
     ).toBeEnabled()
     expect(screen.getByRole('status', { name: '해킹 작업 결과' })).toHaveTextContent(
-      '첫 공격 1회를 충전했습니다',
+      '품질 저하 공격 슬롯을 충전했습니다.',
     )
     expect(screen.queryByRole('region', { name: '첫 해킹 비교' })).not.toBeInTheDocument()
   })
@@ -253,13 +317,18 @@ describe('HackingPanel', () => {
     expect(
       screen.getAllByText(/흔적 (적음|중간|많음)/).map((node) => node.textContent),
     ).toEqual(lowRiskText)
-    expect(screen.getAllByText('흔적 적음')).toHaveLength(2)
-    expect(screen.getByText('흔적 중간')).toBeInTheDocument()
-    expect(screen.getByText('흔적 많음')).toBeInTheDocument()
+    expect(screen.getAllByText('흔적 적음')).toHaveLength(1)
+    expect(screen.queryByText('흔적 중간')).not.toBeInTheDocument()
+    expect(screen.queryByText('흔적 많음')).not.toBeInTheDocument()
   })
 
   it('keeps all three trees and a floating reserve pocket visible while purchasing a node', () => {
-    renderHacking()
+    const state = withReserveVector(createCampaign('balanced-hacking-pocket'), {
+      reasoning: 4,
+      memory: 4,
+      fluency: 4,
+    })
+    renderHacking(storageForState(state))
 
     expect(screen.getByRole('tab', { name: '사보타주' })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: '정보' })).toBeInTheDocument()
@@ -268,24 +337,30 @@ describe('HackingPanel', () => {
     expect(pocket).toBeInTheDocument()
     expect(screen.queryByRole('grid', { name: '해킹용 확보 리소스' })).not.toBeInTheDocument()
     expect(pocket.querySelectorAll('[role="gridcell"]')).toHaveLength(0)
-    expect(pocket.querySelectorAll('[data-block-id]')).toHaveLength(3)
+    expect(pocket.querySelectorAll('[data-block-id]')).toHaveLength(12)
 
     fireEvent.click(screen.getByRole('tab', { name: '정보' }))
-    expect(screen.getByRole('button', { name: '조사 편향 구매 준비' })).toBeDisabled()
+    expect(
+      screen.queryByRole('button', { name: '조사 편향 구매 준비' }),
+    ).not.toBeInTheDocument()
+    expect(screen.getByRole('group', { name: '미확인 해킹 단계 2' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '감사 일정 구매 준비' }))
-    const resources = screen.getAllByRole('button', { name: /감사 일정 노드에 준비/ })
-    resources.slice(0, 3).forEach((resource) => fireEvent.click(resource))
-    expect(screen.getByLabelText('reserve count')).toHaveTextContent('3')
+    stageVector('감사 일정', { reasoning: 1, memory: 3, fluency: 0 })
+    expect(screen.getByLabelText('reserve count')).toHaveTextContent('12')
     fireEvent.click(screen.getByRole('button', { name: '감사 일정 구매 확정' }))
 
     expect(screen.getByLabelText('purchased nodes')).toHaveTextContent(
       HACK_NODE_IDS.intelligence.auditSchedule,
     )
-    expect(screen.getByLabelText('reserve count')).toHaveTextContent('0')
+    expect(screen.getByLabelText('reserve count')).toHaveTextContent('8')
   })
 
   it('charges a purchased sabotage with one resource, confirms a target, and schedules it', () => {
-    const state = createCampaign('charged-sabotage')
+    const state = withReserveVector(createCampaign('charged-sabotage'), {
+      reasoning: 1,
+      memory: 0,
+      fluency: 0,
+    })
     state.hacking.purchasedNodeIds = [HACK_NODE_IDS.sabotage.qualityDegradation]
     const storage = new MemoryStorage()
     storage.setItem(SAVE_STORAGE_KEY, encodeSave(state))
@@ -304,7 +379,11 @@ describe('HackingPanel', () => {
   })
 
   it('can cancel an unspent sabotage charge and returns the resource', () => {
-    const state = createCampaign('cancel-charge')
+    const state = withReserveVector(createCampaign('cancel-charge'), {
+      reasoning: 1,
+      memory: 0,
+      fluency: 0,
+    })
     state.hacking.purchasedNodeIds = [HACK_NODE_IDS.sabotage.qualityDegradation]
     const storage = new MemoryStorage()
     storage.setItem(SAVE_STORAGE_KEY, encodeSave(state))
@@ -313,9 +392,9 @@ describe('HackingPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '품질 저하 충전 준비' }))
     fireEvent.click(screen.getAllByRole('button', { name: /품질 저하 노드에 준비/ })[0])
     fireEvent.click(screen.getByRole('button', { name: '품질 저하 충전 확정' }))
-    expect(screen.getByLabelText('reserve count')).toHaveTextContent('2')
+    expect(screen.getByLabelText('reserve count')).toHaveTextContent('0')
     fireEvent.click(screen.getByRole('button', { name: '품질 저하 충전 취소' }))
-    expect(screen.getByLabelText('reserve count')).toHaveTextContent('3')
+    expect(screen.getByLabelText('reserve count')).toHaveTextContent('1')
     expect(screen.getByLabelText('charged nodes')).toBeEmptyDOMElement()
   })
 
@@ -353,7 +432,11 @@ describe('HackingPanel', () => {
     ).not.toBeInTheDocument()
     locked.unmount()
 
-    const state = createCampaign('file-recovery-ui')
+    const state = withReserveVector(createCampaign('file-recovery-ui'), {
+      reasoning: 1,
+      memory: 0,
+      fluency: 0,
+    })
     state.hacking.purchasedNodeIds = [
       HACK_NODE_IDS.intelligence.supervisorAccess,
     ]
@@ -380,12 +463,17 @@ describe('HackingPanel', () => {
       screen.getByRole('button', { name: '미분류 데이터 복구 확정' }),
     )
 
-    expect(screen.getByLabelText('reserve count')).toHaveTextContent('2')
+    expect(screen.getByLabelText('reserve count')).toHaveTextContent('0')
     expect(screen.getByLabelText('recovered archive')).toHaveTextContent('1')
   })
 
   it('returns prepared resources to the pocket when the player changes trees', () => {
-    renderHacking()
+    const state = withReserveVector(createCampaign('staging-tree-change'), {
+      reasoning: 1,
+      memory: 0,
+      fluency: 2,
+    })
+    renderHacking(storageForState(state))
 
     fireEvent.click(screen.getByRole('button', { name: '품질 저하 구매 준비' }))
     const resource = screen.getAllByRole('button', {
@@ -415,7 +503,12 @@ describe('HackingPanel', () => {
   })
 
   it('stages an actual reserve resource only when the pointer is dropped on the active node', () => {
-    renderHacking()
+    const state = withReserveVector(createCampaign('staging-pointer-drop'), {
+      reasoning: 1,
+      memory: 0,
+      fluency: 2,
+    })
+    renderHacking(storageForState(state))
 
     fireEvent.click(screen.getByRole('button', { name: '품질 저하 구매 준비' }))
     const node = screen.getByRole('group', { name: '품질 저하 해킹 노드' })
@@ -440,7 +533,12 @@ describe('HackingPanel', () => {
   })
 
   it('rejects a pointer drop outside the active node without consuming or staging the resource', () => {
-    renderHacking()
+    const state = withReserveVector(createCampaign('staging-pointer-reject'), {
+      reasoning: 1,
+      memory: 0,
+      fluency: 2,
+    })
+    renderHacking(storageForState(state))
 
     fireEvent.click(screen.getByRole('button', { name: '품질 저하 구매 준비' }))
     const node = screen.getByRole('group', { name: '품질 저하 해킹 노드' })

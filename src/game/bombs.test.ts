@@ -258,7 +258,7 @@ describe('bomb activation and hidden presentation', () => {
   })
 
   it('does not activate when the reserve is full and separation is invalid', () => {
-    let full = createCampaign('bomb-full')
+    let full = createCampaignForProtocol('bomb-full', 3)
     for (let index = 0; index < 15; index += 1) {
       const blockId = full.resources.company.reasoning.find(Boolean)
       const destination = full.resources.reserve.findIndex((id) => id === null)

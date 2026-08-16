@@ -196,7 +196,7 @@ export function tryAdvanceOneDay(
     )
   }
 
-  if (protocolVersion !== 3) {
+  if (protocolVersion < 3) {
     return { completed: true, state: advanceHistoricalOneDay(state) }
   }
   if (state.story.endingId !== null) return { completed: true, state }

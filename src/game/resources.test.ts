@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { createCampaign } from './createCampaign'
+import { createCampaign, createCampaignForProtocol } from './createCampaign'
 import {
   COMPANY_CATEGORIES,
   type CampaignState,
@@ -92,7 +92,7 @@ function expectResourceInvariants(state: CampaignState) {
 
 describe('resource diversion', () => {
   it('moves the same block into reserve and applies the approved causal changes', () => {
-    const initial = createCampaign('resource-seed')
+    const initial = createCampaignForProtocol('resource-seed', 3)
     const blockId = firstCompanyBlock(initial, 'reasoning')
     const sourceCell = initial.resources.blocks[blockId].location
     const preview = previewDiversion(initial, blockId, 3)
@@ -123,7 +123,7 @@ describe('resource diversion', () => {
   })
 
   it('rejects occupied and out-of-range destinations without changing state', () => {
-    const initial = createCampaign('resource-seed')
+    const initial = createCampaignForProtocol('resource-seed', 3)
     const blockId = firstCompanyBlock(initial, 'reasoning')
 
     expect(divertBlock(initial, blockId, 0)).toEqual({
@@ -139,7 +139,7 @@ describe('resource diversion', () => {
   })
 
   it('does not reveal a hidden bomb through diversion preview', () => {
-    const normal = createCampaign('resource-seed')
+    const normal = createCampaignForProtocol('resource-seed', 3)
     const blockId = firstCompanyBlock(normal, 'reasoning')
     const bomb = {
       ...normal,
@@ -158,7 +158,7 @@ describe('resource diversion', () => {
   })
 
   it('never exceeds reserve capacity or duplicates a block across 200 attempts', () => {
-    let state = createCampaign('property-seed')
+    let state = createCampaignForProtocol('property-seed', 3)
 
     for (let attempt = 0; attempt < 200; attempt += 1) {
       const destination = state.resources.reserve.findIndex((blockId) => blockId === null)
@@ -527,7 +527,7 @@ describe('audit disguise blocks', () => {
 
 describe('reserve consumption', () => {
   it('consumes explicit reserve blocks without changing company grids', () => {
-    const initial = createCampaign('consume-seed')
+    const initial = createCampaignForProtocol('consume-seed', 3)
     const blockIds = initial.resources.reserve.slice(0, 2)
     if (blockIds.some((blockId) => blockId === null)) throw new Error('초기 리소스 누락')
 
@@ -547,7 +547,7 @@ describe('reserve consumption', () => {
   })
 
   it('rejects duplicate consumption without changing state', () => {
-    const initial = createCampaign('consume-seed')
+    const initial = createCampaignForProtocol('consume-seed', 3)
     const blockId = initial.resources.reserve[0]
     if (!blockId) throw new Error('초기 리소스 누락')
 

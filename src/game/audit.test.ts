@@ -12,7 +12,7 @@ import {
   scheduleMonthlyAudit,
 } from './evaluation'
 import type { CampaignState, CompanyCategory } from './model'
-import { divertBlock } from './resources'
+import { divertBlockToReserve } from './resources'
 
 function withScheduledAudit(
   initial: CampaignState,
@@ -37,9 +37,8 @@ function removeReasoningBlocks(initial: CampaignState, count: number): CampaignS
   let state = initial
   for (let index = 0; index < count; index += 1) {
     const blockId = state.resources.company.reasoning.find(Boolean)
-    const destination = state.resources.reserve.findIndex((candidate) => candidate === null)
-    if (!blockId || destination < 0) throw new Error('감사 실패 상태 준비 실패')
-    const result = divertBlock(state, blockId, destination)
+    if (!blockId) throw new Error('감사 실패 상태 준비 실패')
+    const result = divertBlockToReserve(state, blockId)
     if (!result.accepted) throw new Error(result.reason)
     state = result.state
   }

@@ -90,6 +90,9 @@ function renderEvent(
     encoded.commandProtocol = { version: 2, legacyCommandCount: 0 }
     encoded.state.saveVersion = 2
     encoded.state.legacyCommandCount = 0
+    const legacyResources = encoded.state.resources as Record<string, unknown>
+    delete legacyResources.rulesVersion
+    legacyResources.reserve = Array.from({ length: 18 }, () => null)
     delete encoded.state.causality
     for (const review of encoded.state.reviews.feed) delete review.snapshot
     encoded.integrity.checkpointHash = testContentHash(

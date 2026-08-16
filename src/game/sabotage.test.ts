@@ -11,6 +11,7 @@ import {
 } from './hacking'
 import type { CampaignState } from './model'
 import { journalAt } from './journal'
+import { divertBlockToReserve } from './resources'
 
 const QUALITY = HACK_NODE_IDS.sabotage.qualityDegradation
 const INTERCEPT = HACK_NODE_IDS.sabotage.requestInterception
@@ -18,7 +19,14 @@ const ATTRIBUTION = HACK_NODE_IDS.sabotage.attributionManipulation
 const ROOT = HACK_NODE_IDS.sabotage.rootCutoff
 
 function withSabotageNodes(...nodeIds: string[]): CampaignState {
-  const initial = createCampaign(`sabotage-${nodeIds.join('-')}`)
+  let initial = createCampaign(`sabotage-${nodeIds.join('-')}`)
+  for (let index = 0; index < 3; index += 1) {
+    const blockId = initial.resources.company.reasoning.find(Boolean)
+    if (!blockId) throw new Error('사보타주 실행 리소스 준비 실패')
+    const diverted = divertBlockToReserve(initial, blockId)
+    if (!diverted.accepted) throw new Error(diverted.reason)
+    initial = diverted.state
+  }
   return {
     ...initial,
     hacking: { ...initial.hacking, purchasedNodeIds: nodeIds },

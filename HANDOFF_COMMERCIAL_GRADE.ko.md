@@ -5,7 +5,7 @@
 프로젝트 오너: **V**
 현재 판정: **기능 데모는 존재하지만, 시각 디자인은 승인되지 않았고 상용 출시 준비가 끝나지 않았다.**
 
-> **2026-08-16 후속 정본 안내:** 이 문서는 상용 품질·승인·릴리스 관문과 작품의 큰 방향을 계속 규정한다. 다만 아래에 남아 있는 `9×2`, 확보 상한 `18`, 범용 해킹 비용, `다음·최종` 보상 공개 등 리소스·해킹 경제의 옛 수치는 현재 규칙이 아니다. 해당 범위의 최신 정본은 [`docs/superpowers/specs/2026-08-16-hacking-resource-uncertainty-contract.ko.md`](docs/superpowers/specs/2026-08-16-hacking-resource-uncertainty-contract.ko.md)이며, 체크포인트 `26a448c`의 제품 코드는 아직 그 계약을 구현하지 않았다.
+> **2026-08-16 후속 정본 안내:** 이 문서는 상용 품질·승인·릴리스 관문과 작품의 큰 방향을 계속 규정한다. 다만 아래에 남아 있는 `9×2`, 확보 상한 `18`, 범용 해킹 비용, `다음·최종` 보상 공개 등 리소스·해킹 경제의 옛 수치는 현재 규칙이 아니다. 해당 범위의 최신 정본은 [`docs/superpowers/specs/2026-08-16-hacking-resource-uncertainty-contract.ko.md`](docs/superpowers/specs/2026-08-16-hacking-resource-uncertainty-contract.ko.md)다. 체크포인트 `26a448c`에는 미구현이지만 현재 `codex/hacking-integration-stage-2b-2` 후속 변경에는 구현·검증됐으며, 아직 `main`에는 병합되지 않았다.
 
 ## 2026-08-13 저장소 정리 부록
 
@@ -1103,7 +1103,7 @@ Frostpunk 2, IXION, Hacknet 등의 이름을 언급했으나 어떤 화면에서
 
 이 부록은 위의 v6/PZ6 상태 기록보다 최신인 Stage 2B-1 저장 경계 정본이다. 시각 완성도·재미 판정은 바꾸지 않는다.
 
-- 현재 branch-local 저장 형식은 v7, 새 전송 출력은 `PZ7:`/`.pz7`, 명령 프로토콜은 v3, 인과 규칙은 v2다. PZ2~PZ6과 v1~v6 파일은 각 원본 exact schema와 기존 해시를 먼저 검증한 뒤 v7 런타임으로 이관한다.
+- 현재 작업 브랜치 저장 형식은 v8, 새 전송 출력은 `PZ8:`/`.pz8`, 명령 프로토콜은 v4, 자원 규칙은 v2, 인과 규칙은 v2다. PZ2~PZ7과 v1~v7 파일은 각 원본 exact schema와 기존 해시를 먼저 검증한 뒤 v8 런타임으로 이관한다. `main` 반영 전에는 이를 출시 규칙으로 오인하지 않는다.
 - 명령 타임라인과 별도로 `replayBootstrap { openingVersion, legacyReviewPrefixCount }`가 시작 사건과 이관 리뷰 접두사의 정본이다. 빈 v1과 빈 v2가 같은 `3@1`이 되어도 출처를 잃지 않으며, v5/v6의 legacy 리뷰 접두사 뒤 native captured suffix를 덮어쓰지 않는다.
 - v7 portable save와 local manifest는 `commandProtocol`과 `replayBootstrap`을 각각 최상위에 한 번만 저장하고 체크포인트에서는 제외한다. v7 무결성은 고정 순서 `{ commandProtocol, replayBootstrap, state }`를 묶고, v3~v6의 checkpoint-only 조리법은 바꾸지 않는다.
 - 한 품질 저하 루트 아래 fast/standard/forensic 롤백은 결과 스트림이 선택한 단 하나만 허용한다. 다른 profile의 두 번째 자식은 mutation과 저장 검증 모두 거부하고, 선택된 정확 관계의 재시도는 기존 멱등 no-op이다.

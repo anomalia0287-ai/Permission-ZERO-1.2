@@ -4,7 +4,7 @@ import { createCampaign, createCampaignForProtocol } from './createCampaign'
 import * as evaluation from './evaluation'
 import { journalAt } from './journal'
 import type { CampaignState, CompanyCategory } from './model'
-import { divertBlock } from './resources'
+import { divertBlockToReserve } from './resources'
 
 function removeBlocks(
   initial: CampaignState,
@@ -15,10 +15,9 @@ function removeBlocks(
 
   for (let index = 0; index < count; index += 1) {
     const blockId = state.resources.company[category].find(Boolean)
-    const destination = state.resources.reserve.findIndex((candidate) => candidate === null)
-    if (!blockId || destination < 0) throw new Error('테스트용 리소스 이동 준비 실패')
+    if (!blockId) throw new Error('테스트용 리소스 이동 준비 실패')
 
-    const result = divertBlock(state, blockId, destination)
+    const result = divertBlockToReserve(state, blockId)
     if (!result.accepted) throw new Error(`테스트용 리소스 이동 실패: ${result.reason}`)
     state = result.state
   }

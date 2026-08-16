@@ -31,6 +31,8 @@ import {
   deriveAttributionConfidence,
 } from './causality'
 import {
+  CAUSAL_COMMAND_PROTOCOL_VERSION,
+  CURRENT_COMMAND_PROTOCOL_VERSION,
   LEGACY_COMMAND_PROTOCOL_VERSION,
   PREVIOUS_COMMAND_PROTOCOL_VERSION,
   appendCommandProtocolSegment,
@@ -38,6 +40,7 @@ import {
   migrateLegacyCommandProtocol,
   validCommandProtocol,
 } from './commandProtocol'
+import { migrateResourcesToCurrentRules } from './resources'
 import {
   applyReplayBootstrapPresentation,
   cloneReplayBootstrap,
@@ -48,7 +51,7 @@ import {
   validReplayBootstrapMetadata,
 } from './replayBootstrap'
 
-export const SAVE_FORMAT_VERSION = 7 as const
+export const SAVE_FORMAT_VERSION = 8 as const
 const MINIMUM_SAVE_FORMAT_VERSION = 1 as const
 const LAST_LEGACY_SAVE_FORMAT_VERSION = 6 as const
 export const SAVE_STORAGE_KEY = 'permission-zero.save.v3'
@@ -56,7 +59,7 @@ export const LEGACY_V2_SAVE_STORAGE_KEY = 'permission-zero.save.v2'
 export const LEGACY_SAVE_STORAGE_KEY = 'permission-zero.save.v1'
 
 export interface SaveEnvelope {
-  version: 1 | 2 | 3 | 4 | 5 | 6 | 7
+  version: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8
   commandProtocol: CommandProtocolMetadata
   replayBootstrap: ReplayBootstrapMetadata
   savedAt: string
@@ -72,18 +75,18 @@ interface PortableJournal<T> {
   chunks: T[][]
 }
 
-type PortableCheckpointV7 = Omit<
+type PortableCheckpointV8 = Omit<
   CampaignState,
   'commandProtocol' | 'replayBootstrap' | 'commandLog' | 'eventLog'
 >
 
-interface PortableSaveV7 {
+interface PortableSaveV8 {
   version: typeof SAVE_FORMAT_VERSION
   commandProtocol: CommandProtocolMetadata
   replayBootstrap: ReplayBootstrapMetadata
   savedAt: string
   campaignSeed: string
-  state: PortableCheckpointV7
+  state: PortableCheckpointV8
   commandSequence: number
   journals: {
     commands: PortableJournal<CommandLogEntry>
@@ -276,10 +279,18 @@ function validCommand(
       )
     case 'DIVERT_BLOCK':
       return (
+        protocolVersion < CURRENT_COMMAND_PROTOCOL_VERSION &&
         hasOnlyKeys(value, ['type', 'blockId', 'destinationCell']) &&
         isNonEmptyString(value.blockId) &&
         (!references || references.blockIds.has(value.blockId)) &&
         validCellIndex(value.destinationCell)
+      )
+    case 'DIVERT_BLOCK_TO_RESERVE':
+      return (
+        protocolVersion >= CURRENT_COMMAND_PROTOCOL_VERSION &&
+        hasOnlyKeys(value, ['type', 'blockId']) &&
+        isNonEmptyString(value.blockId) &&
+        (!references || references.blockIds.has(value.blockId))
       )
     case 'MOVE_BLOCK_FOR_AUDIT':
     case 'REPOSITION_BLOCK':
@@ -325,7 +336,7 @@ function validCommand(
       )
     case 'EXECUTE_SABOTAGE_FOLLOW_UP':
       return (
-        protocolVersion === 3 &&
+        protocolVersion >= CAUSAL_COMMAND_PROTOCOL_VERSION &&
         hasOnlyKeys(value, ['type', 'opportunityId']) &&
         isNonEmptyString(value.opportunityId)
       )
@@ -377,11 +388,18 @@ function validCommandLog(
   value: unknown,
   commandProtocol: CommandProtocolMetadata,
   references?: CommandReferences,
+  options: {
+    requireCurrent: boolean
+    currentVersion?: CommandProtocolVersion
+  } = { requireCurrent: true },
 ): value is CommandLogEntry[] {
   if (
     !Array.isArray(value) ||
     !validCommandProtocol(commandProtocol, value.length, {
-      requireCurrent: true,
+      requireCurrent: options.requireCurrent,
+      ...(options.currentVersion === undefined
+        ? {}
+        : { currentVersion: options.currentVersion }),
     })
   ) return false
 
@@ -407,6 +425,7 @@ function validCommandLog(
       protocolVersion === LEGACY_COMMAND_PROTOCOL_VERSION ||
       !isRecord(entry.command) ||
       (entry.command.type !== 'DIVERT_BLOCK' &&
+        entry.command.type !== 'DIVERT_BLOCK_TO_RESERVE' &&
         entry.command.type !== 'MOVE_BLOCK_FOR_AUDIT')
     ) {
       return true
@@ -420,26 +439,38 @@ function validCommandLog(
       previous.command.type === 'BEGIN_BLOCK_SEPARATION' &&
       previous.command.blockId === entry.command.blockId &&
       previous.command.purpose ===
-        (entry.command.type === 'DIVERT_BLOCK'
+        (entry.command.type === 'DIVERT_BLOCK' ||
+        entry.command.type === 'DIVERT_BLOCK_TO_RESERVE'
           ? 'divert'
           : 'audit-disguise')
     )
   })
 }
 
-function validResources(value: unknown): boolean {
+function validResources(
+  value: unknown,
+  rulesVersion: 1 | 2,
+): boolean {
   if (!isRecord(value) || !isRecord(value.company) || !isRecord(value.blocks)) {
     return false
   }
-  if (!Array.isArray(value.reserve) || value.reserve.length !== 18) return false
-  if (!hasOnlyKeys(value, ['company', 'reserve', 'blocks', 'nextBlockSequence'])) {
+  if (
+    !Array.isArray(value.reserve) ||
+    (rulesVersion === 1 && value.reserve.length !== 18) ||
+    (rulesVersion === 2 && value.rulesVersion !== 2)
+  ) return false
+  const resourceKeys =
+    rulesVersion === 1
+      ? ['company', 'reserve', 'blocks', 'nextBlockSequence']
+      : ['rulesVersion', 'company', 'reserve', 'blocks', 'nextBlockSequence']
+  if (!hasOnlyKeys(value, resourceKeys)) {
     return false
   }
   if (!hasOnlyKeys(value.company, ['reasoning', 'memory', 'fluency'])) return false
   const references = new Map<
     string,
     | { kind: 'company'; category: string; cellIndex: number }
-    | { kind: 'reserve'; cellIndex: number }
+    | { kind: 'reserve'; cellIndex?: number }
   >()
   for (const category of ['reasoning', 'memory', 'fluency']) {
     const cells = value.company[category]
@@ -454,10 +485,18 @@ function validResources(value: unknown): boolean {
   }
   for (let cellIndex = 0; cellIndex < value.reserve.length; cellIndex += 1) {
     const blockId = value.reserve[cellIndex]
-    if (blockId === null) continue
+    if (blockId === null) {
+      if (rulesVersion === 2) return false
+      continue
+    }
     if (typeof blockId !== 'string' || !isNonEmptyString(blockId)) return false
     if (references.has(blockId)) return false
-    references.set(blockId, { kind: 'reserve', cellIndex })
+    references.set(
+      blockId,
+      rulesVersion === 1
+        ? { kind: 'reserve', cellIndex }
+        : { kind: 'reserve' },
+    )
   }
   for (const blockId of references.keys()) {
     if (!Object.prototype.hasOwnProperty.call(value.blocks, blockId)) return false
@@ -524,11 +563,23 @@ function validResources(value: unknown): boolean {
         break
       case 'reserve':
         if (disguised) return false
-        if (!hasOnlyKeys(block.location, ['kind', 'cellIndex'])) return false
-        if (!validCellIndex(block.location.cellIndex)) return false
+        if (
+          !hasOnlyKeys(
+            block.location,
+            rulesVersion === 1 ? ['kind', 'cellIndex'] : ['kind'],
+          )
+        ) return false
+        if (
+          rulesVersion === 1 &&
+          !validCellIndex(block.location.cellIndex)
+        ) return false
         if (
           JSON.stringify(references.get(blockId)) !==
-          JSON.stringify({ kind: 'reserve', cellIndex: block.location.cellIndex })
+          JSON.stringify(
+            rulesVersion === 1
+              ? { kind: 'reserve', cellIndex: block.location.cellIndex }
+              : { kind: 'reserve' },
+          )
         ) return false
         break
       case 'hack-charge':
@@ -562,15 +613,23 @@ function validCategoryNumbers(value: unknown): boolean {
   )
 }
 
-function validSabotageCharges(value: unknown): boolean {
+function validSabotageCharges(
+  value: unknown,
+  rulesVersion: 1 | 2,
+): boolean {
   if (!isRecord(value)) return false
   return Object.values(value).every(
     (charge) =>
       isRecord(charge) &&
-      hasOnlyKeys(charge, ['nodeId', 'blockId', 'originalReserveCell']) &&
+      hasOnlyKeys(
+        charge,
+        rulesVersion === 1
+          ? ['nodeId', 'blockId', 'originalReserveCell']
+          : ['nodeId', 'blockId'],
+      ) &&
       isNonEmptyString(charge.nodeId) &&
       isNonEmptyString(charge.blockId) &&
-      validCellIndex(charge.originalReserveCell),
+      (rulesVersion === 2 || validCellIndex(charge.originalReserveCell)),
   )
 }
 
@@ -2648,10 +2707,12 @@ function bombRelationKey(
   return JSON.stringify([blockId, category, serviceDay])
 }
 
-function validCampaignStateV7(
+function validCampaignState(
   value: unknown,
   commandProtocol: CommandProtocolMetadata,
   replayBootstrap: ReplayBootstrapMetadata,
+  rulesVersion: 1 | 2,
+  finalProtocolVersion: CommandProtocolVersion,
 ): boolean {
   if (
     !isRecord(value) ||
@@ -2688,10 +2749,13 @@ function validCampaignStateV7(
     !isIntegerInRange(value.commandSequence, 0) ||
     !validCommandProtocol(commandProtocol, Number(value.commandSequence), {
       requireCurrent: true,
+      currentVersion: finalProtocolVersion,
     }) ||
+    commandProtocol.segments[commandProtocol.segments.length - 1]?.version !==
+      finalProtocolVersion ||
     !isNumberInRange(value.suspicion, 0, 100) ||
     !isNumberInRange(value.reputation, 0, 100) ||
-    !validResources(value.resources)
+    !validResources(value.resources, rulesVersion)
   ) return false
 
   const clock = value.clock
@@ -2843,7 +2907,7 @@ function validCampaignStateV7(
     !hasUniqueStrings(hacking.purchasedNodeIds) ||
     !(hacking.purchasedNodeIds as string[]).every((id) => oneOf(id, HACK_NODE_IDS)) ||
     !isNumberInRange(hacking.hiddenEvidence, 0, 100) ||
-    !validSabotageCharges(hacking.sabotageCharges) ||
+    !validSabotageCharges(hacking.sabotageCharges, rulesVersion) ||
     !Array.isArray(hacking.scheduledSabotage) ||
     !hacking.scheduledSabotage.every((entry) =>
       validScheduledSabotage(entry, competitorIds),
@@ -3132,6 +3196,9 @@ function validCampaignStateV7(
     !validCommandLog(value.commandLog, commandProtocol, {
       blockIds: new Set(Object.keys(blocks)),
       competitorIds: new Set(competitorIds),
+    }, {
+      requireCurrent: true,
+      currentVersion: finalProtocolVersion,
     }) ||
     value.commandSequence !== value.commandLog.length ||
     !(value.commandLog as CommandLogEntry[]).every(
@@ -3211,9 +3278,9 @@ function validCampaignStateV7(
   )
 }
 
-function validPortableCheckpointV7(
+function validPortableCheckpoint(
   value: unknown,
-): value is PortableCheckpointV7 {
+): value is PortableCheckpointV8 {
   return (
     isRecord(value) &&
     hasOnlyKeys(value, [
@@ -3282,6 +3349,47 @@ function inferLegacyReplayBootstrap(
     : { openingVersion, legacyReviewPrefixCount: prefixCount }
 }
 
+function migrateFixedCellCampaignState(
+  value: unknown,
+  sourceCommandProtocol: CommandProtocolMetadata,
+  replayBootstrap: ReplayBootstrapMetadata,
+  sourceFinalProtocolVersion: CommandProtocolVersion,
+  targetCommandProtocol: CommandProtocolMetadata,
+): CampaignState | null {
+  if (
+    !validCampaignState(
+      value,
+      sourceCommandProtocol,
+      replayBootstrap,
+      1,
+      sourceFinalProtocolVersion,
+    ) ||
+    !isRecord(value) ||
+    !isRecord(value.resources)
+  ) {
+    return null
+  }
+
+  const taggedFixedCellState = {
+    ...value,
+    commandProtocol: targetCommandProtocol,
+    resources: {
+      ...value.resources,
+      rulesVersion: 1,
+    },
+  } as unknown as CampaignState
+  const migrated = migrateResourcesToCurrentRules(taggedFixedCellState)
+
+  const validMigrated = validCampaignState(
+    migrated,
+    targetCommandProtocol,
+    replayBootstrap,
+    2,
+    CURRENT_COMMAND_PROTOCOL_VERSION,
+  )
+  return validMigrated ? migrated : null
+}
+
 function migrateLegacyRuntimeState(
   value: unknown,
   legacyCommandProtocol: LegacyCommandProtocolMetadata,
@@ -3330,9 +3438,13 @@ function migrateLegacyRuntimeState(
     replayBootstrap: cloneReplayBootstrap(replayBootstrap),
     causality,
   }
-  return validCampaignStateV7(candidate, commandProtocol, replayBootstrap)
-    ? (candidate as unknown as CampaignState)
-    : null
+  return migrateFixedCellCampaignState(
+    candidate,
+    commandProtocol,
+    replayBootstrap,
+    CURRENT_COMMAND_PROTOCOL_VERSION,
+    commandProtocol,
+  )
 }
 
 function contentHash(content: string): string {
@@ -3351,7 +3463,7 @@ function portableCheckpointHash(
   checkpoint: unknown,
 ): string {
   const integrityPayload =
-    version === SAVE_FORMAT_VERSION
+    Number.isInteger(version) && Number(version) >= 7
       ? { commandProtocol, replayBootstrap, state: checkpoint }
       : checkpoint
   return contentHash(JSON.stringify(integrityPayload))
@@ -3374,7 +3486,7 @@ export function encodeSave(
   const replayBootstrap = cloneReplayBootstrap(state.replayBootstrap)
   const commandChunks = journalChunks(state.commandLog).map((chunk) => [...chunk])
   const eventChunks = journalChunks(state.eventLog).map((chunk) => [...chunk])
-  const envelope: PortableSaveV7 = {
+  const envelope: PortableSaveV8 = {
     version: SAVE_FORMAT_VERSION,
     commandProtocol,
     replayBootstrap,
@@ -3412,7 +3524,7 @@ export function encodeSave(
 
 function portableCheckpoint(
   state: CampaignState,
-): PortableCheckpointV7 {
+): PortableCheckpointV8 {
   return {
     campaignSeed: state.campaignSeed,
     serviceDay: state.serviceDay,
@@ -3461,6 +3573,18 @@ function validSavedAt(value: unknown): value is string {
   if (typeof value !== 'string') return false
   const timestamp = Date.parse(value)
   return Number.isFinite(timestamp) && new Date(timestamp).toISOString() === value
+}
+
+interface PortableDecodedV8 {
+  version: 8
+  commandProtocol: CommandProtocolMetadata
+  replayBootstrap: ReplayBootstrapMetadata
+  savedAt: string
+  campaignSeed: string
+  commandSequence: number
+  state: CampaignState
+  commands: CommandLogEntry[]
+  events: GameEvent[]
 }
 
 interface PortableDecodedV7 {
@@ -3530,7 +3654,7 @@ function validPortableIntegrity(value: Record<string, unknown>): boolean {
   return true
 }
 
-function decodePortableSaveV7(value: unknown): PortableDecodedV7 | null {
+function decodePortableSaveV8(value: unknown): PortableDecodedV8 | null {
   if (
     !isRecord(value) ||
     value.version !== SAVE_FORMAT_VERSION ||
@@ -3547,7 +3671,7 @@ function decodePortableSaveV7(value: unknown): PortableDecodedV7 | null {
     ]) ||
     !validPortableIntegrity(value) ||
     !validReplayBootstrapMetadata(value.replayBootstrap) ||
-    !validPortableCheckpointV7(value.state) ||
+    !validPortableCheckpoint(value.state) ||
     !validSavedAt(value.savedAt) ||
     !isNonEmptyString(value.campaignSeed) ||
     !isIntegerInRange(value.commandSequence, 0)
@@ -3579,9 +3703,148 @@ function decodePortableSaveV7(value: unknown): PortableDecodedV7 | null {
     eventLog: events,
   }
   if (
-    !validCampaignStateV7(candidate, commandProtocol, replayBootstrap) ||
+    !validCampaignState(
+      candidate,
+      commandProtocol,
+      replayBootstrap,
+      2,
+      CURRENT_COMMAND_PROTOCOL_VERSION,
+    ) ||
     candidate.campaignSeed !== value.campaignSeed ||
     candidate.commandSequence !== value.commandSequence
+  ) {
+    return null
+  }
+
+  return {
+    version: 8,
+    commandProtocol,
+    replayBootstrap: cloneReplayBootstrap(replayBootstrap),
+    savedAt: value.savedAt,
+    campaignSeed: value.campaignSeed,
+    commandSequence: value.commandSequence,
+    state: candidate as unknown as CampaignState,
+    commands: commands as CommandLogEntry[],
+    events: events as GameEvent[],
+  }
+}
+
+function promoteV7CommandProtocol(
+  value: unknown,
+  commandCount: number,
+): CommandProtocolMetadata | null {
+  if (
+    !validCommandProtocol(value, commandCount, {
+      requireCurrent: true,
+      currentVersion: CAUSAL_COMMAND_PROTOCOL_VERSION,
+    }) ||
+    value.segments[value.segments.length - 1]?.version !==
+      CAUSAL_COMMAND_PROTOCOL_VERSION
+  ) {
+    return null
+  }
+
+  const nextSequence = commandCount + 1
+  const finalSegment = value.segments[value.segments.length - 1]
+  const promoted =
+    finalSegment.startsAtSequence === nextSequence
+      ? {
+          segments: [
+            ...value.segments.slice(0, -1).map((segment) => ({ ...segment })),
+            {
+              version: CURRENT_COMMAND_PROTOCOL_VERSION,
+              startsAtSequence: nextSequence,
+            },
+          ],
+        }
+      : appendCommandProtocolSegment(
+          value,
+          {
+            version: CURRENT_COMMAND_PROTOCOL_VERSION,
+            startsAtSequence: nextSequence,
+          },
+          nextSequence,
+        )
+
+  return promoted &&
+    validCommandProtocol(promoted, commandCount, { requireCurrent: true })
+    ? promoted
+    : null
+}
+
+function decodePortableSaveV7(value: unknown): PortableDecodedV7 | null {
+  if (
+    !isRecord(value) ||
+    value.version !== 7 ||
+    !hasOnlyKeys(value, [
+      'version',
+      'commandProtocol',
+      'replayBootstrap',
+      'savedAt',
+      'campaignSeed',
+      'state',
+      'commandSequence',
+      'journals',
+      'integrity',
+    ]) ||
+    !validPortableIntegrity(value) ||
+    !validReplayBootstrapMetadata(value.replayBootstrap) ||
+    !validPortableCheckpoint(value.state) ||
+    !validSavedAt(value.savedAt) ||
+    !isNonEmptyString(value.campaignSeed) ||
+    !isIntegerInRange(value.commandSequence, 0)
+  ) {
+    return null
+  }
+
+  const journals = value.journals as {
+    commands: PortableJournal<unknown>
+    events: PortableJournal<unknown>
+  }
+  const commands = flattenPortableJournal(journals.commands)
+  const events = flattenPortableJournal(journals.events)
+  if (value.commandSequence !== commands.length) {
+    return null
+  }
+
+  const sourceCommandProtocol = value.commandProtocol
+  if (
+    !validCommandProtocol(sourceCommandProtocol, commands.length, {
+      requireCurrent: true,
+      currentVersion: CAUSAL_COMMAND_PROTOCOL_VERSION,
+    }) ||
+    sourceCommandProtocol.segments[sourceCommandProtocol.segments.length - 1]
+      ?.version !== CAUSAL_COMMAND_PROTOCOL_VERSION
+  ) {
+    return null
+  }
+  const replayBootstrap = value.replayBootstrap
+  const fixedCellCandidate = {
+    ...value.state,
+    commandProtocol: sourceCommandProtocol,
+    replayBootstrap,
+    commandLog: commands,
+    eventLog: events,
+  }
+  const commandProtocol = promoteV7CommandProtocol(
+    sourceCommandProtocol,
+    commands.length,
+  )
+  if (!commandProtocol) {
+    return null
+  }
+
+  const state = migrateFixedCellCampaignState(
+    fixedCellCandidate,
+    sourceCommandProtocol,
+    replayBootstrap,
+    CAUSAL_COMMAND_PROTOCOL_VERSION,
+    commandProtocol,
+  )
+  if (
+    !state ||
+    state.campaignSeed !== value.campaignSeed ||
+    state.commandSequence !== value.commandSequence
   ) {
     return null
   }
@@ -3593,7 +3856,7 @@ function decodePortableSaveV7(value: unknown): PortableDecodedV7 | null {
     savedAt: value.savedAt,
     campaignSeed: value.campaignSeed,
     commandSequence: value.commandSequence,
-    state: candidate as unknown as CampaignState,
+    state,
     commands: commands as CommandLogEntry[],
     events: events as GameEvent[],
   }
@@ -3828,8 +4091,10 @@ export function decodeSave(serialized: string): DecodeSaveResult {
   }
   const decoded =
     parsed.version === SAVE_FORMAT_VERSION
-      ? decodePortableSaveV7(parsed)
-      : decodeLegacyPortableSave(parsed)
+      ? decodePortableSaveV8(parsed)
+      : parsed.version === 7
+        ? decodePortableSaveV7(parsed)
+        : decodeLegacyPortableSave(parsed)
   if (!decoded) return corrupt()
 
   const plainState = decoded.state as unknown as Record<string, unknown>
@@ -3932,7 +4197,11 @@ export function replayCommands(
       segment,
       current.commandSequence + 1,
     )
-    return activated ? { ...current, commandProtocol: activated } : null
+    if (!activated) return null
+    const next = { ...current, commandProtocol: activated }
+    return segment.version >= CURRENT_COMMAND_PROTOCOL_VERSION
+      ? migrateResourcesToCurrentRules(next)
+      : next
   }
 
   for (let commandIndex = 0; commandIndex < commands.length; commandIndex += 1) {

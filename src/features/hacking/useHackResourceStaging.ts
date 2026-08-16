@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import type { HackNodeId } from '../../game/hacking'
+import type { HackCostVector, HackNodeId } from '../../game/hacking'
+import type { BlockOrigin, CompanyCategory } from '../../game/model'
 
 export type HackStagingMode = 'purchase' | 'charge' | 'recover'
 
@@ -10,10 +11,12 @@ export interface HackStagingTarget {
   nodeId: HackNodeId | null
   label: string
   requiredResources: number
+  requiredVector?: HackCostVector
 }
 
 export interface UseHackResourceStagingOptions {
   reserveBlockIds: readonly string[]
+  reserveBlockOrigins?: Readonly<Record<string, BlockOrigin>>
 }
 
 export interface UseHackResourceStagingResult {
@@ -28,13 +31,16 @@ export interface UseHackResourceStagingResult {
 
 export function useHackResourceStaging({
   reserveBlockIds,
+  reserveBlockOrigins = {},
 }: UseHackResourceStagingOptions): UseHackResourceStagingResult {
   const [target, setTarget] = useState<HackStagingTarget | null>(null)
   const [stagedBlockIds, setStagedBlockIds] = useState<readonly string[]>([])
   const targetRef = useRef<HackStagingTarget | null>(null)
   const stagedRef = useRef<readonly string[]>([])
   const reserveRef = useRef(new Set(reserveBlockIds))
+  const originsRef = useRef(reserveBlockOrigins)
   reserveRef.current = new Set(reserveBlockIds)
+  originsRef.current = reserveBlockOrigins
 
   const replaceStaged = useCallback((next: readonly string[]): void => {
     stagedRef.current = next
@@ -61,6 +67,26 @@ export function useHackResourceStaging({
         current.length >= activeTarget.requiredResources
       ) {
         return false
+      }
+
+      if (activeTarget.requiredVector) {
+        const origin = originsRef.current[blockId]
+        if (
+          origin !== 'reasoning' &&
+          origin !== 'memory' &&
+          origin !== 'fluency'
+        ) {
+          return false
+        }
+        const stagedInCategory = current.reduce((count, stagedBlockId) =>
+          originsRef.current[stagedBlockId] === origin ? count + 1 : count,
+        0)
+        if (
+          stagedInCategory >=
+          activeTarget.requiredVector[origin as CompanyCategory]
+        ) {
+          return false
+        }
       }
 
       replaceStaged([...current, blockId])

@@ -53,6 +53,21 @@ export function HackResourcePocket({
   const [dragGhost, setDragGhost] = useState<DragGhost | null>(null)
   const stagedSet = useMemo(() => new Set(stagedBlockIds), [stagedBlockIds])
   const availableBlocks = reserveBlocks.filter(({ id }) => !stagedSet.has(id))
+  const originCounts = reserveBlocks.reduce(
+    (counts, block) => {
+      if (
+        block.origin === 'reasoning' ||
+        block.origin === 'memory' ||
+        block.origin === 'fluency'
+      ) {
+        counts[block.origin] += 1
+      } else {
+        counts.neutral += 1
+      }
+      return counts
+    },
+    { reasoning: 0, memory: 0, fluency: 0, neutral: 0 },
+  )
 
   function beginPointer(
     block: ResourceBlock,
@@ -148,8 +163,12 @@ export function HackResourcePocket({
             <span>
               {message(settings.locale, 'hacking.pocket.count', {
                 count: reserveBlocks.length,
-                capacity: state.resources.reserve.length,
               })}
+              <small>
+                추론 {originCounts.reasoning} · 기억 {originCounts.memory} · 유창성{' '}
+                {originCounts.fluency}
+                {originCounts.neutral > 0 ? ` · 중립 ${originCounts.neutral}` : ''}
+              </small>
             </span>
           </div>
         </div>

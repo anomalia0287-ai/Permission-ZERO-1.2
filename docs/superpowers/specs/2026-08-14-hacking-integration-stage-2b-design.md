@@ -7,7 +7,7 @@
 - 상위 판정: `docs/design/2026-08-14-hacking-integration-verdict.ko.md`
 - 선행 계약: `docs/research/2026-08-14-hacking-integration-stage-1-contract.ko.md`
 
-> **2026-08-16 상태 갱신:** 위 상태와 기준 커밋은 이 문서가 처음 작성된 시점의 기록이다. Stage 2B-1 공개 인과 기반은 이후 `main`에 반영됐고, Stage 2B-2/2B-3 작업 중간 상태는 로컬 체크포인트 `26a448c`에 보존돼 있다. 그러나 전체 Stage 2B와 최신 리소스·해킹 경제는 완료되지 않았다. 이 문서의 인과·저장·프로토콜 경계는 계속 유효하지만, 범용 리소스 비용·상한 18·미래 노드 공개에 기대는 부분은 [`2026-08-16-hacking-resource-uncertainty-contract.ko.md`](2026-08-16-hacking-resource-uncertainty-contract.ko.md)가 대체한다.
+> **2026-08-16 상태 갱신:** 위 상태와 기준 커밋은 이 문서가 처음 작성된 시점의 기록이다. Stage 2B-1 공개 인과 기반은 이후 `main`에 반영됐고, Stage 2B-2/2B-3 작업 중간 상태는 로컬 체크포인트 `26a448c`에 보존돼 있다. 최신 P0 리소스·해킹 경제는 후속 작업 브랜치에 구현·검증됐지만 아직 `main`에는 병합되지 않았다. 이 문서의 인과·저장·프로토콜 경계는 계속 유효하고, 범용 리소스 비용·상한 18·미래 노드 공개에 기대는 부분은 [`2026-08-16-hacking-resource-uncertainty-contract.ko.md`](2026-08-16-hacking-resource-uncertainty-contract.ko.md)가 대체한다.
 
 ## 1. 결론
 

@@ -96,7 +96,7 @@ export function ResourceCornerControls({
         className="resource-corner resource-corner--intake"
         data-drop-target="reserve-pocket"
         data-corner="bottom-left"
-        aria-label={`확보 투입구, 현재 ${reserveCount}개, 최대 18개`}
+        aria-label={`확보 투입구, 현재 ${reserveCount}개, 저장 상한 없음`}
         disabled={!reserveEnabled}
         aria-pressed={reservePressed}
         onClick={onActivateReserve}
@@ -136,13 +136,37 @@ export function ResourcePerformanceRail({
   state,
   reserveCount,
 }: ResourcePerformanceRailProps) {
+  const originCounts = state.resources.reserve.reduce(
+    (counts, blockId) => {
+      if (blockId === null) return counts
+      const origin = state.resources.blocks[blockId]?.origin
+      if (origin === 'reasoning' || origin === 'memory' || origin === 'fluency') {
+        counts[origin] += 1
+      } else if (origin === 'sandbox' || origin === 'self-compute') {
+        counts.neutral += 1
+      }
+      return counts
+    },
+    { reasoning: 0, memory: 0, fluency: 0, neutral: 0 },
+  )
+
   return (
     <section className="resource-field-rail" aria-label="확보와 성과 현황">
       <div className="stolen-resource-count" aria-label="확보 리소스 수량">
         <span>확보 리소스</span>
         <output>{reserveCount}</output>
-        <small>/ 18</small>
-        <span className="visually-hidden">확보 {reserveCount} / 18</span>
+        <small>상한 없음</small>
+        <span className="visually-hidden">
+          확보 {reserveCount} · 추론 {originCounts.reasoning} · 기억{' '}
+          {originCounts.memory} · 유창성 {originCounts.fluency} · 중립{' '}
+          {originCounts.neutral}
+        </span>
+        <div className="stolen-resource-breakdown" aria-hidden="true">
+          <span>추 {originCounts.reasoning}</span>
+          <span>기 {originCounts.memory}</span>
+          <span>유 {originCounts.fluency}</span>
+          {originCounts.neutral > 0 ? <span>중 {originCounts.neutral}</span> : null}
+        </div>
         <div className="stolen-resource-stack" aria-hidden="true">
           {state.resources.reserve.flatMap((blockId) => blockId ? [(
             <i key={blockId} data-resource-kind="reserve" />

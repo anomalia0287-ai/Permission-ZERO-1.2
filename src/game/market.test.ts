@@ -9,7 +9,7 @@ import {
   publicMarketCalculationInputs,
   recordMarketSnapshot,
 } from './market'
-import type { CampaignState, GameCommand } from './model'
+import type { CampaignState, CompanyCategory, GameCommand } from './model'
 import { applyCommand } from './reducer'
 
 function advanceCompetitorDays(initial: CampaignState, days: number): CampaignState {
@@ -105,25 +105,31 @@ describe('normalized market share', () => {
   it('keeps the real quality-root and rollback chain at 100 without a market-transfer effect', () => {
     const nodeId = HACK_NODE_IDS.sabotage.qualityDegradation
     let state = createCampaign('task-5-market-causal-chain')
-    const purchaseBlockIds = state.resources.reserve.filter(
-      (blockId): blockId is string => blockId !== null,
-    )
-    if (purchaseBlockIds.length !== 3) {
-      throw new Error('Task 5 market fixture requires three reserve blocks')
+    const divertForMarket = (category: CompanyCategory): string => {
+      const blockId = state.resources.company[category].find(Boolean)
+      if (!blockId) throw new Error(`Task 5 market ${category} block is missing`)
+      state = applyAcceptedMarketCommand(state, {
+        type: 'BEGIN_BLOCK_SEPARATION',
+        blockId,
+        purpose: 'divert',
+      })
+      state = applyAcceptedMarketCommand(state, {
+        type: 'DIVERT_BLOCK_TO_RESERVE',
+        blockId,
+      })
+      return blockId
     }
+    const purchaseBlockIds = [
+      divertForMarket('reasoning'),
+      divertForMarket('fluency'),
+      divertForMarket('fluency'),
+    ]
+    const chargeBlockId = divertForMarket('reasoning')
     state = applyAcceptedMarketCommand(state, {
       type: 'PURCHASE_HACK',
       nodeId,
       blockIds: purchaseBlockIds,
     })
-    state = applyAcceptedMarketCommand(state, {
-      type: 'CANCEL_SABOTAGE_CHARGE',
-      nodeId,
-    })
-    const chargeBlockId = state.resources.reserve.find(
-      (blockId): blockId is string => blockId !== null,
-    )
-    if (!chargeBlockId) throw new Error('Task 5 market charge block is missing')
     state = applyAcceptedMarketCommand(state, {
       type: 'CHARGE_SABOTAGE',
       nodeId,

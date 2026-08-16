@@ -38,6 +38,7 @@ import type {
   GameEvent,
   TimeSpeed,
 } from './model'
+import { divertBlockToReserve } from './resources'
 
 interface ExpectedAdvanceOneDayOptions {
   protocolVersion?: CommandProtocolVersion
@@ -274,10 +275,15 @@ describe('fixed campaign calendar', () => {
   })
 
   it('executes one scheduled sabotage on the next logical day', () => {
+    const running = withSpeed(1)
+    const executionBlockId = running.resources.company.reasoning.find(Boolean)
+    if (!executionBlockId) throw new Error('달력 사보타주 원본 리소스 누락')
+    const funded = divertBlockToReserve(running, executionBlockId)
+    if (!funded.accepted) throw new Error(funded.reason)
     const initial = {
-      ...withSpeed(1),
+      ...funded.state,
       hacking: {
-        ...withSpeed(1).hacking,
+        ...funded.state.hacking,
         purchasedNodeIds: [HACK_NODE_IDS.sabotage.qualityDegradation],
       },
     }

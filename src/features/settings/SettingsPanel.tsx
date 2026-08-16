@@ -162,7 +162,7 @@ function ProgressImportControl({
           <input
             type="file"
             aria-label="진행 파일 가져오기"
-            accept=".pz7,.pz6,.pz5,.pz4,.pz3,.pz2,application/vnd.permission-zero.progress+json"
+            accept=".pz8,.pz7,.pz6,.pz5,.pz4,.pz3,.pz2,application/vnd.permission-zero.progress+json"
             onChange={(event) => {
               void validateFile(event.target.files?.[0])
               event.currentTarget.value = ''
@@ -185,7 +185,7 @@ function ProgressImportControl({
           }}
         />
       </label>
-      <p>새 클립보드 내보내기는 최대 1 MiB의 <code>PZ7:</code> 자료를 만듭니다. 기존 <code>PZ2:</code>·<code>PZ3:</code>·<code>PZ4:</code>·<code>PZ5:</code>·<code>PZ6:</code> 자료도 계속 가져올 수 있습니다. 더 큰 진행은 최대 64 MiB의 <code>.pz7</code> 파일로 내보내며, 기존 .pz2~.pz6 파일도 검증하고 복원할 수 있습니다.</p>
+      <p>새 클립보드 내보내기는 최대 1 MiB의 <code>PZ8:</code> 자료를 만듭니다. 기존 <code>PZ2:</code>~<code>PZ7:</code> 자료도 계속 가져올 수 있습니다. 더 큰 진행은 최대 64 MiB의 <code>.pz8</code> 파일로 내보내며, 기존 .pz2~.pz7 파일도 검증하고 복원할 수 있습니다.</p>
       <button
         ref={validationButtonRef}
         type="button"
@@ -543,13 +543,13 @@ export function StorageRecoveryLayer() {
           {copyState === 'export-too-large' ? (
             <>
               <p>정확한 진행 내보내기가 너무 커서 아무것도 복사하지 않았습니다.</p>
-              <p>.pz7 진행 파일로 전체 상태와 기록을 정확히 다운로드할 수 있습니다.</p>
+              <p>.pz8 진행 파일로 전체 상태와 기록을 정확히 다운로드할 수 있습니다.</p>
               <p>브라우저 저장 공간은 유한하므로 경고가 계속되면 파일을 안전한 곳에 보관하세요.</p>
             </>
           ) : (
             <>
               <p>현재 시드 <code>{state.campaignSeed}</code>를 복사하거나 진행 내보내기를 복사해 수동으로 보관하세요.</p>
-              <p>새 내보내기는 <code>PZ7:</code> 형식이며, 보관한 <code>PZ2:</code>·<code>PZ3:</code>·<code>PZ4:</code>·<code>PZ5:</code>·<code>PZ6:</code> 자료도 설정의 ‘진행 가져오기’에서 계속 검증하고 복원할 수 있습니다.</p>
+              <p>새 내보내기는 <code>PZ8:</code> 형식이며, 보관한 <code>PZ2:</code>~<code>PZ7:</code> 자료도 설정의 ‘진행 가져오기’에서 계속 검증하고 복원할 수 있습니다.</p>
             </>
           )}
           <div>

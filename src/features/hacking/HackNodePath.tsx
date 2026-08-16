@@ -2,6 +2,7 @@ import { useGameSettings } from '../../app/GameContext'
 import type { RecoveryContaminationOpportunity } from '../../game/causalGameplay'
 import { getAuditIntel } from '../../game/evaluation'
 import {
+  canAffordHackNode,
   eligibleTargets,
   HACK_NODE_IDS,
   type HackNodeDefinition,
@@ -79,6 +80,35 @@ export function HackNodePath({
         const prerequisiteMet =
           node.prerequisiteId === null ||
           state.hacking.purchasedNodeIds.includes(node.prerequisiteId)
+        if (!purchased && !prerequisiteMet) {
+          return (
+            <li className="hack-path-step" data-path-step={index + 1} key={node.id}>
+              <article
+                className="hack-node hack-node--concealed"
+                role="group"
+                aria-label={`미확인 해킹 단계 ${index + 1}`}
+              >
+                <div className="hack-node-index" aria-hidden="true">
+                  <span>??</span>
+                  <i />
+                </div>
+                <div className="node-copy">
+                  <header>
+                    <div>
+                      <span className="hack-node-state">암호화됨</span>
+                      <h3>미확인 단계</h3>
+                    </div>
+                    <strong>요구 미확인</strong>
+                  </header>
+                  <p>현재 최전선 노드를 해금하면 이 단계의 정보가 공개됩니다.</p>
+                </div>
+                <div className="hack-node-control">
+                  <span className="node-active-label">접근 불가</span>
+                </div>
+              </article>
+            </li>
+          )
+        }
         const charged = state.hacking.sabotageCharges[node.id]
         const scheduled = state.hacking.scheduledSabotage.some(
           ({ nodeId }) => nodeId === node.id,
@@ -144,7 +174,7 @@ export function HackNodePath({
               aria-label={message(settings.locale, 'hacking.node.prepare.purchase', {
                 node: node.label,
               })}
-              disabled={!prerequisiteMet || reserveCount < node.cost}
+              disabled={!prerequisiteMet || !canAffordHackNode(state, node)}
               onClick={() => onBeginNodeAction('purchase', node)}
             >
               리소스 놓기

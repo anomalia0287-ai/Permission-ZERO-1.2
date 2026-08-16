@@ -9,7 +9,7 @@ import { journalToArray } from '../../game/journal'
 import type { CampaignState } from '../../game/model'
 import { encodeSave, SAVE_STORAGE_KEY } from '../../game/persistence'
 import {
-  divertBlock,
+  divertBlockToReserve,
   moveDisguiseBlock,
 } from '../../game/resources'
 import { MemoryStorage } from '../../test/fixtures'
@@ -101,20 +101,20 @@ function firstReasoningBlock(): HTMLButtonElement {
   return screen.getAllByRole('button', { name: /추론 회사 리소스 .* 블록/ })[0] as HTMLButtonElement
 }
 
-function firstEmptyReserve(): HTMLButtonElement {
+function reserveIntake(): HTMLButtonElement {
   return screen.getByRole('button', {
-    name: /확보 투입구, 현재 \d+개, 최대 18개/,
+    name: /확보 투입구, 현재 \d+개, 저장 상한 없음/,
   }) as HTMLButtonElement
 }
 
-function fullReserveState(): CampaignState {
-  let state = createCampaign('full-reserve')
-  for (let destinationCell = 3; destinationCell < 18; destinationCell += 1) {
+function formerCapacityState(): CampaignState {
+  let state = createCampaign('former-capacity')
+  for (let reserveCount = 0; reserveCount < 18; reserveCount += 1) {
     const blockId = Object.values(state.resources.blocks).find(
       (block) => block.location.kind === 'company' && block.contribution === 'normal',
     )?.id
     if (!blockId) throw new Error('회사의 이동 가능한 블록이 부족합니다.')
-    const result = divertBlock(state, blockId, destinationCell)
+    const result = divertBlockToReserve(state, blockId)
     if (!result.accepted) throw new Error(result.reason)
     state = result.state
   }
@@ -160,7 +160,7 @@ describe('ResourceBoard', () => {
     const field = screen.getByRole('region', { name: '회사 제공 성능' })
     expect(field.querySelectorAll('.resource-field')).toHaveLength(1)
     expect(field.querySelectorAll('[data-resource-kind="company"]')).toHaveLength(48)
-    expect(field.querySelectorAll('[data-resource-kind="reserve"]')).toHaveLength(3)
+    expect(field.querySelectorAll('[data-resource-kind="reserve"]')).toHaveLength(0)
     expect(
       field.querySelector('[data-drop-target="reserve-pocket"]'),
     ).toHaveAttribute('data-corner', 'bottom-left')
@@ -171,7 +171,9 @@ describe('ResourceBoard', () => {
       'data-resource-obstacle',
       'reserve-intake-guard',
     )
-    expect(screen.getByText('확보 3 / 18')).toBeInTheDocument()
+    const reserveSummary = screen.getByLabelText('확보 리소스 수량')
+    expect(reserveSummary).toHaveTextContent('0')
+    expect(reserveSummary).toHaveTextContent('상한 없음')
     expect(
       screen.getByRole('img', { name: '회사 기대 성능과 실제 제공 성능 추세' }),
     ).toBeInTheDocument()
@@ -290,23 +292,23 @@ describe('ResourceBoard', () => {
     fireEvent.click(firstReasoningBlock())
 
     expect(screen.getByText('추론 16.0 → 15.0')).toBeInTheDocument()
-    expect(screen.getByText('확보 3 → 4')).toBeInTheDocument()
+    expect(screen.getByText('확보 0 → 1')).toBeInTheDocument()
     expect(screen.getByText('의심 0.0 → 2.4')).toBeInTheDocument()
     expect(screen.getByText('기준 유지 · 여유 +1.0')).toBeInTheDocument()
-    expect(firstEmptyReserve()).toBeEnabled()
+    expect(reserveIntake()).toBeEnabled()
   })
 
   it('moves one selected block on destination confirmation', () => {
     renderBoard()
 
     fireEvent.click(firstReasoningBlock())
-    fireEvent.click(firstEmptyReserve())
+    fireEvent.click(reserveIntake())
 
-    expect(screen.getByLabelText('reserve count')).toHaveTextContent('4')
+    expect(screen.getByLabelText('reserve count')).toHaveTextContent('1')
     expect(screen.getByLabelText('suspicion value')).toHaveTextContent('2.4')
     expect(screen.getByLabelText('command count')).toHaveTextContent('2')
     expect(screen.getByLabelText('command types')).toHaveTextContent(
-      'BEGIN_BLOCK_SEPARATION,DIVERT_BLOCK',
+      'BEGIN_BLOCK_SEPARATION,DIVERT_BLOCK_TO_RESERVE',
     )
     expect(screen.getByText('전용 완료')).toBeInTheDocument()
     expect(screen.getByText('기준 유지 · 여유 +1.0')).toBeInTheDocument()
@@ -317,13 +319,13 @@ describe('ResourceBoard', () => {
     const board = screen.getByRole('region', { name: '회사 제공 성능' })
 
     fireEvent.click(firstReasoningBlock(), { detail: 0 })
-    const destination = firstEmptyReserve()
+    const destination = reserveIntake()
     fireEvent.keyDown(destination, { key: 'Enter' })
-    expect(screen.getByLabelText('reserve count')).toHaveTextContent('4')
+    expect(screen.getByLabelText('reserve count')).toHaveTextContent('1')
 
     fireEvent.click(firstReasoningBlock(), { detail: 0 })
     fireEvent.keyDown(board, { key: 'Escape' })
-    expect(firstEmptyReserve()).toHaveAttribute('aria-pressed', 'false')
+    expect(reserveIntake()).toHaveAttribute('aria-pressed', 'false')
   })
 
   it('uses one tab stop for the live field and arrow keys move focus between bodies', () => {
@@ -350,7 +352,7 @@ describe('ResourceBoard', () => {
     fireEvent.pointerMove(block, { pointerId: 1, clientX: 17.9, clientY: 10 })
     fireEvent.pointerUp(block, { pointerId: 1, clientX: 17.9, clientY: 10 })
 
-    expect(screen.getByLabelText('reserve count')).toHaveTextContent('3')
+    expect(screen.getByLabelText('reserve count')).toHaveTextContent('0')
     expect(screen.getByLabelText('command count')).toHaveTextContent('0')
   })
 
@@ -362,7 +364,7 @@ describe('ResourceBoard', () => {
     fireEvent.pointerMove(block, { pointerId: 11, clientX: 18, clientY: 10 })
     fireEvent.pointerMove(block, { pointerId: 11, clientX: 30, clientY: 30 })
 
-    expect(screen.getByLabelText('reserve count')).toHaveTextContent('3')
+    expect(screen.getByLabelText('reserve count')).toHaveTextContent('0')
     expect(screen.getByLabelText('suspicion value')).toHaveTextContent('0')
     expect(screen.getByLabelText('command count')).toHaveTextContent('1')
     expect(screen.getByLabelText('command types')).toHaveTextContent(
@@ -379,7 +381,7 @@ describe('ResourceBoard', () => {
     fireEvent.pointerMove(block, { pointerId: 2, clientX: 30, clientY: 10 })
     fireEvent.pointerUp(block, { pointerId: 2, clientX: 30, clientY: 10 })
 
-    expect(screen.getByLabelText('reserve count')).toHaveTextContent('3')
+    expect(screen.getByLabelText('reserve count')).toHaveTextContent('0')
     expect(screen.getByLabelText('command count')).toHaveTextContent('1')
     expect(screen.getByLabelText('command types')).not.toHaveTextContent('DIVERT_BLOCK')
     expect(screen.getByRole('status', { name: '리소스 조작 결과' })).toHaveTextContent(
@@ -390,17 +392,17 @@ describe('ResourceBoard', () => {
   it('dispatches exactly once when an intentional drag reaches an empty reserve cell', () => {
     renderBoard()
     const block = firstReasoningBlock()
-    const destination = firstEmptyReserve()
+    const destination = reserveIntake()
     vi.spyOn(document, 'elementFromPoint').mockReturnValue(destination)
 
     fireEvent.pointerDown(block, { pointerId: 3, clientX: 10, clientY: 10 })
     fireEvent.pointerMove(block, { pointerId: 3, clientX: 30, clientY: 10 })
     fireEvent.pointerUp(block, { pointerId: 3, clientX: 30, clientY: 10 })
 
-    expect(screen.getByLabelText('reserve count')).toHaveTextContent('4')
+    expect(screen.getByLabelText('reserve count')).toHaveTextContent('1')
     expect(screen.getByLabelText('command count')).toHaveTextContent('2')
     expect(screen.getByLabelText('command types')).toHaveTextContent(
-      'BEGIN_BLOCK_SEPARATION,DIVERT_BLOCK',
+      'BEGIN_BLOCK_SEPARATION,DIVERT_BLOCK_TO_RESERVE',
     )
   })
 
@@ -417,7 +419,7 @@ describe('ResourceBoard', () => {
     fireEvent.pointerMove(block, { pointerId: 12, clientX: 18, clientY: 10 })
 
     expect(screen.getByLabelText('active event')).toHaveTextContent('bomb-interrogation')
-    expect(screen.getByLabelText('reserve count')).toHaveTextContent('3')
+    expect(screen.getByLabelText('reserve count')).toHaveTextContent('0')
     expect(screen.getByLabelText('suspicion value')).toHaveTextContent('15')
     expect(screen.getByLabelText('command count')).toHaveTextContent('1')
 
@@ -428,7 +430,7 @@ describe('ResourceBoard', () => {
     expect(screen.getByLabelText('command types')).toHaveTextContent(
       'BEGIN_BLOCK_SEPARATION',
     )
-    expect(screen.getByLabelText('reserve count')).toHaveTextContent('3')
+    expect(screen.getByLabelText('reserve count')).toHaveTextContent('0')
   })
 
   it('preserves threshold bomb activation with reduced motion enabled', () => {
@@ -454,7 +456,7 @@ describe('ResourceBoard', () => {
 
     expect(screen.getByLabelText('active event')).toHaveTextContent('bomb-interrogation')
     expect(screen.getByLabelText('command count')).toHaveTextContent('1')
-    expect(screen.getByLabelText('reserve count')).toHaveTextContent('3')
+    expect(screen.getByLabelText('reserve count')).toHaveTextContent('0')
   })
 
   it('keeps bomb and normal selection previews indistinguishable before separation', () => {
@@ -473,18 +475,22 @@ describe('ResourceBoard', () => {
     expect(screen.queryByText(/폭탄|이상 신호/)).not.toBeInTheDocument()
   })
 
-  it('blocks pickup when every reserve cell is occupied', () => {
+  it('keeps pickup enabled beyond the former 18-cell reserve boundary', () => {
     const storage = new MemoryStorage()
-    storage.setItem(SAVE_STORAGE_KEY, encodeSave(fullReserveState()))
+    storage.setItem(SAVE_STORAGE_KEY, encodeSave(formerCapacityState()))
     renderBoard(storage)
 
-    expect(firstReasoningBlock()).toBeDisabled()
-    fireEvent.pointerDown(firstReasoningBlock(), {
-      pointerId: 4,
-      clientX: 10,
-      clientY: 10,
-    })
-    expect(screen.getByLabelText('command count')).toHaveTextContent('0')
+    expect(screen.getByLabelText('reserve count')).toHaveTextContent('18')
+    const nextCompanyBlock = screen.getAllByRole('button', {
+      name: /회사 리소스 .* 블록/,
+    })[0]
+    expect(nextCompanyBlock).toBeEnabled()
+    fireEvent.click(nextCompanyBlock)
+    fireEvent.click(reserveIntake())
+    expect(screen.getByLabelText('reserve count')).toHaveTextContent('19')
+    expect(screen.getByLabelText('command types')).toHaveTextContent(
+      'BEGIN_BLOCK_SEPARATION,DIVERT_BLOCK_TO_RESERVE',
+    )
   })
 
   it('keeps the single live field operable in an anchored audit workspace and submits the disguise', () => {

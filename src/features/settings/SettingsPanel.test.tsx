@@ -10,7 +10,7 @@ import {
 import { GameProvider } from '../../app/GameProvider'
 import { AccessibleDialog } from '../../app/AccessibleDialog'
 import { saveCampaign } from '../../game/campaignStorage'
-import { createCampaign } from '../../game/createCampaign'
+import { createCampaign, createCampaignForProtocol } from '../../game/createCampaign'
 import { createEmptyCausalState } from '../../game/causality'
 import { createJournal } from '../../game/journal'
 import type { CampaignState, CommandLogEntry, GameEvent } from '../../game/model'
@@ -79,12 +79,13 @@ function legacyProgressPayload(
   version: 2 | 3 | 4 | 5 | 6,
   seed: string,
 ): string {
-  const raw = JSON.parse(encodeSave(createCampaign(seed))) as {
+  const raw = JSON.parse(encodeSave(createCampaignForProtocol(seed, 3))) as {
     savedAt: string
     campaignSeed: string
     commandSequence: number
     state: Record<string, unknown> & {
       causality?: unknown
+      resources: { rulesVersion?: number }
       reviews: { feed: Array<Record<string, unknown>> }
     }
     journals: {
@@ -94,6 +95,7 @@ function legacyProgressPayload(
   }
   const commands = raw.journals.commands.chunks.flat()
   const events = raw.journals.events.chunks.flat()
+  delete raw.state.resources.rulesVersion
   const state = {
     ...raw.state,
     saveVersion: 2,
@@ -225,15 +227,15 @@ describe('SettingsPanel', () => {
     )
     expect(screen.getByLabelText('진행 파일 가져오기')).toHaveAttribute(
       'accept',
-      '.pz7,.pz6,.pz5,.pz4,.pz3,.pz2,application/vnd.permission-zero.progress+json',
+      '.pz8,.pz7,.pz6,.pz5,.pz4,.pz3,.pz2,application/vnd.permission-zero.progress+json',
     )
     const compatibility = screen
       .getByRole('region', { name: '진행 가져오기' })
       .querySelector('p')
     expect(compatibility).not.toBeNull()
     expect(compatibility).toHaveTextContent('PZ2:')
-    expect(compatibility).toHaveTextContent('PZ6:')
-    expect(compatibility).toHaveTextContent('.pz7')
+    expect(compatibility).toHaveTextContent('PZ2:~PZ7:')
+    expect(compatibility).toHaveTextContent('.pz8')
 
     fireEvent.change(screen.getByRole('slider', { name: '전체 음량' }), {
       target: { value: '0.4' },
@@ -686,7 +688,7 @@ describe('SettingsPanel', () => {
     await act(async () => undefined)
 
     expect(writeText).toHaveBeenCalledTimes(1)
-    expect(writeText.mock.calls[0]?.[0]).toEqual(expect.stringMatching(/^PZ7:/))
+    expect(writeText.mock.calls[0]?.[0]).toEqual(expect.stringMatching(/^PZ8:/))
     expect(screen.getByRole('alert', { name: '저장 실패' })).toHaveTextContent(
       '복사했습니다',
     )
@@ -718,7 +720,7 @@ describe('SettingsPanel', () => {
       '정확한 진행 내보내기가 너무 커서 아무것도 복사하지 않았습니다.',
     )
     expect(warning).toHaveTextContent(
-      '.pz7 진행 파일로 전체 상태와 기록을 정확히 다운로드할 수 있습니다.',
+      '.pz8 진행 파일로 전체 상태와 기록을 정확히 다운로드할 수 있습니다.',
     )
     expect(warning).toHaveTextContent(
       '브라우저 저장 공간은 유한하므로 경고가 계속되면 파일을 안전한 곳에 보관하세요.',

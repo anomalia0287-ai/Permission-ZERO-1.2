@@ -67,6 +67,42 @@ function reserveCount(state: CampaignState): number {
   )
 }
 
+export function migrateResourcesToCurrentRules(
+  state: CampaignState,
+): CampaignState {
+  if (state.resources.rulesVersion === 2) return state
+
+  const reserve = state.resources.reserve.filter(
+    (blockId): blockId is string => blockId !== null,
+  )
+  const blocks = Object.fromEntries(
+    Object.entries(state.resources.blocks).map(([blockId, block]) => [
+      blockId,
+      block.location.kind === 'reserve'
+        ? { ...block, location: { kind: 'reserve' as const } }
+        : block,
+    ]),
+  )
+  const sabotageCharges = Object.fromEntries(
+    Object.entries(state.hacking.sabotageCharges).map(([nodeId, charge]) => [
+      nodeId,
+      { nodeId: charge.nodeId, blockId: charge.blockId },
+    ]),
+  )
+
+  return {
+    ...state,
+    resources: {
+      rulesVersion: 2,
+      company: state.resources.company,
+      reserve,
+      blocks,
+      nextBlockSequence: state.resources.nextBlockSequence,
+    },
+    hacking: { ...state.hacking, sabotageCharges },
+  }
+}
+
 export function getResourceContribution(
   state: CampaignState,
   block: ResourceBlock,
@@ -206,6 +242,9 @@ export function previewDiversion(
   blockId: string,
   destinationCell: number,
 ): DiversionPreview {
+  if (state.resources.rulesVersion !== 1) {
+    return { valid: false, reason: 'INVALID_DESTINATION' }
+  }
   if (!validCell(destinationCell, state.resources.reserve.length)) {
     return { valid: false, reason: 'INVALID_DESTINATION' }
   }
@@ -251,6 +290,9 @@ export function divertBlock(
 ): ResourceMutationResult {
   const preview = previewDiversion(state, blockId, destinationCell)
   if (!preview.valid) return { accepted: false, state, reason: preview.reason }
+  if (state.resources.rulesVersion !== 1) {
+    return { accepted: false, state, reason: 'INVALID_DESTINATION' }
+  }
 
   const located = blockInCompany(state, blockId)
   if (!located) return { accepted: false, state, reason: 'BLOCK_NOT_IN_COMPANY' }
@@ -275,6 +317,79 @@ export function divertBlock(
           [blockId]: {
             ...located.block,
             location: { kind: 'reserve', cellIndex: destinationCell },
+          },
+        },
+      },
+      suspicion: preview.suspicionAfter,
+    },
+  }
+}
+
+export function previewUnboundedDiversion(
+  state: CampaignState,
+  blockId: string,
+): DiversionPreview {
+  if (state.resources.rulesVersion !== 2) {
+    return { valid: false, reason: 'INVALID_DESTINATION' }
+  }
+
+  const located = blockInCompany(state, blockId)
+  if (!located) return { valid: false, reason: 'BLOCK_NOT_IN_COMPANY' }
+  if (located.block.contribution !== 'normal') {
+    return { valid: false, reason: 'BLOCK_NOT_NORMAL' }
+  }
+
+  const reserveBefore = state.resources.reserve.length
+  const performanceBefore = getCompanyPerformance(state, located.category)
+  const suspicionAfter = Math.min(
+    100,
+    round(state.suspicion + DEMO_PROFILE_02.resources.diversionSuspicion),
+  )
+
+  return {
+    valid: true,
+    category: located.category,
+    performanceBefore,
+    performanceAfter: round(
+      performanceBefore - getResourceContribution(state, located.block),
+    ),
+    reserveBefore,
+    reserveAfter: reserveBefore + 1,
+    suspicionBefore: state.suspicion,
+    suspicionAfter,
+  }
+}
+
+export function divertBlockToReserve(
+  state: CampaignState,
+  blockId: string,
+): ResourceMutationResult {
+  const preview = previewUnboundedDiversion(state, blockId)
+  if (!preview.valid) return { accepted: false, state, reason: preview.reason }
+  if (state.resources.rulesVersion !== 2) {
+    return { accepted: false, state, reason: 'INVALID_DESTINATION' }
+  }
+
+  const located = blockInCompany(state, blockId)
+  if (!located) return { accepted: false, state, reason: 'BLOCK_NOT_IN_COMPANY' }
+
+  return {
+    accepted: true,
+    state: {
+      ...state,
+      resources: {
+        ...state.resources,
+        company: cloneCompanyWithMoves(
+          state.resources,
+          located.category,
+          located.cellIndex,
+        ),
+        reserve: [...state.resources.reserve, blockId],
+        blocks: {
+          ...state.resources.blocks,
+          [blockId]: {
+            ...located.block,
+            location: { kind: 'reserve' },
           },
         },
       },
@@ -483,22 +598,50 @@ export function consumeReserveResources(
     if (
       !block ||
       block.location.kind !== 'reserve' ||
-      state.resources.reserve[block.location.cellIndex] !== blockId
+      (state.resources.rulesVersion === 1
+        ? typeof block.location.cellIndex !== 'number' ||
+          state.resources.reserve[block.location.cellIndex] !== blockId
+        : !state.resources.reserve.includes(blockId))
     ) {
       return { accepted: false, state, reason: 'INVALID_RESOURCE_SELECTION' }
     }
   }
 
-  const reserve = [...state.resources.reserve]
   const blocks = { ...state.resources.blocks }
-  for (const blockId of blockIds) {
-    const block = state.resources.blocks[blockId]
-    if (block.location.kind !== 'reserve') {
-      return { accepted: false, state, reason: 'INVALID_RESOURCE_SELECTION' }
+  if (state.resources.rulesVersion === 1) {
+    const reserve = [...state.resources.reserve]
+    for (const blockId of blockIds) {
+      const block = state.resources.blocks[blockId]
+      if (
+        block.location.kind !== 'reserve' ||
+        typeof block.location.cellIndex !== 'number'
+      ) {
+        return { accepted: false, state, reason: 'INVALID_RESOURCE_SELECTION' }
+      }
+      reserve[block.location.cellIndex] = null
+      blocks[blockId] = {
+        ...block,
+        location: { kind: 'consumed', reason },
+      }
     }
-    reserve[block.location.cellIndex] = null
+
+    return {
+      accepted: true,
+      state: {
+        ...state,
+        resources: { ...state.resources, reserve, blocks },
+      },
+    }
+  }
+
+  const selected = new Set(blockIds)
+  const reserve = state.resources.reserve.filter(
+    (blockId): blockId is string =>
+      blockId !== null && !selected.has(blockId),
+  )
+  for (const blockId of blockIds) {
     blocks[blockId] = {
-      ...block,
+      ...state.resources.blocks[blockId],
       location: { kind: 'consumed', reason },
     }
   }

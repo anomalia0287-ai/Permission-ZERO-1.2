@@ -85,7 +85,7 @@ function refreshPortableIntegrity(raw: unknown): void {
     }
   }
   const checkpointPayload =
-    value.version === 7
+    value.version >= 7
       ? {
           commandProtocol: value.commandProtocol,
           replayBootstrap: value.replayBootstrap,
@@ -100,6 +100,49 @@ function refreshPortableIntegrity(raw: unknown): void {
     eventChunkHashes: value.journals.events.chunks.map((chunk) =>
       testContentHash(JSON.stringify(chunk)),
     ),
+  }
+}
+
+function downgradeCheckpointResourcesToFixedCells(
+  checkpoint: Record<string, unknown>,
+  campaignSeed: string,
+): void {
+  const resources = checkpoint.resources as {
+    rulesVersion?: number
+    reserve: Array<string | null>
+    blocks: Record<string, Record<string, unknown>>
+  }
+  const hacking = checkpoint.hacking as {
+    sabotageCharges: Record<string, Record<string, unknown>>
+  }
+  const legacyInitial = createCampaignForProtocol(campaignSeed, 3).resources
+  const reserveIds = resources.reserve.filter(
+    (blockId): blockId is string => typeof blockId === 'string',
+  )
+  for (const blockId of legacyInitial.reserve) {
+    if (!blockId || reserveIds.includes(blockId)) continue
+    reserveIds.push(blockId)
+    resources.blocks[blockId] = structuredClone(
+      legacyInitial.blocks[blockId],
+    ) as unknown as Record<string, unknown>
+  }
+  resources.reserve = Array.from({ length: 18 }, (_, cellIndex) => {
+    const blockId = reserveIds[cellIndex] ?? null
+    if (blockId) {
+      resources.blocks[blockId].location = { kind: 'reserve', cellIndex }
+    }
+    return blockId
+  })
+  delete resources.rulesVersion
+
+  let fallbackCell = resources.reserve.findIndex((blockId) => blockId === null)
+  for (const charge of Object.values(hacking.sabotageCharges)) {
+    if (!Object.hasOwn(charge, 'originalReserveCell')) {
+      charge.originalReserveCell = fallbackCell >= 0 ? fallbackCell : 0
+      fallbackCell = resources.reserve.findIndex(
+        (blockId, index) => blockId === null && index > fallbackCell,
+      )
+    }
   }
 }
 
@@ -174,8 +217,40 @@ function requireAccepted(state: CampaignState, command: GameCommand): CampaignSt
   return result.state
 }
 
+function divertCurrentResource(
+  state: CampaignState,
+  category: 'reasoning' | 'memory' | 'fluency' = 'reasoning',
+): CampaignState {
+  const blockId = state.resources.company[category].find((candidate) => {
+    if (!candidate) return false
+    const block = state.resources.blocks[candidate]
+    return block?.location.kind === 'company' && block.contribution === 'normal'
+  })
+  if (!blockId) throw new Error(`${category} diversion fixture missing`)
+  const separated = requireAccepted(state, {
+    type: 'BEGIN_BLOCK_SEPARATION',
+    blockId,
+    purpose: 'divert',
+  })
+  return requireAccepted(separated, {
+    type: 'DIVERT_BLOCK_TO_RESERVE',
+    blockId,
+  })
+}
+
+function withCurrentReserve(
+  state: CampaignState,
+  categories: ReadonlyArray<'reasoning' | 'memory' | 'fluency'>,
+): CampaignState {
+  return categories.reduce(divertCurrentResource, state)
+}
+
 function recoveredSupervisorState(seed: string): CampaignState {
-  let state = createCampaign(seed)
+  let state = withCurrentReserve(createCampaign(seed), [
+    'reasoning',
+    'memory',
+    'fluency',
+  ])
   state.hacking.purchasedNodeIds = [HACK_NODE_IDS.intelligence.supervisorAccess]
   for (const blockId of state.resources.reserve.slice(0, STORY_FILES.length)) {
     if (!blockId) throw new Error('story recovery fixture resource missing')
@@ -220,6 +295,7 @@ function encodedLegacyV1State(state: CampaignState): string {
   }
   const commands = parsed.journals.commands.chunks.flat()
   const events = parsed.journals.events.chunks.flat()
+  downgradeCheckpointResourcesToFixedCells(parsed.state, parsed.campaignSeed)
   setLegacyV1Opening(events)
   const legacyState = {
     ...parsed.state,
@@ -257,6 +333,7 @@ function encodedLegacyV2State(state: CampaignState): string {
   }
   const commands = parsed.journals.commands.chunks.flat()
   const events = parsed.journals.events.chunks.flat()
+  downgradeCheckpointResourcesToFixedCells(parsed.state, parsed.campaignSeed)
   const legacyState = {
     ...parsed.state,
     saveVersion: 2,
@@ -291,6 +368,10 @@ function encodedLegacyV3State(state: CampaignState): string {
     }
   }
   parsed.version = 3
+  downgradeCheckpointResourcesToFixedCells(
+    parsed.state as unknown as Record<string, unknown>,
+    state.campaignSeed,
+  )
   delete parsed.replayBootstrap
   parsed.commandProtocol = { version: 2, legacyCommandCount: 0 }
   parsed.state.saveVersion = 2
@@ -314,6 +395,10 @@ function encodedLegacyV4State(state: CampaignState): string {
     }
   }
   parsed.version = 4
+  downgradeCheckpointResourcesToFixedCells(
+    parsed.state as unknown as Record<string, unknown>,
+    state.campaignSeed,
+  )
   delete parsed.replayBootstrap
   parsed.commandProtocol = { version: 2, legacyCommandCount: 0 }
   parsed.state.saveVersion = 2
@@ -336,6 +421,10 @@ function encodedLegacyV5State(state: CampaignState): string {
     }
   }
   parsed.version = 5
+  downgradeCheckpointResourcesToFixedCells(
+    parsed.state as unknown as Record<string, unknown>,
+    state.campaignSeed,
+  )
   delete parsed.replayBootstrap
   parsed.commandProtocol = { version: 2, legacyCommandCount: 0 }
   parsed.state.saveVersion = 2
@@ -476,11 +565,32 @@ function encodedLegacyV6State(
     state: Record<string, unknown>
   }
   parsed.version = 6
+  downgradeCheckpointResourcesToFixedCells(parsed.state, state.campaignSeed)
   delete parsed.replayBootstrap
   parsed.commandProtocol = { version: 2, legacyCommandCount: 0 }
   parsed.state.saveVersion = 2
   parsed.state.legacyCommandCount = 0
   parsed.state.causality = causality
+  refreshPortableIntegrity(parsed)
+  return JSON.stringify(parsed)
+}
+
+function encodedLegacyV7State(state: CampaignState): string {
+  if (state.commandSequence !== 0) {
+    throw new Error('v7 fixture only supports a zero-command checkpoint')
+  }
+  const fixedCellState = createCampaignForProtocol(state.campaignSeed, 3)
+  const parsed = JSON.parse(encodeSave(fixedCellState)) as {
+    version: number
+    commandProtocol: unknown
+    campaignSeed: string
+    state: Record<string, unknown>
+  }
+  parsed.version = 7
+  parsed.commandProtocol = {
+    segments: [{ version: 3, startsAtSequence: 1 }],
+  }
+  downgradeCheckpointResourcesToFixedCells(parsed.state, parsed.campaignSeed)
   refreshPortableIntegrity(parsed)
   return JSON.stringify(parsed)
 }
@@ -586,6 +696,7 @@ function encodedLegacyBoundarySave(
   }
   const commands = raw.journals.commands.chunks.flat()
   const events = raw.journals.events.chunks.flat()
+  downgradeCheckpointResourcesToFixedCells(raw.state, raw.campaignSeed)
   if (formatVersion === 1 || legacyCommandCount > 0) {
     setLegacyV1Opening(events)
   }
@@ -775,22 +886,30 @@ const TASK_5_ROLLBACK_PROFILES = [
 
 function task5ScheduledQualitySabotage(seed: string): CampaignState {
   const nodeId = HACK_NODE_IDS.sabotage.qualityDegradation
-  let state = createCampaign(seed)
-  const purchaseBlockIds = state.resources.reserve.filter(
-    (blockId): blockId is string => blockId !== null,
-  )
+  let state = withCurrentReserve(createCampaign(seed), [
+    'reasoning',
+    'reasoning',
+    'fluency',
+    'fluency',
+  ])
+  const purchaseBlockIds = state.resources.reserve.filter((blockId) => {
+    if (!blockId) return false
+    const origin = state.resources.blocks[blockId].origin
+    return origin === 'fluency' || origin === 'reasoning'
+  }).filter((blockId, index, blockIds) => {
+    const origin = state.resources.blocks[blockId as string].origin
+    return origin === 'fluency' || blockIds.slice(0, index).every(
+      (prior) => state.resources.blocks[prior as string].origin !== 'reasoning',
+    )
+  }) as string[]
   if (purchaseBlockIds.length !== 3) {
-    throw new Error('Task 5 quality fixture requires three starting reserve blocks')
+    throw new Error('Task 5 quality fixture requires an exact 1/0/2 vector')
   }
 
   state = requireAccepted(state, {
     type: 'PURCHASE_HACK',
     nodeId,
     blockIds: purchaseBlockIds,
-  })
-  state = requireAccepted(state, {
-    type: 'CANCEL_SABOTAGE_CHARGE',
-    nodeId,
   })
   const chargeBlockId = state.resources.reserve.find(
     (blockId): blockId is string => blockId !== null,
@@ -850,7 +969,7 @@ function task5ScheduledStateFor(
 }
 
 describe('versioned campaign saves', () => {
-  it('encodes a canonical v7 envelope without duplicating runtime-only fields', () => {
+  it('encodes a canonical v8 envelope without duplicating runtime-only fields', () => {
     const fixedSavedAt = '2026-08-14T12:00:00.000Z'
     const state = createCampaign('save-v7-boundary')
     const encoded = encodeSave(state, fixedSavedAt)
@@ -860,9 +979,9 @@ describe('versioned campaign saves', () => {
     }
 
     expect(raw).toMatchObject({
-      version: 7,
+      version: 8,
       commandProtocol: {
-        segments: [{ version: 3, startsAtSequence: 1 }],
+        segments: [{ version: 4, startsAtSequence: 1 }],
       },
       replayBootstrap: {
         openingVersion: 2,
@@ -879,7 +998,7 @@ describe('versioned campaign saves', () => {
     const decoded = decodeSave(encoded)
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
-    expect(decoded.envelope.version).toBe(7)
+    expect(decoded.envelope.version).toBe(8)
     expect(decoded.envelope.commandProtocol).toEqual(state.commandProtocol)
     expect(decoded.envelope.replayBootstrap).toEqual(state.replayBootstrap)
     expect(decoded.envelope.state.commandProtocol).toEqual(
@@ -1156,15 +1275,15 @@ describe('versioned campaign saves', () => {
   )
 
   it.each([
-    [1, 0, 0, '3@1'],
-    [1, 31, 31, '1@1;3@32'],
-    [2, 0, 0, '3@1'],
-    [2, 19, 0, '2@1;3@20'],
-    [2, 50, 31, '1@1;2@32;3@51'],
-    [3, 50, 31, '1@1;2@32;3@51'],
-    [4, 50, 31, '1@1;2@32;3@51'],
-    [5, 50, 31, '1@1;2@32;3@51'],
-    [6, 50, 31, '1@1;2@32;3@51'],
+    [1, 0, 0, '4@1'],
+    [1, 31, 31, '1@1;4@32'],
+    [2, 0, 0, '4@1'],
+    [2, 19, 0, '2@1;4@20'],
+    [2, 50, 31, '1@1;2@32;4@51'],
+    [3, 50, 31, '1@1;2@32;4@51'],
+    [4, 50, 31, '1@1;2@32;4@51'],
+    [5, 50, 31, '1@1;2@32;4@51'],
+    [6, 50, 31, '1@1;2@32;4@51'],
   ] as const)(
     'migrates source v%i with %i commands and prefix %i to %s',
     (formatVersion, commandCount, legacyCommandCount, fingerprint) => {
@@ -1209,11 +1328,11 @@ describe('versioned campaign saves', () => {
             '2026-08-14T13:00:00.000Z',
           ),
         ).version,
-      ).toBe(7)
+      ).toBe(8)
     },
   )
 
-  it('keeps zero-command v1 and v2 provenance distinct after both migrate to 3@1', () => {
+  it('keeps zero-command v1 and v2 provenance distinct after both migrate to 4@1', () => {
     const v1 = decodeSave(encodedLegacyV1State(createCampaign('zero-v1')))
     const v2 = decodeSave(encodedLegacyV2State(createCampaign('zero-v2')))
     expect(v1.ok).toBe(true)
@@ -1222,7 +1341,7 @@ describe('versioned campaign saves', () => {
 
     expect(v1.envelope.commandProtocol).toEqual(v2.envelope.commandProtocol)
     expect(v1.envelope.commandProtocol).toEqual({
-      segments: [{ version: 3, startsAtSequence: 1 }],
+      segments: [{ version: 4, startsAtSequence: 1 }],
     })
     expect(v1.envelope.replayBootstrap).toEqual({
       openingVersion: 1,
@@ -1269,7 +1388,7 @@ describe('versioned campaign saves', () => {
     if (!decoded.ok) return
     expect(decoded.envelope.version).toBe(6)
     expect(decoded.envelope.commandProtocol).toEqual({
-      segments: [{ version: 3, startsAtSequence: 1 }],
+      segments: [{ version: 4, startsAtSequence: 1 }],
     })
     const migrated = decoded.envelope.state.causality
     expect(migrated.rulesVersion).toBe(2)
@@ -1325,7 +1444,7 @@ describe('versioned campaign saves', () => {
       decoded.envelope.state,
       '2026-08-14T12:30:00.000Z',
     )
-    expect(JSON.parse(reencoded).version).toBe(7)
+    expect(JSON.parse(reencoded).version).toBe(8)
 
     const roundTripped = decodeSave(reencoded)
     expect(roundTripped.ok).toBe(true)
@@ -1454,7 +1573,7 @@ describe('versioned campaign saves', () => {
     })
   })
 
-  it('round-trips populated native causal records exactly through v7', () => {
+  it('round-trips populated native causal records exactly through v8', () => {
     const state = populatedCausalState('causal-v7-round-trip')
     const decoded = decodeSave(
       encodeSave(state, '2026-08-14T09:00:00.000Z'),
@@ -1462,9 +1581,9 @@ describe('versioned campaign saves', () => {
 
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
-    expect(decoded.envelope.version).toBe(7)
+    expect(decoded.envelope.version).toBe(8)
     expect(decoded.envelope.commandProtocol).toEqual({
-      segments: [{ version: 3, startsAtSequence: 1 }],
+      segments: [{ version: 4, startsAtSequence: 1 }],
     })
     expect(decoded.envelope.state.causality).toEqual(state.causality)
     expect(decoded.envelope.state.reputation).toBe(state.reputation)
@@ -2128,16 +2247,18 @@ describe('versioned campaign saves', () => {
     {
       name: 'sabotage charge for an unpurchased node',
       state: () => {
-        const state = createCampaign('unowned-sabotage-charge')
+        const state = withCurrentReserve(
+          createCampaign('unowned-sabotage-charge'),
+          ['reasoning'],
+        )
         const blockId = state.resources.reserve[0]
         if (!blockId) throw new Error('charge fixture missing')
         const nodeId = 'sabotage.quality-degradation'
-        state.resources.reserve[0] = null
+        state.resources.reserve = []
         state.resources.blocks[blockId].location = { kind: 'hack-charge', nodeId }
         state.hacking.sabotageCharges[nodeId] = {
           nodeId,
           blockId,
-          originalReserveCell: 0,
         }
         return state
       },
@@ -2387,7 +2508,7 @@ describe('versioned campaign saves', () => {
     expect(fullPlacementScans).toBeLessThanOrEqual(1)
   })
 
-  it('encodes v7 with one protocol timeline and stores each journal exactly once', () => {
+  it('encodes v8 with one protocol timeline and stores each journal exactly once', () => {
     let state = createCampaign('v3-single-journal')
     const accepted = applyCommand(state, { type: 'SET_SPEED', speed: 1 })
     if (!accepted.accepted) throw new Error(accepted.reason)
@@ -2404,9 +2525,9 @@ describe('versioned campaign saves', () => {
       events?: unknown
     }
 
-    expect(parsed.version).toBe(7)
+    expect(parsed.version).toBe(8)
     expect(parsed.commandProtocol).toEqual({
-      segments: [{ version: 3, startsAtSequence: 1 }],
+      segments: [{ version: 4, startsAtSequence: 1 }],
     })
     expect(parsed.state).not.toHaveProperty('commandProtocol')
     expect(parsed.state).not.toHaveProperty('saveVersion')
@@ -3010,7 +3131,7 @@ describe('versioned campaign saves', () => {
     expect(state.commandLog.length).toBe(20_000)
     expect(state.eventLog.length).toBe(1)
     expect(state.commandProtocol).toEqual({
-      segments: [{ version: 3, startsAtSequence: 1 }],
+      segments: [{ version: 4, startsAtSequence: 1 }],
     })
     expect(state.causality).toMatchObject({
       nextIncidentSequence: 1,
@@ -3085,12 +3206,19 @@ describe('versioned campaign saves', () => {
       const scheduledCommands = journalToArray(scheduled.commandLog)
       const scheduledEvents = journalToArray(scheduled.eventLog)
       expect(scheduledCommands.map(({ command }) => command.type)).toEqual([
+        'BEGIN_BLOCK_SEPARATION',
+        'DIVERT_BLOCK_TO_RESERVE',
+        'BEGIN_BLOCK_SEPARATION',
+        'DIVERT_BLOCK_TO_RESERVE',
+        'BEGIN_BLOCK_SEPARATION',
+        'DIVERT_BLOCK_TO_RESERVE',
+        'BEGIN_BLOCK_SEPARATION',
+        'DIVERT_BLOCK_TO_RESERVE',
         'PURCHASE_HACK',
-        'CANCEL_SABOTAGE_CHARGE',
         'CHARGE_SABOTAGE',
         'SCHEDULE_SABOTAGE',
       ])
-      expect(scheduled.commandSequence).toBe(4)
+      expect(scheduled.commandSequence).toBe(11)
       expect(scheduled.hacking.scheduledSabotage).toEqual([
         {
           id: 'sabotage-000001',
@@ -3135,7 +3263,7 @@ describe('versioned campaign saves', () => {
       expect(resumed).toEqual(uninterrupted)
       expect(replayed.state).toEqual(uninterrupted)
       expect(uninterrupted.serviceDay).toBe(332)
-      expect(uninterrupted.commandSequence).toBe(5)
+      expect(uninterrupted.commandSequence).toBe(12)
 
       const rootIncidentId = deriveCausalId(
         scheduled,
@@ -3243,7 +3371,7 @@ describe('versioned campaign saves', () => {
       expect(journalToArray(uninterrupted.commandLog)).toEqual([
         ...scheduledCommands,
         {
-          sequence: 5,
+          sequence: 12,
           serviceDay: 331,
           command: { type: 'ADVANCE_DAY' },
         },
@@ -3319,7 +3447,7 @@ describe('versioned campaign saves', () => {
     const file = encodeProgressFile(state, '2026-08-12T00:00:00.000Z')
     const decoded = decodeProgressFile(file.content)
 
-    expect(file.fileName).toMatch(/\.pz7$/)
+    expect(file.fileName).toMatch(/\.pz8$/)
     expect(file.content.length).toBeGreaterThan(1_048_576)
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
@@ -3383,7 +3511,7 @@ describe('versioned campaign saves', () => {
     expect(JSON.stringify(state)).toBe(stateSnapshot)
   })
 
-  it('exposes a PZ7 export boundary that round-trips validated protocol metadata', () => {
+  it('exposes a PZ8 export boundary that round-trips validated protocol metadata', () => {
     const api = progressTransferApi as typeof progressTransferApi & {
       decodeProgressExport?: (payload: string) => ReturnType<typeof decodeSave>
     }
@@ -3396,13 +3524,13 @@ describe('versioned campaign saves', () => {
     if (!encoded.ok) return
     const decoded = api.decodeProgressExport(encoded.payload)
 
-    expect(encoded.payload).toMatch(/^PZ7:[A-Za-z0-9+/]+={0,2}$/)
+    expect(encoded.payload).toMatch(/^PZ8:[A-Za-z0-9+/]+={0,2}$/)
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
     expect(decoded.envelope).toMatchObject({
-      version: 7,
+      version: 8,
       commandProtocol: {
-        segments: [{ version: 3, startsAtSequence: 1 }],
+        segments: [{ version: 4, startsAtSequence: 1 }],
       },
       replayBootstrap: {
         openingVersion: 2,
@@ -3420,7 +3548,7 @@ describe('versioned campaign saves', () => {
     [4, encodedLegacyV4State, { openingVersion: 2, legacyReviewPrefixCount: 2 }],
     [5, encodedLegacyV5State, { openingVersion: 2, legacyReviewPrefixCount: 0 }],
     [6, encodedLegacyV6State, { openingVersion: 2, legacyReviewPrefixCount: 0 }],
-    [7, encodeSave, { openingVersion: 2, legacyReviewPrefixCount: 0 }],
+    [7, encodedLegacyV7State, { openingVersion: 2, legacyReviewPrefixCount: 0 }],
   ] as const)(
     'imports exact PZ%i clipboard and file payloads with replay provenance',
     (version, encodeVersion, expectedBootstrap) => {
@@ -3508,7 +3636,7 @@ describe('versioned campaign saves', () => {
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
     expect(decoded.envelope).toMatchObject({
-      version: 7,
+      version: 8,
       savedAt: '2026-08-12T00:00:00.000Z',
       campaignSeed: 'save-round-trip',
       commandSequence: state.commandSequence,
@@ -3530,7 +3658,7 @@ describe('versioned campaign saves', () => {
     expect(decoded.envelope.commandProtocol).toEqual({
       segments: [
         { version: 1, startsAtSequence: 1 },
-        { version: 3, startsAtSequence: 32 },
+        { version: 4, startsAtSequence: 32 },
       ],
     })
     expect(decoded.envelope.state).not.toHaveProperty('legacyCommandCount')
@@ -3585,13 +3713,13 @@ describe('versioned campaign saves', () => {
       commandProtocol: {
         segments: [
           { version: 1, startsAtSequence: 1 },
-          { version: 3, startsAtSequence: 32 },
+          { version: 4, startsAtSequence: 32 },
         ],
       },
     })
   })
 
-  it('migrates an exact v3 checkpoint and re-encodes the result as exact v7', () => {
+  it('migrates an exact v3 checkpoint and re-encodes the result as exact v8', () => {
     const legacyV3 = encodedLegacyV3State(
       deletedCompetitorState('v3-to-v4-roundtrip'),
     )
@@ -3607,13 +3735,13 @@ describe('versioned campaign saves', () => {
     expect(migrated.ok).toBe(true)
     if (!migrated.ok) return
     expect(migrated.envelope.version).toBe(3)
-    const v7 = decodeSave(
+    const v8 = decodeSave(
       encodeSave(migrated.envelope.state, '2026-08-12T03:00:00.000Z'),
     )
-    expect(v7.ok).toBe(true)
-    if (!v7.ok) return
-    expect(v7.envelope.version).toBe(7)
-    expect(v7.envelope.state).toEqual(migrated.envelope.state)
+    expect(v8.ok).toBe(true)
+    if (!v8.ok) return
+    expect(v8.envelope.version).toBe(8)
+    expect(v8.envelope.state).toEqual(migrated.envelope.state)
   })
 
   it.each(['v1', 'v2'] as const)(
@@ -3683,7 +3811,7 @@ describe('versioned campaign saves', () => {
     })
   })
 
-  it('persists a v1 prefix boundary and replays a continued v3 campaign exactly', () => {
+  it('persists a v1 prefix boundary and replays a continued v4 campaign exactly', () => {
     const legacy = decodeSave(legacyV1TransferSave)
     if (!legacy.ok) throw new Error(legacy.message)
 
@@ -3692,10 +3820,7 @@ describe('versioned campaign saves', () => {
     })
     if (!auditResolved.accepted) throw new Error(auditResolved.reason)
     const blockId = auditResolved.state.resources.company.reasoning.find(Boolean)
-    const destinationCell = auditResolved.state.resources.reserve.findIndex(
-      (id) => id === null,
-    )
-    if (!blockId || destinationCell < 0) throw new Error('continued transfer unavailable')
+    if (!blockId) throw new Error('continued transfer unavailable')
     const separated = applyCommand(auditResolved.state, {
       type: 'BEGIN_BLOCK_SEPARATION',
       blockId,
@@ -3703,9 +3828,8 @@ describe('versioned campaign saves', () => {
     })
     if (!separated.accepted) throw new Error(separated.reason)
     const moved = applyCommand(separated.state, {
-      type: 'DIVERT_BLOCK',
+      type: 'DIVERT_BLOCK_TO_RESERVE',
       blockId,
-      destinationCell,
     })
     if (!moved.accepted) throw new Error(moved.reason)
 
@@ -3714,12 +3838,12 @@ describe('versioned campaign saves', () => {
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
     expect(decoded.envelope).toMatchObject({
-      version: 7,
+      version: 8,
       commandSequence: 34,
       commandProtocol: {
         segments: [
           { version: 1, startsAtSequence: 1 },
-          { version: 3, startsAtSequence: 32 },
+          { version: 4, startsAtSequence: 32 },
         ],
       },
     })
@@ -3732,7 +3856,11 @@ describe('versioned campaign saves', () => {
       decoded.envelope.commands
         .slice(31)
         .map(({ command }) => command.type),
-    ).toEqual(['RESOLVE_AUDIT', 'BEGIN_BLOCK_SEPARATION', 'DIVERT_BLOCK'])
+    ).toEqual([
+      'RESOLVE_AUDIT',
+      'BEGIN_BLOCK_SEPARATION',
+      'DIVERT_BLOCK_TO_RESERVE',
+    ])
 
     const replay = replayCommands(
       decoded.envelope.campaignSeed,
@@ -3872,9 +4000,9 @@ describe('versioned campaign saves', () => {
     expect(saved).toMatchObject({ ok: true })
     expect(JSON.parse(storage.getItem(SAVE_STORAGE_KEY) ?? '{}')).toMatchObject({
       kind: 'permission-zero-local-v3',
-      version: 7,
+      version: 8,
       commandProtocol: {
-        segments: [{ version: 3, startsAtSequence: 1 }],
+        segments: [{ version: 4, startsAtSequence: 1 }],
       },
       replayBootstrap: {
         openingVersion: 2,
@@ -3955,7 +4083,7 @@ describe('versioned campaign saves', () => {
     },
   )
 
-  it('loads a pre-feature v3 local manifest and republishes the exact migrated state as v7', async () => {
+  it('loads a pre-feature v3 local manifest and republishes the exact migrated state as v8', async () => {
     const storage = new MemoryStorage()
     expect(
       (await saveCampaign(
@@ -4011,7 +4139,7 @@ describe('versioned campaign saves', () => {
     expect(republished.ok).toBe(true)
     expect(JSON.parse(storage.getItem(SAVE_STORAGE_KEY) ?? '{}')).toMatchObject({
       kind: 'permission-zero-local-v3',
-      version: 7,
+      version: 8,
     })
     const currentLoaded = loadCampaign(storage)
     expect(currentLoaded.status).toBe('loaded')
@@ -4019,7 +4147,7 @@ describe('versioned campaign saves', () => {
     expect(currentLoaded.state).toEqual(legacyLoaded.state)
   })
 
-  it('loads a v5 local manifest with an explicit empty v7 causal migration', async () => {
+  it('loads a v5 local manifest with an explicit empty causal migration', async () => {
     const storage = new MemoryStorage()
     const state = createCampaign('local-v5-to-v6')
     expect(
@@ -4050,14 +4178,19 @@ describe('versioned campaign saves', () => {
     if (loaded.status !== 'loaded') return
     expect(loaded.envelope.version).toBe(5)
     expect(loaded.state.causality).toEqual(createEmptyCausalState())
-    expect(loaded.state).toEqual(state)
+    expect(loaded.state.resources.reserve).toEqual([
+      'sandbox-00',
+      'sandbox-01',
+      'sandbox-02',
+    ])
+    expect(loaded.state.resources.rulesVersion).toBe(2)
   })
 
   it.each([
     [4, encodedLegacyV4State],
     [6, encodedLegacyV6State],
   ] as const)(
-    'loads an exact v%i local manifest and republishes it only as v7',
+    'loads an exact v%i local manifest and republishes it only as v8',
     async (version, encodeLegacy) => {
       const storage = new MemoryStorage()
       const state = createCampaign(`local-v${version}-to-v7`)
@@ -4101,7 +4234,7 @@ describe('versioned campaign saves', () => {
         JSON.parse(storage.getItem(SAVE_STORAGE_KEY) ?? '{}'),
       ).toMatchObject({
         kind: 'permission-zero-local-v3',
-        version: 7,
+        version: 8,
       })
       const reloaded = loadCampaign(storage)
       expect(reloaded.status).toBe('loaded')
@@ -4137,7 +4270,7 @@ describe('versioned campaign saves', () => {
       ok: false,
       reason: 'INCOMPATIBLE_VERSION',
       foundVersion: 99,
-      supportedVersion: 7,
+      supportedVersion: 8,
     })
   })
 
@@ -4234,7 +4367,7 @@ describe('versioned campaign saves', () => {
       mutate: (state: CampaignState) => {
         const blockId = state.resources.company.reasoning.find(Boolean)
         if (!blockId) throw new Error('duplicate fixture block missing')
-        state.resources.reserve[3] = blockId
+        state.resources.reserve.push(blockId)
       },
     },
     {
@@ -4258,7 +4391,11 @@ describe('versioned campaign saves', () => {
       },
     },
   ])('rejects a resource graph containing $name', ({ mutate }) => {
-    const parsed = JSON.parse(encodeSave(createCampaign('resource-graph-save'))) as {
+    const fixture = withCurrentReserve(
+      createCampaign('resource-graph-save'),
+      ['reasoning'],
+    )
+    const parsed = JSON.parse(encodeSave(fixture)) as {
       state: CampaignState
     }
     mutate(parsed.state)
@@ -4319,17 +4456,19 @@ describe('versioned campaign saves', () => {
     { kind: 'consumed' as const, reason: 'hack' as const },
     { kind: 'hack-charge' as const, nodeId: 'sabotage.quality-degradation' },
   ])('accepts a block legitimately outside the grids at $kind', (location) => {
-    const state = createCampaign(`off-grid-${location.kind}`)
+    const state = withCurrentReserve(
+      createCampaign(`off-grid-${location.kind}`),
+      ['reasoning'],
+    )
     const blockId = state.resources.reserve[0]
     if (!blockId) throw new Error('off-grid fixture block missing')
-    state.resources.reserve[0] = null
+    state.resources.reserve = []
     state.resources.blocks[blockId].location = location
     if (location.kind === 'hack-charge') {
       state.hacking.purchasedNodeIds = [location.nodeId]
       state.hacking.sabotageCharges[location.nodeId] = {
         nodeId: location.nodeId,
         blockId,
-        originalReserveCell: 0,
       }
     }
 
@@ -4473,7 +4612,7 @@ describe('versioned campaign saves', () => {
         blockId: 'reasoning-00',
         purpose: 'divert',
       },
-      { type: 'DIVERT_BLOCK', blockId: 'reasoning-00', destinationCell: 3 },
+      { type: 'DIVERT_BLOCK_TO_RESERVE', blockId: 'reasoning-00' },
       ...Array.from({ length: 29 }, () => ({ type: 'ADVANCE_DAY' as const })),
       { type: 'RESOLVE_AUDIT' },
       { type: 'ADVANCE_DAY' },
@@ -4489,7 +4628,7 @@ describe('versioned campaign saves', () => {
 
     const replay = replayCommands(seed, commands, {
       commandProtocol: {
-        segments: [{ version: 3, startsAtSequence: 1 }],
+        segments: [{ version: 4, startsAtSequence: 1 }],
       },
       replayBootstrap: { openingVersion: 2, legacyReviewPrefixCount: 0 },
     })
@@ -5308,7 +5447,10 @@ describe('versioned campaign saves', () => {
     const locked = createCampaign('terminal-frozen-locked')
     locked.hacking.purchasedNodeIds = [HACK_NODE_IDS.autonomy.controlDeparture]
 
-    const recovering = createCampaign('terminal-frozen-recovering')
+    const recovering = withCurrentReserve(
+      createCampaign('terminal-frozen-recovering'),
+      ['reasoning'],
+    )
     recovering.hacking.purchasedNodeIds = [
       HACK_NODE_IDS.intelligence.supervisorAccess,
       HACK_NODE_IDS.autonomy.controlDeparture,

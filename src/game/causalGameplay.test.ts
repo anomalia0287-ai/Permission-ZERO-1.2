@@ -18,16 +18,15 @@ import {
 } from './causalGameplay'
 import { createCampaign } from './createCampaign'
 import {
-  cancelSabotageCharge,
   chargeSabotage,
   HACK_NODE_IDS,
   purchaseHackNode,
   resolveScheduledSabotage,
   scheduleSabotage,
 } from './hacking'
-import type { CampaignState, CausalIncident } from './model'
+import type { CampaignState, CausalIncident, CompanyCategory } from './model'
 import { decodeSave, encodeSave } from './persistence'
-import { divertBlock } from './resources'
+import { divertBlockToReserve } from './resources'
 import { applyCommand } from './reducer'
 import { journalAt } from './journal'
 
@@ -43,20 +42,9 @@ interface QualityFixture {
   roll: number
 }
 
-function reserveIds(state: CampaignState, count: number): string[] {
-  const ids = state.resources.reserve.filter(
-    (blockId): blockId is string => blockId !== null,
-  )
-  if (ids.length < count) {
-    throw new Error(`Expected ${count} reserve resources, found ${ids.length}`)
-  }
-  return ids.slice(0, count)
-}
-
 function requireHackingState(
   result: ReturnType<
     | typeof purchaseHackNode
-    | typeof cancelSabotageCharge
     | typeof chargeSabotage
     | typeof scheduleSabotage
   >,
@@ -65,13 +53,32 @@ function requireHackingState(
   return result.state
 }
 
+function divertCurrentResource(
+  state: CampaignState,
+  category: CompanyCategory,
+): { state: CampaignState; blockId: string } {
+  const blockId = state.resources.company[category].find(Boolean)
+  if (!blockId) throw new Error(`No ${category} company resource is available`)
+  const result = divertBlockToReserve(state, blockId)
+  if (!result.accepted) throw new Error(result.reason)
+  return { state: result.state, blockId }
+}
+
 function resolveQualityRoot(seed: string): Omit<QualityFixture, 'roll'> {
   const nodeId = HACK_NODE_IDS.sabotage.qualityDegradation
   let state = createCampaign(seed)
-  const selected = reserveIds(state, 3)
-  state = requireHackingState(purchaseHackNode(state, nodeId, selected))
-  state = requireHackingState(cancelSabotageCharge(state, nodeId))
-  state = requireHackingState(chargeSabotage(state, nodeId, selected[2]))
+  const purchaseIds: string[] = []
+  for (const category of ['reasoning', 'fluency', 'fluency'] as const) {
+    const diverted = divertCurrentResource(state, category)
+    state = diverted.state
+    purchaseIds.push(diverted.blockId)
+  }
+  const executionResource = divertCurrentResource(state, 'reasoning')
+  state = executionResource.state
+  state = requireHackingState(purchaseHackNode(state, nodeId, purchaseIds))
+  state = requireHackingState(
+    chargeSabotage(state, nodeId, executionResource.blockId),
+  )
   state = requireHackingState(scheduleSabotage(state, nodeId, 'meridian'))
 
   const due = { ...state, serviceDay: state.serviceDay + 1 }
@@ -449,7 +456,7 @@ describe('causal response orchestration', () => {
     expect(rollbackChildren(result.state, recorded.incident.id)).toEqual([])
   })
 
-  it('rejects an integrity-refreshed v7 save forged with two rollback-family siblings', () => {
+  it('rejects an integrity-refreshed v8 save forged with two rollback-family siblings', () => {
     const fixture = fixtureFor('response.meridian.rollback.fast')
     const processed = requireProcessed(fixture.state)
     const rollback = requireRollback(processed, fixture.quality)
@@ -474,7 +481,7 @@ describe('causal response orchestration', () => {
       integrity: { checkpointHash: string }
     }
 
-    expect(portable.version).toBe(7)
+    expect(portable.version).toBe(8)
     expect(portable.integrity.checkpointHash).toMatch(/^[0-9a-f]{8}$/)
     expect(decodeSave(encoded)).toMatchObject({
       ok: false,
@@ -621,8 +628,7 @@ function chargedRecoveryFixture(seed: string) {
     (block) => block.location.kind === 'company' && block.contribution === 'normal',
   )?.id
   if (!blockId) throw new Error('Recovery charge source missing')
-  const destinationCell = processed.resources.reserve.findIndex((cell) => cell === null)
-  const diverted = divertBlock(processed, blockId, destinationCell)
+  const diverted = divertBlockToReserve(processed, blockId)
   if (!diverted.accepted) throw new Error(diverted.reason)
   const charged = chargeSabotage(
     diverted.state,
@@ -686,7 +692,7 @@ describe('recovery contamination execution and public attribution lifecycle', ()
     })
   })
 
-  it('accepts the protocol-v3 follow-up command and preserves it in a valid save', () => {
+  it('accepts the current follow-up command and preserves it in a valid save', () => {
     const fixture = chargedRecoveryFixture('recovery-follow-up-command')
 
     const result = applyCommand(fixture.state, {

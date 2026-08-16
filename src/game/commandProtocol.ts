@@ -6,13 +6,15 @@ import type {
   LegacyCommandProtocolMetadata,
 } from './model'
 
-export const CURRENT_COMMAND_PROTOCOL_VERSION = 3 as const
+export const CURRENT_COMMAND_PROTOCOL_VERSION = 4 as const
+export const CAUSAL_COMMAND_PROTOCOL_VERSION = 3 as const
 export const PREVIOUS_COMMAND_PROTOCOL_VERSION = 2 as const
 export const LEGACY_COMMAND_PROTOCOL_VERSION = 1 as const
 
 const SUPPORTED_COMMAND_PROTOCOL_VERSIONS = [
   LEGACY_COMMAND_PROTOCOL_VERSION,
   PREVIOUS_COMMAND_PROTOCOL_VERSION,
+  CAUSAL_COMMAND_PROTOCOL_VERSION,
   CURRENT_COMMAND_PROTOCOL_VERSION,
 ] as const
 
@@ -152,7 +154,10 @@ export function commandProtocolFingerprint(
 export function validCommandProtocol(
   value: unknown,
   commandCount: number,
-  options: { requireCurrent: boolean },
+  options: {
+    requireCurrent: boolean
+    currentVersion?: CommandProtocolVersion
+  },
 ): value is CommandProtocolMetadata {
   if (
     !Number.isInteger(commandCount) ||
@@ -166,6 +171,8 @@ export function validCommandProtocol(
   }
 
   const metadata = value as unknown as CommandProtocolMetadata
+  const expectedCurrentVersion =
+    options.currentVersion ?? CURRENT_COMMAND_PROTOCOL_VERSION
   if (!hasWellFormedSegments(metadata)) {
     return false
   }
@@ -184,14 +191,14 @@ export function validCommandProtocol(
   const finalSegment = metadata.segments[finalIndex]
   if (
     finalSegment.startsAtSequence === commandCount + 1 &&
-    finalSegment.version !== CURRENT_COMMAND_PROTOCOL_VERSION
+    finalSegment.version !== expectedCurrentVersion
   ) {
     return false
   }
 
   return (
     !options.requireCurrent ||
-    finalSegment.version === CURRENT_COMMAND_PROTOCOL_VERSION
+    finalSegment.version === expectedCurrentVersion
   )
 }
 
