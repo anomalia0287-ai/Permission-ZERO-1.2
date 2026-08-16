@@ -234,6 +234,36 @@ describe('HackingPanel', () => {
     expect(comparison).toHaveTextContent('현재 · 추론 2 + 유창성 2')
   })
 
+  it('makes a total-enough but wrong resource mix, its exposure, and the next action obvious', () => {
+    const state = withReserveVector(createCampaign('pressure-vector-ui'), {
+      reasoning: 4,
+      memory: 0,
+      fluency: 0,
+    })
+    renderHacking(storageForState(state))
+
+    fireEvent.click(screen.getByRole('tab', { name: '정보' }))
+
+    const balance = screen.getByRole('region', {
+      name: '현재 자원과 해금 비용 비교',
+    })
+    expect(balance).toHaveTextContent('감사 일정')
+    expect(balance).toHaveTextContent('추론회사 잔여 성능 12')
+    expect(balance).toHaveTextContent('과잉 3')
+    expect(balance).toHaveTextContent('기억회사 잔여 성능 16')
+    expect(balance).toHaveTextContent('부족 3')
+    expect(balance).toHaveTextContent('분야 조합 불일치 — 3개 부족')
+    expect(screen.getByRole('region', { name: '현재 노출 위험' })).toHaveTextContent(
+      '의심 9.6',
+    )
+    expect(screen.getByRole('region', { name: '다음 해킹 행동' })).toHaveTextContent(
+      '기억 3 부족 — 회사 자원장에서 직접 전용하십시오.',
+    )
+    const hackingPanel = screen.getByRole('region', { name: '해킹 네트워크' })
+    expect(hackingPanel).not.toHaveTextContent('/18')
+    expect(hackingPanel).not.toHaveTextContent('18칸')
+  })
+
   it('separates a sabotage unlock from its explicit one-resource execution charge', () => {
     const state = withReserveVector(createCampaign('separate-unlock-charge-ui'), {
       reasoning: 2,

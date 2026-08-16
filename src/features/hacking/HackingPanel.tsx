@@ -9,15 +9,22 @@ import {
   usePauseOwnership,
 } from '../../app/GameContext'
 import { selectRecoveryContaminationOpportunities } from '../../game/causalGameplay'
-import { auditProbability, getAuditIntel } from '../../game/evaluation'
+import { CATEGORY_LABELS } from '../../game/config'
+import {
+  auditProbability,
+  getAuditIntel,
+  getSuspicionBand,
+} from '../../game/evaluation'
 import {
   getHackTreeProgress,
   HACK_NODE_IDS,
   HACK_NODES,
+  reserveOriginCounts,
   type HackNodeDefinition,
   type HackNodeId,
   type HackTree,
 } from '../../game/hacking'
+import { COMPANY_CATEGORIES } from '../../game/model'
 import { availableFinalChoices } from '../../game/story'
 import { message } from '../../i18n/messages'
 import { HackDepartureControls } from './HackDepartureControls'
@@ -67,6 +74,14 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
   const reserveBlockOrigins = Object.fromEntries(
     reserveBlocks.map(({ id, origin }) => [id, origin]),
   )
+  const reserveCounts = reserveOriginCounts(state)
+  const activeFrontierNode = nodes.find((node) => {
+    if (state.hacking.purchasedNodeIds.includes(node.id)) return false
+    return (
+      node.prerequisiteId === null ||
+      state.hacking.purchasedNodeIds.includes(node.prerequisiteId)
+    )
+  }) ?? null
   const staging = useHackResourceStaging({
     reserveBlockIds,
     reserveBlockOrigins,
@@ -79,6 +94,47 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
   const showFirstHackComparison = state.hacking.purchasedNodeIds.length === 0
   const auditIntel = getAuditIntel(state)
   const nextAuditProbability = auditProbability(state.suspicion)
+  const suspicionBand = getSuspicionBand(state.suspicion)
+  const focusedNode = staging.target?.nodeId
+    ? HACK_NODES.find(({ id }) => id === staging.target?.nodeId) ?? activeFrontierNode
+    : activeFrontierNode
+  const focusedVector = staging.target
+    ? staging.target.requiredVector
+    : activeFrontierNode?.costVector
+  const focusedShortfalls = focusedVector
+    ? COMPANY_CATEGORIES.map((category) => ({
+        category,
+        amount: Math.max(0, focusedVector[category] - reserveCounts[category]),
+      })).filter(({ amount }) => amount > 0)
+    : []
+  const shortfallTotal = focusedShortfalls.reduce((total, { amount }) => total + amount, 0)
+  const pendingExecutionNode = nodes.find(
+    (node) =>
+      node.tree === 'sabotage' &&
+      state.hacking.purchasedNodeIds.includes(node.id) &&
+      !state.hacking.sabotageCharges[node.id] &&
+      !state.hacking.scheduledSabotage.some(({ nodeId }) => nodeId === node.id),
+  )
+  const nextAction = staging.target
+    ? staging.ready
+      ? staging.target.mode === 'purchase'
+        ? '조합 완성 — 해금 확정을 승인하십시오.'
+        : '실행 자원 장착 완료 — 충전을 확정하십시오.'
+      : staging.target.requiredVector
+        ? `투입 대기 — ${staging.stagedBlockIds.length}/${staging.target.requiredResources} 연결됨.`
+        : `실행 자원 ${staging.stagedBlockIds.length}/${staging.target.requiredResources} 연결됨.`
+    : pendingExecutionNode
+      ? `${pendingExecutionNode.label} 해금 완료 — 실행은 자동 시작되지 않습니다. 별도 자원 1개를 장착하거나 다음 해금을 비축하십시오.`
+    : activeFrontierNode
+      ? shortfallTotal === 0
+        ? `${activeFrontierNode.label} 요구 조합 확보 — 침투 조합을 준비하십시오.`
+        : `${focusedShortfalls
+            .map(({ category, amount }) => `${CATEGORY_LABELS[category]} ${amount}`)
+            .join(' · ')} 부족 — 회사 자원장에서 직접 전용하십시오.`
+      : treeProgress.complete
+        ? '이 경로의 모든 접근 권한이 열렸습니다.'
+        : '공개된 최전선 신호를 기다리는 중입니다.'
+  const nextActionLabel = staging.target?.label ?? pendingExecutionNode?.label ?? focusedNode?.label ?? 'ROUTE COMPLETE'
   const openRecoveryOpportunity = selectRecoveryContaminationOpportunities(state).find(
     ({ status }) => status === 'open',
   )
@@ -247,6 +303,7 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
     <section
       className="detail-panel hacking-panel hacking-panel--paper"
       aria-label={message(settings.locale, 'hacking.panel.label', {})}
+      data-pressure={suspicionBand.id}
       onKeyDownCapture={(event) => {
         if (event.key === 'Escape' && staging.target !== null) {
           event.stopPropagation()
@@ -262,16 +319,29 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
             </svg>
           </span>
           <div>
-            <span>{message(settings.locale, 'hacking.panel.eyebrow', {})}</span>
+            <span>BLACKSITE // 비인가 침투망</span>
             <h2>{message(settings.locale, 'hacking.panel.title', {})}</h2>
           </div>
         </div>
+        <section className="hacking-panel__threat" aria-label="현재 노출 위험">
+          <div>
+            <span>TRACE EXPOSURE</span>
+            <strong>의심 {state.suspicion.toFixed(1)}</strong>
+            <small>{suspicionBand.label}</small>
+          </div>
+          <span className="hacking-panel__threat-track" aria-hidden="true">
+            <i style={{ width: `${Math.min(100, state.suspicion)}%` }} />
+            <b data-threshold="40" />
+            <b data-threshold="70" />
+          </span>
+          <em>다음 달 감사 {(nextAuditProbability * 100).toFixed(1)}%</em>
+        </section>
         <div className="hacking-panel__summary">
-          <strong>
-            {message(settings.locale, 'hacking.pocket.count', {
-              count: reserveBlocks.length,
-            })}
-          </strong>
+          <div>
+            <span>확보 자원</span>
+            <strong>{reserveBlocks.length}</strong>
+            <small>{pendingExecutionNode ? '해금됨 · 실행 자원 미장착' : '상한 없음 · 흔적은 잔류'}</small>
+          </div>
           <button
             type="button"
             className="hacking-panel__close"
@@ -295,13 +365,26 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
         inert={endingConfirmation ? true : undefined}
       >
         <HackTreeNavigator
+          state={state}
           activeTree={activeTree}
           progress={treeProgress}
+          reserveCounts={reserveCounts}
           showFirstComparison={showFirstHackComparison}
           onChange={changeTree}
         />
 
         <div className="hack-network-stage">
+          <section className="hack-pressure-brief" aria-label="다음 해킹 행동">
+            <span className="hack-pressure-brief__signal" aria-hidden="true"><i /></span>
+            <div>
+              <small>NEXT ACTION // {nextActionLabel}</small>
+              <strong>{nextAction}</strong>
+            </div>
+            <div className="hack-pressure-brief__unknown">
+              <span>다음 단계</span>
+              <strong>비용 · 효과 암호화</strong>
+            </div>
+          </section>
           <HackNodePath
             state={state}
             activeTree={activeTree}
@@ -347,6 +430,9 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
           reserveBlocks={reserveBlocks}
           stagedBlockIds={staging.stagedBlockIds}
           target={staging.target}
+          focusNode={focusedNode}
+          nextAuditProbability={nextAuditProbability}
+          suspicionBand={suspicionBand}
           getActiveTargetElement={getActiveTargetElement}
           onStage={stageResource}
           onInvalidDrop={() =>

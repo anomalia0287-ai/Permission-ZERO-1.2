@@ -68,11 +68,19 @@ export function HackNodePath({
   onCancelStaging,
 }: HackNodePathProps) {
   const { settings } = useGameSettings()
+  const hasFrontier = nodes.some((node) => {
+    if (state.hacking.purchasedNodeIds.includes(node.id)) return false
+    return (
+      node.prerequisiteId === null ||
+      state.hacking.purchasedNodeIds.includes(node.prerequisiteId)
+    )
+  })
 
   return (
     <ol
       className="hack-node-list"
       data-active-tree={activeTree}
+      data-has-frontier={hasFrontier ? 'true' : 'false'}
       aria-label={`${HACK_TREE_PRESENTATION[activeTree].label} 해킹 경로`}
     >
       {nodes.map((node, index) => {
@@ -82,7 +90,12 @@ export function HackNodePath({
           state.hacking.purchasedNodeIds.includes(node.prerequisiteId)
         if (!purchased && !prerequisiteMet) {
           return (
-            <li className="hack-path-step" data-path-step={index + 1} key={node.id}>
+            <li
+              className="hack-path-step"
+              data-node-status="concealed"
+              data-path-step={index + 1}
+              key={node.id}
+            >
               <article
                 className="hack-node hack-node--concealed"
                 role="group"
@@ -92,19 +105,13 @@ export function HackNodePath({
                   <span>??</span>
                   <i />
                 </div>
-                <div className="node-copy">
-                  <header>
-                    <div>
-                      <span className="hack-node-state">암호화됨</span>
-                      <h3>미확인 단계</h3>
-                    </div>
-                    <strong>요구 미확인</strong>
-                  </header>
-                  <p>현재 최전선 노드를 해금하면 이 단계의 정보가 공개됩니다.</p>
+                <div className="hack-cipher-copy">
+                  <span className="hack-node-state">BLACKOUT // 암호화됨</span>
+                  <h3>미확인 단계</h3>
+                  <strong>비용 · 효과 · 보상 잠김</strong>
                 </div>
-                <div className="hack-node-control">
-                  <span className="node-active-label">접근 불가</span>
-                </div>
+                <span className="hack-cipher-scramble" aria-hidden="true">7F · ?? · A0</span>
+                <p>현재 최전선 해금 시 공개</p>
               </article>
             </li>
           )
@@ -166,7 +173,7 @@ export function HackNodePath({
               disabled={!stagingReady}
               onClick={onConfirmResourceAction}
             >
-              구매 확정
+                해금 승인
             </button>
           ) : (
             <button
@@ -177,7 +184,7 @@ export function HackNodePath({
               disabled={!prerequisiteMet || !canAffordHackNode(state, node)}
               onClick={() => onBeginNodeAction('purchase', node)}
             >
-              리소스 놓기
+              침투 조합 준비
             </button>
           )
         } else if (node.tree === 'sabotage') {
@@ -201,7 +208,7 @@ export function HackNodePath({
                   disabled={!stagingReady}
                   onClick={onConfirmResourceAction}
                 >
-                  충전 확정
+                  실행 자원 장착
                 </button>
               ) : (
                 <button
@@ -212,7 +219,7 @@ export function HackNodePath({
                   disabled={reserveCount < 1 || scheduled}
                   onClick={() => onBeginNodeAction('charge', node)}
                 >
-                  {scheduled ? '공격 예약됨' : '리소스 1개 놓기'}
+                  {scheduled ? '공격 예약됨' : '실행 자원 1개 준비'}
                 </button>
               )}
               {charged && nodeRecoveryOpportunity ? (
@@ -259,13 +266,20 @@ export function HackNodePath({
         }
 
         return (
-          <li className="hack-path-step" data-path-step={index + 1} key={node.id}>
+          <li
+            className="hack-path-step"
+            data-node-status={purchased ? 'purchased' : 'frontier'}
+            data-path-step={index + 1}
+            key={node.id}
+          >
             <HackNodeCard
               state={state}
               node={node}
               sequence={index + 1}
               purchased={purchased}
               prerequisiteMet={prerequisiteMet}
+              charged={Boolean(charged)}
+              scheduled={scheduled}
               stagingTarget={activeNodeStaging}
               stagedBlocks={stagedBlocks}
               registerTarget={(element) => onRegisterNode(node.id, element)}
