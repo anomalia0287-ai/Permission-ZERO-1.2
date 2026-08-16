@@ -7,6 +7,8 @@
 - 상위 판정: `docs/design/2026-08-14-hacking-integration-verdict.ko.md`
 - 선행 계약: `docs/research/2026-08-14-hacking-integration-stage-1-contract.ko.md`
 
+> **2026-08-16 상태 갱신:** 위 상태와 기준 커밋은 이 문서가 처음 작성된 시점의 기록이다. Stage 2B-1 공개 인과 기반은 이후 `main`에 반영됐고, Stage 2B-2/2B-3 작업 중간 상태는 로컬 체크포인트 `26a448c`에 보존돼 있다. 그러나 전체 Stage 2B와 최신 리소스·해킹 경제는 완료되지 않았다. 이 문서의 인과·저장·프로토콜 경계는 계속 유효하지만, 범용 리소스 비용·상한 18·미래 노드 공개에 기대는 부분은 [`2026-08-16-hacking-resource-uncertainty-contract.ko.md`](2026-08-16-hacking-resource-uncertainty-contract.ko.md)가 대체한다.
+
 ## 1. 결론
 
 수정 2단계 B는 프로토타입을 병합하거나 곧바로 게임플레이를 늘리는 단계가 아니다. 다음 구현이 과거 저장·명령 재현·정보 경계를 깨지 않도록 **인과 결과 계약을 먼저 고정하는 단계**다.

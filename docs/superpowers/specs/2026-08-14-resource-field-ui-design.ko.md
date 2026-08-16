@@ -1,5 +1,7 @@
 # PERMISSION ZERO — 부유 자원장·감사 변환대·다국어 표시 경계 설계
 
+> **후속 개정 알림 — 2026-08-16:** 무슬롯 확보 영역, 하드 상한 제거, 분야별 정확 조합 비용, 현재 최전선만 공개하는 해킹 규칙은 [`2026-08-16-hacking-resource-uncertainty-contract.ko.md`](2026-08-16-hacking-resource-uncertainty-contract.ko.md)가 우선한다. 이 문서의 `상한 18`, 빈 논리 셀, `/18`, 동일 모션 드라이버를 해킹 포켓에 재사용하는 조항은 현재 정본이 아니다. 회사 자원장 직접 조작·감사 변환·표시 상태 비저장 계약은 유지한다.
+
 - 작성일: 2026-08-14
 - 기준 브랜치: `codex/hacking-integration-stage-2b`
 - 기준 커밋: `c38853d`

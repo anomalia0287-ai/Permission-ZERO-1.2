@@ -1,5 +1,7 @@
 # Floating Resource Field Implementation Plan
 
+> **Status update — 2026-08-16:** Historical execution plan for the current WIP checkpoint `26a448c`. Its constraints preserving `reserve cap 18`, `reserve[cellIndex]`, and the deferred `hack-reserve-grid` do not govern the next hacking/resource rules slice. The authoritative follow-up is [`../specs/2026-08-16-hacking-resource-uncertainty-contract.ko.md`](../specs/2026-08-16-hacking-resource-uncertainty-contract.ko.md). Preserve this plan as execution history; do not silently rewrite its original task steps as if they were the new contract.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the product's static company/reserve grids with one readable, elastic floating resource arena where players drag real DOM blocks into a top-right reserve pocket or the single active audit/recovery bay, with equivalent keyboard and reduced-motion play.

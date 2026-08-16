@@ -5,6 +5,8 @@
 프로젝트 오너: **V**
 현재 판정: **기능 데모는 존재하지만, 시각 디자인은 승인되지 않았고 상용 출시 준비가 끝나지 않았다.**
 
+> **2026-08-16 후속 정본 안내:** 이 문서는 상용 품질·승인·릴리스 관문과 작품의 큰 방향을 계속 규정한다. 다만 아래에 남아 있는 `9×2`, 확보 상한 `18`, 범용 해킹 비용, `다음·최종` 보상 공개 등 리소스·해킹 경제의 옛 수치는 현재 규칙이 아니다. 해당 범위의 최신 정본은 [`docs/superpowers/specs/2026-08-16-hacking-resource-uncertainty-contract.ko.md`](docs/superpowers/specs/2026-08-16-hacking-resource-uncertainty-contract.ko.md)이며, 체크포인트 `26a448c`의 제품 코드는 아직 그 계약을 구현하지 않았다.
+
 ## 2026-08-13 저장소 정리 부록
 
 이 문서의 3절은 정리 전 워크트리 상태를 기록한 역사 자료다. 현재 작업 위치와 브랜치 기준은 [`docs/REPOSITORY_GUIDE.ko.md`](docs/REPOSITORY_GUIDE.ko.md)를 따른다.
@@ -90,12 +92,14 @@
 충돌이 생기면 다음 순서로 판단한다.
 
 1. 사용자 V가 가장 최근에 직접 확정한 지시
-2. [`PERMISSION_ZERO_STANDALONE_FINAL_SPEC.md`](C:/Users/V/Desktop/Permission%20ZERO%201.2/PERMISSION_ZERO_STANDALONE_FINAL_SPEC.md)
-3. 제품 브랜치의 실제 엔진·테스트·저장 호환성
-4. [`docs/research/2026-08-12-game-systems-design-reference-study.ko.md`](docs/research/2026-08-12-game-systems-design-reference-study.ko.md)
-5. [`docs/design/one-screen-brief.md`](docs/design/one-screen-brief.md)
-6. [`docs/spec-to-test-matrix.md`](docs/spec-to-test-matrix.md)
-7. 설계안·목업·WIP 문서
+2. [`해킹 자원 불확실성 정본 계약`](docs/superpowers/specs/2026-08-16-hacking-resource-uncertainty-contract.ko.md)의 적용 범위
+3. [`PERMISSION_ZERO_STANDALONE_FINAL_SPEC.md`](PERMISSION_ZERO_STANDALONE_FINAL_SPEC.md)의 후속 개정되지 않은 범위
+4. [`docs/HANDOFF-2026-08-15.ko.md`](docs/HANDOFF-2026-08-15.ko.md)의 현재 WIP 구조·검증 상태
+5. 제품 브랜치의 실제 엔진·테스트·저장 호환성
+6. [`docs/research/2026-08-12-game-systems-design-reference-study.ko.md`](docs/research/2026-08-12-game-systems-design-reference-study.ko.md)
+7. [`docs/design/one-screen-brief.md`](docs/design/one-screen-brief.md)
+8. [`docs/spec-to-test-matrix.md`](docs/spec-to-test-matrix.md)
+9. 그 밖의 설계안·목업·WIP 문서
 
 설계안이나 테스트가 명세보다 최신처럼 보여도 사용자 승인이 없으면 확정 사양이 아니다.
 
@@ -332,10 +336,10 @@ pnpm verify
 - 기밀자료는 **감사·감시·정보 해독과 불확실성 제거**가 중심이다.
 - 자율성은 **회사 의존·자체 연산·통제 이탈**이 중심이다.
 - 특정 화면에서 `권한 획득`을 표시명으로 쓸지 명세의 `자율성`을 유지할지는 V가 최종 결정한다. 임의로 바꾸지 않는다.
-- 구매 노드는 영구 해금이며, 실제 사보타주 공격은 해금 뒤 리소스 1 충전→적격 경쟁 AI 직접 선택→다음 날짜 틱 실행이다.
+- 구매 노드의 영구 해금과 직접 대상 선택은 유지한다. `해금 뒤 범용 리소스 1 충전`은 과거 구현 계약이며, 최신 규칙에서 해금 비용과 실행 충전을 어떻게 나눌지는 오너 판정 전 미확정이다.
 - 사보타주 노드에는 정성 흔적 위험만 보이고 현재 누적 증거 숫자는 숨긴다.
 
-명세의 비용과 능력 이름은 `PERMISSION_ZERO_STANDALONE_FINAL_SPEC.md` 8절을 따른다. 화면 설계가 비용 표를 바꾸지 않는다.
+영구 노드 ID와 경로·능력 이름은 `PERMISSION_ZERO_STANDALONE_FINAL_SPEC.md` 8절을 참조한다. 그 절의 범용 비용표는 폐기됐으며, 분야별 정확 비용 벡터는 최신 정본에 따라 오너 판정 전 임의 확정하지 않는다.
 
 ### 5.6 경쟁 AI와 시장
 

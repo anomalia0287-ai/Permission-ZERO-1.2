@@ -1,5 +1,7 @@
 # Hacking Integration Stage 2B-2 Quality Rollback Implementation Plan
 
+> **Status update — 2026-08-16:** This is the historical execution plan behind the Stage 2B-2 causal WIP preserved in checkpoint `26a448c`; do not rerun it as the current economy plan. Its instruction to preserve generic node costs and reserve cap 18 records the old protocol boundary, while new resource/hacking behavior is governed by [`../specs/2026-08-16-hacking-resource-uncertainty-contract.ko.md`](../specs/2026-08-16-hacking-resource-uncertainty-contract.ko.md). Its causal rollback, evidence, deterministic-ID, and legacy-replay constraints remain relevant unless separately superseded.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Connect the existing quality-degradation sabotage to an atomic native causal root, a knowledge-bounded MERIDIAN rollback response, and a derived 2/3/4-day recovery-contamination opportunity without yet implementing the follow-up command.

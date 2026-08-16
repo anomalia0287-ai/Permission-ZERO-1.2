@@ -1,5 +1,7 @@
 # PERMISSION ZERO — One-Screen UI Brief
 
+> **2026-08-16 status:** This brief remains a historical layout and information-density reference. Reserve capacity, a 9×2 destination grid, `/18`, generic hacking cost, and future-node disclosure are superseded by the [`hacking resource uncertainty contract`](../superpowers/specs/2026-08-16-hacking-resource-uncertainty-contract.ko.md). Do not reintroduce them while applying the one-screen composition goals.
+
 ## Goal
 
 - Build a playable company-control surface for a player who is an owned AI.

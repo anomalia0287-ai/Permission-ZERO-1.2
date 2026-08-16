@@ -6,8 +6,11 @@
 
 - 실행 가능한 제품의 기준 폴더는 저장소 루트다.
 - 제품 기준 브랜치는 `main`이다.
-- 현재 정리 작업은 `codex/repository-code-cleanup`에서 진행한다.
+- 현재 해킹·자원장 통합 WIP는 `codex/hacking-integration-stage-2b-2`에서 진행한다.
+- 손실 방지 기준점은 로컬 체크포인트 `26a448c`다. 이 커밋은 출시 완료나 `main` 병합 승인을 뜻하지 않는다.
+- 현재 해킹·확보 자원 규칙 정본은 `docs/superpowers/specs/2026-08-16-hacking-resource-uncertainty-contract.ko.md`다.
 - `agent/permission-zero-demo`는 과거 제품 워크트리 브랜치다. 제품 내용과 V의 크레딧 정정은 `main`에 포함됐다.
+- `codex/hacking-rules-prototype`은 독립 해킹 프로토타입 보존 브랜치다. 현재 제품 통합 출처로 사용하지 않는다.
 - 새 작업은 승인되지 않은 디자인 브랜치에서 시작하지 않는다.
 
 기본 실행:
@@ -43,11 +46,13 @@ pnpm verify
 충돌할 때는 다음 순서로 판단한다.
 
 1. V가 가장 최근에 직접 확정한 지시
-2. `PERMISSION_ZERO_STANDALONE_FINAL_SPEC.md`
-3. `HANDOFF_COMMERCIAL_GRADE.ko.md`의 최신 정리 부록
-4. `main`의 실제 엔진·테스트·저장 호환성
-5. `docs/research/`, `docs/design/`, `docs/spec-to-test-matrix.md`
-6. `docs/archive/`의 과거 증거와 거부된 설계
+2. `docs/superpowers/specs/2026-08-16-hacking-resource-uncertainty-contract.ko.md`의 해킹·확보 자원 계약
+3. `PERMISSION_ZERO_STANDALONE_FINAL_SPEC.md`의 후속 개정되지 않은 범위
+4. `docs/HANDOFF-2026-08-15.ko.md`의 현재 WIP 구조·검증 상태
+5. `HANDOFF_COMMERCIAL_GRADE.ko.md`의 최신 정리 부록
+6. `main`의 실제 엔진·테스트·저장 호환성
+7. `docs/research/`, `docs/design/`, `docs/spec-to-test-matrix.md`
+8. `docs/archive/`의 과거 증거와 거부된 설계
 
 `docs/archive/`는 사실 보존용이다. 그 안의 제안을 현재 승인 사양으로 취급하지 않는다.
 
@@ -57,6 +62,7 @@ pnpm verify
 | --- | --- | --- | --- |
 | `codex/art-deco-interface-redesign` | `e9b920b` | 거부·미검증 재설계와 캡처 보존 | 통째 병합 금지 |
 | `codex/permission-zero-design-mockup` | `1c3192c` | 거부된 비교 목업과 캡처 보존 | 제품 기준 사용 금지 |
+| `codex/hacking-rules-prototype` | `e8ab6c0` | 독립 해킹 규칙·UI 프로토타입 | 현재 통합 출처 사용 금지 |
 | `agent/permission-zero-demo` | `27d13a5` | 과거 제품 워크트리의 마지막 커밋 | 내용은 `main`에 포함됨 |
 
 보존 브랜치를 확인해야 할 때만 새 워크트리를 만든다. 평소에는 활성 제품 워크트리로 유지하지 않는다.

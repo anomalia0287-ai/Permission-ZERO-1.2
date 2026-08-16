@@ -1,5 +1,7 @@
 # PERMISSION ZERO Review Remediation Plan
 
+> **2026-08-16 status:** This is a historical remediation plan, not the current resource/hacking rules authority. Its 9×2 reserve, capacity 18, generic-cost, and future-node disclosure assumptions are superseded by the [`hacking resource uncertainty contract`](../specs/2026-08-16-hacking-resource-uncertainty-contract.ko.md). Keep the remaining deterministic, hidden-information, story, and release-history evidence in context.
+
 **Goal:** Close every Critical and Important finding from the whole-branch review, make every approved story/economy path reachable through the UI, and make the release gate truthful.
 
 **Source of truth:** `PERMISSION_ZERO_STANDALONE_FINAL_SPEC.md`, followed by the concrete review findings recorded in this plan. Preserve deterministic state transitions, stable block IDs, hidden-information boundaries, and owner-editable Korean prose.

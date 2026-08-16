@@ -1,5 +1,7 @@
 # PERMISSION ZERO — 독립 데모 최신 통합 명세
 
+> **후속 개정 알림 — 2026-08-16:** 이 문서의 확보 영역 `9×2`, 보유 상한 `18`, 출처와 무관한 범용 해킹 비용, 다음·최종 노드 선공개 규칙은 더 이상 최신 정본이 아니다. 해당 범위는 [`docs/superpowers/specs/2026-08-16-hacking-resource-uncertainty-contract.ko.md`](docs/superpowers/specs/2026-08-16-hacking-resource-uncertainty-contract.ko.md)가 우선한다. 그 밖의 게임·서사 계약은 별도 후속 개정이 없는 한 유지한다.
+
 - **문서 용도:** 이 파일 하나만 전달받은 별도 세션이 독립 데모를 구현하기 위한 전체 명세
 - **최종 갱신:** 2026-08-11
 - **구조 상태:** 프로젝트 오너 V와의 설계 대화 기준 확정

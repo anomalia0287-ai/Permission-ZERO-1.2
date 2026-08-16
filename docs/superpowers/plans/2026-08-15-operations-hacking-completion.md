@@ -1,5 +1,7 @@
 # Operations and Hacking Completion Implementation Plan
 
+> **Status update — 2026-08-16:** This plan describes the UI preserved in WIP checkpoint `26a448c`, not the newly accepted hacking economy. Static hacking tokens, direct node staging, and separated components remain useful. Generic scalar costs, `/18`, and next/final-node disclosure are superseded by [`../specs/2026-08-16-hacking-resource-uncertainty-contract.ko.md`](../specs/2026-08-16-hacking-resource-uncertainty-contract.ko.md). Do not add the new rules to this already broad WIP plan.
+
 > **Execution:** Inline only. No subagents, no staging, no commit, and no push without explicit user approval.
 
 **Goal:** Apply every current-day mockup/layout instruction while completing the revised floating-resource specification's pocket-to-node hacking interaction without changing game rules, save state, command semantics, or replay behavior.

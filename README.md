@@ -53,11 +53,13 @@ ID·조건·주제 같은 메타데이터는 게임 규칙이 사용합니다. �
 
 ## 주요 문서
 
-- [확정 최종 명세](PERMISSION_ZERO_STANDALONE_FINAL_SPEC.md)
+- [현재 해킹·확보 자원 정본](docs/superpowers/specs/2026-08-16-hacking-resource-uncertainty-contract.ko.md)
+- [기본 통합 명세 — 후속 개정 범위 제외](PERMISSION_ZERO_STANDALONE_FINAL_SPEC.md)
+- [현재 Stage 2B-2 WIP 인수인계](docs/HANDOFF-2026-08-15.ko.md)
 - [종합 인수인계](HANDOFF_COMMERCIAL_GRADE.ko.md)
 - [저장소·브랜치·보존 자료 안내](docs/REPOSITORY_GUIDE.ko.md)
 - [명세-테스트 매트릭스](docs/spec-to-test-matrix.md)
-- [현재 캠페인 리듬 구현 계획](docs/superpowers/plans/2026-08-13-p1-campaign-rhythm-continuity.md)
+- [과거 캠페인 리듬 구현 계획](docs/superpowers/plans/2026-08-13-p1-campaign-rhythm-continuity.md)
 - [한 화면 디자인 브리프](docs/design/one-screen-brief.md)
 - [과거 증거와 거부된 설계 보존 안내](docs/archive/README.ko.md)
 
