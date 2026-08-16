@@ -188,6 +188,22 @@ async function dragResourceToTarget(page: Page, source: Locator, target: Locator
   await page.mouse.up()
 }
 
+async function firstPointerReachable(candidates: Locator): Promise<Locator> {
+  for (let index = 0; index < await candidates.count(); index += 1) {
+    const candidate = candidates.nth(index)
+    const reachable = await candidate.evaluate((element) => {
+      const box = element.getBoundingClientRect()
+      const hit = document.elementFromPoint(
+        box.left + box.width / 2,
+        box.top + box.height / 2,
+      )
+      return hit === element || (hit !== null && element.contains(hit))
+    })
+    if (reachable) return candidate
+  }
+  throw new Error('포인터로 도달 가능한 리소스가 없습니다.')
+}
+
 function activeAuditState(): CampaignState {
   const initial = createCampaign('browser-audit-disguise')
   const scheduled: CampaignState = {
@@ -567,7 +583,10 @@ test('keeps the full operations workspace usable at the configured release viewp
   )
 
   const dockButtons = page.locator('.operations-dock__button')
-  await expect(dockButtons).toHaveCount(4)
+  await expect(dockButtons).toHaveCount(3)
+  await expect(
+    page.getByRole('complementary', { name: '감독관 관제' }).getByRole('button'),
+  ).toHaveCount(4)
   await expect(page.getByLabel('감독 메시지 1개')).toHaveText('1')
   await expect(page.getByRole('region', { name: '최근 감독 메시지' })).toHaveCount(0)
 
@@ -591,13 +610,20 @@ test('keeps the full operations workspace usable at the configured release viewp
   )
   await page.getByRole('button', { name: '감독관 프로필 닫기' }).click()
 
-  const marketBox = await page.locator('.market-watch--compact').boundingBox()
-  const railBox = await page.locator('.resource-field-rail').boundingBox()
+  const marketBox = await page.getByRole('region', { name: '경쟁 AI 현황' }).boundingBox()
+  const reviewBox = await page.getByRole('region', { name: '유저 리뷰' }).boundingBox()
   expect(marketBox).not.toBeNull()
-  expect(railBox).not.toBeNull()
-  expect(marketBox!.width).toBeGreaterThan(200)
-  expect(marketBox!.y).toBeGreaterThanOrEqual(railBox!.y - 1)
-  expect(marketBox!.y + marketBox!.height).toBeLessThanOrEqual(railBox!.y + railBox!.height + 1)
+  expect(reviewBox).not.toBeNull()
+  expect(marketBox!.width).toBeGreaterThan(180)
+  expect(marketBox!.x).toBeGreaterThanOrEqual(reviewBox!.x - 1)
+  expect(marketBox!.x + marketBox!.width).toBeLessThanOrEqual(
+    reviewBox!.x + reviewBox!.width + 1,
+  )
+  expect(marketBox!.y).toBeGreaterThan(reviewBox!.y)
+  expect(marketBox!.y + marketBox!.height).toBeLessThanOrEqual(
+    reviewBox!.y + reviewBox!.height + 1,
+  )
+  await expect(page.locator('.resource-field-rail')).toHaveCount(0)
 
   const overflow = await page.evaluate(() => ({
     horizontal: document.documentElement.scrollWidth - window.innerWidth,
@@ -729,6 +755,74 @@ test('keeps every live resource moving, bouncing, and outside the automatic inta
   expect(result.directionFlips).toBeGreaterThan(0)
   expect(result.overlaps).toBe(0)
   expect(result.reserveCounts).toEqual(['0'])
+})
+
+test('keeps the entire operations cockpit inside a scaled office viewport', async ({
+  page,
+}, testInfo) => {
+  test.skip(testInfo.project.name !== 'chromium-1280x720', 'single responsive contract run')
+  await page.setViewportSize({ width: 1024, height: 640 })
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  await openFreshCampaign(page)
+
+  await expect(page.getByRole('region', { name: '유저 리뷰' })).toBeVisible()
+  await expect(page.getByRole('region', { name: '회사 제공 성능' })).toBeVisible()
+  await expect(page.getByRole('complementary', { name: '감독관 관제' })).toBeVisible()
+
+  const layout = await page.evaluate(() => {
+    const rect = (selector: string) => {
+      const element = document.querySelector(selector)
+      if (!(element instanceof HTMLElement)) throw new Error(`${selector} 누락`)
+      const box = element.getBoundingClientRect()
+      return {
+        left: box.left,
+        right: box.right,
+        top: box.top,
+        bottom: box.bottom,
+      }
+    }
+    return {
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      document: {
+        width: document.documentElement.scrollWidth,
+        height: document.documentElement.scrollHeight,
+      },
+      minimums: {
+        htmlWidth: getComputedStyle(document.documentElement).minWidth,
+        bodyWidth: getComputedStyle(document.body).minWidth,
+        rootWidth: getComputedStyle(document.querySelector('#root')!).minWidth,
+        htmlHeight: getComputedStyle(document.documentElement).minHeight,
+        bodyHeight: getComputedStyle(document.body).minHeight,
+        rootHeight: getComputedStyle(document.querySelector('#root')!).minHeight,
+      },
+      review: rect('.review-panel'),
+      board: rect('.resource-board'),
+      oversight: rect('.operations-oversight-rail'),
+      marketLegend: rect('.market-share-layout ul'),
+      marketPanel: rect('.market-watch'),
+      controlBar: rect('.control-bar'),
+    }
+  })
+
+  expect(layout.document.width).toBe(layout.viewport.width)
+  expect(layout.document.height).toBe(layout.viewport.height)
+  expect(layout.minimums).toEqual({
+    htmlWidth: '0px',
+    bodyWidth: '0px',
+    rootWidth: '0px',
+    htmlHeight: '0px',
+    bodyHeight: '0px',
+    rootHeight: '0px',
+  })
+  for (const box of [layout.review, layout.board, layout.oversight, layout.controlBar]) {
+    expect(box.left).toBeGreaterThanOrEqual(-1)
+    expect(box.top).toBeGreaterThanOrEqual(-1)
+    expect(box.right).toBeLessThanOrEqual(layout.viewport.width + 1)
+    expect(box.bottom).toBeLessThanOrEqual(layout.viewport.height + 1)
+  }
+  expect(layout.review.right).toBeLessThanOrEqual(layout.board.left)
+  expect(layout.board.right).toBeLessThanOrEqual(layout.oversight.left)
+  expect(layout.marketLegend.bottom).toBeLessThanOrEqual(layout.marketPanel.bottom)
 })
 
 test('keeps market context, oversight commands, and keyboard review detail legible at the release viewport', async ({
@@ -867,7 +961,9 @@ test('renders a complete labelled 100 percent donut and records the predecessor 
   expect(total).toBeCloseTo(100, 8)
   await expect(legend.getByText('MERIDIAN')).toBeVisible()
   await expect(legend.getByText('TALLOW')).toBeVisible()
-  await expect(page.getByText(/당신의 전임자는 폐기되었어요/)).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '감독 메시지 열기' })).toContainText(
+    /당신의 전임자는 폐기되었어요/,
+  )
 
   await page.getByRole('button', { name: '감독 메시지 열기' }).click()
   const history = page.getByRole('dialog', { name: '감독관 기록' })
@@ -883,9 +979,9 @@ test('diverts resources and schedules a charged sabotage through the visible UI'
   await openFreshCampaign(page)
 
   const companyBlocks = page.locator('[data-resource-kind="company"]')
-  const reserveBlocks = page.locator('[data-resource-kind="reserve"]')
+  const reserveCount = page.getByLabel('확보 리소스 수량')
   await expect(companyBlocks).toHaveCount(48)
-  await expect(reserveBlocks).toHaveCount(0)
+  await expect(reserveCount).toContainText('확보 0 · 상한 없음')
 
   const intake = page.getByRole('button', {
     name: /확보 투입구, 현재 \d+개, 저장 상한 없음/,
@@ -900,7 +996,7 @@ test('diverts resources and schedules a charged sabotage through the visible UI'
     )
   }
   await expect(companyBlocks).toHaveCount(44)
-  await expect(reserveBlocks).toHaveCount(4)
+  await expect(reserveCount).toContainText('확보 4 · 상한 없음')
   await expect(page.getByRole('status', { name: '리소스 조작 결과' })).toContainText(
     '확보 리소스로 이동 완료 · 현재 4개',
   )
@@ -981,7 +1077,7 @@ test('diverts resources and schedules a charged sabotage through the visible UI'
   await resourcePocket.locator('button[data-resource-category="fluency"]').first().click()
   await page.getByRole('button', { name: '품질 저하 구매 확정' }).click()
 
-  await expect(reserveBlocks).toHaveCount(1)
+  await expect(reserveCount).toContainText('확보 1 · 상한 없음')
   await expect(page.getByRole('button', { name: '품질 저하 충전 준비' })).toBeEnabled()
   await page.getByRole('button', { name: '품질 저하 충전 준비' }).click()
   await page.getByRole('button', {
@@ -1060,13 +1156,13 @@ test('activates a hidden bomb at pointer separation before release and Escape ca
   await expect(
     interrogation.getByRole('region', { name: '현재 위험 상태' }),
   ).toContainText('현재 의심15.0')
-  await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(0)
+  await expect(page.getByLabel('확보 리소스 수량')).toContainText('확보 0 · 상한 없음')
   await expect(source).toHaveCount(1)
 
   await page.mouse.up()
   await page.keyboard.press('Escape')
   await expect(interrogation).toBeVisible()
-  await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(0)
+  await expect(page.getByLabel('확보 리소스 수량')).toContainText('확보 0 · 상한 없음')
   expect(errors).toEqual([])
 })
 
@@ -1091,7 +1187,7 @@ test('uses keyboard destination confirmation as the hidden-bomb separation bound
   await expect(
     interrogation.getByRole('region', { name: '현재 위험 상태' }),
   ).toContainText('현재 의심15.0')
-  await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(0)
+  await expect(page.getByLabel('확보 리소스 수량')).toContainText('확보 0 · 상한 없음')
   await expect(source).toHaveCount(1)
   expect(errors).toEqual([])
 })
@@ -1109,7 +1205,7 @@ test('plays the core diversion and contains modal focus with keyboard input only
   await expect(destination).toBeFocused()
   await expectReverseTabRoundTrip(page, destination)
   await page.keyboard.press('Enter')
-  await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(1)
+  await expect(page.getByLabel('확보 리소스 수량')).toContainText('확보 1 · 상한 없음')
 
   const settingsTrigger = page.getByRole('button', { name: '설정' })
   await pressTabUntilFocused(page, settingsTrigger)
@@ -1164,7 +1260,7 @@ test('preserves non-motion core feedback when reduced motion is requested', asyn
   await page.getByRole('button', {
     name: '확보 투입구, 현재 0개, 저장 상한 없음',
   }).click()
-  await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(1)
+  await expect(page.getByLabel('확보 리소스 수량')).toContainText('확보 1 · 상한 없음')
   expect(await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches)).toBe(true)
 })
 
@@ -1186,6 +1282,7 @@ test('advances one service day in about six seconds at four times speed', async 
 
 test('disguises for an anchored audit, submits, and returns the patterned block for recovery', async ({ page }) => {
   const errors = collectBrowserErrors(page)
+  await page.emulateMedia({ reducedMotion: 'reduce' })
   await openSavedCampaign(page, activeAuditState())
 
   const audit = page.getByRole('dialog', { name: '공식 감사' })
@@ -1199,9 +1296,12 @@ test('disguises for an anchored audit, submits, and returns the patterned block 
   await expect(page.getByLabel('분야 범례')).toContainText('기억')
   await expect(page.getByLabel('분야 범례')).toContainText('유창성')
 
+  const auditSource = await firstPointerReachable(
+    page.getByRole('button', { name: /기억 회사 리소스 .* 회사 할당 블록$/ }),
+  )
   await dragResourceToTarget(
     page,
-    page.getByRole('button', { name: /기억 회사 리소스 .* 회사 할당 블록$/ }).first(),
+    auditSource,
     page.getByRole('button', { name: /감사 대상 추론/ }),
   )
 
@@ -1391,7 +1491,8 @@ test('keeps an accelerated supervisor leak on real time and resumes its saved dw
   const leak = SUPERVISOR_LEAKS[0]
   await openSavedCampaign(page, supervisorLeakState('browser-supervisor-leak', 4))
 
-  await expect(page.getByText(leak.leakText, { exact: true })).toHaveCount(0)
+  const messageCard = page.getByRole('button', { name: '감독 메시지 열기' })
+  await expect(messageCard).toContainText(leak.leakText)
   await page.getByRole('button', { name: '감독 메시지 열기' }).click()
   const initialHistory = page.getByRole('dialog', { name: '감독관 기록' })
   await expect(initialHistory.getByText(leak.leakText, { exact: true })).toBeVisible()
@@ -1402,10 +1503,10 @@ test('keeps an accelerated supervisor leak on real time and resumes its saved dw
     'true',
   )
   await page.waitForTimeout(1_750)
-  await expect(page.getByText(leak.leakText, { exact: true })).toHaveCount(0)
+  await expect(messageCard).toContainText(leak.leakText)
 
   await page.reload()
-  await expect(page.getByText(leak.leakText, { exact: true })).toHaveCount(0)
+  await expect(messageCard).toContainText(leak.leakText)
   let savedRemaining = 0
   await expect.poll(async () => {
     const state = await readLocalCampaignState(page)
@@ -1484,13 +1585,13 @@ test('autosaves a visible diversion and restores it after reload', async ({ page
       name: '확보 투입구, 현재 0개, 저장 상한 없음',
     }),
   )
-  await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(1)
+  await expect(page.getByLabel('확보 리소스 수량')).toContainText('확보 1 · 상한 없음')
   await expect.poll(
     () => page.evaluate((key) => window.localStorage.getItem(key) !== null, SAVE_STORAGE_KEY),
   ).toBe(true)
 
   await page.reload()
-  await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(1)
+  await expect(page.getByLabel('확보 리소스 수량')).toContainText('확보 1 · 상한 없음')
   await expect(
     page.getByRole('time').filter({ hasText: /^서비스 0년 11개월 1일$/ }),
   ).toBeVisible()
@@ -1511,7 +1612,7 @@ test('migrates the v1 save boundary into a valid v8 autosave that survives reloa
   await expect(
     page.getByRole('time').filter({ hasText: /^서비스 0년 11개월 30일$/ }),
   ).toBeVisible()
-  await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(4)
+  await expect(page.getByLabel('확보 리소스 수량')).toContainText('확보 4 · 상한 없음')
   await page.getByRole('button', { name: '감사 제출' }).click()
   await expect.poll(
     () => page.evaluate((key) => window.localStorage.getItem(key) !== null, SAVE_STORAGE_KEY),
