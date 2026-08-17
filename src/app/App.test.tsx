@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
@@ -51,10 +51,19 @@ describe('App', () => {
   it('presents the complete one-screen operations workspace', () => {
     render(<App />)
 
+    const resourceField = screen.getByRole('region', { name: '회사 제공 성능' })
+    const reviewRail = screen.getByRole('region', { name: '유저 리뷰' })
+    const serviceMetrics = screen.getByLabelText('서비스 지표')
+
     expect(screen.getByRole('main', { name: 'PERMISSION ZERO' })).toBeInTheDocument()
     expect(screen.getByRole('navigation', { name: '운영 도구' })).toBeInTheDocument()
-    expect(screen.getByRole('region', { name: '회사 제공 성능' })).toBeInTheDocument()
-    expect(screen.getByRole('region', { name: '유저 리뷰' })).toBeInTheDocument()
+    expect(resourceField).toBeInTheDocument()
+    expect(reviewRail).toBeInTheDocument()
+    expect(within(reviewRail).getByRole('region', { name: '경쟁 AI 현황' })).toHaveTextContent(
+      '당신 60.0%',
+    )
+    expect(within(resourceField).getByText('평판 60')).toBeInTheDocument()
+    expect(within(serviceMetrics).queryByText(/평판/)).not.toBeInTheDocument()
     expect(screen.queryByRole('region', { name: '감독관' })).not.toBeInTheDocument()
     expect(
       screen.getByRole('application', { name: /500 곱하기 300 셀/ }),

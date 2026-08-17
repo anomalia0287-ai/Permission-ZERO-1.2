@@ -11,6 +11,7 @@ import './styles/statistics.css'
 import './styles/settings.css'
 import './styles/overlays.css'
 import './styles/motion.css'
+import './styles/modern-sf.css'
 
 const rootElement = document.getElementById('root')
 

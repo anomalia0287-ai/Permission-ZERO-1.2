@@ -825,10 +825,10 @@ export function ResourceIntrusionBoard() {
     >
       <header className="intrusion-board__header">
         <div>
-          <small>500 × 300 CELL FIELD</small>
           <h2>자원 절도 필드</h2>
         </div>
         <div className="intrusion-board__telemetry" aria-label="필드 상태">
+          <span>평판 {Math.round(state.reputation)}</span>
           <span data-phase={surveillance.kind}>{phaseLabel(surveillance)}</span>
           <span>벽 {wallCount}/{WALL_PLAN.length}</span>
           <span>{carriedBlockId ? '운반 중' : `확보 ${reserveCount} · 상한 없음`}</span>

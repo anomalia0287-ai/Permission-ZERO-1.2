@@ -266,7 +266,11 @@ describe('ReviewFeed', () => {
       </GameProvider>,
     )
 
-    expect(screen.getByRole('region', { name: '유저 리뷰' })).toBeInTheDocument()
+    const reviewRail = screen.getByRole('region', { name: '유저 리뷰' })
+    expect(reviewRail).toBeInTheDocument()
+    expect(within(reviewRail).getByRole('region', { name: '경쟁 AI 현황' })).toHaveTextContent(
+      '당신 60.0%',
+    )
     expect(screen.getByText('windowseat')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '전체 리뷰 기록' }))
     expect(onOpenHistory).toHaveBeenCalledTimes(1)

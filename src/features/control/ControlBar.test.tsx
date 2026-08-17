@@ -41,14 +41,14 @@ describe('ControlBar', () => {
     },
   )
 
-  it('shows reputation and the next scheduled cadence in plain language', () => {
+  it('shows the next scheduled cadence without duplicating resource-field reputation', () => {
     render(
       <GameProvider storage={new MemoryStorage()} initialSeed="control-metrics">
         <ControlBar />
       </GameProvider>,
     )
 
-    expect(screen.getByText('평판 60')).toBeInTheDocument()
+    expect(screen.queryByText(/평판/)).not.toBeInTheDocument()
     expect(screen.getByText('주간 갱신 D-6')).toBeInTheDocument()
     expect(screen.getByText('공식 평가 D-29')).toBeInTheDocument()
   })
