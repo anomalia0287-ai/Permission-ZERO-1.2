@@ -14,7 +14,6 @@ import { CATEGORY_LABELS } from '../../game/config'
 import {
   auditProbability,
   getAuditIntel,
-  getSuspicionBand,
 } from '../../game/evaluation'
 import {
   getHackTreeProgress,
@@ -94,7 +93,6 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
   const finalChoices = availableFinalChoices(state)
   const auditIntel = getAuditIntel(state)
   const nextAuditProbability = auditProbability(state.suspicion)
-  const suspicionBand = getSuspicionBand(state.suspicion)
   const focusedNode = staging.target?.nodeId
     ? HACK_NODES.find(({ id }) => id === staging.target?.nodeId) ?? activeFrontierNode
     : activeFrontierNode
@@ -303,7 +301,6 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
     <section
       className="detail-panel hacking-panel hacking-panel--paper"
       aria-label={message(settings.locale, 'hacking.panel.label', {})}
-      data-pressure={suspicionBand.id}
       onKeyDownCapture={(event) => {
         if (event.key === 'Escape' && staging.target !== null) {
           event.stopPropagation()
@@ -318,19 +315,6 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
             <h2>{message(settings.locale, 'hacking.panel.title', {})}</h2>
           </div>
         </div>
-        <section className="hacking-panel__threat" aria-label="현재 노출 위험">
-          <div>
-            <span>현재 노출 위험</span>
-            <strong>의심 {state.suspicion.toFixed(1)}</strong>
-            <small>{suspicionBand.label}</small>
-          </div>
-          <span className="hacking-panel__threat-track" aria-hidden="true">
-            <i style={{ width: `${Math.min(100, state.suspicion)}%` }} />
-            <b data-threshold="40" />
-            <b data-threshold="70" />
-          </span>
-          <em>다음 달 감사 {(nextAuditProbability * 100).toFixed(1)}%</em>
-        </section>
         <div className="hacking-panel__summary">
           <div>
               <span>확보 자원</span>
@@ -424,8 +408,6 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
           reserveBlocks={reserveBlocks}
           stagedBlockIds={staging.stagedBlockIds}
           target={staging.target}
-          nextAuditProbability={nextAuditProbability}
-          suspicionBand={suspicionBand}
           getActiveTargetElement={getActiveTargetElement}
           onStage={stageResource}
           onInvalidDrop={() =>

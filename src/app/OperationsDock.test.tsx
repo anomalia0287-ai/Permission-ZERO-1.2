@@ -25,9 +25,10 @@ describe('OperationsDock', () => {
     const rail = screen.getByRole('complementary', { name: '감독관 관제' })
     const dock = screen.getByRole('navigation', { name: '운영 도구' })
     const profile = screen.getByRole('button', { name: '감독관 프로필' })
+    expect(profile.querySelector('img')).toHaveAttribute('src', '/supervisor-portrait.png')
     const buttons = [
       ['감독 메시지 열기', handlers.onOpenMessages],
-      ['상세 통계 열기', handlers.onOpenStatistics],
+      ['통계 열기', handlers.onOpenStatistics],
       ['해킹 네트워크 열기', handlers.onOpenHacking],
     ] as const
 
@@ -48,7 +49,7 @@ describe('OperationsDock', () => {
     expect(screen.getByRole('region', { name: '현재 의심 수치' })).toBeInTheDocument()
     expect(rail).toHaveTextContent('다음 달 감사')
     expect(dock).toHaveTextContent('메시지')
-    expect(dock).toHaveTextContent('상세 통계')
+    expect(dock).toHaveTextContent('통계')
     expect(dock).toHaveTextContent('해킹 네트워크')
     expect(screen.getByLabelText('감독 메시지 1개')).toHaveTextContent('1')
   })

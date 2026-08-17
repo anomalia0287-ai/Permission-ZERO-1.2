@@ -11,15 +11,6 @@ interface OperationsDockProps {
   onOpenHacking: DockAction
 }
 
-function SupervisorIcon() {
-  return (
-    <svg viewBox="0 0 32 32" aria-hidden="true">
-      <circle cx="16" cy="11" r="5" />
-      <path d="M7 26c.8-5.3 4-8 9-8s8.2 2.7 9 8" />
-    </svg>
-  )
-}
-
 function MessageIcon() {
   return (
     <svg viewBox="0 0 32 32" aria-hidden="true">
@@ -94,7 +85,7 @@ export function OperationsDock({
         onClick={(event) => onOpenSupervisor(event.currentTarget)}
       >
         <span className="oversight-profile__avatar" aria-hidden="true">
-          <SupervisorIcon />
+          <img src="/supervisor-portrait.png" alt="" />
         </span>
         <span className="oversight-profile__copy">
           <small>{supervisorStatus.code}</small>
@@ -155,12 +146,12 @@ export function OperationsDock({
         <button
           type="button"
           className="operations-dock__button operations-dock__button--statistics"
-          aria-label="상세 통계 열기"
+          aria-label="통계 열기"
           onClick={(event) => onOpenStatistics(event.currentTarget)}
         >
           <span className="operations-dock__icon"><StatisticsIcon /></span>
           <span className="operations-dock__copy">
-            <strong>상세 통계</strong>
+            <strong>통계</strong>
             <span className="operations-dock__metrics">
               <span>
                 <small>점유율</small>

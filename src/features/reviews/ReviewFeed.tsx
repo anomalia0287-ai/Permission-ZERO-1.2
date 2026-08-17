@@ -161,20 +161,19 @@ export function ReviewFeed({
   return (
     <>
     <section className="workspace-panel review-panel" aria-label="유저 리뷰">
-      <header className="panel-heading panel-heading--action">
+      <button
+        type="button"
+        className="panel-heading review-panel__open"
+        aria-label="전체 리뷰 기록"
+        onClick={(event) => onOpenHistory(event.currentTarget)}
+      >
         <span className="panel-index">01</span>
-        <div>
-          <h2>유저 리뷰</h2>
-          <p>최근 {reviews.length} / 누적 {state.reviews.feed.length}</p>
-        </div>
-        <button
-          type="button"
-          aria-label="전체 리뷰 기록"
-          onClick={(event) => onOpenHistory(event.currentTarget)}
-        >
-          전체 기록 ↗
-        </button>
-      </header>
+        <span className="review-panel__heading-copy">
+          <strong>유저 리뷰</strong>
+          <small>최근 {reviews.length} / 누적 {state.reviews.feed.length}</small>
+        </span>
+        <span className="review-panel__open-mark" aria-hidden="true">↗</span>
+      </button>
       <div className="review-stream" aria-live="polite">
         {reviews.map((review) => (
           <ReviewEntry review={review} key={review.id} onOpen={openReview} />

@@ -359,11 +359,11 @@ export function StatisticsPanel({ onClose }: { onClose: () => void }) {
   const [view, setView] = useState<'market' | 'performance' | 'causality'>('market')
 
   return (
-    <section className="detail-panel statistics-panel" aria-label="상세 통계">
+    <section className="detail-panel statistics-panel" aria-label="통계">
       <header className="detail-panel__header">
         <div>
           <small>운영 지표 아카이브</small>
-          <h2>상세 통계</h2>
+          <h2>통계</h2>
         </div>
         <button type="button" aria-label="통계 닫기" onClick={onClose}>닫기 ×</button>
       </header>

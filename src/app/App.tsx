@@ -80,7 +80,7 @@ function DetailLayer({
     supervisor: '감독관 프로필',
     hacking: '해킹 네트워크',
     messages: '감독관 기록',
-    statistics: '상세 통계',
+    statistics: '통계',
     settings: '게임 설정',
     guide: '게임 가이드',
     credits: '작품 크레딧',

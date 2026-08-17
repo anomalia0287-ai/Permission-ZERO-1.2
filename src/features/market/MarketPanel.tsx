@@ -65,21 +65,20 @@ export function MarketPanel({
       <header>
         <div>
           <span>시장 경쟁 구도</span>
-          <h3>경쟁 AI 점유율</h3>
-          <strong>당신 {state.market.playerShare.toFixed(1)}%</strong>
-          <small>
-            {signedShareDelta
-              ? `직전 기록 대비 ${signedShareDelta}`
-              : '첫 시장 기록 전'}
-          </small>
+          <h3>시장 점유율</h3>
         </div>
+        <small>
+          {signedShareDelta
+            ? `직전 기록 대비 ${signedShareDelta}`
+            : '첫 시장 기록 전'}
+        </small>
         {!compact && onOpenStatistics ? (
           <button
             type="button"
             aria-label="시장 통계 열기"
             onClick={(event) => onOpenStatistics(event.currentTarget)}
           >
-            상세 통계 ↗
+            통계 ↗
           </button>
         ) : null}
       </header>

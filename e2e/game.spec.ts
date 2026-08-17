@@ -631,8 +631,8 @@ test('keeps the full operations workspace usable at the configured release viewp
   }))
   expect(overflow.horizontal).toBeLessThanOrEqual(1)
   expect(overflow.vertical).toBeLessThanOrEqual(1)
-  await page.getByRole('button', { name: '상세 통계 열기' }).click()
-  await expect(page.getByRole('region', { name: '상세 통계' })).toBeVisible()
+  await page.getByRole('button', { name: '통계 열기' }).click()
+  await expect(page.getByRole('region', { name: '통계' })).toBeVisible()
   await page.getByRole('button', { name: '통계 닫기' }).click()
 
   await page.getByRole('button', { name: '2배속' }).click()
@@ -843,7 +843,7 @@ test('keeps market context, oversight commands, and keyboard review detail legib
   await expect(oversight.getByRole('button')).toHaveCount(4)
   await expect(oversight.getByRole('button').nth(0)).toHaveAccessibleName('감독관 프로필')
   await expect(oversight.getByRole('button').nth(1)).toHaveAccessibleName('감독 메시지 열기')
-  await expect(oversight.getByRole('button').nth(2)).toHaveAccessibleName('상세 통계 열기')
+  await expect(oversight.getByRole('button').nth(2)).toHaveAccessibleName('통계 열기')
   await expect(oversight.getByRole('button').nth(3)).toHaveAccessibleName('해킹 네트워크 열기')
   await expect(page.getByRole('region', { name: '현재 의심 수치' })).toBeVisible()
   await expect(page.getByRole('region', { name: '월별 성능 추세' })).toHaveCount(0)
@@ -873,8 +873,8 @@ test('keeps market context, oversight commands, and keyboard review detail legib
     animations: 'disabled',
   })
 
-  await page.getByRole('button', { name: '상세 통계 열기' }).click()
-  const statistics = page.getByRole('dialog', { name: '상세 통계' })
+  await page.getByRole('button', { name: '통계 열기' }).click()
+  const statistics = page.getByRole('dialog', { name: '통계' })
   await expect(statistics).toBeVisible()
   await statistics.getByRole('tab', { name: '서비스 성능' }).click()
   const performanceChart = statistics.getByRole('img', { name: '서비스 성능 변화 차트' })
@@ -1137,8 +1137,8 @@ test('returns every workspace detail to its exact trigger after settings', async
       dialogName: '감독관 기록',
     },
     {
-      trigger: page.getByRole('button', { name: '상세 통계 열기' }),
-      dialogName: '상세 통계',
+      trigger: page.getByRole('button', { name: '통계 열기' }),
+      dialogName: '통계',
     },
   ]
 

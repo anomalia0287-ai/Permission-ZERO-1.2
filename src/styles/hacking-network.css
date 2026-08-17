@@ -1988,3 +1988,22 @@
     min-height: 108px;
   }
 }
+
+/* Suspicion is a cockpit instrument; hacking keeps only route, cost, and resources. */
+.hacking-panel.hacking-panel--paper .hacking-panel__header {
+  grid-template-columns: minmax(260px, 1fr) minmax(260px, auto);
+  gap: 24px;
+}
+
+.hacking-panel.hacking-panel--paper .hacking-panel__summary {
+  justify-self: end;
+}
+
+.hacking-panel.hacking-panel--paper .hack-pocket-command {
+  align-content: start;
+  gap: 16px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-owned-vector {
+  margin-top: 0;
+}

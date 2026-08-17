@@ -1,8 +1,7 @@
 import { useMemo, useRef, useState, type PointerEvent } from 'react'
 
 import { useGameSettings } from '../../app/GameContext'
-import { CATEGORY_LABELS, DEMO_PROFILE_02 } from '../../game/config'
-import type { SuspicionBand } from '../../game/evaluation'
+import { CATEGORY_LABELS } from '../../game/config'
 import {
   COMPANY_CATEGORIES,
   type CampaignState,
@@ -37,8 +36,6 @@ export interface HackResourcePocketProps {
   reserveBlocks: readonly ResourceBlock[]
   stagedBlockIds: readonly string[]
   target: HackStagingTarget | null
-  nextAuditProbability: number
-  suspicionBand: SuspicionBand
   getActiveTargetElement(): HTMLElement | null
   onStage(blockId: string): boolean
   onInvalidDrop(): void
@@ -54,8 +51,6 @@ export function HackResourcePocket({
   reserveBlocks,
   stagedBlockIds,
   target,
-  nextAuditProbability,
-  suspicionBand,
   getActiveTargetElement,
   onStage,
   onInvalidDrop,
@@ -166,7 +161,6 @@ export function HackResourcePocket({
     <section
       className="hack-resource-pocket"
       aria-label={message(settings.locale, 'hacking.pocket.label', {})}
-      data-pressure={suspicionBand.id}
     >
       <header className="hack-pocket-command">
         <div className="hack-pocket-heading">
@@ -176,21 +170,6 @@ export function HackResourcePocket({
           </div>
           <strong className="hack-pocket-total">{reserveBlocks.length}<small>보유</small></strong>
         </div>
-        <section className="hack-exposure-console" aria-label="절도 노출 위험">
-          <header>
-            <span>누적 의심</span>
-            <strong>{state.suspicion.toFixed(1)}</strong>
-            <em>{suspicionBand.label}</em>
-          </header>
-          <span className="hack-exposure-track" aria-hidden="true">
-            <i style={{ width: `${Math.min(100, state.suspicion)}%` }} />
-            <b /><b />
-          </span>
-          <div>
-            <span>추가 전용 1회 <strong>+{DEMO_PROFILE_02.resources.diversionSuspicion.toFixed(1)}</strong></span>
-            <span>다음 감사 <strong>{(nextAuditProbability * 100).toFixed(1)}%</strong></span>
-          </div>
-        </section>
         <section className="hack-owned-vector" aria-label="분야별 현재 보유">
           <header>
             <span>분야별 현재 보유</span>

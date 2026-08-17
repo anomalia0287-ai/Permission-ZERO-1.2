@@ -270,13 +270,13 @@ describe('HackingPanel', () => {
     expect(
       screen.queryByRole('region', { name: '현재 자원과 해금 비용 비교' }),
     ).not.toBeInTheDocument()
-    expect(screen.getByRole('region', { name: '현재 노출 위험' })).toHaveTextContent(
-      '의심 9.6',
-    )
+    expect(screen.queryByRole('region', { name: '현재 노출 위험' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: '절도 노출 위험' })).not.toBeInTheDocument()
     expect(screen.getByRole('region', { name: '다음 해킹 행동' })).toHaveTextContent(
       '기억 3 부족 → 직접 전용',
     )
     const hackingPanel = screen.getByRole('region', { name: '해킹 네트워크' })
+    expect(hackingPanel).not.toHaveTextContent('누적 의심')
     expect(hackingPanel).not.toHaveTextContent('/18')
     expect(hackingPanel).not.toHaveTextContent('18칸')
   })

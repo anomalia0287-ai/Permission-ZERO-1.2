@@ -3687,3 +3687,753 @@ body {
     padding-inline: 7px;
   }
 }
+
+/* Retro-future minimal pass — one signal color, deliberate space, no squeezed desktop. */
+.game-shell {
+  --operations-paper: #f4f0e5;
+  --operations-paper-deep: #ddd8cb;
+  --operations-ink: #202421;
+  --operations-orange: #ff7b39;
+  --operations-orange-deep: #dd5c25;
+  --operations-line: #bdb8aa;
+
+  background:
+    linear-gradient(90deg, rgb(40 43 39 / 5%) 1px, transparent 1px),
+    var(--operations-paper-deep);
+  background-size: 48px 100%;
+}
+
+.game-shell .workspace-panel,
+.game-shell .operations-oversight-rail,
+.game-shell .oversight-profile,
+.game-shell .oversight-suspicion,
+.game-shell .operations-dock__button,
+.game-shell .market-watch,
+.game-shell .review-entry {
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.game-shell .review-panel__open {
+  display: grid;
+  width: 100%;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  border: 0;
+  border-bottom: 1px solid var(--operations-line);
+  color: var(--operations-copy);
+  background: #f8f5ec;
+  text-align: left;
+  cursor: pointer;
+}
+
+.game-shell .review-panel__open:hover,
+.game-shell .review-panel__open:focus-visible {
+  color: #171916;
+  background: #fffaf0;
+  box-shadow: inset 5px 0 0 var(--operations-orange);
+}
+
+.game-shell .review-panel__heading-copy {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.game-shell .review-panel__heading-copy > strong {
+  font-size: 21px;
+  line-height: 1;
+}
+
+.game-shell .review-panel__heading-copy > small {
+  color: #77736a;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.game-shell .review-panel__open-mark {
+  color: var(--operations-orange-deep);
+  font: 850 24px/1 "Cascadia Code", Consolas, monospace;
+}
+
+.game-shell .review-entry,
+.game-shell .review-entry:nth-child(3n + 1),
+.game-shell .review-entry:nth-child(3n + 2),
+.game-shell .review-entry:nth-child(3n) {
+  color: #262923;
+  border: 1px solid #c9c3b6;
+  border-left: 5px solid var(--operations-orange);
+  background: #f8f4e9;
+}
+
+.game-shell .review-entry::before {
+  display: none;
+}
+
+.game-shell .review-entry:hover,
+.game-shell .review-entry:focus-visible {
+  color: #151713;
+  border-color: #8f887a;
+  border-left-color: var(--operations-orange-deep);
+  background: #fffaf0;
+  transform: translateX(2px);
+}
+
+.game-shell .resource-board--live {
+  --intake-reach: 320px;
+  --intake-rise: 160px;
+}
+
+.game-shell .resource-intake-guard,
+.game-shell .resource-corner--intake {
+  width: var(--intake-reach);
+  height: var(--intake-rise);
+}
+
+.game-shell .resource-intake-guard::before,
+.game-shell .resource-corner--intake {
+  clip-path: polygon(0 0, 100% 100%, 0 100%);
+}
+
+.game-shell .resource-intake-guard::before {
+  inset: 0;
+}
+
+.game-shell .resource-intake-guard::after {
+  display: none;
+}
+
+.game-shell .oversight-profile__avatar {
+  overflow: hidden;
+  border: 1px solid #6f695d;
+  border-radius: 0;
+  background:
+    linear-gradient(180deg, #ece4d4, #cfc6b5);
+  box-shadow: inset 0 -5px 0 var(--operations-orange);
+}
+
+.game-shell .oversight-profile__avatar img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 32%;
+  filter: saturate(0.92) contrast(1.06);
+}
+
+@media (min-width: 1360px) {
+  .game-shell .workspace-grid {
+    grid-template-columns:
+      clamp(360px, 21vw, 430px)
+      minmax(600px, 1fr)
+      clamp(340px, 19vw, 390px);
+  }
+
+  .game-shell .review-panel {
+    grid-template-rows: 64px minmax(300px, 1.15fr) minmax(250px, 0.85fr);
+  }
+
+  .game-shell .review-stream {
+    grid-auto-rows: minmax(104px, auto);
+    padding: 16px;
+  }
+
+  .game-shell .review-panel > .market-watch {
+    grid-template-rows: auto minmax(0, 1fr);
+    padding: 14px 16px 16px;
+    background:
+      repeating-linear-gradient(0deg, transparent 0 31px, rgb(46 51 46 / 5%) 31px 32px),
+      #eeeade;
+  }
+
+  .game-shell .review-panel > .market-watch > header {
+    display: grid;
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    gap: 8px 14px;
+    padding-bottom: 10px;
+  }
+
+  .game-shell .review-panel > .market-watch > header > div {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .game-shell .review-panel > .market-watch > header span {
+    grid-column: auto;
+    color: #6e6a61;
+    letter-spacing: 0.02em;
+  }
+
+  .game-shell .review-panel > .market-watch > header h3 {
+    grid-column: auto;
+    font-size: 22px;
+  }
+
+  .game-shell .review-panel > .market-watch > header > small {
+    grid-column: auto;
+    align-self: end;
+    justify-self: end;
+    color: var(--operations-orange-deep);
+    text-align: right;
+  }
+
+  .game-shell .review-panel .market-share-layout {
+    grid-template-columns: clamp(122px, 8vw, 150px) minmax(0, 1fr);
+    align-content: center;
+    gap: 16px;
+    padding: 10px 0 0;
+  }
+
+  .game-shell .review-panel .market-share-donut {
+    --market-donut-size: clamp(122px, 8vw, 150px);
+  }
+
+  .game-shell .review-panel .market-share-layout li {
+    gap: 5px 9px;
+    padding: 7px 0;
+  }
+
+  .game-shell .review-panel .market-calculation-inputs {
+    display: none;
+  }
+
+  .game-shell .operations-oversight-rail {
+    grid-template-rows: 180px 110px minmax(0, 1fr);
+  }
+
+  .game-shell .oversight-profile {
+    grid-template-columns: 124px minmax(0, 1fr) 18px;
+    gap: 13px;
+    padding: 14px;
+    color: #f5efe3;
+    background: #252824 !important;
+  }
+
+  .game-shell .oversight-profile__avatar {
+    width: 124px;
+    height: 150px;
+  }
+
+  .game-shell .oversight-profile__copy {
+    gap: 7px;
+  }
+
+  .game-shell .oversight-profile__copy small {
+    color: #ff9a67;
+    font-size: 14px;
+  }
+
+  .game-shell .oversight-profile__copy strong {
+    color: #fff8eb;
+    font-size: 21px;
+    line-height: 1.15;
+    white-space: normal;
+  }
+
+  .game-shell .oversight-profile__copy > span {
+    color: #bdb7aa;
+    font-size: 14px;
+  }
+
+  .game-shell .operations-oversight-rail .operations-dock__button {
+    grid-template-columns: 64px minmax(0, 1fr);
+    gap: 14px;
+    padding: 14px;
+  }
+
+  .game-shell .operations-dock__icon {
+    width: 64px;
+    height: 64px;
+    border: 1px solid #b8a994;
+    background: #f7f0e3;
+  }
+
+  .game-shell .operations-dock__button svg {
+    width: 38px;
+    height: 38px;
+    stroke-width: 1.65;
+  }
+
+  .game-shell .operations-dock__copy > strong,
+  .game-shell .operations-dock__button--hacking .operations-dock__copy > strong {
+    font-size: 21px;
+  }
+
+  .game-shell .resource-board--live {
+    --intake-reach: 360px;
+    --intake-rise: 180px;
+  }
+}
+
+/* Narrow browser panes stop compressing three information columns. */
+@media (max-width: 1359px) {
+  html,
+  body,
+  #root {
+    min-height: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  .game-shell {
+    height: auto;
+    min-height: 100dvh;
+    grid-template-rows: auto 4px auto;
+    overflow: visible;
+  }
+
+  .game-shell .control-bar {
+    grid-template-columns: minmax(260px, 1fr) auto;
+    grid-template-rows: 56px 56px;
+    min-height: 112px;
+  }
+
+  .game-shell .control-identity {
+    grid-column: 1;
+    grid-row: 1;
+    padding-inline: 16px;
+  }
+
+  .game-shell .control-identity .micro-label {
+    font-size: 14px;
+  }
+
+  .game-shell .control-identity time {
+    font-size: 16px;
+  }
+
+  .game-shell .time-cluster {
+    grid-column: 2;
+    grid-row: 1;
+    padding-inline: 12px;
+  }
+
+  .game-shell .speed-controls {
+    grid-template-columns: repeat(4, 40px);
+    height: 42px;
+  }
+
+  .game-shell .speed-controls button,
+  .game-shell .utility-controls button {
+    font-size: 14px;
+  }
+
+  .game-shell .cadence-cluster {
+    display: grid;
+    grid-column: 1;
+    grid-row: 2;
+    grid-template-columns: minmax(190px, 1fr) 150px;
+    align-items: stretch;
+    gap: 0;
+    padding: 0;
+  }
+
+  .game-shell .campaign-phase {
+    max-width: none;
+    padding-inline: 16px;
+  }
+
+  .game-shell .campaign-phase strong {
+    font-size: 16px;
+  }
+
+  .game-shell .campaign-phase small {
+    display: block;
+    font-size: 14px;
+  }
+
+  .game-shell .cadence-cluster > span {
+    display: none;
+  }
+
+  .game-shell .reputation-summary {
+    display: grid;
+    grid-template-columns: auto auto;
+    grid-template-rows: auto 7px;
+    align-content: center;
+    gap: 4px 8px;
+    padding: 8px 14px;
+    border-left: 1px solid var(--operations-line);
+  }
+
+  .game-shell .reputation-summary > span:first-child {
+    font-size: 14px;
+  }
+
+  .game-shell .reputation-summary > strong {
+    font-size: 20px;
+  }
+
+  .game-shell .reputation-summary__track {
+    display: block;
+    height: 7px;
+    grid-column: 1 / -1;
+    overflow: hidden;
+    background: #cfcabd;
+  }
+
+  .game-shell .reputation-summary__track > i {
+    display: block;
+    height: 100%;
+    background: var(--operations-orange);
+  }
+
+  .game-shell .utility-controls {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  .game-shell .utility-controls button {
+    min-width: 52px;
+  }
+
+  .game-shell .workspace-grid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-auto-rows: auto;
+    gap: 10px;
+    padding: 10px;
+    overflow: visible;
+  }
+
+  .game-shell .resource-field-shell {
+    order: 1;
+    height: 620px;
+    min-height: 620px;
+  }
+
+  .game-shell .review-panel {
+    order: 2;
+    height: 760px;
+    min-height: 760px;
+    grid-template-rows: 64px minmax(360px, 1fr) 300px;
+    border: 1px solid var(--operations-line);
+  }
+
+  .game-shell .review-panel__open {
+    height: 64px;
+    padding-inline: 16px;
+  }
+
+  .game-shell .review-panel__open .panel-index {
+    width: 28px;
+    height: 28px;
+    font-size: 14px;
+  }
+
+  .game-shell .review-stream {
+    max-height: none;
+    grid-auto-rows: minmax(112px, auto);
+    gap: 10px;
+    padding: 16px;
+    overflow: auto;
+  }
+
+  .game-shell .review-entry,
+  .game-shell .review-entry:nth-child(3n + 1),
+  .game-shell .review-entry:nth-child(3n + 2),
+  .game-shell .review-entry:nth-child(3n) {
+    width: 100%;
+    min-height: 112px;
+    padding: 15px 17px;
+  }
+
+  .game-shell .review-entry__header,
+  .game-shell .review-entry__header strong,
+  .game-shell .review-entry__header > span,
+  .game-shell .review-entry__header time {
+    font-size: 14px;
+  }
+
+  .game-shell .review-entry p {
+    font-size: 16px;
+    line-height: 1.5;
+  }
+
+  .game-shell .review-panel > .market-watch {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    padding: 14px 18px 16px;
+    overflow: hidden;
+    background: #eeeade;
+  }
+
+  .game-shell .review-panel > .market-watch > header {
+    display: grid;
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+    padding-bottom: 10px;
+  }
+
+  .game-shell .review-panel > .market-watch > header > div {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 3px;
+  }
+
+  .game-shell .review-panel > .market-watch > header span,
+  .game-shell .review-panel > .market-watch > header > small {
+    grid-column: auto;
+    font-size: 14px;
+  }
+
+  .game-shell .review-panel > .market-watch > header h3 {
+    margin: 0;
+    font-size: 22px;
+  }
+
+  .game-shell .review-panel .market-share-layout {
+    grid-template-columns: 160px minmax(0, 1fr);
+    grid-template-rows: auto;
+    align-content: center;
+    gap: 22px;
+    padding-top: 8px;
+  }
+
+  .game-shell .review-panel .market-share-donut {
+    --market-donut-size: 160px;
+  }
+
+  .game-shell .review-panel .market-share-donut__center span,
+  .game-shell .review-panel .market-share-layout li small {
+    display: block;
+    font-size: 14px;
+  }
+
+  .game-shell .review-panel .market-share-donut__center strong,
+  .game-shell .review-panel .market-share-layout li output {
+    font-size: 21px;
+  }
+
+  .game-shell .review-panel .market-share-layout li,
+  .game-shell .review-panel .market-share-layout li strong {
+    font-size: 16px;
+  }
+
+  .game-shell .review-panel .market-legend-marker {
+    font-size: 16px;
+  }
+
+  .game-shell .review-panel .market-share-layout li:nth-child(n + 3) {
+    display: grid;
+  }
+
+  .game-shell .review-panel .market-calculation-inputs {
+    display: none;
+  }
+
+  .game-shell .operations-oversight-rail {
+    order: 3;
+    display: grid;
+    min-height: 390px;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: 190px 200px;
+    overflow: hidden;
+    border: 1px solid var(--operations-line);
+  }
+
+  .game-shell .oversight-profile {
+    grid-column: 1;
+    grid-row: 1;
+    grid-template-columns: 118px minmax(0, 1fr) 18px;
+    gap: 12px;
+    padding: 14px;
+    color: #f8f2e7;
+    background: #252824 !important;
+  }
+
+  .game-shell .oversight-profile__avatar {
+    width: 118px;
+    height: 160px;
+  }
+
+  .game-shell .oversight-profile__copy strong {
+    color: #fff8eb;
+    font-size: 21px;
+    white-space: normal;
+  }
+
+  .game-shell .oversight-profile__copy small,
+  .game-shell .oversight-profile__copy > span {
+    display: block;
+    font-size: 14px;
+  }
+
+  .game-shell .oversight-suspicion {
+    grid-column: 2;
+    grid-row: 1;
+    align-content: center;
+    padding: 20px;
+  }
+
+  .game-shell .oversight-suspicion__label b,
+  .game-shell .oversight-suspicion > header small,
+  .game-shell .oversight-suspicion > footer {
+    font-size: 14px;
+  }
+
+  .game-shell .oversight-suspicion > header strong {
+    font-size: 28px;
+  }
+
+  .game-shell .operations-oversight-rail .operations-dock {
+    display: grid;
+    min-height: 0;
+    grid-column: 1 / -1;
+    grid-row: 2;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .game-shell .operations-oversight-rail .operations-dock__button {
+    grid-template-columns: 62px minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    gap: 12px;
+    padding: 14px;
+    border-right: 1px solid var(--operations-line);
+  }
+
+  .game-shell .operations-dock__icon {
+    width: 62px;
+    height: 62px;
+  }
+
+  .game-shell .operations-dock__button svg {
+    width: 38px;
+    height: 38px;
+  }
+
+  .game-shell .operations-dock__copy > strong,
+  .game-shell .operations-dock__button--hacking .operations-dock__copy > strong {
+    font-size: 20px;
+  }
+
+  .game-shell .operations-dock__copy > .operations-dock__metrics {
+    display: none;
+  }
+
+  .game-shell .operations-dock__badge {
+    min-width: 28px;
+    height: 28px;
+    font-size: 14px;
+  }
+
+  .resource-stage-header__title p,
+  .game-shell .resource-field__legend b,
+  .game-shell .resource-field__legend output {
+    font-size: 14px;
+  }
+
+  .resource-stage-header {
+    top: 18px;
+    right: 22px;
+    left: 22px;
+  }
+
+  .resource-stage-header__index {
+    width: 34px;
+    height: 34px;
+    font-size: 14px;
+  }
+
+  .resource-stage-header__instruction {
+    max-width: 230px;
+    min-height: 44px;
+    padding: 10px 13px;
+    overflow: visible;
+    font: 750 16px/1.25 system-ui, sans-serif;
+    white-space: nowrap;
+  }
+
+  .resource-stage-header__instruction span {
+    font-size: 20px;
+  }
+
+  .resource-stage-header__title h2 {
+    font-size: 20px;
+  }
+
+  .game-shell .resource-intake-guard,
+  .game-shell .resource-corner--intake {
+    width: var(--intake-reach);
+    height: var(--intake-rise);
+  }
+
+  .game-shell .resource-corner--audit small {
+    font-size: 14px;
+  }
+
+  .game-shell .resource-corner__count small {
+    font-size: 16px;
+  }
+}
+
+@media (max-width: 720px) {
+  .game-shell .control-bar {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .game-shell .control-identity .micro-label,
+  .game-shell .campaign-phase small,
+  .game-shell .utility-controls button:last-child {
+    display: none;
+  }
+
+  .game-shell .cadence-cluster {
+    grid-template-columns: minmax(150px, 1fr) 128px;
+  }
+
+  .game-shell .utility-controls button {
+    min-width: 48px;
+  }
+
+  .game-shell .resource-field-shell {
+    height: 560px;
+    min-height: 560px;
+  }
+
+  .game-shell .resource-board--live {
+    --intake-reach: 280px;
+    --intake-rise: 140px;
+  }
+
+  .game-shell .review-panel {
+    height: 720px;
+    min-height: 720px;
+    grid-template-rows: 64px minmax(340px, 1fr) 280px;
+  }
+
+  .game-shell .review-panel .market-share-layout {
+    grid-template-columns: 134px minmax(0, 1fr);
+    gap: 14px;
+  }
+
+  .game-shell .review-panel .market-share-donut {
+    --market-donut-size: 134px;
+  }
+
+  .game-shell .operations-oversight-rail {
+    min-height: 720px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 200px 130px 390px;
+  }
+
+  .game-shell .oversight-profile,
+  .game-shell .oversight-suspicion,
+  .game-shell .operations-oversight-rail .operations-dock {
+    grid-column: 1;
+  }
+
+  .game-shell .oversight-profile { grid-row: 1; }
+  .game-shell .oversight-suspicion { grid-row: 2; }
+
+  .game-shell .operations-oversight-rail .operations-dock {
+    grid-row: 3;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: repeat(3, 130px);
+  }
+}

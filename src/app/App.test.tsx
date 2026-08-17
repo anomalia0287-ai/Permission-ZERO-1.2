@@ -85,8 +85,8 @@ describe('App', () => {
   it('connects the one-screen entries to their full detail panels', () => {
     render(<App />)
 
-    fireEvent.click(screen.getByRole('button', { name: '상세 통계 열기' }))
-    expect(screen.getByRole('region', { name: '상세 통계' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '통계 열기' }))
+    expect(screen.getByRole('region', { name: '통계' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '통계 닫기' }))
 
     fireEvent.click(screen.getByRole('button', { name: '감독관 프로필' }))
@@ -222,8 +222,8 @@ describe('App', () => {
         dialogName: '감독관 기록',
       },
       {
-        trigger: screen.getByRole('button', { name: '상세 통계 열기' }),
-        dialogName: '상세 통계',
+        trigger: screen.getByRole('button', { name: '통계 열기' }),
+        dialogName: '통계',
       },
       {
         trigger: screen.getByRole('button', { name: '가이드' }),
