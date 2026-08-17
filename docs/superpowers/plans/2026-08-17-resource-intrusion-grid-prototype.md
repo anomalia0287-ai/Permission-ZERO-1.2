@@ -85,9 +85,8 @@ src/features/resources/ResourceBoard.tsx
 src/styles/resource-intrusion-grid.css
   제한색 회색 상자, 정사각 셀, 패턴 상태, 두 지원 뷰포트의 공간 규칙.
 
-src/styles/styleBoundaries.test.ts
 src/main.tsx
-  새 전용 스타일 경계와 cascade import.
+  새 전용 스타일의 cascade import.
 
 e2e/game.spec.ts
   삭제된 배속·자유 부유·투입구 가정을 고정 시계와 그리드 조작으로 교체한다.
@@ -967,10 +966,10 @@ git commit -m "feat: connect grid theft to resource economy"
 
 - Create: `src/styles/resource-intrusion-grid.css`
 - Modify: `src/main.tsx`
-- Modify: `src/styles/styleBoundaries.test.ts`
 - Modify: `src/styles/operations-shell.css`
 - Modify: `src/features/resources/ResourceIntrusionGrid.tsx`
 - Modify: `src/features/resources/ResourceIntrusionGrid.test.tsx`
+- Create: `e2e/resource-intrusion-grid.spec.ts`
 
 **Interfaces:**
 
@@ -993,27 +992,29 @@ data-theft-hold-ms="700"
 
 Cells expose `data-cell-index`, `data-row`, `data-column`, optional `data-block-id`, `data-origin`, `data-contribution`, `data-shape`, `data-wall`, `data-player`, and `data-surveillance`.
 
-- [ ] **Step 1: Add failing style-boundary and minimal-copy tests**
+- [ ] **Step 1: Add failing minimal-copy and real-browser presentation tests**
 
-Add `resource-intrusion-grid.css` to the style module list and require its import after `operations-shell.css` and before motion overrides. In `ResourceIntrusionGrid.test.tsx`, require:
+In `ResourceIntrusionGrid.test.tsx`, require:
 
 - one compact legend with three category entries;
 - one short visible phase/status line;
 - no visible paragraphs explaining direction keys or theft on every render;
 - no intake, audit corner, drag hint, decorative log, or duplicate reserve label in the playable field;
-- the lower rail still exposes one reserve count and performance/market evidence.
+- the lower rail still exposes one reserve count and performance/market evidence;
+- every rendered state exposes the semantic data attributes consumed by accessibility and browser measurement.
 
-Read the CSS source in the style test and require static selectors for `data-shape`, wall, signal, active, player, focus-visible, and reduced motion.
+Create the first `e2e/resource-intrusion-grid.spec.ts` test before adding the stylesheet. In real Chromium, require square non-zero cells, visible and distinct computed borders/background images for wall/signal/active fixtures, a grid focus outline distinct from the player outline, and unchanged visible patterns under reduced motion. Name the production break each assertion catches; do not inspect CSS source text.
 
 - [ ] **Step 2: Run tests and verify RED**
 
 Run:
 
 ```powershell
-pnpm test:run src/styles/styleBoundaries.test.ts src/features/resources/ResourceIntrusionGrid.test.tsx
+pnpm test:run src/features/resources/ResourceIntrusionGrid.test.tsx
+pnpm test:e2e e2e/resource-intrusion-grid.spec.ts --grep "graybox presentation"
 ```
 
-Expected: stylesheet and import are missing.
+Expected: component semantics fail first; after they are minimally present, the browser test still fails because the graybox layout/pattern stylesheet and import are missing.
 
 - [ ] **Step 3: Implement the restricted graybox palette and square grid**
 
@@ -1064,7 +1065,8 @@ At the supported sizes, cells must remain at least 56×56 CSS pixels at 1280×72
 Run:
 
 ```powershell
-pnpm test:run src/styles/styleBoundaries.test.ts src/features/resources/ResourceIntrusionGrid.test.tsx src/features/resources/ResourceBoard.test.tsx
+pnpm test:run src/features/resources/ResourceIntrusionGrid.test.tsx src/features/resources/ResourceBoard.test.tsx
+pnpm test:e2e e2e/resource-intrusion-grid.spec.ts --grep "graybox presentation"
 pnpm typecheck
 pnpm lint
 ```
@@ -1072,7 +1074,7 @@ pnpm lint
 Commit:
 
 ```powershell
-git add -- src/styles/resource-intrusion-grid.css src/main.tsx src/styles/styleBoundaries.test.ts src/styles/operations-shell.css src/features/resources/ResourceIntrusionGrid.tsx src/features/resources/ResourceIntrusionGrid.test.tsx
+git add -- src/styles/resource-intrusion-grid.css src/main.tsx src/styles/operations-shell.css src/features/resources/ResourceIntrusionGrid.tsx src/features/resources/ResourceIntrusionGrid.test.tsx e2e/resource-intrusion-grid.spec.ts
 git diff --cached --check
 git commit -m "style: fit intrusion grid to central field"
 ```
@@ -1090,7 +1092,7 @@ git commit -m "style: fit intrusion grid to central field"
 - Consumes: existing save builders, Task 1 fixed clock, Task 4 grid DOM, Task 5 theft flow, legacy active-audit compatibility.
 - Produces: the existing broad product E2E suite no longer expects speed buttons, free-floating bodies, drag-to-intake diversion, or normal-play audit corners.
 
-Before this task, invoke the `playwright` skill because these changes must be driven by a real Chromium browser rather than DOM assumptions.
+The `playwright` skill was invoked before Task 6's first real-browser RED test; keep using that browser workflow here.
 
 - [ ] **Step 1: Install the locked dependencies and run the old E2E once**
 
@@ -1197,7 +1199,7 @@ git commit -m "test: migrate product browser flows to intrusion grid"
 
 **Files:**
 
-- Create: `e2e/resource-intrusion-grid.spec.ts`
+- Modify: `e2e/resource-intrusion-grid.spec.ts`
 - Modify only if observed evidence fails: files introduced or modified in Tasks 1–7
 
 **Interfaces:**
