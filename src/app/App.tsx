@@ -35,7 +35,8 @@ import {
   useGameSettings,
   useGameState,
   useClockCheckpoint,
-  usePauseOwnership,
+  useRuntimeSuspended,
+  useRuntimeSuspensionOwnership,
   useSupervisorPresentationCheckpoint,
 } from './GameContext'
 import { GameProvider } from './GameProvider'
@@ -68,7 +69,7 @@ function DetailLayer({
   onOpenCredits: (trigger: HTMLButtonElement) => void
   returnFocus?: () => HTMLElement | null
 }) {
-  usePauseOwnership(
+  useRuntimeSuspensionOwnership(
     activePanel === 'settings' ||
       activePanel === 'guide' ||
       activePanel === 'credits',
@@ -132,6 +133,7 @@ function GameWorkspace() {
   const campaignPhase = getCampaignPhase(state)
   const dispatch = useGameDispatch()
   const checkpointClock = useClockCheckpoint()
+  const runtimeSuspended = useRuntimeSuspended()
   const supervisorPresentationCheckpoint = useSupervisorPresentationCheckpoint()
   const { settings, updateSettings } = useGameSettings()
   const [activePanel, setActivePanel] = useState<DetailPanelId>(null)
@@ -156,7 +158,10 @@ function GameWorkspace() {
     openDetail('guide', trigger)
   }, [openDetail])
   const dayProgress = useGameClock({
-    speed: state.clock.speed,
+    running:
+      !runtimeSuspended &&
+      state.activeEvent === null &&
+      state.story.endingId === null,
     onDay: advanceDay,
     initialElapsedDayMs: state.clock.elapsedDayMs,
     dayKey: `${state.campaignSeed}:${state.serviceDay}`,

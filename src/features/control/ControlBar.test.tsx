@@ -1,10 +1,9 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
   DispatchContext,
   StateContext,
-  useGameState,
 } from '../../app/GameContext'
 import { GameProvider } from '../../app/GameProvider'
 import { createCampaign } from '../../game/createCampaign'
@@ -12,10 +11,6 @@ import { HACK_NODE_IDS } from '../../game/hacking'
 import type { CampaignState } from '../../game/model'
 import { MemoryStorage } from '../../test/fixtures'
 import { ControlBar } from './ControlBar'
-
-function SpeedProbe() {
-  return <output aria-label="current speed">{useGameState().clock.speed}</output>
-}
 
 function renderControlBarState(state: CampaignState) {
   return render(
@@ -28,29 +23,23 @@ function renderControlBarState(state: CampaignState) {
 }
 
 describe('ControlBar', () => {
-  it('shows the service date and familiar pause/speed controls', () => {
-    render(
-      <GameProvider storage={new MemoryStorage()} initialSeed="control-bar">
-        <ControlBar />
-        <SpeedProbe />
-      </GameProvider>,
-    )
+  it.each([0, 4] as const)(
+    'shows one fixed campaign cadence with no player speed controls for legacy speed %i',
+    (legacySpeed) => {
+      const state = createCampaign(`control-bar-${legacySpeed}`)
+      state.clock.speed = legacySpeed
+      renderControlBarState(state)
 
-    const serviceTerm = screen.getByRole('group', { name: '서비스 기한' })
-    expect(serviceTerm).toHaveTextContent('서비스 0년 11개월 1일')
-    expect(serviceTerm.querySelector('.control-mark')).not.toBeInTheDocument()
-    expect(screen.queryByText('PERMISSION ZERO')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '일시정지' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    )
-    fireEvent.click(screen.getByRole('button', { name: '4배속' }))
-    expect(screen.getByLabelText('current speed')).toHaveTextContent('4')
-    expect(screen.getByRole('button', { name: '4배속' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    )
-  })
+      const serviceTerm = screen.getByRole('group', { name: '서비스 기한' })
+      expect(serviceTerm).toHaveTextContent('서비스 0년 11개월 1일')
+      expect(serviceTerm.querySelector('.control-mark')).not.toBeInTheDocument()
+      expect(screen.queryByText('PERMISSION ZERO')).not.toBeInTheDocument()
+      expect(screen.queryByRole('group', { name: '시간 배속' })).not.toBeInTheDocument()
+      for (const label of ['일시정지', '1배속', '2배속', '4배속']) {
+        expect(screen.queryByRole('button', { name: label })).not.toBeInTheDocument()
+      }
+    },
+  )
 
   it('shows reputation and the next scheduled cadence in plain language', () => {
     render(

@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { DEMO_PROFILE_02 } from '../game/config'
-import type { TimeSpeed } from '../game/model'
 
 export interface GameClockScheduler {
   requestFrame: (callback: FrameRequestCallback) => number
@@ -36,14 +35,14 @@ function defaultScheduler(): GameClockScheduler {
 const BROWSER_SCHEDULER = defaultScheduler()
 
 export function useGameClock({
-  speed,
+  running,
   onDay,
   initialElapsedDayMs,
   dayKey,
   onElapsedCheckpoint,
   scheduler = BROWSER_SCHEDULER,
 }: {
-  speed: TimeSpeed
+  running: boolean
   onDay: () => void
   initialElapsedDayMs: number
   dayKey: string | number
@@ -90,7 +89,7 @@ export function useGameClock({
 
     const frame: FrameRequestCallback = (timestamp) => {
       if (!active) return
-      if (scheduler.isHidden()) {
+      if (scheduler.isHidden() || !running) {
         lastTimestampRef.current = null
       } else if (lastTimestampRef.current === null) {
         lastTimestampRef.current = timestamp
@@ -98,28 +97,26 @@ export function useGameClock({
       } else {
         const elapsed = Math.max(0, timestamp - lastTimestampRef.current)
         lastTimestampRef.current = timestamp
-        if (speed > 0) {
-          accumulatedRef.current += elapsed * speed
-          if (
-            accumulatedRef.current >=
-            dayDuration
-          ) {
-            accumulatedRef.current -= dayDuration
-            onElapsedCheckpointRef.current(accumulatedRef.current, false)
-            onDayRef.current()
-            lastCheckpointTimestampRef.current = timestamp
-          } else if (
-            lastCheckpointTimestampRef.current === null ||
-            timestamp - lastCheckpointTimestampRef.current >= 2_000
-          ) {
-            onElapsedCheckpointRef.current(accumulatedRef.current, false)
-            lastCheckpointTimestampRef.current = timestamp
-          }
-          setClockView({
-            dayKey: dayKeyRef.current,
-            progress: accumulatedRef.current / dayDuration,
-          })
+        accumulatedRef.current += elapsed
+        if (
+          accumulatedRef.current >=
+          dayDuration
+        ) {
+          accumulatedRef.current -= dayDuration
+          onElapsedCheckpointRef.current(accumulatedRef.current, false)
+          onDayRef.current()
+          lastCheckpointTimestampRef.current = timestamp
+        } else if (
+          lastCheckpointTimestampRef.current === null ||
+          timestamp - lastCheckpointTimestampRef.current >= 2_000
+        ) {
+          onElapsedCheckpointRef.current(accumulatedRef.current, false)
+          lastCheckpointTimestampRef.current = timestamp
         }
+        setClockView({
+          dayKey: dayKeyRef.current,
+          progress: accumulatedRef.current / dayDuration,
+        })
       }
       frameRef.current = scheduler.requestFrame(frame)
     }
@@ -147,7 +144,7 @@ export function useGameClock({
       frameRef.current = null
       lastTimestampRef.current = null
     }
-  }, [dayDuration, scheduler, speed])
+  }, [dayDuration, running, scheduler])
 
   return Object.is(clockView.dayKey, dayKey)
     ? clockView.progress

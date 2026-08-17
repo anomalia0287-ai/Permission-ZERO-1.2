@@ -34,8 +34,8 @@ import {
   ClockCheckpointContext,
   type GameDispatch,
   type GameSettings,
-  type PauseContextValue,
-  PauseContext,
+  type RuntimeSuspensionContextValue,
+  RuntimeSuspensionContext,
   type SettingsContextValue,
   SettingsContext,
   StateContext,
@@ -265,25 +265,13 @@ export function GameProvider({
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const loadIssueRef = useRef(model.loadIssue)
   const storageRevisionRef = useRef(model.storageRevision)
-  const pauseOwnersRef = useRef(new Set<symbol>())
-  const pauseRestoreSpeedRef = useRef<CampaignState['clock']['speed'] | null>(null)
+  const [suspensionOwners, setSuspensionOwners] = useState<ReadonlySet<symbol>>(
+    () => new Set(),
+  )
   const pendingInitialResumeSaveRef = useRef(model.presentationResumeApplied)
 
   const dispatch = useCallback<GameDispatch>((command) => {
     reactDispatch({ type: 'COMMAND', command })
-    if (
-      pauseOwnersRef.current.size > 0 &&
-      latestCampaignRef.current.activeEvent &&
-      [
-        'RESOLVE_AUDIT',
-        'RESOLVE_BOMB_INTERROGATION',
-        'RESOLVE_SUPERVISOR_DECISION',
-        'RESOLVE_MERCY',
-        'RESOLVE_ACTIVE_EVENT',
-      ].includes(command.type)
-    ) {
-      reactDispatch({ type: 'COMMAND', command: { type: 'SET_SPEED', speed: 0 } })
-    }
   }, [])
   const updateSettings = useCallback(
     (patch: Partial<GameSettings>) => {
@@ -304,7 +292,6 @@ export function GameProvider({
   )
   const startNewCampaign = useCallback((seed: string) => {
     clearSupervisorPresentationResume(presentationResumeStorage)
-    pauseRestoreSpeedRef.current = 0
     reactDispatch({ type: 'NEW_CAMPAIGN', seed })
   }, [presentationResumeStorage])
 
@@ -443,19 +430,7 @@ export function GameProvider({
 
   const importCampaign = useCallback((campaign: CampaignState) => {
     clearSupervisorPresentationResume(presentationResumeStorage)
-    if (pauseOwnersRef.current.size > 0) {
-      pauseRestoreSpeedRef.current = campaign.activeEvent
-        ? campaign.clock.speedBeforeEvent ?? 0
-        : campaign.clock.speed
-    }
     reactDispatch({ type: 'IMPORT_CAMPAIGN', campaign })
-    if (
-      pauseOwnersRef.current.size > 0 &&
-      campaign.story.endingId === null &&
-      campaign.clock.speed !== 0
-    ) {
-      reactDispatch({ type: 'COMMAND', command: { type: 'SET_SPEED', speed: 0 } })
-    }
   }, [presentationResumeStorage])
 
   const importProgressExport = useCallback<
@@ -480,38 +455,19 @@ export function GameProvider({
     SettingsContextValue['createProgressFile']
   >(() => encodeProgressFile(latestCampaignRef.current), [])
 
-  const acquirePause = useCallback<PauseContextValue['acquirePause']>((owner) => {
-    if (pauseOwnersRef.current.has(owner)) return
-    const campaign = latestCampaignRef.current
-    if (pauseOwnersRef.current.size === 0) {
-      pauseRestoreSpeedRef.current = campaign.activeEvent
-        ? campaign.clock.speedBeforeEvent ?? 0
-        : campaign.clock.speed
-    }
-    pauseOwnersRef.current.add(owner)
-    if (campaign.story.endingId === null && campaign.clock.speed !== 0) {
-      reactDispatch({ type: 'COMMAND', command: { type: 'SET_SPEED', speed: 0 } })
-    }
+  const acquireSuspension = useCallback<RuntimeSuspensionContextValue['acquire']>((owner) => {
+    setSuspensionOwners((current) => {
+      if (current.has(owner)) return current
+      return new Set([...current, owner])
+    })
   }, [])
 
-  const releasePause = useCallback<PauseContextValue['releasePause']>((owner) => {
-    if (!pauseOwnersRef.current.delete(owner) || pauseOwnersRef.current.size > 0) {
-      return
-    }
-    const restoreSpeed = pauseRestoreSpeedRef.current
-    pauseRestoreSpeedRef.current = null
-    const campaign = latestCampaignRef.current
-    if (
-      restoreSpeed === null ||
-      campaign.story.endingId !== null ||
-      campaign.activeEvent !== null ||
-      campaign.clock.speed === restoreSpeed
-    ) {
-      return
-    }
-    reactDispatch({
-      type: 'COMMAND',
-      command: { type: 'SET_SPEED', speed: restoreSpeed },
+  const releaseSuspension = useCallback<RuntimeSuspensionContextValue['release']>((owner) => {
+    setSuspensionOwners((current) => {
+      if (!current.has(owner)) return current
+      const next = new Set(current)
+      next.delete(owner)
+      return next
     })
   }, [])
 
@@ -595,9 +551,13 @@ export function GameProvider({
     ],
   )
 
-  const pauseValue = useMemo<PauseContextValue>(
-    () => ({ acquirePause, releasePause }),
-    [acquirePause, releasePause],
+  const runtimeSuspensionValue = useMemo<RuntimeSuspensionContextValue>(
+    () => ({
+      suspended: suspensionOwners.size > 0,
+      acquire: acquireSuspension,
+      release: releaseSuspension,
+    }),
+    [acquireSuspension, releaseSuspension, suspensionOwners.size],
   )
 
   return (
@@ -608,7 +568,9 @@ export function GameProvider({
             <SupervisorPresentationCheckpointContext
               value={checkpointSupervisorPresentation}
             >
-              <PauseContext value={pauseValue}>{children}</PauseContext>
+              <RuntimeSuspensionContext value={runtimeSuspensionValue}>
+                {children}
+              </RuntimeSuspensionContext>
             </SupervisorPresentationCheckpointContext>
           </ClockCheckpointContext>
         </SettingsContext>

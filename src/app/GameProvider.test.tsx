@@ -4,8 +4,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { createCampaign } from '../game/createCampaign'
 import type { CampaignState } from '../game/model'
-import { createGameEvent } from '../game/events'
-import { appendJournal } from '../game/journal'
 import { loadCampaign, saveCampaign } from '../game/campaignStorage'
 import { SAVE_STORAGE_KEY, encodeSave } from '../game/persistence'
 import { encodeProgressExport } from '../game/progressTransfer'
@@ -18,7 +16,8 @@ import {
   useGameSettings,
   useGameState,
   useClockCheckpoint,
-  usePauseOwnership,
+  useRuntimeSuspended,
+  useRuntimeSuspensionOwnership,
 } from './GameContext'
 import { GameProvider } from './GameProvider'
 import {
@@ -102,20 +101,24 @@ function NewCampaignButton() {
   )
 }
 
-function PauseEventProbe() {
-  const [open, setOpen] = useState(true)
+function SuspensionProbe() {
+  const [outer, setOuter] = useState(false)
+  const [inner, setInner] = useState(false)
   const state = useGameState()
-  const dispatch = useGameDispatch()
-  usePauseOwnership(open, 'provider-event-test')
+  const suspended = useRuntimeSuspended()
+  useRuntimeSuspensionOwnership(outer, 'outer-test')
+  useRuntimeSuspensionOwnership(inner, 'inner-test')
   return (
     <>
-      <output aria-label="event pause speed">{state.clock.speed}</output>
-      <output aria-label="event active">{state.activeEvent?.type ?? 'none'}</output>
-      <button type="button" onClick={() => dispatch({ type: 'RESOLVE_ACTIVE_EVENT' })}>
-        resolve blocking event
+      <output aria-label="runtime suspended">{String(suspended)}</output>
+      <output aria-label="runtime legacy clock">{JSON.stringify(state.clock)}</output>
+      <output aria-label="runtime command sequence">{state.commandSequence}</output>
+      <output aria-label="runtime command log length">{state.commandLog.length}</output>
+      <button type="button" onClick={() => setOuter((value) => !value)}>
+        toggle outer
       </button>
-      <button type="button" onClick={() => setOpen(false)}>
-        close ui pause
+      <button type="button" onClick={() => setInner((value) => !value)}>
+        toggle inner
       </button>
     </>
   )
@@ -680,29 +683,39 @@ describe('GameProvider', () => {
     }
   })
 
-  it('keeps blocking-event pause ownership independent while a UI pause still owns time', async () => {
+  it('suspends runtime UI without mutating the legacy campaign clock or command log', async () => {
     const state = createCampaign('independent-pause-owners')
-    state.clock = { speed: 0, elapsedDayMs: 0, speedBeforeEvent: 2 }
-    state.activeEvent = createGameEvent(
-      state,
-      'story',
-      'blocking while settings remains open',
-      true,
-    )
-    state.eventLog = appendJournal(state.eventLog, state.activeEvent)
+    state.clock = { speed: 2, elapsedDayMs: 0, speedBeforeEvent: null }
     const storage = new MemoryStorage()
     await saveCampaign(storage, state)
     render(
       <GameProvider storage={storage}>
-        <PauseEventProbe />
+        <SuspensionProbe />
       </GameProvider>,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'resolve blocking event' }))
-    expect(screen.getByLabelText('event active')).toHaveTextContent('none')
-    expect(screen.getByLabelText('event pause speed')).toHaveTextContent('0')
+    const expectLegacyStateUnchanged = () => {
+      expect(screen.getByLabelText('runtime legacy clock')).toHaveTextContent(
+        JSON.stringify(state.clock),
+      )
+      expect(screen.getByLabelText('runtime command sequence')).toHaveTextContent('0')
+      expect(screen.getByLabelText('runtime command log length')).toHaveTextContent('0')
+    }
 
-    fireEvent.click(screen.getByRole('button', { name: 'close ui pause' }))
-    expect(screen.getByLabelText('event pause speed')).toHaveTextContent('2')
+    expect(screen.getByLabelText('runtime suspended')).toHaveTextContent('false')
+    expectLegacyStateUnchanged()
+
+    fireEvent.click(screen.getByRole('button', { name: 'toggle outer' }))
+    expect(screen.getByLabelText('runtime suspended')).toHaveTextContent('true')
+    expectLegacyStateUnchanged()
+
+    fireEvent.click(screen.getByRole('button', { name: 'toggle inner' }))
+    fireEvent.click(screen.getByRole('button', { name: 'toggle outer' }))
+    expect(screen.getByLabelText('runtime suspended')).toHaveTextContent('true')
+    expectLegacyStateUnchanged()
+
+    fireEvent.click(screen.getByRole('button', { name: 'toggle inner' }))
+    expect(screen.getByLabelText('runtime suspended')).toHaveTextContent('false')
+    expectLegacyStateUnchanged()
   })
 })

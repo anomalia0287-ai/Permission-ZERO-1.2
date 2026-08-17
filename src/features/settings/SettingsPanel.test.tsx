@@ -292,7 +292,8 @@ describe('SettingsPanel', () => {
     render(<GuidePanel onClose={vi.fn()} />)
     expect(screen.getByRole('region', { name: '게임 가이드' })).toBeInTheDocument()
     expect(screen.getByText('리소스 이동')).toBeInTheDocument()
-    expect(screen.getByText(/하루는 1배속에서 24초/)).toBeInTheDocument()
+    expect(screen.getByText(/하루는 24초의 고정 시간축/)).toBeInTheDocument()
+    expect(screen.queryByText(/배속|일시정지|1×|2×|4×/)).not.toBeInTheDocument()
     expect(screen.getByText('키보드')).toBeInTheDocument()
   })
 

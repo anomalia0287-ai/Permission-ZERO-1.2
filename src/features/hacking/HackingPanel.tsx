@@ -6,7 +6,7 @@ import {
   useGameDispatch,
   useGameSettings,
   useGameState,
-  usePauseOwnership,
+  useRuntimeSuspensionOwnership,
 } from '../../app/GameContext'
 import { selectRecoveryContaminationOpportunities } from '../../game/causalGameplay'
 import { auditProbability, getAuditIntel } from '../../game/evaluation'
@@ -89,7 +89,10 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
     ) &&
     state.story.recoveredFiles.length < 3
 
-  usePauseOwnership(finalChoices.length > 0, 'irreversible-final-choice')
+  useRuntimeSuspensionOwnership(
+    finalChoices.length > 0,
+    'irreversible-final-choice',
+  )
 
   const targetNames = useMemo(
     () => Object.fromEntries(state.market.competitors.map(({ id, name }) => [id, name])),

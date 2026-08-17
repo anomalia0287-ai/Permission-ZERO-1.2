@@ -49,9 +49,10 @@ export interface SettingsContextValue {
   importProgressFile: (content: string) => boolean
 }
 
-export interface PauseContextValue {
-  acquirePause: (owner: symbol) => void
-  releasePause: (owner: symbol) => void
+export interface RuntimeSuspensionContextValue {
+  suspended: boolean
+  acquire: (owner: symbol) => void
+  release: (owner: symbol) => void
 }
 
 export type ClockCheckpoint = (elapsedDayMs: number, flush: boolean) => void
@@ -65,7 +66,8 @@ export type GameDispatch = Dispatch<GameCommand>
 export const StateContext = createContext<CampaignState | null>(null)
 export const DispatchContext = createContext<GameDispatch | null>(null)
 export const SettingsContext = createContext<SettingsContextValue | null>(null)
-export const PauseContext = createContext<PauseContextValue | null>(null)
+export const RuntimeSuspensionContext =
+  createContext<RuntimeSuspensionContextValue | null>(null)
 export const ClockCheckpointContext = createContext<ClockCheckpoint | null>(null)
 export const SupervisorPresentationCheckpointContext =
   createContext<SupervisorPresentationCheckpoint | null>(null)
@@ -112,19 +114,35 @@ export function useSupervisorPresentationCheckpoint(): SupervisorPresentationChe
   return context
 }
 
-export function usePauseOwnership(active: boolean, label: string): void {
-  const context = useContext(PauseContext)
+export function useRuntimeSuspended(): boolean {
+  const context = useContext(RuntimeSuspensionContext)
+  if (!context) {
+    throw new Error('useRuntimeSuspended는 GameProvider 안에서 사용해야 합니다.')
+  }
+  return context.suspended
+}
+
+export function useRuntimeSuspensionOwnership(
+  active: boolean,
+  label: string,
+): void {
+  const context = useContext(RuntimeSuspensionContext)
   const ownerRef = useRef<symbol | null>(null)
   if (ownerRef.current === null) ownerRef.current = Symbol(label)
 
+  const acquire = context?.acquire
+  const release = context?.release
+
   useEffect(() => {
     if (!active) return
-    if (!context) {
-      throw new Error('usePauseOwnership는 GameProvider 안에서 사용해야 합니다.')
+    if (!acquire || !release) {
+      throw new Error(
+        'useRuntimeSuspensionOwnership는 GameProvider 안에서 사용해야 합니다.',
+      )
     }
     const owner = ownerRef.current
     if (!owner) return
-    context.acquirePause(owner)
-    return () => context.releasePause(owner)
-  }, [active, context])
+    acquire(owner)
+    return () => release(owner)
+  }, [acquire, active, release])
 }

@@ -114,16 +114,14 @@ describe('App', () => {
     expect(screen.queryByRole('region', { name: '해킹 네트워크' })).not.toBeInTheDocument()
   })
 
-  it('owns one pause across nested settings and guide, then restores the selected speed', async () => {
+  it('keeps the workspace suspended across nested settings and guide without speed controls', async () => {
     const user = userEvent.setup()
     render(<App />)
 
-    await user.click(screen.getByRole('button', { name: '2배속' }))
+    const background = screen.getByTestId('game-background')
+    expect(screen.queryByRole('group', { name: '시간 배속' })).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '설정' }))
-    expect(screen.getByRole('button', { name: '일시정지', hidden: true })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    )
+    expect(background).toHaveAttribute('inert')
 
     const guideTrigger = screen.getByRole('button', { name: '조작 가이드 열기' })
     await user.click(guideTrigger)
@@ -132,26 +130,17 @@ describe('App', () => {
       '게임 설정',
     )
     expect(screen.getByRole('dialog', { name: '게임 가이드' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '일시정지', hidden: true })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    )
+    expect(background).toHaveAttribute('inert')
 
     await user.keyboard('{Escape}')
     expect(screen.queryByRole('dialog', { name: '게임 가이드' })).not.toBeInTheDocument()
     expect(screen.getByRole('dialog', { name: '게임 설정' })).toBeInTheDocument()
     expect(guideTrigger).toHaveFocus()
-    expect(screen.getByRole('button', { name: '일시정지', hidden: true })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    )
+    expect(background).toHaveAttribute('inert')
 
     await user.keyboard('{Escape}')
     expect(screen.queryByRole('dialog', { name: '게임 설정' })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '2배속' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    )
+    expect(background).not.toHaveAttribute('inert')
     expect(screen.getByRole('button', { name: '설정' })).toHaveFocus()
   })
 
@@ -180,7 +169,7 @@ describe('App', () => {
     expect(trigger).toHaveFocus()
   })
 
-  it('falls back to the stable pause control when the exact dialog opener becomes disabled', async () => {
+  it('falls back to the stable sound control when the exact dialog opener becomes disabled', async () => {
     const user = userEvent.setup()
     render(<App />)
 
@@ -189,7 +178,7 @@ describe('App', () => {
     trigger.setAttribute('disabled', '')
     await user.keyboard('{Escape}')
 
-    expect(screen.getByRole('button', { name: '일시정지' })).toHaveFocus()
+    expect(screen.getByRole('button', { name: '소리 끄기' })).toHaveFocus()
     expect(trigger).not.toHaveFocus()
   })
 
@@ -237,21 +226,15 @@ describe('App', () => {
     }
   })
 
-  it('restores an explicitly selected paused speed as paused', async () => {
+  it('does not reintroduce speed controls after a settings lifecycle', async () => {
     const user = userEvent.setup()
     render(<App />)
 
-    await user.click(screen.getByRole('button', { name: '일시정지' }))
-    expect(screen.getByRole('button', { name: '일시정지' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    )
     await user.click(screen.getByRole('button', { name: '설정' }))
     await user.keyboard('{Escape}')
 
-    expect(screen.getByRole('button', { name: '일시정지' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    )
+    for (const label of ['일시정지', '1배속', '2배속', '4배속']) {
+      expect(screen.queryByRole('button', { name: label })).not.toBeInTheDocument()
+    }
   })
 })

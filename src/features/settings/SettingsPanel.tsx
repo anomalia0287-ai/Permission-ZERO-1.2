@@ -430,7 +430,7 @@ export function GuidePanel({ onClose }: { onClose: () => void }) {
         <article>
           <span>01</span>
           <h3>시간</h3>
-          <p>하루는 1배속에서 24초입니다. 일시정지·1×·2×·4×를 사용할 수 있으며, 중요한 사건이 뜨면 자동으로 멈춥니다.</p>
+          <p>하루는 24초의 고정 시간축으로 흐릅니다. 중요한 사건을 해결하거나 설정 화면을 닫으면 같은 지점에서 계속됩니다.</p>
         </article>
         <article>
           <span>02</span>

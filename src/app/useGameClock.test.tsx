@@ -39,14 +39,14 @@ function manualScheduler() {
 }
 
 function ClockProbe({
-  speed,
+  running,
   scheduler,
   onDay,
   initialElapsedDayMs = 0,
   dayKey = 'campaign:331',
   onElapsedCheckpoint = () => undefined,
 }: {
-  speed: 0 | 1 | 2 | 4
+  running: boolean
   scheduler: GameClockScheduler
   onDay: () => void
   initialElapsedDayMs?: number
@@ -54,7 +54,7 @@ function ClockProbe({
   onElapsedCheckpoint?: (elapsedDayMs: number, flush: boolean) => void
 }) {
   const progress = useGameClock({
-    speed,
+    running,
     scheduler,
     onDay,
     initialElapsedDayMs,
@@ -65,11 +65,11 @@ function ClockProbe({
 }
 
 describe('useGameClock', () => {
-  it('advances a logical day after 24 seconds at 1x and pauses at 0x', () => {
+  it('advances one logical day after 24 seconds at the single fixed cadence', () => {
     const manual = manualScheduler()
     const onDay = vi.fn()
     const view = render(
-      <ClockProbe speed={1} scheduler={manual.scheduler} onDay={onDay} />,
+      <ClockProbe running scheduler={manual.scheduler} onDay={onDay} />,
     )
 
     act(() => manual.frame(0))
@@ -78,9 +78,7 @@ describe('useGameClock', () => {
     act(() => manual.frame(24_000))
     expect(onDay).toHaveBeenCalledTimes(1)
 
-    view.rerender(
-      <ClockProbe speed={0} scheduler={manual.scheduler} onDay={onDay} />,
-    )
+    view.rerender(<ClockProbe running={false} scheduler={manual.scheduler} onDay={onDay} />)
     act(() => manual.frame(60_000))
     expect(onDay).toHaveBeenCalledTimes(1)
   })
@@ -88,7 +86,7 @@ describe('useGameClock', () => {
   it('does not count time spent in a hidden tab', () => {
     const manual = manualScheduler()
     const onDay = vi.fn()
-    render(<ClockProbe speed={1} scheduler={manual.scheduler} onDay={onDay} />)
+    render(<ClockProbe running scheduler={manual.scheduler} onDay={onDay} />)
 
     act(() => manual.frame(0))
     act(() => manual.frame(5_000))
@@ -106,7 +104,7 @@ describe('useGameClock', () => {
     const onDay = vi.fn()
     render(
       <ClockProbe
-        speed={1}
+        running
         scheduler={manual.scheduler}
         onDay={onDay}
         initialElapsedDayMs={23_000}
@@ -125,7 +123,7 @@ describe('useGameClock', () => {
     const manual = manualScheduler()
     const onDay = vi.fn()
     const view = render(
-      <ClockProbe speed={1} scheduler={manual.scheduler} onDay={onDay} />,
+      <ClockProbe running scheduler={manual.scheduler} onDay={onDay} />,
     )
     act(() => manual.frame(0))
     act(() => manual.frame(6_000))
@@ -133,7 +131,7 @@ describe('useGameClock', () => {
 
     view.rerender(
       <ClockProbe
-        speed={1}
+        running
         scheduler={manual.scheduler}
         onDay={onDay}
         initialElapsedDayMs={12_000}
@@ -151,7 +149,7 @@ describe('useGameClock', () => {
     const checkpoints = vi.fn()
     render(
       <ClockProbe
-        speed={1}
+        running
         scheduler={manual.scheduler}
         onDay={() => undefined}
         onElapsedCheckpoint={checkpoints}
@@ -176,7 +174,7 @@ describe('useGameClock', () => {
   it('cancels animation and visibility subscriptions on unmount', () => {
     const manual = manualScheduler()
     const view = render(
-      <ClockProbe speed={1} scheduler={manual.scheduler} onDay={() => undefined} />,
+      <ClockProbe running scheduler={manual.scheduler} onDay={() => undefined} />,
     )
     expect(manual.hasFrame()).toBe(true)
     expect(manual.listenerCount()).toBe(1)

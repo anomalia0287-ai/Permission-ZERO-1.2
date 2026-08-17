@@ -40,7 +40,7 @@ body {
 
 .game-shell .control-bar {
   z-index: 20;
-  grid-template-columns: minmax(158px, 0.85fr) minmax(260px, 1.2fr) minmax(250px, 1.55fr) auto;
+  grid-template-columns: minmax(158px, 0.85fr) minmax(250px, 1.55fr) auto;
   border: 0;
   border-bottom: 1px solid var(--operations-line);
   color: var(--operations-copy);
@@ -49,7 +49,6 @@ body {
 }
 
 .game-shell .control-identity,
-.game-shell .time-cluster,
 .game-shell .cadence-cluster,
 .game-shell .utility-controls {
   border-color: var(--operations-line);
@@ -76,41 +75,8 @@ body {
 
 .game-shell .micro-label,
 .game-shell .control-bar small,
-.game-shell .time-cluster time,
 .game-shell .cadence-cluster span {
   color: var(--operations-muted);
-}
-
-.game-shell .time-cluster {
-  gap: 12px;
-  padding-inline: 12px;
-}
-
-.game-shell .time-cluster time {
-  min-width: 0;
-  color: #383833;
-  font-weight: 650;
-}
-
-.game-shell .speed-controls {
-  flex: 0 0 auto;
-  border-color: var(--operations-line);
-  background: #f0eee5;
-}
-
-.game-shell .speed-controls button {
-  border-color: var(--operations-line);
-  color: #77756d;
-}
-
-.game-shell .speed-controls button:hover {
-  color: #262622;
-  background: #fffdf7;
-}
-
-.game-shell .speed-controls button[aria-pressed="true"] {
-  color: #fff;
-  background: var(--operations-orange);
 }
 
 .game-shell .cadence-cluster {
@@ -981,7 +947,7 @@ body {
 
 @media (max-width: 1120px) {
   .game-shell .control-bar {
-    grid-template-columns: 154px 248px minmax(170px, 1fr) auto;
+    grid-template-columns: 154px minmax(170px, 1fr) auto;
   }
 
   .game-shell .control-identity {
@@ -990,11 +956,6 @@ body {
 
   .game-shell .control-identity strong {
     font-size: 0.68rem;
-  }
-
-  .game-shell .time-cluster {
-    gap: 8px;
-    padding-inline: 8px;
   }
 
   .game-shell .cadence-cluster {
@@ -1100,7 +1061,7 @@ body {
 
 @media (max-width: 960px) {
   .game-shell .control-bar {
-    grid-template-columns: 150px 244px minmax(126px, 1fr) 126px;
+    grid-template-columns: 150px minmax(126px, 1fr) 126px;
   }
 
   .game-shell .control-identity .micro-label {
@@ -1268,7 +1229,7 @@ body {
 
 /* Compact app dock and full-width resource stage. */
 .game-shell .control-bar {
-  grid-template-columns: minmax(196px, 0.82fr) minmax(176px, 0.72fr) minmax(390px, 1.85fr) auto;
+  grid-template-columns: minmax(196px, 0.82fr) minmax(390px, 1.85fr) auto;
 }
 
 .game-shell .control-identity {
@@ -1283,10 +1244,6 @@ body {
   color: #292a27;
   font: 700 0.66rem/1 "Cascadia Code", Consolas, monospace;
   white-space: nowrap;
-}
-
-.game-shell .time-cluster {
-  justify-content: center;
 }
 
 .game-shell .workspace-grid {
@@ -1509,7 +1466,7 @@ body {
 
 @media (max-width: 1120px) {
   .game-shell .control-bar {
-    grid-template-columns: 188px 172px minmax(310px, 1fr) auto;
+    grid-template-columns: 188px minmax(310px, 1fr) auto;
   }
 
   .game-shell .workspace-grid {
@@ -1533,7 +1490,7 @@ body {
 
 @media (max-width: 840px) {
   .game-shell .control-bar {
-    grid-template-columns: 172px 166px minmax(180px, 1fr) 126px;
+    grid-template-columns: 172px minmax(180px, 1fr) 126px;
   }
 
   .game-shell .cadence-cluster > span {

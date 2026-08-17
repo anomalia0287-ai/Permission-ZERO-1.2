@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
-import { useGameState } from '../../app/GameContext'
+import { useGameState, useRuntimeSuspended } from '../../app/GameContext'
 import { GameProvider } from '../../app/GameProvider'
 import { createCampaign } from '../../game/createCampaign'
 import { recordCausalEvidence, recordCausalIncident } from '../../game/causality'
@@ -14,6 +14,7 @@ import { HackingPanel } from './HackingPanel'
 
 function Probe() {
   const state = useGameState()
+  const runtimeSuspended = useRuntimeSuspended()
   return (
     <>
       <output aria-label="purchased nodes">{state.hacking.purchasedNodeIds.join(',')}</output>
@@ -22,6 +23,8 @@ function Probe() {
       <output aria-label="scheduled attacks">{state.hacking.scheduledSabotage.length}</output>
       <output aria-label="recovered archive">{state.story.recoveredFiles.length}</output>
       <output aria-label="clock speed">{state.clock.speed}</output>
+      <output aria-label="runtime suspended">{String(runtimeSuspended)}</output>
+      <output aria-label="command sequence">{state.commandSequence}</output>
       <output aria-label="recovery incidents">
         {state.causality.incidents.filter(
           ({ actionId }) => actionId === 'follow-up.recovery-contamination',
@@ -564,7 +567,7 @@ describe('HackingPanel', () => {
     )
   })
 
-  it('pauses while an irreversible final-choice surface is open and Escape cannot dismiss confirmation', () => {
+  it('suspends runtime without mutating the legacy clock while a final choice is open', () => {
     const state = createCampaign('final-choice-pause')
     state.clock.speed = 2
     state.hacking.purchasedNodeIds = [
@@ -581,7 +584,9 @@ describe('HackingPanel', () => {
       </GameProvider>,
     )
 
-    expect(screen.getByLabelText('clock speed')).toHaveTextContent('0')
+    expect(screen.getByLabelText('runtime suspended')).toHaveTextContent('true')
+    expect(screen.getByLabelText('clock speed')).toHaveTextContent('2')
+    expect(screen.getByLabelText('command sequence')).toHaveTextContent('0')
     fireEvent.click(screen.getByRole('button', { name: '강제 병합' }))
     const confirmation = screen.getByRole('alertdialog', {
       name: '강제 병합 최종 확인',
@@ -593,6 +598,8 @@ describe('HackingPanel', () => {
     expect(
       screen.getByRole('alertdialog', { name: '강제 병합 최종 확인' }),
     ).toBeInTheDocument()
-    expect(screen.getByLabelText('clock speed')).toHaveTextContent('0')
+    expect(screen.getByLabelText('runtime suspended')).toHaveTextContent('true')
+    expect(screen.getByLabelText('clock speed')).toHaveTextContent('2')
+    expect(screen.getByLabelText('command sequence')).toHaveTextContent('0')
   })
 })

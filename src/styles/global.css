@@ -76,7 +76,7 @@ textarea:focus-visible,
   position: relative;
   z-index: 2;
   display: grid;
-  grid-template-columns: minmax(205px, 0.78fr) auto minmax(310px, 1fr) auto;
+  grid-template-columns: minmax(205px, 0.78fr) minmax(310px, 1fr) auto;
   align-items: stretch;
   min-width: 0;
   border: 1px solid var(--line-strong);
@@ -85,7 +85,6 @@ textarea:focus-visible,
 }
 
 .control-identity,
-.time-cluster,
 .cadence-cluster,
 .utility-controls {
   display: flex;
@@ -134,50 +133,6 @@ textarea:focus-visible,
   color: var(--text-muted);
   font: 500 0.56rem/1.2 "Cascadia Code", Consolas, monospace;
   letter-spacing: 0.12em;
-}
-
-.time-cluster {
-  gap: 14px;
-  padding: 0 14px;
-}
-
-.time-cluster time {
-  min-width: 126px;
-  color: var(--text);
-  font-size: 0.68rem;
-  white-space: nowrap;
-}
-
-.speed-controls {
-  display: grid;
-  grid-template-columns: repeat(4, 31px);
-  height: 30px;
-  border: 1px solid var(--line-soft);
-}
-
-.speed-controls button {
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border-right: 1px solid var(--line-soft);
-  color: var(--text-muted);
-  background: transparent;
-  font: 600 0.65rem/1 "Cascadia Code", Consolas, monospace;
-  cursor: pointer;
-}
-
-.speed-controls button:last-child {
-  border-right: 0;
-}
-
-.speed-controls button:hover {
-  color: var(--text-strong);
-  background: var(--ink-3);
-}
-
-.speed-controls button[aria-pressed="true"] {
-  color: var(--ink-0);
-  background: var(--reserve-bright);
 }
 
 .cadence-cluster {
