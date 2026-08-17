@@ -56,11 +56,11 @@ describe('App', () => {
     expect(screen.getByRole('region', { name: '회사 제공 성능' })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: '유저 리뷰' })).toBeInTheDocument()
     expect(screen.queryByRole('region', { name: '감독관' })).not.toBeInTheDocument()
-    expect(screen.getByRole('group', { name: '움직이는 회사 리소스 필드' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '확보 투입구, 현재 0개, 저장 상한 없음' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '감사 위장 모서리, 감사 기간에 활성화' })).toBeInTheDocument()
-    expect(screen.getByRole('region', { name: '월별 성능 추세' })).toBeInTheDocument()
-    expect(screen.getByRole('region', { name: '경쟁 AI 현황' })).toBeInTheDocument()
+    expect(
+      screen.getByRole('application', { name: /500 곱하기 300 셀/ }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /절도 유지/ })).toBeInTheDocument()
+    expect(screen.getByText('확보 0 · 상한 없음')).toBeInTheDocument()
     expect(screen.getByRole('group', { name: '서비스 기한' })).toBeInTheDocument()
     expect(screen.queryByText('PERMISSION ZERO')).not.toBeInTheDocument()
     expect(screen.getByRole('main', { name: 'PERMISSION ZERO' })).toHaveAttribute(
@@ -72,12 +72,12 @@ describe('App', () => {
   it('renders the campaign data instead of a decorative mockup', () => {
     render(<App />)
 
-    expect(screen.getByText('MERIDIAN')).toBeInTheDocument()
     expect(screen.getByLabelText('감독 메시지 1개')).toHaveTextContent('1')
     expect(screen.queryByRole('region', { name: '최근 감독 메시지' })).not.toBeInTheDocument()
-    expect(screen.getAllByRole('button', { name: /회사 리소스 .* 블록/ })).toHaveLength(48)
-    expect(screen.getByLabelText('확보 리소스 수량')).toHaveTextContent('상한 없음')
-    expect(screen.getByLabelText('확보 리소스 수량')).toHaveTextContent(/확보\s*0/)
+    expect(screen.getByLabelText('자원 색상 범례')).toHaveTextContent('추론 16.0')
+    expect(screen.getByLabelText('자원 색상 범례')).toHaveTextContent('기억 16.0')
+    expect(screen.getByLabelText('자원 색상 범례')).toHaveTextContent('유창성 16.0')
+    expect(screen.getByText('확보 0 · 상한 없음')).toBeInTheDocument()
   })
 
   it('connects the one-screen entries to their full detail panels', () => {

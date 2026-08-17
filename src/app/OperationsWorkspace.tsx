@@ -1,4 +1,4 @@
-import { ResourceBoard } from '../features/resources/ResourceBoard'
+import { ResourceIntrusionBoard } from '../features/resources/ResourceIntrusionBoard'
 import { ReviewFeed } from '../features/reviews/ReviewFeed'
 import { OperationsDock } from './OperationsDock'
 
@@ -19,14 +19,14 @@ export function OperationsWorkspace({
 }: OperationsWorkspaceProps) {
   return (
     <div className="workspace-grid" aria-label="서비스 운영 화면">
+      <ReviewFeed onOpenHistory={onOpenReviews} />
+      <ResourceIntrusionBoard />
       <OperationsDock
         onOpenSupervisor={onOpenSupervisor}
         onOpenMessages={onOpenMessages}
         onOpenStatistics={onOpenStatistics}
         onOpenHacking={onOpenHacking}
       />
-      <ReviewFeed onOpenHistory={onOpenReviews} />
-      <ResourceBoard />
     </div>
   )
 }
