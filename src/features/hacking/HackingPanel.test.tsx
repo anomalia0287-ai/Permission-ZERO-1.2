@@ -236,9 +236,7 @@ describe('HackingPanel', () => {
     expect(screen.getByLabelText('정보 현재 요구 추론 1, 기억 3, 유창성 0')).toBeInTheDocument()
     expect(routeSelector).toHaveTextContent('자율성')
     expect(screen.getByLabelText('자율성 현재 요구 추론 2, 기억 0, 유창성 2')).toBeInTheDocument()
-    expect(screen.getByRole('region', { name: '균등 비축 경고' })).toHaveTextContent(
-      '총량이 충분해도 분야가 틀리면 구매할 수 없습니다.',
-    )
+    expect(screen.queryByRole('region', { name: '균등 비축 경고' })).not.toBeInTheDocument()
     expect(screen.getByRole('group', { name: '품질 저하 해킹 노드' })).toHaveTextContent(
       '01해금분야 조합 3',
     )

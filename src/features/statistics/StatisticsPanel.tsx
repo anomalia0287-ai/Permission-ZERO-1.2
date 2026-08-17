@@ -2,7 +2,17 @@ import { useState } from 'react'
 
 import { useGameState } from '../../app/GameContext'
 import { formatServiceDateLabel } from '../../game/calendar'
+import { CATEGORY_LABELS } from '../../game/config'
+import {
+  auditProbability,
+  expectedPerformance,
+  getSuspicionBand,
+  serviceMonthForDay,
+} from '../../game/evaluation'
+import { COMPANY_CATEGORIES } from '../../game/model'
 import { pageFromNewest } from '../../game/pageRange'
+import { publicCompetitorStatusLabel } from '../../game/publicLabels'
+import { getCompanyPerformance } from '../../game/resources'
 import { downsampleSeries } from './downsampleSeries'
 import { projectCausalKnowledge } from '../../game/causality'
 
@@ -11,6 +21,98 @@ const CHART_HEIGHT = 210
 const CHART_PADDING = 22
 const MAX_CHART_POINTS = 240
 const TABLE_PAGE_SIZE = 50
+
+function CurrentOperationsSnapshot() {
+  const state = useGameState()
+  const expectation = expectedPerformance(serviceMonthForDay(state.serviceDay))
+  const categoryPerformance = COMPANY_CATEGORIES.map((category) => ({
+    category,
+    value: getCompanyPerformance(state, category),
+  }))
+  const averagePerformance = categoryPerformance.reduce(
+    (total, entry) => total + entry.value,
+    0,
+  ) / categoryPerformance.length
+  const reserveCount = state.resources.reserve.reduce(
+    (total, blockId) => total + (blockId === null ? 0 : 1),
+    0,
+  )
+  const suspicionBand = getSuspicionBand(state.suspicion)
+  const nextAudit = auditProbability(state.suspicion) * 100
+
+  return (
+    <section className="statistics-overview" aria-label="현재 운영 스냅샷">
+      <header>
+        <div>
+          <span>현재 운영 스냅샷</span>
+          <strong>{formatServiceDateLabel(state.serviceDay)}</strong>
+        </div>
+        <p>과거 기록과 별개로 현재 계산값을 실시간 표시합니다.</p>
+      </header>
+
+      <div className="statistics-kpi-grid">
+        <article>
+          <span>시장 점유율</span>
+          <strong>{state.market.playerShare.toFixed(1)}%</strong>
+        </article>
+        <article>
+          <span>평판</span>
+          <strong>{Math.round(state.reputation)}</strong>
+          <i aria-hidden="true"><b style={{ width: `${Math.max(0, Math.min(100, state.reputation))}%` }} /></i>
+        </article>
+        <article data-status={averagePerformance >= expectation ? 'good' : 'danger'}>
+          <span>평균 성능</span>
+          <strong>{averagePerformance.toFixed(1)}</strong>
+          <small>요구 {expectation.toFixed(1)}</small>
+        </article>
+        <article data-status={state.suspicion >= 40 ? 'danger' : 'good'}>
+          <span>의심 / 감사</span>
+          <strong>{state.suspicion.toFixed(1)}</strong>
+          <small>{suspicionBand.label} · {nextAudit.toFixed(1)}%</small>
+        </article>
+        <article>
+          <span>확보 자원</span>
+          <strong>{reserveCount}</strong>
+          <small>저장 상한 없음</small>
+        </article>
+        <article>
+          <span>폐기 단계</span>
+          <strong>{state.evaluation.disposalStage}/3</strong>
+          <small>연속 실패 {state.evaluation.consecutiveFailures}</small>
+        </article>
+      </div>
+
+      <div className="statistics-live-grid">
+        <section aria-label="분야별 현재 성능">
+          <header><strong>분야별 현재 성능</strong><span>요구 {expectation.toFixed(1)}</span></header>
+          <div className="statistics-category-bars">
+            {categoryPerformance.map(({ category, value }) => (
+              <div data-status={value >= expectation ? 'good' : 'danger'} key={category}>
+                <span>{CATEGORY_LABELS[category]}</span>
+                <i aria-hidden="true"><b style={{ width: `${Math.min(100, (value / Math.max(1, expectation)) * 70)}%` }} /><em style={{ left: '70%' }} /></i>
+                <strong>{value.toFixed(1)}</strong>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section aria-label="현재 경쟁 AI 비교">
+          <header><strong>현재 경쟁 AI</strong><span>점유율 / 성능 / 평판</span></header>
+          <div className="statistics-competitor-table">
+            {state.market.competitors.map((competitor) => (
+              <div key={competitor.id}>
+                <span><strong>{competitor.name}</strong><small>{publicCompetitorStatusLabel(competitor.status)}</small></span>
+                <b>{competitor.marketShare.toFixed(1)}%</b>
+                <b>{competitor.serviceScore.toFixed(1)}</b>
+                <b>{Math.round(competitor.reputation)}</b>
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
+    </section>
+  )
+}
 
 function polylinePoints(values: number[], maximum = 100): string {
   if (values.length === 0) return ''
@@ -260,11 +362,12 @@ export function StatisticsPanel({ onClose }: { onClose: () => void }) {
     <section className="detail-panel statistics-panel" aria-label="상세 통계">
       <header className="detail-panel__header">
         <div>
-          <small>TIME SERIES ARCHIVE</small>
+          <small>운영 지표 아카이브</small>
           <h2>상세 통계</h2>
         </div>
         <button type="button" aria-label="통계 닫기" onClick={onClose}>닫기 ×</button>
       </header>
+      <CurrentOperationsSnapshot />
       <div className="statistics-tabs" role="tablist" aria-label="통계 종류">
         <button type="button" role="tab" aria-label="시장 점유율" aria-selected={view === 'market'} onClick={() => setView('market')}>시장 점유율</button>
         <button type="button" role="tab" aria-label="서비스 성능" aria-selected={view === 'performance'} onClick={() => setView('performance')}>서비스 성능</button>

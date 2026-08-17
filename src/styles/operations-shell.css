@@ -3320,3 +3320,370 @@ body {
     height: 58%;
   }
 }
+
+/* Commercial UI correction — one chrome tone, straight geometry, zero clipped copy. */
+@media (min-width: 1261px) {
+  .resource-stage-header__title h2,
+  .game-shell .oversight-profile__copy strong {
+    overflow: visible;
+    text-overflow: clip;
+  }
+
+  .game-shell .day-progress i {
+    background: var(--operations-orange);
+  }
+
+  .game-shell .control-bar,
+  .game-shell .workspace-grid,
+  .game-shell .workspace-panel,
+  .game-shell .operations-oversight-rail,
+  .game-shell .operations-dock__button {
+    border-radius: 0;
+  }
+
+  .game-shell .cadence-cluster {
+    display: grid;
+    grid-template-columns: minmax(220px, 1fr) 174px auto;
+    align-items: stretch;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .game-shell .campaign-phase {
+    display: grid;
+    min-width: 0;
+    align-content: center;
+    overflow: hidden;
+  }
+
+  .game-shell .campaign-phase strong {
+    overflow: hidden;
+    font-size: 16px;
+    line-height: 1.15;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .game-shell .reputation-summary {
+    display: grid;
+    grid-template-columns: auto auto;
+    grid-template-rows: auto 8px;
+    align-content: center;
+    align-items: center;
+    gap: 5px 9px;
+    min-width: 0;
+    padding: 10px 14px;
+    border-inline: 1px solid var(--operations-line);
+    color: #56554f;
+  }
+
+  .game-shell .reputation-summary > span:first-child {
+    font-size: 14px;
+    font-weight: 750;
+  }
+
+  .game-shell .reputation-summary > strong {
+    color: #252624;
+    font: 850 20px/1 "Cascadia Code", Consolas, monospace;
+  }
+
+  .game-shell .reputation-summary__track {
+    position: relative;
+    display: block;
+    height: 8px;
+    grid-column: 1 / -1;
+    overflow: hidden;
+    background: #dedbd0;
+  }
+
+  .game-shell .reputation-summary__track > i {
+    display: block;
+    height: 100%;
+    background: var(--operations-orange);
+  }
+
+  .game-shell .resource-field-shell {
+    grid-template-rows: minmax(0, 1fr);
+    background: var(--operations-ink);
+  }
+
+  .game-shell .resource-field {
+    clip-path: none;
+  }
+
+  .resource-stage-header__title,
+  .resource-stage-header__instruction,
+  .game-shell .resource-field__legend span {
+    border-radius: 0;
+  }
+
+  .resource-stage-header__instruction {
+    max-width: 190px;
+  }
+
+  .game-shell .resource-intake-guard {
+    width: 360px;
+    height: 180px;
+  }
+
+  .game-shell .resource-intake-guard svg {
+    filter: drop-shadow(3px -3px 10px rgb(0 0 0 / 24%));
+  }
+
+  .game-shell .resource-intake-guard__glass {
+    fill: rgb(234 248 246 / 11%);
+  }
+
+  .game-shell .resource-intake-guard__edge {
+    stroke: rgb(231 248 246 / 90%);
+    stroke-width: 4;
+    stroke-linecap: square;
+  }
+
+  .game-shell .resource-intake-guard::before {
+    inset: 0;
+    clip-path: polygon(0 0, 100% 100%, 0 100%);
+    background: rgb(197 226 222 / 7%);
+    backdrop-filter: blur(8px) saturate(1.05);
+  }
+
+  .game-shell .resource-intake-guard::after {
+    display: none;
+  }
+
+  .game-shell .resource-board--live {
+    --intake-reach: 360px;
+    --intake-rise: 180px;
+  }
+
+  .game-shell .resource-corner--intake {
+    display: block;
+    width: var(--intake-reach);
+    height: var(--intake-rise);
+    padding: 0;
+    clip-path: polygon(0 0, 100% 100%, 0 100%);
+    border: 0;
+    background: var(--operations-orange);
+  }
+
+  .game-shell .resource-corner--intake::after {
+    display: none;
+  }
+
+  .game-shell .resource-corner--intake .resource-corner__arrow {
+    position: absolute;
+    bottom: 25px;
+    left: 24px;
+    font: 850 28px/1 system-ui, sans-serif;
+  }
+
+  .game-shell .resource-corner__count {
+    position: absolute;
+    bottom: 24px;
+    left: 68px;
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    min-width: 150px;
+  }
+
+  .game-shell .resource-corner__count strong {
+    font-size: 44px;
+    line-height: 0.85;
+  }
+
+  .game-shell .resource-corner__count small {
+    color: #fff;
+    font-size: 16px;
+    line-height: 1;
+    white-space: nowrap;
+  }
+
+  .game-shell .review-entry,
+  .game-shell .review-entry:nth-child(3n + 1),
+  .game-shell .review-entry:nth-child(3n + 2),
+  .game-shell .review-entry:nth-child(3n) {
+    border-left-color: var(--operations-orange);
+    border-radius: 0;
+    background: #fffdf7;
+    box-shadow: none;
+  }
+
+  .game-shell .review-entry--negative {
+    border-left-color: var(--operations-red);
+    background: #fff8f5;
+  }
+
+  .game-shell .review-entry--prompt {
+    border-left-color: #a26b48;
+    background: #fffaf3;
+  }
+
+  .game-shell .review-panel > .market-watch {
+    background: #f7f5ed;
+  }
+
+  .game-shell .review-panel .market-share-layout li:not(:first-child) .market-share-layout__bar > i {
+    background: #8b8b84;
+  }
+
+  .game-shell .review-panel .market-share-layout li:last-child .market-share-layout__bar > i {
+    background: #b5afa5;
+  }
+
+  .game-shell .operations-oversight-rail {
+    grid-template-rows: 116px 112px minmax(0, 1fr);
+    background: var(--operations-paper);
+  }
+
+  .game-shell .oversight-profile,
+  .game-shell .oversight-suspicion,
+  .game-shell .operations-dock__button,
+  .game-shell .operations-dock__button--hacking {
+    color: #282925;
+    background: var(--operations-paper) !important;
+  }
+
+  .game-shell .oversight-profile__copy > span {
+    color: #77766f;
+  }
+
+  .game-shell .oversight-profile__open {
+    color: var(--operations-orange-deep);
+  }
+
+  .game-shell .operations-oversight-rail .operations-dock {
+    grid-template-rows: repeat(3, minmax(0, 1fr));
+  }
+
+  .game-shell .operations-oversight-rail .operations-dock__button {
+    grid-template-columns: 50px minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    align-items: center;
+    gap: 14px;
+    padding: 16px;
+    border-top: 1px solid var(--operations-line);
+  }
+
+  .game-shell .operations-dock__icon {
+    width: 50px;
+    height: 50px;
+    grid-row: 1;
+    align-self: center;
+    margin: 0;
+    border: 1px solid #dd9c77;
+    border-radius: 0;
+    color: var(--operations-orange-deep);
+    background: #fff8ef;
+  }
+
+  .game-shell .operations-dock__button--hacking .operations-dock__icon {
+    color: var(--operations-orange-deep) !important;
+    border-color: #dd9c77 !important;
+    background: #fff8ef !important;
+  }
+
+  .game-shell .operations-dock__copy {
+    display: grid;
+    align-self: center;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  .game-shell .operations-dock__copy > strong,
+  .game-shell .operations-dock__button--hacking .operations-dock__copy > strong {
+    color: #292a26;
+    font-size: 20px;
+    line-height: 1.1;
+  }
+
+  .game-shell .operations-dock__copy > .operations-dock__metrics {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1px;
+    margin: 0;
+    background: var(--operations-line);
+  }
+
+  .game-shell .operations-dock__metrics > span,
+  .game-shell .operations-dock__button--hacking .operations-dock__metrics > span {
+    display: grid;
+    min-width: 0;
+    align-content: center;
+    gap: 5px;
+    padding: 8px 9px;
+    border: 0;
+    color: #494a45;
+    background: #fffdf8;
+  }
+
+  .game-shell .operations-dock__metrics small,
+  .game-shell .operations-dock__button--hacking .operations-dock__metrics small {
+    overflow: visible;
+    color: #77756d;
+    font-size: 14px;
+    line-height: 1;
+    text-overflow: clip;
+    white-space: normal;
+  }
+
+  .game-shell .operations-dock__metrics b,
+  .game-shell .operations-dock__button--hacking .operations-dock__metrics b {
+    overflow: visible;
+    color: #2e302d;
+    font-size: 18px;
+    text-overflow: clip;
+    white-space: normal;
+  }
+
+  .game-shell .operations-dock__badge {
+    top: 12px;
+    right: 12px;
+    border-radius: 0;
+    color: #fff;
+    background: var(--operations-orange-deep);
+  }
+
+  .game-shell .operations-dock__button--hacking svg {
+    color: var(--operations-orange-deep);
+  }
+
+  .game-shell .operations-dock__button--hacking .operations-dock__copy > strong {
+    color: #292a26 !important;
+  }
+}
+
+@media (min-width: 1261px) and (max-width: 1500px) {
+  .game-shell .control-bar {
+    grid-template-columns: 230px 188px minmax(0, 1fr) auto;
+  }
+
+  .game-shell .cadence-cluster {
+    grid-template-columns: minmax(180px, 1fr) 146px auto;
+  }
+
+  .game-shell .reputation-summary {
+    padding-inline: 10px;
+  }
+
+  .game-shell .operations-oversight-rail .operations-dock__button {
+    grid-template-columns: 44px minmax(0, 1fr);
+    gap: 10px;
+    padding: 12px;
+  }
+
+  .game-shell .operations-dock__icon {
+    width: 44px;
+    height: 44px;
+  }
+
+  .game-shell .operations-dock__copy > strong,
+  .game-shell .operations-dock__button--hacking .operations-dock__copy > strong {
+    font-size: 18px;
+  }
+
+  .game-shell .operations-dock__metrics > span,
+  .game-shell .operations-dock__button--hacking .operations-dock__metrics > span {
+    padding-inline: 7px;
+  }
+}

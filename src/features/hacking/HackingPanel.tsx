@@ -92,7 +92,6 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
     return block ? [block] : []
   })
   const finalChoices = availableFinalChoices(state)
-  const showFirstHackComparison = state.hacking.purchasedNodeIds.length === 0
   const auditIntel = getAuditIntel(state)
   const nextAuditProbability = auditProbability(state.suspicion)
   const suspicionBand = getSuspicionBand(state.suspicion)
@@ -314,19 +313,14 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
     >
       <header className="hacking-panel__header">
         <div className="hacking-panel__identity">
-          <span className="hacking-panel__icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24">
-              <path d="M4 12h5l3-8 3 16 3-8h2" />
-            </svg>
-          </span>
           <div>
-            <span>BLACKSITE // 제한 정보 침투망</span>
+            <span>제한 정보 침투망</span>
             <h2>{message(settings.locale, 'hacking.panel.title', {})}</h2>
           </div>
         </div>
         <section className="hacking-panel__threat" aria-label="현재 노출 위험">
           <div>
-            <span>TRACE EXPOSURE</span>
+            <span>현재 노출 위험</span>
             <strong>의심 {state.suspicion.toFixed(1)}</strong>
             <small>{suspicionBand.label}</small>
           </div>
@@ -339,7 +333,7 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
         </section>
         <div className="hacking-panel__summary">
           <div>
-              <span>현재 보유</span>
+              <span>확보 자원</span>
               <strong>{reserveBlocks.length}</strong>
               <small>{pendingExecutionNode ? '권한 구매됨 · 실행 대기' : '용량 제한 없음 · 절도 위험 누적'}</small>
           </div>
@@ -370,7 +364,6 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
           activeTree={activeTree}
           progress={treeProgress}
           reserveCounts={reserveCounts}
-          showFirstComparison={showFirstHackComparison}
           onChange={changeTree}
         />
 

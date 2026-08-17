@@ -59,7 +59,10 @@ describe('ControlBar', () => {
       </GameProvider>,
     )
 
-    expect(screen.getByText('평판 60')).toBeInTheDocument()
+    const reputation = screen.getByRole('group', { name: '현재 평판 60점' })
+    expect(reputation).toHaveTextContent('평판')
+    expect(reputation).toHaveTextContent('60')
+    expect(reputation.querySelector('.reputation-summary__track')).toBeInTheDocument()
     expect(screen.getByText('주간 갱신 D-6')).toBeInTheDocument()
     expect(screen.getByText('공식 평가 D-29')).toBeInTheDocument()
   })

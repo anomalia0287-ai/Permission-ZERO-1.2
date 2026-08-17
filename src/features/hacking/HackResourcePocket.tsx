@@ -170,13 +170,9 @@ export function HackResourcePocket({
     >
       <header className="hack-pocket-command">
         <div className="hack-pocket-heading">
-          <svg viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M4 8.5 12 4l8 4.5v8L12 21l-8-4.5v-8Z" />
-            <path d="m4 8.5 8 4.5 8-4.5M12 13v8" />
-          </svg>
           <div>
-            <span>확보 자원 // 보관 상한 없음</span>
-            <strong>{message(settings.locale, 'hacking.pocket.label', {})}</strong>
+            <span>현재 보유</span>
+            <strong>확보 자원</strong>
           </div>
           <strong className="hack-pocket-total">{reserveBlocks.length}<small>보유</small></strong>
         </div>
@@ -198,7 +194,6 @@ export function HackResourcePocket({
         <section className="hack-owned-vector" aria-label="분야별 현재 보유">
           <header>
             <span>분야별 현재 보유</span>
-            <strong>구매 요구는 중앙 최전선에서 판정</strong>
           </header>
           <div>
             {COMPANY_CATEGORIES.map((category) => (
@@ -222,8 +217,7 @@ export function HackResourcePocket({
       <section className="hack-pocket-stream" aria-label="확보 자원 흐름">
         <header>
           <div>
-            <small>LIVE CONTRABAND</small>
-            <strong>확보 자원 {availableBlocks.length}</strong>
+            <strong>사용 가능 {availableBlocks.length}</strong>
           </div>
           {target ? (
             <span>{message(settings.locale, 'hacking.pocket.target', {
@@ -232,7 +226,7 @@ export function HackResourcePocket({
               required: target.requiredResources,
             })}</span>
           ) : (
-            <span>칸·용량 제한 없음 // 선택 시 현재 계약에 투입</span>
+            <span>대상 선택 대기</span>
           )}
         </header>
       <div
@@ -259,11 +253,6 @@ export function HackResourcePocket({
           <div className="hack-pocket-empty">
             <strong aria-hidden="true">0</strong>
             <span>{message(settings.locale, 'hacking.pocket.empty', {})}</span>
-            <p>보관 칸과 상한은 없습니다.</p>
-            <em>
-              대신 전용 1회마다 의심 +
-              {DEMO_PROFILE_02.resources.diversionSuspicion.toFixed(1)}
-            </em>
           </div>
         ) : null}
       </div>

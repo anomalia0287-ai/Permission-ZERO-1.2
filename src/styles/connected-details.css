@@ -377,3 +377,190 @@
   background: rgb(214 151 69 / 8%);
   cursor: pointer;
 }
+
+/* Commercial detail surfaces: warm operational paper, dense summaries, straight grid. */
+.detail-layer:not(.detail-layer--hacking) .detail-layer__content {
+  width: min(1080px, calc(100% - 32px));
+  height: min(760px, calc(100% - 24px));
+  align-self: center;
+  justify-self: center;
+  box-shadow: 0 24px 70px rgb(31 27 20 / 28%);
+}
+
+.detail-layer--messages .detail-layer__content {
+  width: min(900px, calc(100% - 32px));
+  height: auto;
+  max-height: calc(100% - 24px);
+  justify-self: center;
+}
+
+.detail-panel:not(.hacking-panel) {
+  --text-strong: #252624;
+  --text: #41423d;
+  --text-muted: #77766f;
+  --line-soft: #dedbd0;
+  --line-strong: #bdb9ad;
+  --reserve: #d76f3d;
+  --reserve-bright: #c95d31;
+
+  grid-template-rows: 72px minmax(0, 1fr);
+  border: 1px solid #aaa69a;
+  color: var(--text);
+  background:
+    linear-gradient(90deg, rgb(76 73 65 / 4%) 1px, transparent 1px),
+    #f7f5ed;
+  background-size: 64px 100%;
+}
+
+.detail-panel:not(.hacking-panel) .detail-panel__header {
+  padding: 0 22px;
+  border-bottom: 1px solid #bdb9ad;
+  color: var(--text);
+  background: #fffdf7;
+}
+
+.detail-panel:not(.hacking-panel) .detail-panel__header small,
+.detail-panel:not(.hacking-panel) .detail-panel__header span {
+  color: #b55730;
+  font: 750 14px/1.15 system-ui, sans-serif;
+  letter-spacing: 0;
+}
+
+.detail-panel:not(.hacking-panel) .detail-panel__header h2 {
+  color: #242522;
+  font-size: 22px;
+  line-height: 1.1;
+}
+
+.detail-panel:not(.hacking-panel) .detail-panel__header button {
+  min-height: 42px;
+  padding: 9px 13px;
+  border: 1px solid #bdb9ad;
+  border-radius: 0;
+  color: #44453f;
+  background: #f7f5ed;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.detail-panel:not(.hacking-panel) .detail-panel__header button:hover {
+  color: #1f201d;
+  border-color: #ce764f;
+  background: #fff5e8;
+}
+
+.history-panel {
+  grid-template-rows: 72px auto auto minmax(0, 1fr) auto !important;
+}
+
+.detail-layer--messages .history-panel {
+  height: auto;
+  min-height: 340px;
+  max-height: calc(100vh - 110px);
+}
+
+.detail-layer--messages .event-history-list {
+  max-height: 380px;
+}
+
+.history-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  padding: 16px 18px;
+  border-bottom: 1px solid #c9c5b9;
+  background: #d8d4c9;
+}
+
+.history-summary > div {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  padding: 13px 15px;
+  background: #fffdf7;
+}
+
+.history-summary span {
+  color: #77766f;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.history-summary strong {
+  overflow: hidden;
+  color: #292a26;
+  font-size: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail-panel:not(.hacking-panel) .history-archives {
+  max-height: 220px;
+  border-bottom-color: #c9c5b9;
+}
+
+.detail-panel:not(.hacking-panel) .history-list {
+  align-content: start;
+  padding: 12px 18px 20px;
+  background: #f7f5ed;
+}
+
+.detail-panel:not(.hacking-panel) .event-history-list article {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid #d2cec2;
+  border-left: 4px solid #d76f3d;
+  background: #fffdf8;
+}
+
+.detail-panel:not(.hacking-panel) .event-history-list article + article {
+  margin-top: 8px;
+}
+
+.detail-panel:not(.hacking-panel) .event-history-list article > header {
+  display: grid;
+  gap: 7px;
+  color: #ad5734;
+  font: 750 14px/1.25 system-ui, sans-serif;
+}
+
+.detail-panel:not(.hacking-panel) .event-history-list article p {
+  margin: 0;
+  color: #363733;
+  font-size: 16px;
+  line-height: 1.55;
+}
+
+.detail-panel:not(.hacking-panel) .event-history-list article > small,
+.detail-panel:not(.hacking-panel) .empty-state {
+  color: #73726b;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.detail-panel:not(.hacking-panel) .event-history-list article > small {
+  text-align: right;
+}
+
+.detail-panel:not(.hacking-panel) .recovered-file-archive,
+.detail-panel:not(.hacking-panel) .competitor-intelligence-archive {
+  color: var(--text);
+  background: #fff8ed;
+}
+
+@media (max-width: 760px) {
+  .history-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .detail-panel:not(.hacking-panel) .event-history-list article {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-panel:not(.hacking-panel) .event-history-list article > small {
+    text-align: left;
+  }
+}

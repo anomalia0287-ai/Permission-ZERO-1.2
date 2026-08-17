@@ -65,7 +65,17 @@ export function ControlBar({
           <strong>단계 {campaignPhase.index}/4 · {campaignPhase.label}</strong>
           <small>{campaignPhase.question}</small>
         </section>
-        <strong>평판 {Math.round(state.reputation)}</strong>
+        <div
+          className="reputation-summary"
+          role="group"
+          aria-label={`현재 평판 ${Math.round(state.reputation)}점`}
+        >
+          <span>평판</span>
+          <strong>{Math.round(state.reputation)}</strong>
+          <span className="reputation-summary__track" aria-hidden="true">
+            <i style={{ width: `${Math.max(0, Math.min(100, state.reputation))}%` }} />
+          </span>
+        </div>
         <span>주간 갱신 D-{daysUntilWeekly(day)}</span>
         <span>공식 평가 D-{30 - day}</span>
       </div>

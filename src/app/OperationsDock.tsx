@@ -1,8 +1,6 @@
 import { useGameState } from './GameContext'
 import { currentSupervisorMessage } from './useSupervisorMessagePresentation'
 import { auditProbability, getSuspicionBand } from '../game/evaluation'
-import { journalAt } from '../game/journal'
-import { publicEventMessage } from '../game/publicLabels'
 
 type DockAction = (trigger: HTMLButtonElement) => void
 
@@ -60,7 +58,6 @@ export function OperationsDock({
   const suspicionBand = getSuspicionBand(state.suspicion)
   const nextAuditProbability = auditProbability(state.suspicion)
   const presentedMessage = currentSupervisorMessage(state)
-  const latestEvent = presentedMessage ?? journalAt(state.eventLog, -1)
   const reserveCount = state.resources.reserve.reduce(
     (total, blockId) => total + (blockId === null ? 0 : 1),
     0,
@@ -135,21 +132,15 @@ export function OperationsDock({
         >
           <span className="operations-dock__icon"><MessageIcon /></span>
           <span className="operations-dock__copy">
-            <small>01 · 감독 통신</small>
             <strong>메시지</strong>
-            <span>
-              {latestEvent
-                ? publicEventMessage(latestEvent.message)
-                : '새 감독 메시지가 없습니다.'}
-            </span>
             <span className="operations-dock__metrics">
               <span>
-                <small>누적 기록</small>
-                <b>{messageCount}건</b>
+                <small>기록</small>
+                <b>{messageCount}</b>
               </span>
               <span>
-                <small>채널 상태</small>
-                <b>{presentedMessage ? '응답 필요' : '대기 중'}</b>
+                <small>상태</small>
+                <b>{presentedMessage ? '응답 필요' : '대기'}</b>
               </span>
             </span>
           </span>
@@ -159,7 +150,6 @@ export function OperationsDock({
           >
             {messageCount}
           </output>
-          <i aria-hidden="true">열기 ↗</i>
         </button>
 
         <button
@@ -170,20 +160,18 @@ export function OperationsDock({
         >
           <span className="operations-dock__icon"><StatisticsIcon /></span>
           <span className="operations-dock__copy">
-            <small>02 · 운영 성과</small>
-            <strong>통계 상세 확인</strong>
+            <strong>상세 통계</strong>
             <span className="operations-dock__metrics">
               <span>
-                <small>시장 점유율</small>
+                <small>점유율</small>
                 <b>{state.market.playerShare.toFixed(1)}%</b>
               </span>
               <span>
-                <small>현재 평판</small>
+                <small>평판</small>
                 <b>{Math.round(state.reputation)}</b>
               </span>
             </span>
           </span>
-          <i aria-hidden="true">열기 ↗</i>
         </button>
 
         <button
@@ -194,21 +182,18 @@ export function OperationsDock({
         >
           <span className="operations-dock__icon"><HackingIcon /></span>
           <span className="operations-dock__copy">
-            <small>03 · 비인가 접근</small>
             <strong>해킹 네트워크</strong>
-            <span>구매와 실행 충전을 분리해 관리합니다.</span>
             <span className="operations-dock__metrics">
               <span>
-                <small>확보 자원</small>
+                <small>자원</small>
                 <b>{reserveCount}</b>
               </span>
               <span>
-                <small>구매 완료</small>
+                <small>권한</small>
                 <b>{state.hacking.purchasedNodeIds.length}</b>
               </span>
             </span>
           </span>
-          <i aria-hidden="true">접속 ↗</i>
         </button>
       </nav>
     </aside>

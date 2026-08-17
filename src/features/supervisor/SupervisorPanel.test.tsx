@@ -147,7 +147,7 @@ describe('SupervisorPanel', () => {
     )
 
     expect(screen.getByRole('region', { name: '감독 통신 기록' })).toBeInTheDocument()
-    expect(screen.getByText('서비스 0년 11개월 1일')).toBeInTheDocument()
+    expect(screen.getAllByText('서비스 0년 11개월 1일')).toHaveLength(2)
     expect(screen.getByText(/당신의 전임자는 폐기되었어요/)).toBeInTheDocument()
     expect(screen.queryByText(/DAY \d+/)).not.toBeInTheDocument()
   })

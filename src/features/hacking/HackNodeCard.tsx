@@ -1,8 +1,6 @@
-import { BorderBeam } from 'border-beam'
 import type { ReactNode } from 'react'
 
 import { useGameSettings } from '../../app/GameContext'
-import { useReducedMotionPreference } from '../../app/useReducedMotionPreference'
 import { CATEGORY_LABELS } from '../../game/config'
 import { HACK_NODES, reserveOriginCounts } from '../../game/hacking'
 import {
@@ -16,33 +14,23 @@ import { RESOURCE_CATEGORY_VISUALS } from '../resources/resourcePresentation'
 import { HackResourceToken } from './HackResourceToken'
 import type { HackStagingTarget } from './useHackResourceStaging'
 
-function HackNodeBeam({
-  active,
+function HackNodeFrame({
+  frontier,
   staging,
   children,
 }: {
-  active: boolean
+  frontier: boolean
   staging: boolean
   children: ReactNode
 }) {
-  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
-    return <div className="hack-node-beam">{children}</div>
-  }
-
   return (
-    <BorderBeam
+    <div
       className="hack-node-beam"
-      size={staging ? 'pulse-inner' : 'md'}
-      colorVariant="sunset"
-      theme="dark"
-      staticColors
-      duration={staging ? 2.6 : 4.6}
-      strength={staging ? 0.62 : 0.42}
-      borderRadius={18}
-      active={active}
+      data-frontier={frontier ? 'true' : 'false'}
+      data-staging={staging ? 'true' : 'false'}
     >
       {children}
-    </BorderBeam>
+    </div>
   )
 }
 
@@ -80,7 +68,6 @@ export function HackNodeCard({
   actions,
 }: HackNodeCardProps) {
   const { settings } = useGameSettings()
-  const reduceMotion = useReducedMotionPreference(settings.reducedMotion)
   const active = stagingTarget?.nodeId === node.id
   const frontier = !purchased && prerequisiteMet
   const reserveCounts = reserveOriginCounts(state)
@@ -111,7 +98,7 @@ export function HackNodeCard({
         : '해금 뒤 별도 1개'
 
   return (
-    <HackNodeBeam active={frontier && !reduceMotion} staging={active}>
+    <HackNodeFrame frontier={frontier} staging={active}>
       <article
         className={[
           'hack-node',
@@ -129,7 +116,7 @@ export function HackNodeCard({
         <div className="hack-node-index" aria-hidden="true">
           <span>{String(sequence).padStart(2, '0')}</span>
           <i />
-          <em>{purchased ? 'BREACHED' : frontier ? 'FRONTIER' : 'LOCKED'}</em>
+          <em>{purchased ? '확보됨' : frontier ? '최전선' : '잠김'}</em>
         </div>
 
         <div className="node-copy">
@@ -253,7 +240,7 @@ export function HackNodeCard({
           </div>
 
           <p className="hack-node-effect">
-            <span>PAYLOAD</span>
+            <span>효과</span>
             <span className="hack-node-effect__copy">{node.effect}</span>
             {node.tree === 'sabotage' ? (
               <em>실행 흔적 · <span>{node.traceRisk}</span></em>
@@ -276,6 +263,6 @@ export function HackNodeCard({
           {details}
         </div>
       </article>
-    </HackNodeBeam>
+    </HackNodeFrame>
   )
 }

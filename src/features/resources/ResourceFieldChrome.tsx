@@ -23,8 +23,8 @@ export function ResourceStageHeader({ auditActive }: ResourceStageHeaderProps) {
         </div>
       </div>
       <p className="resource-stage-header__instruction">
-        <span aria-hidden="true">{auditActive ? '↗' : '↙'}</span>
-        {auditActive ? '감사 중 · 우상단으로 밀어 위장' : '직접 끌어 수동 채널에 투입'}
+        <span aria-hidden="true">{auditActive ? '!' : '●'}</span>
+        {auditActive ? '감사 대응 모드' : '일반 운영'}
       </p>
     </header>
   )
@@ -100,17 +100,11 @@ export function ResourceCornerControls({
         onClick={onActivateReserve}
         onKeyDown={(event) => activateWithKeyboard(event, onActivateReserve)}
       >
-        <span className="resource-corner__arrow" aria-hidden="true">↙</span>
-        <span className="resource-corner__mode" aria-hidden="true">
-          <strong>수동 전용 채널</strong>
-          <span>직접 옮겨야 확보</span>
-        </span>
+        <span className="resource-corner__arrow" aria-hidden="true">↓</span>
         <span className="resource-corner__count" aria-hidden="true">
           <strong>{reserveCount}</strong>
           <small>확보 자원</small>
         </span>
-        <span className="resource-corner__capacity" aria-hidden="true">보관 상한 없음</span>
-        <span className="resource-corner__drop-hint" aria-hidden="true">직접 투입</span>
         <output className="visually-hidden" aria-label="확보 리소스 수량">
           확보 {reserveCount} · 상한 없음
         </output>

@@ -1763,3 +1763,228 @@
     transition-duration: 0.001ms !important;
   }
 }
+
+/* Commercial command-room correction: one accent, hard geometry, no repeated tutorial chrome. */
+.hacking-panel.hacking-panel--paper {
+  --network-warning: #ff9a54;
+  --network-cyan: var(--network-warning);
+  --network-ready: var(--network-warning);
+
+  background: #070908;
+}
+
+.hacking-panel.hacking-panel--paper,
+.hacking-panel.hacking-panel--paper :where(
+  button,
+  article,
+  section,
+  input,
+  .hack-node-beam,
+  .hack-route-vector > span,
+  .hack-exposure-console,
+  .hack-owned-vector,
+  .hack-pocket-field
+) {
+  border-radius: 0 !important;
+}
+
+.hacking-panel.hacking-panel--paper .hacking-panel__header {
+  grid-template-columns: minmax(230px, 0.75fr) minmax(430px, 1.45fr) minmax(220px, 0.7fr);
+  background: #080b0a;
+}
+
+.hacking-panel.hacking-panel--paper .hacking-panel__identity {
+  gap: 0;
+}
+
+.hacking-panel.hacking-panel--paper .hacking-layout {
+  background: #343936;
+}
+
+.hacking-panel.hacking-panel--paper .hack-tree-nav,
+.hacking-panel.hacking-panel--paper .hack-tree-nav--cyan,
+.hacking-panel.hacking-panel--paper .hack-tree-nav--green {
+  --tree-accent: var(--network-warning);
+
+  grid-template-rows: auto auto auto;
+  background: #0b0f0e;
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-heading {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 10px;
+  padding: 18px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-heading h3 {
+  font-size: 24px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-heading small {
+  color: var(--network-warning);
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-switcher.hack-tabs {
+  gap: 1px;
+  padding: 0;
+  background: #343936;
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-switcher.hack-tabs button,
+.hacking-panel.hacking-panel--paper .hack-route-switcher.hack-tabs button[data-tree="intelligence"],
+.hacking-panel.hacking-panel--paper .hack-route-switcher.hack-tabs button[data-tree="autonomy"] {
+  --route-accent: var(--network-warning);
+
+  grid-template-columns: 38px minmax(0, 1fr);
+  grid-template-rows: auto auto auto;
+  gap: 9px 11px;
+  min-height: 112px;
+  padding: 13px 14px;
+  border: 0;
+  border-left: 4px solid transparent;
+  background: #0b100f;
+  box-shadow: none;
+  transform: none;
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-switcher.hack-tabs button:hover {
+  border-left-color: #7d684f;
+  background: #141917;
+  transform: none;
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-switcher.hack-tabs button[aria-selected="true"] {
+  border-color: transparent;
+  border-left-color: var(--network-warning);
+  background: #191711;
+  box-shadow: none;
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-index {
+  grid-column: 1;
+  grid-row: 1;
+  color: var(--route-accent);
+  font: 850 18px/1 "Cascadia Code", Consolas, monospace;
+}
+
+.hacking-panel.hacking-panel--paper .hack-tab-copy {
+  grid-column: 2;
+  grid-row: 1;
+  gap: 4px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-tab-copy strong {
+  font-size: 20px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-tab-copy small {
+  color: var(--network-muted);
+  letter-spacing: 0;
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-vector {
+  grid-column: 1 / -1;
+  grid-row: 2;
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-switcher.hack-tabs button > em {
+  grid-row: 3;
+  border: 0;
+  border-top: 1px solid #514332;
+  color: #e9c6a6;
+  background: transparent;
+  text-align: left;
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-switcher.hack-tabs button > em[data-ready="true"] {
+  color: #ffd0aa;
+  border-color: #7a5639;
+  background: transparent;
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-context {
+  padding: 12px;
+  border-bottom: 0;
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-progress {
+  border: 0;
+  border-left: 4px solid var(--network-warning);
+  background: #111513;
+}
+
+.hacking-panel.hacking-panel--paper .hack-route-warning,
+.hacking-panel.hacking-panel--paper .hack-route-blackout {
+  display: none;
+}
+
+.hacking-panel.hacking-panel--paper .hack-network-stage {
+  background:
+    linear-gradient(90deg, rgb(255 255 255 / 2.5%) 1px, transparent 1px),
+    linear-gradient(180deg, rgb(255 255 255 / 2.5%) 1px, transparent 1px),
+    #070908;
+  background-size: 42px 42px;
+}
+
+.hacking-panel.hacking-panel--paper .hack-pressure-brief {
+  border: 1px solid #654331;
+  border-left: 5px solid var(--network-warning);
+  background: #15110e;
+}
+
+.hacking-panel.hacking-panel--paper .hack-node-beam {
+  border: 1px solid #4a4f4c;
+  background: #0d1110;
+  box-shadow: none;
+}
+
+.hacking-panel.hacking-panel--paper .hack-node-beam[data-frontier="true"] {
+  border-color: #8b5c3d;
+  border-left: 5px solid var(--network-warning);
+}
+
+.hacking-panel.hacking-panel--paper .hack-node-beam[data-staging="true"] {
+  border-color: #d2834e;
+  box-shadow: inset 0 0 0 2px rgb(255 154 84 / 18%);
+}
+
+.hacking-panel.hacking-panel--paper .hack-node,
+.hacking-panel.hacking-panel--paper .hack-node--frontier,
+.hacking-panel.hacking-panel--paper .hack-node--staging {
+  border: 0;
+  background: #0d1110;
+  box-shadow: none;
+}
+
+.hacking-panel.hacking-panel--paper .hack-pocket-heading {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.hacking-panel.hacking-panel--paper .hack-pocket-heading > div {
+  grid-column: 1;
+}
+
+.hacking-panel.hacking-panel--paper .hack-pocket-total {
+  grid-column: 2;
+}
+
+.hacking-panel.hacking-panel--paper .hack-owned-vector > header {
+  grid-template-columns: 1fr;
+}
+
+.hacking-panel.hacking-panel--paper .hack-pocket-stream > header {
+  min-height: 58px;
+}
+
+@media (max-width: 1450px) {
+  .hacking-panel.hacking-panel--paper .hacking-layout {
+    grid-template-columns: minmax(230px, 0.68fr) minmax(500px, 1.55fr) minmax(300px, 0.82fr);
+  }
+
+  .hacking-panel.hacking-panel--paper .hack-route-switcher.hack-tabs button {
+    min-height: 108px;
+  }
+}

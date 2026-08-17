@@ -16,7 +16,7 @@ import {
   getSuspicionBand,
 } from '../../game/evaluation'
 import { MarketPanel } from '../market/MarketPanel'
-import { journalAt, journalPageFromNewest } from '../../game/journal'
+import { journalAt, journalPageFromNewest, journalToArray } from '../../game/journal'
 import {
   publicEventMessage,
   publicEventTypeLabel,
@@ -231,6 +231,8 @@ export function SupervisorHistoryPanel({ onClose }: { onClose: () => void }) {
   const visibleEvents = eventPage.items.filter(
     ({ id }) => !hiddenSupervisorEventIds.has(id),
   )
+  const latestRecordedEvent = journalAt(state.eventLog, -1)
+  const responseCount = journalToArray(state.eventLog).filter(({ blocking }) => blocking).length
   const selectedIntelligence = state.story.competitorIntelligence.find(
     ({ id }) => id === selectedIntelligenceId,
   ) ?? null
@@ -239,11 +241,23 @@ export function SupervisorHistoryPanel({ onClose }: { onClose: () => void }) {
     <section className="detail-panel history-panel" aria-label="감독 통신 기록">
       <header className="detail-panel__header">
         <div>
-          <small>OVERSIGHT ARCHIVE</small>
+          <small>감독 기록 아카이브</small>
           <h2>감독 통신 기록</h2>
         </div>
         <button type="button" aria-label="감독 통신 기록 닫기" onClick={onClose}>닫기 ×</button>
       </header>
+      <section className="history-summary" aria-label="감독 통신 요약">
+        <div><span>전체 기록</span><strong>{state.eventLog.length}</strong></div>
+        <div><span>응답 요구</span><strong>{responseCount}</strong></div>
+        <div>
+          <span>최근 통신</span>
+          <strong>{latestRecordedEvent ? formatServiceDateLabel(latestRecordedEvent.serviceDay) : '기록 없음'}</strong>
+        </div>
+        <div>
+          <span>채널 상태</span>
+          <strong>{currentSupervisorMessage(state) ? '응답 필요' : '대기'}</strong>
+        </div>
+      </section>
       <div className="history-archives">
         {state.story.competitorIntelligence.length > 0 ? (
         <section className="competitor-intelligence-archive" aria-label="경쟁 AI 정보 기록">

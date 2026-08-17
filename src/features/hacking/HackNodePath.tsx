@@ -277,9 +277,9 @@ export function HackNodePath({
             <i /><span>?</span><i />
           </div>
           <article aria-label="다음 단계 암호화">
-            <span aria-hidden="true">ACCESS BLACKOUT</span>
+            <span aria-hidden="true">정보 차단</span>
             <strong>다음 단계 암호화</strong>
-            <p>현재 권한 구매 전까지 어떠한 다음 정보도 송출되지 않습니다.</p>
+            <p>현재 권한 구매 전까지 비공개</p>
           </article>
         </li>
       ) : null}
