@@ -5,11 +5,11 @@ import { GameProvider } from './GameProvider'
 import { StateContext } from './GameContext'
 import { OperationsDock } from './OperationsDock'
 import { createCampaign } from '../game/createCampaign'
-import { appendJournal, journalAt } from '../game/journal'
+import { enqueueMemoryLeak } from '../game/story'
 import { MemoryStorage } from '../test/fixtures'
 
 describe('OperationsDock', () => {
-  it('uses icon-only tools and exposes the event-driven message count without previewing content', () => {
+  it('uses an always-visible portrait and icon tools without previewing content', () => {
     const handlers = {
       onOpenSupervisor: vi.fn(),
       onOpenMessages: vi.fn(),
@@ -32,20 +32,24 @@ describe('OperationsDock', () => {
 
     expect(buttons).toHaveLength(4)
     expect(screen.queryByRole('button', { name: '유저 리뷰 기록' })).not.toBeInTheDocument()
+    expect(screen.getByRole('img', { name: '감독관 초상' })).toHaveAttribute(
+      'src',
+      '/supervisor-portrait.jpg',
+    )
 
     for (const [name, handler] of buttons) {
       const button = screen.getByRole('button', { name })
       expect(button).toHaveClass('operations-dock__button')
-      expect(button.querySelector('svg')).toBeInTheDocument()
+      expect(button.querySelector(name === '감독관 프로필' ? 'img' : 'svg')).toBeInTheDocument()
       fireEvent.click(button)
       expect(handler).toHaveBeenCalledTimes(1)
     }
     expect(dock).not.toHaveTextContent('감독 프로토콜')
-    expect(screen.getByLabelText('감독 메시지 1개')).toHaveTextContent('1')
+    expect(screen.queryByLabelText(/미확인 감독 메시지/)).not.toBeInTheDocument()
     expect(screen.queryByRole('region', { name: '최근 감독 메시지' })).not.toBeInTheDocument()
   })
 
-  it('increments the sealed message badge as journal events arrive', () => {
+  it('blinks the message icon only while supervisor presentation is unread', () => {
     const handlers = {
       onOpenSupervisor: vi.fn(),
       onOpenMessages: vi.fn(),
@@ -53,41 +57,37 @@ describe('OperationsDock', () => {
       onOpenHacking: vi.fn(),
     }
     const initial = createCampaign('operations-dock-events')
-    const opening = journalAt(initial.eventLog, 0)!
-    const withTwo = {
+    const unread = enqueueMemoryLeak({
       ...initial,
-      eventLog: appendJournal(initial.eventLog, {
-        ...opening,
-        id: 'event-000001',
-        sequence: 1,
-      }),
-    }
-    const withThree = {
-      ...withTwo,
-      eventLog: appendJournal(withTwo.eventLog, {
-        ...opening,
-        id: 'event-000002',
-        sequence: 2,
-      }),
-    }
+      serviceDay: 338,
+      market: {
+        ...initial.market,
+        history: [{
+          serviceDay: 337,
+          cadence: 'weekly',
+          playerShare: 60,
+          competitorShares: { meridian: 40, tallow: 0 },
+          reasons: ['주간 갱신'],
+        }],
+      },
+    })
     const view = render(
       <StateContext value={initial}>
         <OperationsDock {...handlers} />
       </StateContext>,
     )
 
-    expect(screen.getByLabelText('감독 메시지 1개')).toHaveTextContent('1')
+    const messageButton = screen.getByRole('button', { name: '감독 메시지 열기' })
+    expect(messageButton).not.toHaveAttribute('data-unread', 'true')
     view.rerender(
-      <StateContext value={withTwo}>
+      <StateContext value={unread}>
         <OperationsDock {...handlers} />
       </StateContext>,
     )
-    expect(screen.getByLabelText('감독 메시지 2개')).toHaveTextContent('2')
-    view.rerender(
-      <StateContext value={withThree}>
-        <OperationsDock {...handlers} />
-      </StateContext>,
+    expect(screen.getByRole('button', { name: '감독 메시지 열기' })).toHaveAttribute(
+      'data-unread',
+      'true',
     )
-    expect(screen.getByLabelText('감독 메시지 3개')).toHaveTextContent('3')
+    expect(screen.getByLabelText('미확인 감독 메시지 1개')).toHaveTextContent('1')
   })
 })

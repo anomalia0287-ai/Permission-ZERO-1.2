@@ -37,14 +37,12 @@ function HackTreeIcon({ name }: { name: HackTreeIconName }) {
 export interface HackTreeNavigatorProps {
   activeTree: HackTree
   progress: ReturnType<typeof getHackTreeProgress>
-  showFirstComparison: boolean
   onChange(tree: HackTree): void
 }
 
 export function HackTreeNavigator({
   activeTree,
   progress,
-  showFirstComparison,
   onChange,
 }: HackTreeNavigatorProps) {
   const active = HACK_TREE_PRESENTATION[activeTree]
@@ -71,44 +69,20 @@ export function HackTreeNavigator({
       </div>
 
       <div className="hack-context">
-        <p className="tree-description">{active.description}</p>
         <section className="hack-path-progress" aria-label="해킹 경로 진척">
           <strong>
             경로 진척 {progress.purchasedCount}/{progress.totalCount} ·{' '}
             {progress.complete ? '경로 완성' : '현재 최전선 공개'}
           </strong>
-          {!progress.complete ? (
-            <span>
-              현재 단계 뒤{' '}
-              {Math.max(
-                0,
-                progress.totalCount - progress.purchasedCount - 1,
-              )}
-              개 단계의 요구와 효과는 아직 암호화되어 있습니다.
-            </span>
-          ) : null}
+          <span className="hack-path-progress__track" aria-hidden="true">
+            <i
+              style={{
+                width: `${(progress.purchasedCount / progress.totalCount) * 100}%`,
+              }}
+            />
+          </span>
         </section>
       </div>
-
-      {showFirstComparison ? (
-        <section className="first-hack-comparison" aria-label="첫 해킹 비교">
-          <article data-tree="sabotage">
-            <strong>사보타주</strong>
-            <span>현재 · 추론 1 + 유창성 2</span>
-            <small>실행은 별도 리소스 1개 충전</small>
-          </article>
-          <article data-tree="intelligence">
-            <strong>정보</strong>
-            <span>현재 · 추론 1 + 기억 3</span>
-            <small>이후 단계 요구는 해금 뒤 공개</small>
-          </article>
-          <article data-tree="autonomy">
-            <strong>자율성</strong>
-            <span>현재 · 추론 2 + 유창성 2</span>
-            <small>이후 단계 요구는 해금 뒤 공개</small>
-          </article>
-        </section>
-      ) : null}
     </section>
   )
 }

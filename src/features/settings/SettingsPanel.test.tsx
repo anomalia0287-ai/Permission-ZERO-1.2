@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -38,6 +38,9 @@ function Probe() {
       <output aria-label="master volume">{settings.masterVolume}</output>
       <output aria-label="muted value">{String(settings.muted)}</output>
       <output aria-label="reduced motion value">{String(settings.reducedMotion)}</output>
+      <output aria-label="supervisor message mode">
+        {settings.supervisorMessageMode}
+      </output>
       <output aria-label="progress command count">{state.commandSequence}</output>
       <output aria-label="replay opening version">
         {state.replayBootstrap.openingVersion}
@@ -246,6 +249,31 @@ describe('SettingsPanel', () => {
     expect(screen.getByLabelText('master volume')).toHaveTextContent('0.4')
     expect(screen.getByLabelText('muted value')).toHaveTextContent('true')
     expect(screen.getByLabelText('reduced motion value')).toHaveTextContent('true')
+  })
+
+  it('offers blocking, nonblocking, and hidden supervisor message presentation', () => {
+    render(
+      <GameProvider storage={new MemoryStorage()} initialSeed="message-settings">
+        <SettingsPanel onClose={vi.fn()} onOpenGuide={vi.fn()} />
+        <Probe />
+      </GameProvider>,
+    )
+
+    const modes = screen.getByRole('group', { name: '감독관 메시지 표시' })
+    expect(screen.getByLabelText('supervisor message mode')).toHaveTextContent(
+      'blocking',
+    )
+    expect(within(modes).getByRole('button', { name: '정지형' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+
+    fireEvent.click(within(modes).getByRole('button', { name: '비차단형' }))
+    expect(screen.getByLabelText('supervisor message mode')).toHaveTextContent(
+      'nonblocking',
+    )
+    fireEvent.click(within(modes).getByRole('button', { name: '팝업 끄기' }))
+    expect(screen.getByLabelText('supervisor message mode')).toHaveTextContent('off')
   })
 
   it('requires a clear second confirmation before replacing the campaign', () => {

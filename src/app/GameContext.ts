@@ -19,7 +19,10 @@ export interface GameSettings {
   muted: boolean
   reducedMotion: boolean
   uiScale: number
+  supervisorMessageMode: SupervisorMessageMode
 }
+
+export type SupervisorMessageMode = 'blocking' | 'nonblocking' | 'off'
 
 export type CopyProgressExportResult =
   | { ok: true }

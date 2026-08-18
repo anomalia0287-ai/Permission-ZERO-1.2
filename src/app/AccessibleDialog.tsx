@@ -20,6 +20,7 @@ interface AccessibleDialogProps
   onDismiss?: () => void
   role?: 'dialog' | 'alertdialog'
   portal?: boolean
+  manageFocus?: boolean
   returnFocus?: FocusResolver
   fallbackFocus?: FocusResolver
 }
@@ -33,6 +34,7 @@ export function AccessibleDialog({
   onDismiss,
   role = 'dialog',
   portal = modal,
+  manageFocus = true,
   returnFocus,
   fallbackFocus,
   ...props
@@ -42,6 +44,7 @@ export function AccessibleDialog({
     modal,
     dismissible,
     onDismiss,
+    manageFocus,
     returnFocus,
     fallbackFocus,
   })

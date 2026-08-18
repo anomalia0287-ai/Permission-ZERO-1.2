@@ -340,9 +340,7 @@ export function ResourceIntrusionBoard() {
   const [carriedBlockId, setCarriedBlockId] = useState<string | null>(null)
   const [pendingDiversion, setPendingDiversion] =
     useState<PendingDiversion | null>(null)
-  const [announcement, setAnnouncement] = useState(
-    '방향키로 이동하고 자원과 겹친 뒤 Space를 유지해 절도하십시오.',
-  )
+  const [announcement, setAnnouncement] = useState('')
 
   const wallCount =
     totalElapsedMs < FIRST_WALL_AT_MS
@@ -828,7 +826,6 @@ export function ResourceIntrusionBoard() {
           <h2>자원 절도 필드</h2>
         </div>
         <div className="intrusion-board__telemetry" aria-label="필드 상태">
-          <span>평판 {Math.round(state.reputation)}</span>
           <span data-phase={surveillance.kind}>{phaseLabel(surveillance)}</span>
           <span>벽 {wallCount}/{WALL_PLAN.length}</span>
           <span>{carriedBlockId ? '운반 중' : `확보 ${reserveCount} · 상한 없음`}</span>
@@ -888,8 +885,7 @@ export function ResourceIntrusionBoard() {
           onPointerUp={cancelTheft}
           onPointerCancel={cancelTheft}
         >
-          {carriedBlockId ? '상자로 운반 중' : theft ? '절도 중' : '절도 유지'}{' '}
-          <kbd>Space</kbd>
+          {carriedBlockId ? '운반 중' : theft ? '절도 중' : '절도'}
         </button>
         <span id="intrusion-grid-feedback" role="status" aria-live="polite">
           {announcement}

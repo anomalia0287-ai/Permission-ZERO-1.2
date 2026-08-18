@@ -935,7 +935,7 @@
   color: #a33430;
 }
 
-/* Actual floating reserve pocket ---------------------------------------- */
+/* Reserve pocket --------------------------------------------------------- */
 
 .hack-resource-pocket {
   display: grid;
@@ -1238,13 +1238,332 @@
   background: var(--hack-danger);
 }
 
+/* Compact node path + single inspector ---------------------------------- */
+
+.hack-tree-nav {
+  grid-template-rows: auto auto;
+  align-content: start;
+}
+
+.hack-context {
+  padding: 12px;
+}
+
+.hack-path-progress {
+  gap: 10px;
+  padding: 11px;
+}
+
+.hack-path-progress__track {
+  display: block;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--tree-accent) 12%, var(--hack-line));
+}
+
+.hack-path-progress__track i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--tree-accent);
+}
+
+.hack-node-list {
+  grid-template-columns: repeat(4, minmax(142px, 1fr));
+  gap: clamp(12px, 1.4vw, 18px);
+  padding: 22px 14px;
+}
+
+.hack-path-step:not(:last-child)::before {
+  right: calc(clamp(12px, 1.4vw, 18px) * -1);
+  width: clamp(12px, 1.4vw, 18px);
+}
+
+.hack-path-step:not(:last-child)::after {
+  right: calc(clamp(12px, 1.4vw, 18px) * -1);
+}
+
+.hack-node {
+  grid-template-rows: 52px minmax(64px, auto) auto;
+  gap: 11px;
+  min-height: 238px;
+  padding: 12px;
+  cursor: default;
+}
+
+.hack-node--selected,
+.hack-node--selected:hover {
+  border-color: color-mix(in srgb, var(--node-accent) 78%, var(--hack-line));
+  box-shadow:
+    0 0 0 2px rgb(var(--node-accent-rgb) / 14%),
+    0 13px 28px rgb(72 65 52 / 12%);
+  transform: translateY(-1px);
+}
+
+.hack-node:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--node-accent) 72%, white);
+  outline-offset: 3px;
+}
+
+.hack-node-index {
+  display: grid;
+  grid-template-columns: 38px auto;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.hack-node-index .hack-node-icon {
+  width: 36px;
+  height: 36px;
+  padding: 7px;
+  border: 1px solid color-mix(in srgb, var(--node-accent) 50%, var(--hack-line));
+  border-radius: 10px;
+  color: color-mix(in srgb, var(--node-accent) 86%, var(--hack-ink));
+  background: color-mix(in srgb, var(--node-accent) 10%, white);
+}
+
+.hack-node-index span {
+  width: 28px;
+  height: 28px;
+  align-self: center;
+}
+
+.node-copy header {
+  gap: 7px;
+}
+
+.node-copy h3 {
+  font-size: 0.78rem;
+}
+
+.hack-support-rail {
+  display: grid;
+  grid-template-rows: minmax(238px, 0.9fr) minmax(220px, 1.1fr);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-left: 1px solid var(--hack-line);
+  background: var(--hack-paper);
+}
+
+.hack-node-inspector {
+  --inspector-accent: var(--hack-coral);
+
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 13px;
+  min-width: 0;
+  min-height: 0;
+  padding: 15px 14px;
+  overflow: hidden;
+  border-bottom: 1px solid var(--hack-line);
+  color: var(--hack-ink);
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--inspector-accent) 8%, transparent), transparent 58%),
+    var(--hack-paper-raised);
+}
+
+.hack-node-inspector--cyan {
+  --inspector-accent: var(--hack-cyan);
+}
+
+.hack-node-inspector--green {
+  --inspector-accent: var(--hack-green);
+}
+
+.hack-inspector-heading {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  align-items: center;
+  gap: 11px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--hack-line);
+}
+
+.hack-inspector-heading .hack-node-icon {
+  width: 46px;
+  height: 46px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--inspector-accent) 54%, var(--hack-line));
+  border-radius: 13px;
+  color: var(--inspector-accent);
+  background: color-mix(in srgb, var(--inspector-accent) 10%, white);
+}
+
+.hack-inspector-heading > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 8px;
+  min-width: 0;
+}
+
+.hack-inspector-heading span {
+  grid-column: 1 / -1;
+  color: var(--hack-muted);
+  font: 700 0.48rem/1.2 "Cascadia Code", Consolas, monospace;
+  letter-spacing: 0.07em;
+}
+
+.hack-inspector-heading h3 {
+  margin: 0;
+  overflow: hidden;
+  color: var(--hack-ink);
+  font-size: 0.83rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hack-inspector-heading strong {
+  align-self: center;
+  color: var(--inspector-accent);
+  font: 750 0.48rem/1 "Cascadia Code", Consolas, monospace;
+}
+
+.hack-inspector-scroll {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-height: 0;
+  padding-right: 3px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-color: color-mix(in srgb, var(--inspector-accent) 42%, var(--hack-line)) transparent;
+  scrollbar-width: thin;
+}
+
+.hack-inspector-section,
+.hack-inspector-result {
+  display: grid;
+  gap: 5px;
+  padding: 9px 10px;
+  border: 1px solid var(--hack-line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--inspector-accent) 4%, white);
+}
+
+.hack-inspector-section > span,
+.hack-inspector-result > span,
+.hack-inspector-facts span {
+  color: var(--hack-muted);
+  font: 750 0.46rem/1.2 "Cascadia Code", Consolas, monospace;
+  letter-spacing: 0.06em;
+}
+
+.hack-inspector-section p {
+  margin: 0;
+  color: var(--hack-ink);
+  font-size: 0.58rem;
+  line-height: 1.48;
+}
+
+.hack-inspector-section--effect {
+  border-left: 3px solid var(--inspector-accent);
+}
+
+.hack-inspector-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.hack-inspector-facts > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--hack-line);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--inspector-accent) 4%, white);
+}
+
+.hack-inspector-facts strong {
+  overflow: hidden;
+  color: var(--hack-ink);
+  font-size: 0.54rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hack-inspector-vector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.hack-inspector-vector span {
+  padding: 5px 6px;
+  border: 1px solid var(--hack-line);
+  border-radius: 999px;
+  color: var(--hack-muted);
+  background: var(--hack-paper);
+  font: 750 0.47rem/1 "Cascadia Code", Consolas, monospace;
+}
+
+.hack-inspector-vector span[data-category="reasoning"] {
+  color: #8b2f38;
+  border-color: #f0bec2;
+  background: #fff0f1;
+}
+
+.hack-inspector-vector span[data-category="memory"] {
+  color: #087477;
+  border-color: #aee0e2;
+  background: #ecfafa;
+}
+
+.hack-inspector-vector span[data-category="fluency"] {
+  color: #33742a;
+  border-color: #bfe4b7;
+  background: #eef9eb;
+}
+
+.hack-inspector-result strong {
+  color: color-mix(in srgb, var(--inspector-accent) 76%, var(--hack-ink));
+  font-size: 0.59rem;
+}
+
+.hack-inspector-result small {
+  color: var(--hack-muted);
+  font-size: 0.5rem;
+  line-height: 1.42;
+}
+
+.hack-inspector-result--warning {
+  border-color: color-mix(in srgb, var(--hack-danger) 48%, var(--hack-line));
+}
+
+.hack-node-inspector--concealed {
+  grid-template-rows: auto auto;
+  align-content: start;
+  background:
+    repeating-linear-gradient(-45deg, rgb(90 88 80 / 4%) 0 8px, transparent 8px 16px),
+    var(--hack-paper-raised);
+}
+
+.hack-support-rail .hack-resource-pocket {
+  align-self: stretch;
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.hack-support-rail .hack-pocket-field {
+  min-height: 0;
+  max-height: none;
+}
+
 @media (max-width: 1360px) {
   .hacking-layout {
     grid-template-columns: 180px minmax(650px, 1fr) 230px;
   }
 
   .hack-node {
-    min-height: 310px;
+    min-height: 228px;
   }
 
   .hack-node-list {
@@ -1320,7 +1639,7 @@
   }
 
   .hack-node {
-    min-height: 284px;
+    min-height: 218px;
     padding-block: 11px;
   }
 

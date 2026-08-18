@@ -1,6 +1,5 @@
 import { useGameSettings } from '../../app/GameContext'
 import type { RecoveryContaminationOpportunity } from '../../game/causalGameplay'
-import { getAuditIntel } from '../../game/evaluation'
 import {
   canAffordHackNode,
   eligibleTargets,
@@ -12,6 +11,7 @@ import {
 import type { CampaignState, ResourceBlock } from '../../game/model'
 import { message } from '../../i18n/messages'
 import { HackNodeCard } from './HackNodeCard'
+import { HackNodeIcon } from './HackNodeIcon'
 import { HACK_TREE_PRESENTATION } from './hackingPresentation'
 import type { HackStagingTarget } from './useHackResourceStaging'
 
@@ -28,8 +28,7 @@ interface HackNodePathProps {
   stagedBlocks: readonly ResourceBlock[]
   stagingTarget: HackStagingTarget | null
   stagingReady: boolean
-  auditIntel: ReturnType<typeof getAuditIntel>
-  nextAuditProbability: number
+  selectedNodeId: HackNodeId
   recoveryOpportunity?: RecoveryContaminationOpportunity
   targetNames: Readonly<Record<string, string>>
   targetConfirmation: HackTargetConfirmation | null
@@ -39,6 +38,7 @@ interface HackNodePathProps {
   onSelectTarget(confirmation: HackTargetConfirmation): void
   onScheduleTarget(): void
   onExecuteRecoveryContamination(opportunityId: string): void
+  onInspectNode(nodeId: HackNodeId): void
   onRegisterNode(nodeId: string, element: HTMLElement | null): void
   onUnstage(blockId: string): boolean
   onCancelStaging(): void
@@ -52,8 +52,7 @@ export function HackNodePath({
   stagedBlocks,
   stagingTarget,
   stagingReady,
-  auditIntel,
-  nextAuditProbability,
+  selectedNodeId,
   recoveryOpportunity,
   targetNames,
   targetConfirmation,
@@ -63,6 +62,7 @@ export function HackNodePath({
   onSelectTarget,
   onScheduleTarget,
   onExecuteRecoveryContamination,
+  onInspectNode,
   onRegisterNode,
   onUnstage,
   onCancelStaging,
@@ -84,13 +84,18 @@ export function HackNodePath({
           return (
             <li className="hack-path-step" data-path-step={index + 1} key={node.id}>
               <article
-                className="hack-node hack-node--concealed"
+                className={`hack-node hack-node--concealed ${selectedNodeId === node.id ? 'hack-node--selected' : ''}`}
                 role="group"
                 aria-label={`미확인 해킹 단계 ${index + 1}`}
+                tabIndex={0}
+                data-selected={selectedNodeId === node.id ? 'true' : 'false'}
+                onClick={() => onInspectNode(node.id)}
+                onFocus={() => onInspectNode(node.id)}
+                onMouseEnter={() => onInspectNode(node.id)}
               >
-                <div className="hack-node-index" aria-hidden="true">
+                <div className="hack-node-index">
+                  <HackNodeIcon label="미확인 단계" concealed />
                   <span>??</span>
-                  <i />
                 </div>
                 <div className="node-copy">
                   <header>
@@ -100,7 +105,6 @@ export function HackNodePath({
                     </div>
                     <strong>요구 미확인</strong>
                   </header>
-                  <p>현재 최전선 노드를 해금하면 이 단계의 정보가 공개됩니다.</p>
                 </div>
                 <div className="hack-node-control">
                   <span className="node-active-label">접근 불가</span>
@@ -123,36 +127,6 @@ export function HackNodePath({
         const activeNodeStaging = stagingTarget?.nodeId === node.id
           ? stagingTarget
           : null
-
-        const details = (
-          <>
-            {purchased &&
-            node.id === HACK_NODE_IDS.intelligence.auditSchedule &&
-            auditIntel.scheduleKnown ? (
-              <div className="node-result" aria-label="감사 일정 해킹 결과">
-                <strong>
-                  {auditIntel.scheduled ? '이번 달 말 감사 예정' : '이번 달 감사 없음'}
-                </strong>
-                <span>월초 결정 확률 {(state.audit.probability * 100).toFixed(1)}%</span>
-                <span>현재 의심 기준 다음 달 예상 {(nextAuditProbability * 100).toFixed(1)}%</span>
-              </div>
-            ) : null}
-            {nodeRecoveryOpportunity ? (
-              <div
-                className="recovery-contamination-opportunity"
-                role="group"
-                aria-label="MERIDIAN 복구 오염 기회"
-              >
-                <strong>MERIDIAN 롤백 관측됨</strong>
-                <span>
-                  복구 경로 오염 가능 · 서비스{' '}
-                  {nodeRecoveryOpportunity.expiresOnServiceDay}일차까지
-                </span>
-                <small>품질 저하 충전 1회를 사용해 기존 영향 기간을 15일 연장합니다.</small>
-              </div>
-            ) : null}
-          </>
-        )
 
         let actions
         if (!purchased) {
@@ -266,12 +240,13 @@ export function HackNodePath({
               sequence={index + 1}
               purchased={purchased}
               prerequisiteMet={prerequisiteMet}
+              selected={selectedNodeId === node.id}
               stagingTarget={activeNodeStaging}
               stagedBlocks={stagedBlocks}
               registerTarget={(element) => onRegisterNode(node.id, element)}
               onUnstage={onUnstage}
               onCancelStaging={onCancelStaging}
-              details={details}
+              onInspect={() => onInspectNode(node.id)}
               actions={actions}
             />
           </li>

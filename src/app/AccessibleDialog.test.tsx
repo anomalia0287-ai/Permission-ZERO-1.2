@@ -156,7 +156,36 @@ function DynamicBackgroundHarness() {
   )
 }
 
+function NonModalPassiveHarness() {
+  const [open, setOpen] = useState(false)
+  return (
+    <div>
+      <button type="button" onClick={() => setOpen(true)}>open passive notice</button>
+      {open ? (
+        <AccessibleDialog
+          label="passive notice"
+          description="passive notice description"
+          modal={false}
+          manageFocus={false}
+        >
+          <button type="button">notice action</button>
+        </AccessibleDialog>
+      ) : null}
+    </div>
+  )
+}
+
 describe('AccessibleDialog modal manager', () => {
+  it('leaves gameplay focus untouched for a passive non-modal notice', () => {
+    render(<NonModalPassiveHarness />)
+    const opener = screen.getByRole('button', { name: 'open passive notice' })
+    opener.focus()
+    fireEvent.click(opener)
+
+    expect(screen.getByRole('dialog', { name: 'passive notice' })).toBeInTheDocument()
+    expect(opener).toHaveFocus()
+  })
+
   it('redirects Tab into the top modal after focus is forced outside', () => {
     render(<OutsideTabHarness />)
     const outside = screen.getByRole('button', {

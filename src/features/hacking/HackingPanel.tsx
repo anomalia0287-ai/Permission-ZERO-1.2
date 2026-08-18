@@ -21,6 +21,7 @@ import {
 import { availableFinalChoices } from '../../game/story'
 import { message } from '../../i18n/messages'
 import { HackDepartureControls } from './HackDepartureControls'
+import { HackNodeInspector } from './HackNodeInspector'
 import { HackNodePath, type HackTargetConfirmation } from './HackNodePath'
 import { HackRecoveryCard } from './HackRecoveryCard'
 import { HackResourcePocket } from './HackResourcePocket'
@@ -46,6 +47,9 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
   const dispatch = useGameDispatch()
   const { settings } = useGameSettings()
   const [activeTree, setActiveTree] = useState<HackTree>('sabotage')
+  const [selectedNodeId, setSelectedNodeId] = useState<HackNodeId>(
+    HACK_NODE_IDS.sabotage.qualityDegradation,
+  )
   const [targetConfirmation, setTargetConfirmation] =
     useState<HackTargetConfirmation | null>(null)
   const [endingConfirmation, setEndingConfirmation] = useState<
@@ -57,6 +61,14 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
   const recoveryElementRef = useRef<HTMLElement | null>(null)
 
   const nodes = HACK_NODES.filter(({ tree }) => tree === activeTree)
+  const selectedNode = nodes.find(({ id }) => id === selectedNodeId) ?? nodes[0]
+  const selectedNodeSequence = nodes.findIndex(({ id }) => id === selectedNode.id) + 1
+  const selectedNodePurchased = state.hacking.purchasedNodeIds.includes(selectedNode.id)
+  const selectedNodePrerequisiteMet =
+    selectedNode.prerequisiteId === null ||
+    state.hacking.purchasedNodeIds.includes(selectedNode.prerequisiteId)
+  const selectedNodeConcealed =
+    !selectedNodePurchased && !selectedNodePrerequisiteMet
   const treeProgress = getHackTreeProgress(state, activeTree)
   const reserveBlocks = state.resources.reserve.flatMap((blockId) => {
     if (blockId === null) return []
@@ -76,7 +88,6 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
     return block ? [block] : []
   })
   const finalChoices = availableFinalChoices(state)
-  const showFirstHackComparison = state.hacking.purchasedNodeIds.length === 0
   const auditIntel = getAuditIntel(state)
   const nextAuditProbability = auditProbability(state.suspicion)
   const openRecoveryOpportunity = selectRecoveryContaminationOpportunities(state).find(
@@ -238,6 +249,8 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
   function changeTree(tree: HackTree): void {
     if (staging.target !== null) cancelStaging()
     setActiveTree(tree)
+    const firstNode = HACK_NODES.find((node) => node.tree === tree)
+    if (firstNode) setSelectedNodeId(firstNode.id)
     setTargetConfirmation(null)
   }
 
@@ -300,7 +313,6 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
         <HackTreeNavigator
           activeTree={activeTree}
           progress={treeProgress}
-          showFirstComparison={showFirstHackComparison}
           onChange={changeTree}
         />
 
@@ -313,8 +325,7 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
             stagedBlocks={stagedBlocks}
             stagingTarget={staging.target}
             stagingReady={staging.ready}
-            auditIntel={auditIntel}
-            nextAuditProbability={nextAuditProbability}
+            selectedNodeId={selectedNode.id}
             recoveryOpportunity={openRecoveryOpportunity}
             targetNames={targetNames}
             targetConfirmation={targetConfirmation}
@@ -324,6 +335,7 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
             onSelectTarget={setTargetConfirmation}
             onScheduleTarget={scheduleTarget}
             onExecuteRecoveryContamination={executeRecoveryContamination}
+            onInspectNode={setSelectedNodeId}
             onRegisterNode={registerNodeElement}
             onUnstage={staging.unstage}
             onCancelStaging={cancelStaging}
@@ -345,17 +357,30 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
           <HackDepartureControls choices={finalChoices} onChoose={setEndingConfirmation} />
         </div>
 
-        <HackResourcePocket
-          state={state}
-          reserveBlocks={reserveBlocks}
-          stagedBlockIds={staging.stagedBlockIds}
-          target={staging.target}
-          getActiveTargetElement={getActiveTargetElement}
-          onStage={stageResource}
-          onInvalidDrop={() =>
-            setAnnouncement(message(settings.locale, 'hacking.announcement.invalidDrop', {}))
-          }
-        />
+        <aside className="hack-support-rail" aria-label="해킹 정보 및 확보 자원">
+          <HackNodeInspector
+            state={state}
+            node={selectedNode}
+            sequence={selectedNodeSequence}
+            concealed={selectedNodeConcealed}
+            purchased={selectedNodePurchased}
+            prerequisiteMet={selectedNodePrerequisiteMet}
+            auditIntel={auditIntel}
+            nextAuditProbability={nextAuditProbability}
+            recoveryOpportunity={openRecoveryOpportunity}
+          />
+          <HackResourcePocket
+            state={state}
+            reserveBlocks={reserveBlocks}
+            stagedBlockIds={staging.stagedBlockIds}
+            target={staging.target}
+            getActiveTargetElement={getActiveTargetElement}
+            onStage={stageResource}
+            onInvalidDrop={() =>
+              setAnnouncement(message(settings.locale, 'hacking.announcement.invalidDrop', {}))
+            }
+          />
+        </aside>
       </div>
 
       {endingConfirmation ? (

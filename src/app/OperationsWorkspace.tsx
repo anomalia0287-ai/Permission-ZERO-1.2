@@ -3,7 +3,7 @@ import { ReviewFeed } from '../features/reviews/ReviewFeed'
 import { OperationsDock } from './OperationsDock'
 
 interface OperationsWorkspaceProps {
-  onOpenReviews: (trigger: HTMLButtonElement) => void
+  onOpenReviews: (trigger: HTMLElement) => void
   onOpenSupervisor: (trigger: HTMLButtonElement) => void
   onOpenHacking: (trigger: HTMLButtonElement) => void
   onOpenMessages: (trigger: HTMLButtonElement) => void

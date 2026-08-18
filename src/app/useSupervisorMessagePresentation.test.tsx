@@ -69,10 +69,14 @@ function queuedState(
   }
 }
 
-function Harness() {
+function Harness({ advanceAutomatically = true }: { advanceAutomatically?: boolean }) {
   const state = useGameState()
   const checkpoint = useSupervisorPresentationCheckpoint()
-  const message = useSupervisorMessagePresentation({ state, checkpoint })
+  const message = useSupervisorMessagePresentation({
+    state,
+    checkpoint,
+    advanceAutomatically,
+  })
   return <output aria-label="current supervisor message">{message?.message ?? 'none'}</output>
 }
 
@@ -81,6 +85,19 @@ function renderHarness(state: CampaignState, checkpoint: SupervisorPresentationC
     <StateContext value={state}>
       <SupervisorPresentationCheckpointContext value={checkpoint}>
         <Harness />
+      </SupervisorPresentationCheckpointContext>
+    </StateContext>,
+  )
+}
+
+function renderManualHarness(
+  state: CampaignState,
+  checkpoint: SupervisorPresentationCheckpoint,
+) {
+  return render(
+    <StateContext value={state}>
+      <SupervisorPresentationCheckpointContext value={checkpoint}>
+        <Harness advanceAutomatically={false} />
       </SupervisorPresentationCheckpointContext>
     </StateContext>,
   )
@@ -156,6 +173,19 @@ function threeQueuedState(): CampaignState {
 
 describe('useSupervisorMessagePresentation', () => {
   afterEach(() => vi.useRealTimers())
+
+  it('does not consume a blocking or hidden message without acknowledgement', () => {
+    vi.useFakeTimers()
+    const checkpoint = vi.fn<SupervisorPresentationCheckpoint>()
+    renderManualHarness(queuedState(1), checkpoint)
+
+    act(() => vi.advanceTimersByTime(12_000))
+
+    expect(checkpoint).not.toHaveBeenCalled()
+    expect(screen.getByLabelText('current supervisor message')).toHaveTextContent(
+      SUPERVISOR_LEAKS[0].leakText,
+    )
+  })
 
   it.each([1, 2, 4] as const)(
     'keeps the original visible for four real seconds at %sx without pausing simulation',

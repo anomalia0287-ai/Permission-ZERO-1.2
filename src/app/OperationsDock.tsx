@@ -1,4 +1,5 @@
 import { useGameState } from './GameContext'
+import { pendingSupervisorMessageCount } from './useSupervisorMessagePresentation'
 
 type DockAction = (trigger: HTMLButtonElement) => void
 
@@ -7,15 +8,6 @@ interface OperationsDockProps {
   onOpenMessages: DockAction
   onOpenStatistics: DockAction
   onOpenHacking: DockAction
-}
-
-function SupervisorIcon() {
-  return (
-    <svg viewBox="0 0 32 32" aria-hidden="true">
-      <circle cx="16" cy="11" r="5" />
-      <path d="M7 26c.8-5.3 4-8 9-8s8.2 2.7 9 8" />
-    </svg>
-  )
 }
 
 function MessageIcon() {
@@ -52,30 +44,36 @@ export function OperationsDock({
   onOpenHacking,
 }: OperationsDockProps) {
   const state = useGameState()
-  const messageCount = state.eventLog.length
+  const messageCount = pendingSupervisorMessageCount(state)
   const tools = [
-    { label: '감독관 프로필', icon: <SupervisorIcon />, action: onOpenSupervisor },
-    { label: '감독 메시지 열기', icon: <MessageIcon />, action: onOpenMessages },
-    { label: '상세 통계 열기', icon: <StatisticsIcon />, action: onOpenStatistics },
-    { label: '해킹 네트워크 열기', icon: <HackingIcon />, action: onOpenHacking },
+    {
+      label: '감독관 프로필',
+      icon: <img src="/supervisor-portrait.jpg" alt="감독관 초상" />,
+      action: onOpenSupervisor,
+      portrait: true,
+    },
+    { label: '감독 메시지 열기', icon: <MessageIcon />, action: onOpenMessages, portrait: false },
+    { label: '상세 통계 열기', icon: <StatisticsIcon />, action: onOpenStatistics, portrait: false },
+    { label: '해킹 네트워크 열기', icon: <HackingIcon />, action: onOpenHacking, portrait: false },
   ] as const
 
   return (
     <nav className="operations-dock" aria-label="운영 도구">
-      {tools.map(({ label, icon, action }) => (
+      {tools.map(({ label, icon, action, portrait }) => (
         <button
           key={label}
           type="button"
-          className="operations-dock__button"
+          className={`operations-dock__button${portrait ? ' operations-dock__button--portrait' : ''}`}
           aria-label={label}
           title={label}
+          data-unread={label === '감독 메시지 열기' && messageCount > 0 ? 'true' : undefined}
           onClick={(event) => action(event.currentTarget)}
         >
           {icon}
-          {label === '감독 메시지 열기' ? (
+          {label === '감독 메시지 열기' && messageCount > 0 ? (
             <output
               className="operations-dock__badge"
-              aria-label={`감독 메시지 ${messageCount}개`}
+              aria-label={`미확인 감독 메시지 ${messageCount}개`}
             >
               {messageCount}
             </output>

@@ -1906,3 +1906,335 @@ body {
 .intrusion-board__legend [data-resource-category="fluency"] i {
   background: #31c56f;
 }
+
+/* Approved one-screen composition: shared columns, central reputation and expanded dock. */
+.game-shell {
+  --review-rail-width: clamp(210px, 18vw, 240px);
+  grid-template-rows: 52px minmax(0, 1fr);
+}
+
+.game-shell .control-bar {
+  grid-template-columns: var(--review-rail-width) minmax(0, 1fr) 120px;
+  gap: 8px;
+  padding: 0 10px;
+}
+
+.game-shell .control-identity {
+  padding-inline: 10px;
+}
+
+.game-shell .reputation-cluster {
+  display: grid;
+  grid-template-columns: auto minmax(180px, 520px);
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-width: 0;
+  padding-inline: 14px;
+  border-inline: 1px solid var(--operations-line);
+}
+
+.game-shell .reputation-cluster__label {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font: 800 0.62rem/1 "Cascadia Code", Consolas, monospace;
+}
+
+.game-shell .reputation-cluster__label strong {
+  font-size: 0.82rem;
+}
+
+.game-shell .reputation-meter {
+  position: relative;
+  height: 10px;
+  overflow: hidden;
+  border: 1px solid var(--operations-line);
+  background: #c9c8c3;
+}
+
+.game-shell .reputation-meter i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  min-width: 2px;
+  background: var(--operations-green);
+}
+
+.game-shell .utility-controls {
+  display: grid;
+  grid-template-columns: repeat(3, 34px);
+  justify-content: center;
+  gap: 4px;
+  padding-inline: 3px;
+}
+
+.game-shell .utility-controls button {
+  display: grid;
+  min-width: 0;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  padding: 0;
+}
+
+.game-shell .utility-controls svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.game-shell .workspace-grid {
+  grid-template-columns: var(--review-rail-width) minmax(0, 1fr) 120px;
+  gap: 8px;
+  padding: 8px 10px 10px;
+}
+
+.game-shell .review-panel {
+  min-width: 0;
+  grid-template-rows: 44px minmax(0, 1fr) 218px;
+}
+
+.game-shell .review-panel .panel-heading {
+  gap: 6px;
+  padding-inline: 7px;
+}
+
+.game-shell .review-panel .panel-index,
+.game-shell .review-panel .panel-heading p {
+  display: none;
+}
+
+.game-shell .review-panel > .market-watch--compact {
+  display: block;
+  padding: 10px 12px 9px;
+}
+
+.game-shell .review-panel > .market-watch--compact .market-share-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: 104px auto minmax(0, 1fr);
+  gap: 5px;
+  height: 100%;
+  place-items: center;
+}
+
+.game-shell .review-panel > .market-watch--compact .market-share-donut {
+  width: 102px;
+  height: 102px;
+}
+
+.game-shell .review-panel > .market-watch--compact .market-share-donut::after {
+  width: 62px;
+  height: 62px;
+}
+
+.game-shell .market-compact-summary {
+  display: flex;
+  width: 100%;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding-block: 2px 4px;
+  font: 700 0.52rem/1 "Cascadia Code", Consolas, monospace;
+}
+
+.game-shell .market-compact-summary strong {
+  font-size: 0.66rem;
+}
+
+.game-shell .review-panel > .market-watch--compact .market-share-layout ul {
+  width: 100%;
+}
+
+.game-shell .review-panel > .market-watch--compact .market-share-layout li {
+  padding-block: 3px;
+}
+
+.game-shell .operations-dock {
+  width: 120px;
+  gap: 10px;
+  padding: 8px;
+}
+
+.game-shell .operations-dock__button {
+  width: 52px;
+  height: 52px;
+  border-radius: 8px;
+}
+
+.game-shell .operations-dock__button--portrait {
+  width: 102px;
+  height: 112px;
+  overflow: hidden;
+  border-radius: 4px;
+}
+
+.game-shell .operations-dock__button--portrait img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 30%;
+  filter: saturate(0.76) contrast(1.06);
+}
+
+.game-shell .operations-dock__button[data-unread="true"] {
+  animation: dock-message-pulse 1.05s ease-in-out infinite;
+}
+
+@keyframes dock-message-pulse {
+  0%, 100% { box-shadow: 0 0 0 1px rgb(70 211 162 / 18%); }
+  50% { box-shadow: 0 0 0 4px rgb(70 211 162 / 28%), 0 0 22px rgb(70 211 162 / 30%); }
+}
+
+.game-shell .resource-board--intrusion {
+  grid-template-rows: 40px minmax(0, 1fr) 46px;
+  align-self: stretch;
+  align-content: stretch;
+}
+
+.intrusion-grid-frame {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  aspect-ratio: auto;
+  place-items: stretch;
+  padding: 0;
+}
+
+.intrusion-canvas {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+  aspect-ratio: auto;
+  object-fit: fill;
+}
+
+.intrusion-board__footer {
+  grid-template-columns: minmax(0, 1fr) 106px minmax(120px, 0.72fr);
+  min-height: 0;
+  padding-block: 5px;
+}
+
+.intrusion-board__footer [role="status"]:empty {
+  display: none;
+}
+
+.intrusion-board__footer:not(:has([role="status"]:not(:empty))) {
+  grid-template-columns: minmax(0, 1fr) 106px;
+}
+
+.intrusion-theft-control {
+  height: 32px;
+}
+
+.message-mode-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(76px, 1fr));
+  gap: 6px;
+}
+
+.message-mode-options button {
+  min-height: 32px;
+}
+
+.supervisor-message-popup {
+  position: fixed;
+  z-index: 190;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  width: min(430px, calc(100vw - 32px));
+  grid-template-columns: 92px minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid var(--operations-line);
+  transform: translate(-50%, -50%);
+}
+
+.supervisor-message-popup__portrait img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 150px;
+  object-fit: cover;
+  object-position: 50% 30%;
+}
+
+.supervisor-message-popup__body {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px;
+}
+
+.supervisor-message-popup__body header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font: 800 0.58rem/1 "Cascadia Code", Consolas, monospace;
+}
+
+.supervisor-message-popup__body p {
+  margin: 0;
+  font-size: 0.76rem;
+  line-height: 1.55;
+}
+
+.supervisor-message-popup__body button {
+  min-height: 32px;
+  justify-self: end;
+  padding-inline: 14px;
+}
+
+@media (max-height: 700px) {
+  .game-shell .review-panel {
+    grid-template-rows: 44px minmax(0, 1fr) 190px;
+  }
+
+  .game-shell .review-panel > .market-watch--compact .market-share-layout {
+    grid-template-rows: 86px auto minmax(0, 1fr);
+  }
+
+  .game-shell .review-panel > .market-watch--compact .market-share-donut {
+    width: 84px;
+    height: 84px;
+  }
+
+  .game-shell .review-panel > .market-watch--compact .market-share-donut::after {
+    width: 52px;
+    height: 52px;
+  }
+}
+
+@media (max-width: 960px) {
+  .game-shell .control-bar,
+  .game-shell .workspace-grid {
+    grid-template-columns: 148px minmax(0, 1fr) 108px;
+  }
+
+  .game-shell .operations-dock {
+    width: 108px;
+  }
+
+  .game-shell .operations-dock__button--portrait {
+    width: 90px;
+    height: 100px;
+  }
+
+  .game-shell .reputation-cluster {
+    grid-template-columns: auto minmax(140px, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .game-shell .operations-dock__button[data-unread="true"] {
+    animation: none;
+    outline: 2px solid var(--operations-green);
+  }
+}

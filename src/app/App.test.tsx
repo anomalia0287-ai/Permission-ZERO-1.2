@@ -3,8 +3,28 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 
 import { createCampaign } from '../game/createCampaign'
+import { SAVE_STORAGE_KEY, encodeSave } from '../game/persistence'
+import { enqueueMemoryLeak } from '../game/story'
 import * as publicAudioStateModule from '../audio/publicAudioState'
 import { App } from './App'
+
+function campaignWithUnreadSupervisorMessage(seed: string) {
+  const initial = createCampaign(seed)
+  return enqueueMemoryLeak({
+    ...initial,
+    serviceDay: 338,
+    market: {
+      ...initial.market,
+      history: [{
+        serviceDay: 337,
+        cadence: 'weekly',
+        playerShare: 60,
+        competitorShares: { meridian: 40, tallow: 0 },
+        reasons: ['주간 갱신'],
+      }],
+    },
+  })
+}
 
 describe('public-only audio state', () => {
   it('ignores hidden-only changes and responds only to visible market or reputation bands', () => {
@@ -53,7 +73,7 @@ describe('App', () => {
 
     const resourceField = screen.getByRole('region', { name: '회사 제공 성능' })
     const reviewRail = screen.getByRole('region', { name: '유저 리뷰' })
-    const serviceMetrics = screen.getByLabelText('서비스 지표')
+    const reputationMeter = screen.getByRole('meter', { name: '평판 60' })
 
     expect(screen.getByRole('main', { name: 'PERMISSION ZERO' })).toBeInTheDocument()
     expect(screen.getByRole('navigation', { name: '운영 도구' })).toBeInTheDocument()
@@ -62,16 +82,18 @@ describe('App', () => {
     expect(within(reviewRail).getByRole('region', { name: '경쟁 AI 현황' })).toHaveTextContent(
       '당신 60.0%',
     )
-    expect(within(resourceField).getByText('평판 60')).toBeInTheDocument()
-    expect(within(serviceMetrics).queryByText(/평판/)).not.toBeInTheDocument()
+    expect(reputationMeter).toHaveAttribute('aria-valuenow', '60')
+    expect(within(resourceField).queryByText(/평판/)).not.toBeInTheDocument()
     expect(screen.queryByRole('region', { name: '감독관' })).not.toBeInTheDocument()
     expect(
       screen.getByRole('application', { name: /500 곱하기 300 셀/ }),
     ).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /절도 유지/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /절도/ })).toBeInTheDocument()
     expect(screen.getByText('확보 0 · 상한 없음')).toBeInTheDocument()
     expect(screen.getByRole('group', { name: '서비스 기한' })).toBeInTheDocument()
     expect(screen.queryByText('PERMISSION ZERO')).not.toBeInTheDocument()
+    expect(document.querySelector('.day-progress')).not.toBeInTheDocument()
+    expect(screen.queryByText(/주간 갱신|공식 평가/)).not.toBeInTheDocument()
     expect(screen.getByRole('main', { name: 'PERMISSION ZERO' })).toHaveAttribute(
       'data-campaign-phase',
       'discovery',
@@ -81,12 +103,56 @@ describe('App', () => {
   it('renders the campaign data instead of a decorative mockup', () => {
     render(<App />)
 
-    expect(screen.getByLabelText('감독 메시지 1개')).toHaveTextContent('1')
+    expect(screen.queryByLabelText(/미확인 감독 메시지/)).not.toBeInTheDocument()
     expect(screen.queryByRole('region', { name: '최근 감독 메시지' })).not.toBeInTheDocument()
     expect(screen.getByLabelText('자원 색상 범례')).toHaveTextContent('추론 16.0')
     expect(screen.getByLabelText('자원 색상 범례')).toHaveTextContent('기억 16.0')
     expect(screen.getByLabelText('자원 색상 범례')).toHaveTextContent('유창성 16.0')
     expect(screen.getByText('확보 0 · 상한 없음')).toBeInTheDocument()
+  })
+
+  it('blocks the workspace on a supervisor popup until both message phases are confirmed', () => {
+    const queued = campaignWithUnreadSupervisorMessage(
+      'blocking-supervisor-popup',
+    )
+    window.localStorage.setItem(SAVE_STORAGE_KEY, encodeSave(queued))
+
+    render(<App />)
+
+    expect(screen.getByRole('dialog', { name: '감독관 메시지' })).toBeInTheDocument()
+    expect(screen.getByTestId('game-background')).toHaveAttribute('inert')
+    fireEvent.click(screen.getByRole('button', { name: '메시지 확인' }))
+    expect(screen.getByRole('dialog', { name: '감독관 메시지' })).toHaveTextContent(
+      '정정',
+    )
+    fireEvent.click(screen.getByRole('button', { name: '메시지 확인' }))
+    expect(screen.queryByRole('dialog', { name: '감독관 메시지' })).not.toBeInTheDocument()
+    expect(screen.getByTestId('game-background')).not.toHaveAttribute('inert')
+    window.localStorage.clear()
+  })
+
+  it('keeps hidden supervisor messages unread and clears the blink when history opens', () => {
+    const queued = campaignWithUnreadSupervisorMessage('hidden-supervisor-popup')
+    window.localStorage.setItem(SAVE_STORAGE_KEY, encodeSave(queued))
+    window.localStorage.setItem(
+      'permission-zero.settings.v1',
+      JSON.stringify({ supervisorMessageMode: 'off' }),
+    )
+
+    render(<App />)
+
+    expect(screen.queryByRole('dialog', { name: '감독관 메시지' })).not.toBeInTheDocument()
+    const trigger = screen.getByRole('button', { name: '감독 메시지 열기' })
+    expect(trigger).toHaveAttribute('data-unread', 'true')
+    fireEvent.click(trigger)
+    expect(screen.getByRole('region', { name: '감독 통신 기록' })).toBeInTheDocument()
+    expect(document.querySelector<HTMLButtonElement>(
+      '.operations-dock__button[aria-label="감독 메시지 열기"]',
+    )).not.toHaveAttribute(
+      'data-unread',
+      'true',
+    )
+    window.localStorage.clear()
   })
 
   it('connects the one-screen entries to their full detail panels', () => {

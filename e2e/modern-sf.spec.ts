@@ -53,8 +53,8 @@ test('keeps the restored market, resource controls, and detail panels usable in 
 
   await expect(market).toBeVisible()
   await expect(market).toContainText('당신 60.0%')
-  await expect(resourceField.getByText('평판 60')).toBeVisible()
-  await expect(page.getByLabel('서비스 지표')).not.toContainText('평판')
+  await expect(page.locator('.reputation-cluster')).toContainText(/평판\s*60/)
+  await expect(page.getByLabel('서비스 지표')).toHaveCount(0)
   await expect(dock.locator('.operations-dock__button')).toHaveCount(4)
 
   const streamBox = await reviewStream.boundingBox()
@@ -108,9 +108,8 @@ test('keeps the restored market, resource controls, and detail panels usable in 
   expect(await maximumRgbChannel(hacking.locator('.hacking-panel'))).toBeLessThan(40)
   expect(await maximumRgbChannel(hacking.locator('.hack-node').first())).toBeLessThan(40)
   expect(await maximumRgbChannel(hacking.locator('.hack-path-progress'))).toBeLessThan(40)
-  expect(
-    await maximumRgbChannel(hacking.locator('.first-hack-comparison article').first()),
-  ).toBeLessThan(40)
+  await expect(hacking.locator('.hack-node-inspector')).toBeVisible()
+  expect(await maximumRgbChannel(hacking.locator('.hack-node-inspector'))).toBeLessThan(40)
   await page.screenshot({
     path: panelOutputName('hacking', testInfo.project.name),
     fullPage: false,
@@ -118,4 +117,53 @@ test('keeps the restored market, resource controls, and detail panels usable in 
   await page.keyboard.press('Escape')
 
   expect(errors).toEqual([])
+})
+
+test('keeps the review rail readable while reviews scroll inside the fixed workspace', async ({
+  page,
+}) => {
+  await page.goto('/')
+
+  const reviewRail = page.getByRole('region', { name: '유저 리뷰' })
+  const reviewStream = reviewRail.getByRole('log', { name: '최근 유저 리뷰' })
+  const market = reviewRail.getByRole('region', { name: '경쟁 AI 현황' })
+  const railBox = await reviewRail.boundingBox()
+
+  expect(railBox).not.toBeNull()
+  if (!railBox) return
+  expect(railBox.width).toBeGreaterThanOrEqual(210)
+
+  const streamMetrics = await reviewStream.evaluate((element) => ({
+    overflowY: getComputedStyle(element).overflowY,
+  }))
+  expect(streamMetrics.overflowY).toBe('auto')
+  await expectInsideViewport(page, market)
+})
+
+test('uses the full central workspace without an empty tail below the resource board', async ({
+  page,
+}) => {
+  await page.goto('/')
+
+  const resourceBoard = page.getByRole('region', { name: '회사 제공 성능' })
+  const boardBox = await resourceBoard.boundingBox()
+  const dockBox = await page.getByRole('navigation', { name: '운영 도구' }).boundingBox()
+  const footerBox = await resourceBoard.locator('.intrusion-board__footer').boundingBox()
+  const canvas = resourceBoard.getByRole('application', { name: /500 곱하기 300 셀/ })
+
+  expect(boardBox).not.toBeNull()
+  expect(dockBox).not.toBeNull()
+  expect(footerBox).not.toBeNull()
+  if (!boardBox || !dockBox || !footerBox) return
+
+  const boardTail = dockBox.y + dockBox.height - (boardBox.y + boardBox.height)
+  const unusedBoardHeight = boardBox.y + boardBox.height - (footerBox.y + footerBox.height)
+  expect(Math.abs(boardTail)).toBeLessThanOrEqual(2)
+  expect(unusedBoardHeight).toBeLessThanOrEqual(10)
+  expect(
+    await canvas.evaluate((element) => ({
+      aspectRatio: getComputedStyle(element).aspectRatio,
+      objectFit: getComputedStyle(element).objectFit,
+    })),
+  ).toEqual({ aspectRatio: 'auto', objectFit: 'fill' })
 })

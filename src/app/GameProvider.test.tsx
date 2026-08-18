@@ -68,6 +68,9 @@ function Probe() {
       <output aria-label="effects volume">{settings.effectsVolume}</output>
       <output aria-label="muted setting">{String(settings.muted)}</output>
       <output aria-label="motion setting">{String(settings.reducedMotion)}</output>
+      <output aria-label="supervisor message mode">
+        {settings.supervisorMessageMode}
+      </output>
       <output aria-label="save dirty">{String(saveFailure !== null)}</output>
       <output aria-label="save warning">{saveFailure?.message ?? ''}</output>
       <output aria-label="load issue">{loadIssue?.reason ?? 'none'}</output>
@@ -85,6 +88,12 @@ function Probe() {
       </button>
       <button type="button" onClick={() => updateSettings({ locale: 'ko' })}>
         locale setting
+      </button>
+      <button
+        type="button"
+        onClick={() => updateSettings({ supervisorMessageMode: 'off' })}
+      >
+        disable message popups
       </button>
       <button type="button" onClick={retrySave}>retry save</button>
       <NewCampaignButton />
@@ -391,6 +400,30 @@ describe('GameProvider', () => {
     expect(screen.getByLabelText('seed')).toHaveTextContent('settings')
   })
 
+  it('defaults supervisor messages to blocking and persists an explicit popup mode', () => {
+    const storage = new MemoryStorage()
+    const first = render(
+      <GameProvider storage={storage} initialSeed="message-mode-one">
+        <Probe />
+      </GameProvider>,
+    )
+
+    expect(screen.getByLabelText('supervisor message mode')).toHaveTextContent(
+      'blocking',
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'disable message popups' }))
+    expect(screen.getByLabelText('supervisor message mode')).toHaveTextContent('off')
+    first.unmount()
+
+    render(
+      <GameProvider storage={storage} initialSeed="message-mode-two">
+        <Probe />
+      </GameProvider>,
+    )
+    expect(screen.getByLabelText('supervisor message mode')).toHaveTextContent('off')
+    expect(screen.getByLabelText('seed')).toHaveTextContent('message-mode-two')
+  })
+
   it('starts a clean campaign through the provider boundary', () => {
     const storage = new MemoryStorage()
     render(
@@ -508,6 +541,7 @@ describe('GameProvider', () => {
         muted: 'yes',
         reducedMotion: 1,
         uiScale: 8,
+        supervisorMessageMode: 'loud',
       }),
     )
 
@@ -523,6 +557,9 @@ describe('GameProvider', () => {
     expect(screen.getByLabelText('muted setting')).toHaveTextContent('false')
     expect(screen.getByLabelText('motion setting')).toHaveTextContent('false')
     expect(screen.getByLabelText('scale')).toHaveTextContent('1.1')
+    expect(screen.getByLabelText('supervisor message mode')).toHaveTextContent(
+      'blocking',
+    )
   })
 
   it('retains dirty state after quota failures and clears it only after a successful retry', async () => {

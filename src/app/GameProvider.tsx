@@ -72,6 +72,7 @@ const DEFAULT_SETTINGS: GameSettings = {
   muted: false,
   reducedMotion: false,
   uiScale: 1,
+  supervisorMessageMode: 'blocking',
 }
 
 const UI_SCALES = [0.9, 1, 1.1] as const
@@ -98,6 +99,14 @@ function validUiScale(value: unknown): number {
   )
 }
 
+function validSupervisorMessageMode(
+  value: unknown,
+): GameSettings['supervisorMessageMode'] {
+  return value === 'blocking' || value === 'nonblocking' || value === 'off'
+    ? value
+    : DEFAULT_SETTINGS.supervisorMessageMode
+}
+
 function normalizeSettings(value: Partial<GameSettings>): GameSettings {
   return {
     locale: validLocale(value.locale),
@@ -117,6 +126,9 @@ function normalizeSettings(value: Partial<GameSettings>): GameSettings {
         ? value.reducedMotion
         : DEFAULT_SETTINGS.reducedMotion,
     uiScale: validUiScale(value.uiScale),
+    supervisorMessageMode: validSupervisorMessageMode(
+      value.supervisorMessageMode,
+    ),
   }
 }
 

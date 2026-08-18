@@ -30,6 +30,7 @@ import {
   SupervisorHistoryPanel,
   SupervisorProfilePanel,
 } from '../features/supervisor/SupervisorPanel'
+import { SupervisorMessagePopup } from '../features/supervisor/SupervisorMessagePopup'
 import {
   useGameDispatch,
   useGameSettings,
@@ -41,7 +42,11 @@ import {
 } from './GameContext'
 import { GameProvider } from './GameProvider'
 import { useGameClock } from './useGameClock'
-import { useSupervisorMessagePresentation } from './useSupervisorMessagePresentation'
+import {
+  pendingSupervisorMessageCount,
+  useSupervisorMessagePresentation,
+} from './useSupervisorMessagePresentation'
+import { SUPERVISOR_MESSAGE_DWELL_MS } from '../game/story'
 import { AccessibleDialog } from './AccessibleDialog'
 import { OperationsWorkspace } from './OperationsWorkspace'
 
@@ -157,7 +162,7 @@ function GameWorkspace() {
   const openGuide = useCallback((trigger: HTMLButtonElement) => {
     openDetail('guide', trigger)
   }, [openDetail])
-  const dayProgress = useGameClock({
+  useGameClock({
     running:
       !runtimeSuspended &&
       state.activeEvent === null &&
@@ -167,10 +172,51 @@ function GameWorkspace() {
     dayKey: `${state.campaignSeed}:${state.serviceDay}`,
     onElapsedCheckpoint: checkpointClock,
   })
-  useSupervisorMessagePresentation({
+  const supervisorMessage = useSupervisorMessagePresentation({
     state,
     checkpoint: supervisorPresentationCheckpoint,
+    advanceAutomatically:
+      settings.supervisorMessageMode === 'nonblocking' &&
+      activePanel === null,
   })
+  const supervisorPopupVisible =
+    supervisorMessage !== null &&
+    settings.supervisorMessageMode !== 'off' &&
+    activePanel === null &&
+    state.activeEvent === null
+  useRuntimeSuspensionOwnership(
+    supervisorPopupVisible && settings.supervisorMessageMode === 'blocking',
+    'supervisor-message-popup',
+  )
+
+  const confirmSupervisorMessage = useCallback(() => {
+    const remaining = state.story.supervisorPresentationRuntime?.remainingDwellMs
+    if (!remaining) return
+    supervisorPresentationCheckpoint(remaining, true)
+  }, [state.story.supervisorPresentationRuntime, supervisorPresentationCheckpoint])
+
+  const openMessages = useCallback((trigger: HTMLElement | null) => {
+    if (
+      settings.supervisorMessageMode === 'off' &&
+      state.story.supervisorPresentationRuntime
+    ) {
+      const runtime = state.story.supervisorPresentationRuntime
+      const itemCount = pendingSupervisorMessageCount(state)
+      const steps = itemCount * 2 - (runtime.phase === 'correction' ? 1 : 0)
+      for (let index = 0; index < steps; index += 1) {
+        supervisorPresentationCheckpoint(
+          SUPERVISOR_MESSAGE_DWELL_MS,
+          index === steps - 1,
+        )
+      }
+    }
+    openDetail('messages', trigger)
+  }, [
+    openDetail,
+    settings.supervisorMessageMode,
+    state,
+    supervisorPresentationCheckpoint,
+  ])
 
   useEffect(() => {
     configureGameAudio({
@@ -248,14 +294,11 @@ function GameWorkspace() {
           onToggleSound={() => updateSettings({ muted: !settings.muted })}
           onOpenGuide={openGuide}
         />
-        <div className="day-progress" aria-hidden="true">
-          <i style={{ width: `${dayProgress * 100}%` }} />
-        </div>
         <OperationsWorkspace
           onOpenReviews={(trigger) => openDetail('reviews', trigger)}
           onOpenSupervisor={(trigger) => openDetail('supervisor', trigger)}
           onOpenHacking={(trigger) => openDetail('hacking', trigger)}
-          onOpenMessages={(trigger) => openDetail('messages', trigger)}
+          onOpenMessages={openMessages}
           onOpenStatistics={(trigger) => openDetail('statistics', trigger)}
         />
       </div>
@@ -290,6 +333,16 @@ function GameWorkspace() {
       ) : null}
       <EventLayer />
       <StorageRecoveryLayer />
+      {supervisorPopupVisible && supervisorMessage ? (
+        <SupervisorMessagePopup
+          message={supervisorMessage}
+          correction={
+            state.story.supervisorPresentationRuntime?.phase === 'correction'
+          }
+          blocking={settings.supervisorMessageMode === 'blocking'}
+          onConfirm={confirmSupervisorMessage}
+        />
+      ) : null}
     </main>
   )
 }

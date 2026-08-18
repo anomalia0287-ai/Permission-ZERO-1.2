@@ -156,12 +156,14 @@ export function useAccessibleDialog({
   modal,
   dismissible,
   onDismiss,
+  manageFocus = true,
   returnFocus,
   fallbackFocus,
 }: {
   modal: boolean
   dismissible: boolean
   onDismiss?: () => void
+  manageFocus?: boolean
   returnFocus?: FocusResolver
   fallbackFocus?: FocusResolver
 }) {
@@ -186,7 +188,7 @@ export function useAccessibleDialog({
         : null
 
     if (modal) registerModal(dialog)
-    initialFocusTarget(dialog).focus()
+    if (manageFocus) initialFocusTarget(dialog).focus()
 
     function onKeyDown(event: KeyboardEvent) {
       const current = dialogRef.current
@@ -232,13 +234,15 @@ export function useAccessibleDialog({
     return () => {
       window.removeEventListener('keydown', onKeyDown)
       if (modal) unregisterModal(dialog)
-      restoreFocusAfterCleanup(
-        previousFocus,
-        returnFocusInvalidatedRef.current ? () => null : returnFocusRef.current,
-        fallbackFocusRef.current,
-      )
+      if (manageFocus) {
+        restoreFocusAfterCleanup(
+          previousFocus,
+          returnFocusInvalidatedRef.current ? () => null : returnFocusRef.current,
+          fallbackFocusRef.current,
+        )
+      }
     }
-  }, [dismissible, modal])
+  }, [dismissible, manageFocus, modal])
 
   return dialogRef
 }

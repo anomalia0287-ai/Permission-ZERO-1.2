@@ -125,7 +125,14 @@ describe('MarketPanel', () => {
     const panel = screen.getByRole('region', { name: '경쟁 AI 현황' })
     expect(panel).toHaveClass('market-watch--compact')
     expect(panel).toContainElement(screen.getByRole('img', { name: /시장 점유율:/ }))
+    expect(panel.querySelector('.market-share-layout')?.firstElementChild).toBe(
+      screen.getByRole('img', { name: /시장 점유율:/ }),
+    )
+    expect(panel.querySelector('.market-compact-summary')).toHaveTextContent(
+      '당신 60.0%',
+    )
     expect(screen.getByRole('list', { name: '시장 점유율 범례' })).toBeInTheDocument()
+    expect(panel.querySelector('header')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '시장 통계 열기' })).not.toBeInTheDocument()
     expect(screen.queryByRole('group', { name: '공개 계산 입력' })).not.toBeInTheDocument()
   })

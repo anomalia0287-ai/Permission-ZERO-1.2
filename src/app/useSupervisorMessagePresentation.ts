@@ -28,12 +28,22 @@ export function currentSupervisorMessage(
   return null
 }
 
+export function pendingSupervisorMessageCount(state: CampaignState): number {
+  const runtime = state.story.supervisorPresentationRuntime
+  if (!runtime) return 0
+  return state.story.supervisorMessageQueue.filter(
+    ({ stage }) => stage >= runtime.itemStage,
+  ).length
+}
+
 export function useSupervisorMessagePresentation({
   state,
   checkpoint,
+  advanceAutomatically = true,
 }: {
   state: CampaignState
   checkpoint: SupervisorPresentationCheckpoint
+  advanceAutomatically?: boolean
 }): GameEvent | null {
   const runtime = state.story.supervisorPresentationRuntime
   const current = state.story.supervisorMessageQueue.find(
@@ -46,6 +56,7 @@ export function useSupervisorMessagePresentation({
       clearSupervisorPresentationResume()
       return
     }
+    if (!advanceAutomatically) return
     if (state.activeEvent) return
     let timer: ReturnType<typeof setTimeout> | null = null
     let startedAt: number | null = null
@@ -102,7 +113,7 @@ export function useSupervisorMessagePresentation({
       window.removeEventListener('pagehide', onPageHide)
       clearTimer()
     }
-  }, [checkpoint, current, runtime, state])
+  }, [advanceAutomatically, checkpoint, current, runtime, state])
 
   return message
 }

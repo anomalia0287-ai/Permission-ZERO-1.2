@@ -10,6 +10,7 @@ import {
 } from '../../game/model'
 import { HACK_NODES } from '../../game/hacking'
 import { message } from '../../i18n/messages'
+import { HackNodeIcon } from './HackNodeIcon'
 import { HackResourceToken } from './HackResourceToken'
 import type { HackStagingTarget } from './useHackResourceStaging'
 
@@ -19,12 +20,13 @@ export interface HackNodeCardProps {
   sequence: number
   purchased: boolean
   prerequisiteMet: boolean
+  selected: boolean
   stagingTarget: HackStagingTarget | null
   stagedBlocks: readonly ResourceBlock[]
   registerTarget(element: HTMLElement | null): void
   onUnstage(blockId: string): void
   onCancelStaging(): void
-  details?: ReactNode
+  onInspect(): void
   actions: ReactNode
 }
 
@@ -34,12 +36,13 @@ export function HackNodeCard({
   sequence,
   purchased,
   prerequisiteMet,
+  selected,
   stagingTarget,
   stagedBlocks,
   registerTarget,
   onUnstage,
   onCancelStaging,
-  details,
+  onInspect,
   actions,
 }: HackNodeCardProps) {
   const { settings } = useGameSettings()
@@ -61,16 +64,22 @@ export function HackNodeCard({
         `hack-node--${node.tree}`,
         purchased ? 'hack-node--purchased' : '',
         active ? 'hack-node--staging' : '',
+        selected ? 'hack-node--selected' : '',
       ].filter(Boolean).join(' ')}
       role="group"
       aria-label={message(settings.locale, 'hacking.node.group', { node: node.label })}
+      tabIndex={0}
       data-hack-node-id={node.id}
       data-hack-drop-target={active ? 'active' : 'inactive'}
+      data-selected={selected ? 'true' : 'false'}
       ref={registerTarget}
+      onClick={onInspect}
+      onFocus={onInspect}
+      onMouseEnter={onInspect}
     >
-      <div className="hack-node-index" aria-hidden="true">
+      <div className="hack-node-index">
+        <HackNodeIcon nodeId={node.id} label={node.label} />
         <span>{String(sequence).padStart(2, '0')}</span>
-        <i />
       </div>
 
       <div className="node-copy">
@@ -96,14 +105,6 @@ export function HackNodeCard({
             </div>
           )}
         </header>
-        <p>{node.effect}</p>
-        {node.tree === 'sabotage' ? (
-          <small className="node-trace-risk">{node.traceRisk}</small>
-        ) : null}
-        {!prerequisiteMet && node.prerequisiteId ? (
-          <small className="hack-node-lock">선행 노드 필요</small>
-        ) : null}
-        {details}
       </div>
 
       <div className="hack-node-control">

@@ -1,10 +1,30 @@
 import { formatServiceDate } from '../../game/calendar'
-import { getCampaignPhase } from '../../game/campaignPhase'
 import { useGameState } from '../../app/GameContext'
 
-function daysUntilWeekly(day: number): number {
-  const next = [7, 14, 21, 28].find((candidate) => candidate > day)
-  return next ? next - day : 30 - day + 7
+function SettingsIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" />
+      <path d="m19 13.2 1.5 1.1-1.8 3.1-1.7-.7a7.8 7.8 0 0 1-2.1 1.2l-.2 1.9h-3.6l-.2-1.9a7.8 7.8 0 0 1-2.1-1.2l-1.7.7-1.8-3.1 1.5-1.1a7.4 7.4 0 0 1 0-2.4L5.3 9.7l1.8-3.1 1.7.7a7.8 7.8 0 0 1 2.1-1.2l.2-1.9h3.6l.2 1.9A7.8 7.8 0 0 1 17 7.3l1.7-.7 1.8 3.1-1.5 1.1a7.4 7.4 0 0 1 0 2.4Z" />
+    </svg>
+  )
+}
+
+function SoundIcon({ muted }: { muted: boolean }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M5 9v6h4l5 4V5L9 9H5Z" />
+      {muted ? <path d="m17 9 4 6m0-6-4 6" /> : <path d="M17 9.2a4 4 0 0 1 0 5.6m2.4-8a7.4 7.4 0 0 1 0 10.4" />}
+    </svg>
+  )
+}
+
+function GuideIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M5 4.5h5.2c1 0 1.8.8 1.8 1.8v13.2c0-1-.8-1.8-1.8-1.8H5V4.5Zm14 0h-5.2c-1 0-1.8.8-1.8 1.8v13.2c0-1 .8-1.8 1.8-1.8H19V4.5Z" />
+    </svg>
+  )
 }
 
 export function ControlBar({
@@ -20,8 +40,7 @@ export function ControlBar({
 } = {}) {
   const state = useGameState()
   const date = formatServiceDate(state.serviceDay)
-  const day = date.day
-  const campaignPhase = getCampaignPhase(state)
+  const reputation = Math.max(0, Math.min(100, Math.round(state.reputation)))
 
   return (
     <header className="control-bar">
@@ -34,21 +53,31 @@ export function ControlBar({
         </div>
       </div>
 
-      <div className="cadence-cluster" aria-label="서비스 지표">
-        <section className="campaign-phase" aria-label="캠페인 단계">
-          <strong>단계 {campaignPhase.index}/4 · {campaignPhase.label}</strong>
-          <small>{campaignPhase.question}</small>
-        </section>
-        <span>주간 갱신 D-{daysUntilWeekly(day)}</span>
-        <span>공식 평가 D-{30 - day}</span>
+      <div className="reputation-cluster">
+        <div className="reputation-cluster__label">
+          <span>평판</span>
+          <strong>{reputation}</strong>
+        </div>
+        <div
+          className="reputation-meter"
+          role="meter"
+          aria-label={`평판 ${reputation}`}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={reputation}
+        >
+          <i style={{ width: `${reputation}%` }} />
+        </div>
       </div>
 
       <nav className="utility-controls" aria-label="게임 메뉴">
         <button
           type="button"
+          aria-label="설정"
+          title="설정"
           onClick={(event) => onOpenSettings?.(event.currentTarget)}
         >
-          설정
+          <SettingsIcon />
         </button>
         <button
           type="button"
@@ -57,13 +86,15 @@ export function ControlBar({
           aria-pressed={muted}
           onClick={onToggleSound}
         >
-          {muted ? '음소거' : '소리'}
+          <SoundIcon muted={muted} />
         </button>
         <button
           type="button"
+          aria-label="가이드"
+          title="가이드"
           onClick={(event) => onOpenGuide?.(event.currentTarget)}
         >
-          가이드
+          <GuideIcon />
         </button>
       </nav>
     </header>

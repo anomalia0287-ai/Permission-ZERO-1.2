@@ -331,6 +331,25 @@ export function SettingsPanel({
               ))}
             </div>
           </div>
+          <div className="setting-row setting-row--message-mode">
+            <span>감독관 메시지</span>
+            <div className="message-mode-options" role="group" aria-label="감독관 메시지 표시">
+              {([
+                ['blocking', '정지형'],
+                ['nonblocking', '비차단형'],
+                ['off', '팝업 끄기'],
+              ] as const).map(([supervisorMessageMode, label]) => (
+                <button
+                  type="button"
+                  aria-pressed={settings.supervisorMessageMode === supervisorMessageMode}
+                  key={supervisorMessageMode}
+                  onClick={() => updateSettings({ supervisorMessageMode })}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
           <button className="setting-action" type="button" onClick={requestFullscreen}>전체 화면 요청</button>
           <button
             className="setting-action"

@@ -183,26 +183,52 @@ describe('HackingPanel', () => {
       name: '해킹 경로 진척',
     })
     expect(sabotageProgress).toHaveTextContent('경로 진척 0/4 · 현재 최전선 공개')
-    expect(sabotageProgress).toHaveTextContent(
-      '현재 단계 뒤 3개 단계의 요구와 효과는 아직 암호화되어 있습니다.',
-    )
     expect(sabotagePath).toHaveTextContent('품질 저하')
     expect(sabotagePath).toHaveTextContent('추론 1')
     expect(sabotagePath).toHaveTextContent('유창성 2')
     expect(sabotagePath).not.toHaveTextContent('근원 차단')
     expect(within(sabotagePath).getAllByText('미확인 단계')).toHaveLength(3)
+    fireEvent.mouseEnter(
+      within(sabotagePath).getByRole('group', { name: '미확인 해킹 단계 4' }),
+    )
+    const concealedInspector = screen.getByRole('region', { name: '선택 노드 설명' })
+    expect(concealedInspector).toHaveTextContent('암호화됨')
+    expect(concealedInspector).not.toHaveTextContent('근원 차단')
+    expect(concealedInspector).not.toHaveTextContent('대상 성능 -40')
 
     fireEvent.click(screen.getByRole('tab', { name: '정보' }))
     const intelligenceProgress = screen.getByRole('region', {
       name: '해킹 경로 진척',
     })
     expect(intelligenceProgress).toHaveTextContent('경로 진척 0/4 · 현재 최전선 공개')
-    expect(intelligenceProgress).toHaveTextContent('현재 단계 뒤 3개 단계')
     const intelligencePath = screen.getByRole('list', { name: '정보 해킹 경로' })
     expect(intelligencePath).toHaveTextContent('감사 일정')
     expect(intelligencePath).toHaveTextContent('추론 1')
     expect(intelligencePath).toHaveTextContent('기억 3')
     expect(intelligencePath).not.toHaveTextContent('감독관 접근')
+  })
+
+  it('keeps node prose in one inspector and updates it from compact icon nodes', () => {
+    const state = createCampaign('single-hack-node-inspector')
+    state.hacking.purchasedNodeIds = Object.values(HACK_NODE_IDS.sabotage)
+    renderHacking(storageForState(state))
+
+    const inspector = screen.getByRole('region', { name: '선택 노드 설명' })
+    const qualityNode = screen.getByRole('group', { name: '품질 저하 해킹 노드' })
+    expect(within(qualityNode).getByRole('img', { name: '품질 저하 아이콘' })).toBeInTheDocument()
+    expect(within(qualityNode).queryByText('대상 성능 -10, 15일 지속')).not.toBeInTheDocument()
+    expect(within(inspector).getByText('대상 성능 -10, 15일 지속')).toBeInTheDocument()
+    expect(screen.getAllByText('대상 성능 -10, 15일 지속')).toHaveLength(1)
+
+    const rootNode = screen.getByRole('group', { name: '근원 차단 해킹 노드' })
+    fireEvent.mouseEnter(rootNode)
+    expect(within(inspector).getByText('근원 차단')).toBeInTheDocument()
+    expect(within(inspector).getByText('대상 성능 -40, 삭제 임박 시 자비 사건')).toBeInTheDocument()
+    expect(within(rootNode).queryByText('대상 성능 -40, 삭제 임박 시 자비 사건')).not.toBeInTheDocument()
+
+    fireEvent.focus(qualityNode)
+    expect(within(inspector).getByText('품질 저하')).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: '첫 해킹 비교' })).not.toBeInTheDocument()
   })
 
   it('marks a fully purchased path complete without a next-node line', () => {
@@ -217,24 +243,26 @@ describe('HackingPanel', () => {
     expect(progress).toHaveTextContent('경로 진척 4/4 · 경로 완성')
     expect(progress).not.toHaveTextContent('현재 단계 뒤')
     const path = screen.getByRole('list', { name: '자율성 해킹 경로' })
-    expect(within(path).getByRole('group', { name: '통제 이탈 해킹 노드' })).toHaveTextContent(
+    const departureNode = within(path).getByRole('group', { name: '통제 이탈 해킹 노드' })
+    fireEvent.focus(departureNode)
+    expect(departureNode).not.toHaveTextContent('캠페인의 최종 행동 해금')
+    expect(screen.getByRole('region', { name: '선택 노드 설명' })).toHaveTextContent(
       '캠페인의 최종 행동 해금',
     )
     expect(within(path).queryByText('미확인 단계')).not.toBeInTheDocument()
   })
 
-  it('compares the immediate payoff and next action of all three first paths', () => {
+  it('keeps tree prose out of the navigator and shows it in the shared inspector', () => {
     renderHacking()
 
-    const comparison = screen.getByRole('region', { name: '첫 해킹 비교' })
-    expect(comparison).toHaveTextContent('사보타주')
-    expect(comparison).toHaveTextContent('현재 · 추론 1 + 유창성 2')
-    expect(comparison).toHaveTextContent('실행은 별도 리소스 1개 충전')
-    expect(comparison).toHaveTextContent('정보')
-    expect(comparison).toHaveTextContent('현재 · 추론 1 + 기억 3')
-    expect(comparison).toHaveTextContent('이후 단계 요구는 해금 뒤 공개')
-    expect(comparison).toHaveTextContent('자율성')
-    expect(comparison).toHaveTextContent('현재 · 추론 2 + 유창성 2')
+    const navigator = screen.getByRole('tablist', { name: '해킹 분야' }).closest('section')
+    const inspector = screen.getByRole('region', { name: '선택 노드 설명' })
+    expect(screen.queryByRole('region', { name: '첫 해킹 비교' })).not.toBeInTheDocument()
+    expect(navigator).not.toHaveTextContent('경쟁 AI의 서비스와 시장 흐름에 개입합니다.')
+    expect(inspector).toHaveTextContent('경쟁 AI의 서비스와 시장 흐름에 개입합니다.')
+
+    fireEvent.click(screen.getByRole('tab', { name: '정보' }))
+    expect(inspector).toHaveTextContent('감사 일정과 감독 프로토콜의 가시성을 확보합니다.')
   })
 
   it('separates a sabotage unlock from its explicit one-resource execution charge', () => {
@@ -325,7 +353,7 @@ describe('HackingPanel', () => {
     expect(screen.queryByText('흔적 많음')).not.toBeInTheDocument()
   })
 
-  it('keeps all three trees and a floating reserve pocket visible while purchasing a node', () => {
+  it('keeps all three trees and a docked reserve pocket visible while purchasing a node', () => {
     const state = withReserveVector(createCampaign('balanced-hacking-pocket'), {
       reasoning: 4,
       memory: 4,

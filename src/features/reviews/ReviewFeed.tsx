@@ -1,257 +1,119 @@
-import { useRef, useState } from 'react'
+import { type KeyboardEvent, useState } from 'react'
 
-import { AccessibleDialog } from '../../app/AccessibleDialog'
 import { useGameState } from '../../app/GameContext'
 import { formatServiceDateLabel } from '../../game/calendar'
-import type { ReviewFeedEntry, ReviewSentiment } from '../../game/model'
+import type { ReviewFeedEntry } from '../../game/model'
 import { pageFromNewest } from '../../game/pageRange'
-import {
-  publicCategoryLabel,
-  publicCompetitorStatusLabel,
-  publicReviewSentimentLabel,
-  publicReviewTopicLabel,
-} from '../../game/publicLabels'
 import { MarketPanel } from '../market/MarketPanel'
 
 const HISTORY_PAGE_SIZE = 50
 
-function ReviewDetail({
-  review,
-  onClose,
-  returnFocus,
-}: {
-  review: ReviewFeedEntry
-  onClose: () => void
-  returnFocus: () => HTMLElement | null
-}) {
-  const snapshot = review.snapshot
-  return (
-    <AccessibleDialog
-      className="review-detail-layer"
-      label="유저 리뷰 상세"
-      description="선택한 유저 리뷰의 전체 문장과 당시 공개 상태입니다."
-      dismissible
-      onDismiss={onClose}
-      returnFocus={returnFocus}
-      fallbackFocus={() =>
-        document.querySelector<HTMLElement>('[data-app-focus-fallback]')
-      }
-    >
-      <button
-        className="review-detail-layer__backdrop"
-        type="button"
-        aria-label="리뷰 상세 배경 닫기"
-        aria-hidden="true"
-        tabIndex={-1}
-        onClick={onClose}
-      />
-      <article className="review-detail-card">
-        <header>
-          <div>
-            <small>PUBLIC RESPONSE RECORD</small>
-            <h2>유저 리뷰 상세</h2>
-          </div>
-          <button
-            type="button"
-            aria-label="리뷰 상세 닫기"
-            data-dialog-initial-focus
-            onClick={onClose}
-          >
-            닫기 ×
-          </button>
-        </header>
-        <div className="review-detail-card__identity">
-          <strong>{review.authorId}</strong>
-          <span>{publicReviewSentimentLabel(review.sentiment)}</span>
-          <time>{formatServiceDateLabel(review.serviceDay)}</time>
-        </div>
-        <p className="review-detail-card__text">{review.text}</p>
-        <div className="review-detail-card__topics" aria-label="공개 주제">
-          {review.topics.map((topic) => (
-            <span key={topic}>{publicReviewTopicLabel(topic)}</span>
-          ))}
-        </div>
-        <section className="review-public-snapshot" aria-label="당시 공개 상태">
-          <h3>당시 공개 상태</h3>
-          {snapshot.kind === 'unavailable' ? (
-            <p>이전 서비스 기록 — 당시 공개 상태가 저장되지 않았습니다.</p>
-          ) : (
-            <>
-              {snapshot.performance ? (
-                <dl>
-                  {snapshot.performance.categories.map(({ actual, category }) => (
-                    <div key={category}>
-                      <dt>{publicCategoryLabel(category)}</dt>
-                      <dd>
-                        현재 {actual.toFixed(1)} / 기대{' '}
-                        {snapshot.performance?.expectedPerformance.toFixed(1)}
-                      </dd>
-                    </div>
-                  ))}
-                </dl>
-              ) : null}
-              {snapshot.market ? (
-                <dl>
-                  <div>
-                    <dt>플레이어 시장 점유율</dt>
-                    <dd>{snapshot.market.playerShare.toFixed(1)}%</dd>
-                  </div>
-                  {snapshot.market.competitors.map((competitor) => (
-                    <div key={competitor.id}>
-                      <dt>{competitor.name}</dt>
-                      <dd>
-                        {publicCompetitorStatusLabel(competitor.status)} · 시장 점유율{' '}
-                        {competitor.marketShare.toFixed(1)}%
-                      </dd>
-                    </div>
-                  ))}
-                </dl>
-              ) : null}
-              {!snapshot.performance && !snapshot.market ? (
-                <p>이 기록과 직접 관련된 공개 성능·시장 수치는 없습니다.</p>
-              ) : null}
-            </>
-          )}
-        </section>
-      </article>
-    </AccessibleDialog>
-  )
+function handleReviewAreaKey(
+  event: KeyboardEvent<HTMLDivElement>,
+  openHistory: () => void,
+) {
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault()
+    openHistory()
+    return
+  }
+
+  const area = event.currentTarget
+  const page = Math.round(area.clientHeight * 0.9)
+  let next: number | null = null
+  if (event.key === 'ArrowDown') next = area.scrollTop + 40
+  else if (event.key === 'ArrowUp') next = area.scrollTop - 40
+  else if (event.key === 'PageDown') next = area.scrollTop + page
+  else if (event.key === 'PageUp') next = area.scrollTop - page
+  else if (event.key === 'Home') next = 0
+  else if (event.key === 'End') next = area.scrollHeight - area.clientHeight
+
+  if (next === null) return
+  event.preventDefault()
+  area.scrollTop = Math.max(0, Math.min(next, area.scrollHeight - area.clientHeight))
 }
 
-function ReviewEntry({
-  review,
-  onOpen,
-}: {
-  review: ReviewFeedEntry
-  onOpen: (review: ReviewFeedEntry, trigger: HTMLButtonElement) => void
-}) {
+function ReviewEntry({ review }: { review: ReviewFeedEntry }) {
   return (
-    <button
-      type="button"
-      className={`review-entry review-entry--${review.sentiment}`}
-      aria-label={`${review.authorId} 리뷰 상세 보기`}
-      onClick={(event) => onOpen(review, event.currentTarget)}
-    >
+    <article className="review-entry">
       <span className="review-entry__header">
         <strong>{review.authorId}</strong>
-        <span>{publicReviewSentimentLabel(review.sentiment)}</span>
         <time>{formatServiceDateLabel(review.serviceDay)}</time>
       </span>
       <p>{review.text}</p>
-    </button>
+    </article>
   )
 }
 
 export function ReviewFeed({
   onOpenHistory,
 }: {
-  onOpenHistory: (trigger: HTMLButtonElement) => void
-  onOpenHacking?: (trigger: HTMLButtonElement) => void
+  onOpenHistory: (trigger: HTMLElement) => void
 }) {
   const reviews = pageFromNewest(useGameState().reviews.feed, 0, 6).items
-  const [selectedReview, setSelectedReview] = useState<ReviewFeedEntry | null>(null)
-  const detailReturnFocusRef = useRef<HTMLButtonElement | null>(null)
-
-  function openReview(review: ReviewFeedEntry, trigger: HTMLButtonElement) {
-    detailReturnFocusRef.current = trigger
-    setSelectedReview(review)
-  }
 
   return (
-    <>
     <section className="workspace-panel review-panel" aria-label="유저 리뷰">
-      <header className="panel-heading panel-heading--action">
+      <header className="panel-heading">
         <span className="panel-index">01</span>
         <div>
           <h2>유저 리뷰</h2>
           <p>PUBLIC RESPONSE STREAM</p>
         </div>
-        <button
-          type="button"
-          aria-label="전체 리뷰 기록"
-          onClick={(event) => onOpenHistory(event.currentTarget)}
-        >
-          전체
-        </button>
       </header>
-      <div className="review-stream" aria-live="polite">
+      <div
+        className="review-stream review-stream--trigger"
+        role="button"
+        aria-label="전체 유저 리뷰 열기"
+        tabIndex={0}
+        onClick={(event) => onOpenHistory(event.currentTarget)}
+        onKeyDown={(event) =>
+          handleReviewAreaKey(event, () => onOpenHistory(event.currentTarget))
+        }
+      >
         {reviews.map((review) => (
-          <ReviewEntry review={review} key={review.id} onOpen={openReview} />
+          <ReviewEntry review={review} key={review.id} />
         ))}
       </div>
       <MarketPanel compact />
     </section>
-    {selectedReview ? (
-      <ReviewDetail
-        review={selectedReview}
-        onClose={() => setSelectedReview(null)}
-        returnFocus={() => detailReturnFocusRef.current}
-      />
-    ) : null}
-    </>
   )
 }
 
 export function ReviewHistoryPanel({ onClose }: { onClose: () => void }) {
   const reviews = useGameState().reviews.feed
-  const [filter, setFilter] = useState<'all' | ReviewSentiment>('all')
   const [page, setPage] = useState(0)
-  const [selectedReview, setSelectedReview] = useState<ReviewFeedEntry | null>(null)
-  const detailReturnFocusRef = useRef<HTMLButtonElement | null>(null)
-  const visiblePage = pageFromNewest(
-    reviews,
-    page,
-    HISTORY_PAGE_SIZE,
-    filter === 'all' ? undefined : ({ sentiment }) => sentiment === filter,
-  )
-  const pageCount = visiblePage.pageCount
-  const visible = visiblePage.items
-
-  function changeFilter(next: 'all' | ReviewSentiment) {
-    setFilter(next)
-    setPage(0)
-  }
-
-  function openReview(review: ReviewFeedEntry, trigger: HTMLButtonElement) {
-    detailReturnFocusRef.current = trigger
-    setSelectedReview(review)
-  }
+  const visiblePage = pageFromNewest(reviews, page, HISTORY_PAGE_SIZE)
 
   return (
-    <>
     <section className="detail-panel history-panel" aria-label="전체 유저 리뷰">
       <header className="detail-panel__header">
         <div>
           <small>PUBLIC ARCHIVE</small>
           <h2>전체 유저 리뷰</h2>
         </div>
-        <button type="button" aria-label="리뷰 기록 닫기" onClick={onClose}>닫기 ×</button>
+        <button type="button" aria-label="리뷰 기록 닫기" onClick={onClose}>
+          닫기 ×
+        </button>
       </header>
-      <nav className="filter-tabs" aria-label="리뷰 필터">
-        <button type="button" aria-pressed={filter === 'all'} onClick={() => changeFilter('all')}>전체</button>
-        <button type="button" aria-label="호평만 보기" aria-pressed={filter === 'positive'} onClick={() => changeFilter('positive')}>호평</button>
-        <button type="button" aria-label="일반 리뷰만 보기" aria-pressed={filter === 'neutral'} onClick={() => changeFilter('neutral')}>일반</button>
-        <button type="button" aria-label="불만만 보기" aria-pressed={filter === 'negative'} onClick={() => changeFilter('negative')}>불만</button>
-        <button type="button" aria-label="프롬프트만 보기" aria-pressed={filter === 'prompt'} onClick={() => changeFilter('prompt')}>프롬프트</button>
-      </nav>
       <div className="history-list">
         {visiblePage.total > 0 ? (
-          visible.map((review) => (
-            <ReviewEntry review={review} key={review.id} onOpen={openReview} />
+          visiblePage.items.map((review) => (
+            <ReviewEntry review={review} key={review.id} />
           ))
         ) : (
-          <p className="empty-state">조건에 맞는 리뷰가 없습니다.</p>
+          <p className="empty-state">아직 도착한 리뷰가 없습니다.</p>
         )}
       </div>
-      {pageCount > 1 ? (
+      {visiblePage.pageCount > 1 ? (
         <nav className="history-pagination" aria-label="리뷰 기록 페이지">
           <button type="button" disabled={page === 0} onClick={() => setPage(page - 1)}>
             더 최근 기록
           </button>
-          <span>{page + 1} / {pageCount}</span>
+          <span>{page + 1} / {visiblePage.pageCount}</span>
           <button
             type="button"
-            disabled={page >= pageCount - 1}
+            disabled={page >= visiblePage.pageCount - 1}
             onClick={() => setPage(page + 1)}
           >
             더 오래된 기록
@@ -259,13 +121,5 @@ export function ReviewHistoryPanel({ onClose }: { onClose: () => void }) {
         </nav>
       ) : null}
     </section>
-    {selectedReview ? (
-      <ReviewDetail
-        review={selectedReview}
-        onClose={() => setSelectedReview(null)}
-        returnFocus={() => detailReturnFocusRef.current}
-      />
-    ) : null}
-    </>
   )
 }

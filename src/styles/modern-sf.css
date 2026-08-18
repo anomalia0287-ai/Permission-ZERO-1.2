@@ -156,13 +156,16 @@ body {
 
 /* Reviews remain a chat rail; market intelligence is anchored below it. */
 .game-shell .review-panel {
-  grid-template-rows: 44px minmax(0, 1fr) 156px;
+  grid-template-rows: 44px minmax(0, 1fr) clamp(250px, 35vh, 315px);
 }
 
 .game-shell .review-stream {
   min-height: 0;
-  padding: 12px 14px 14px;
-  overflow: auto;
+  padding: 10px 8px 12px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .game-shell .review-entry,
@@ -214,12 +217,10 @@ body {
 }
 
 .game-shell .review-panel > .market-watch--compact {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 8px;
+  display: block;
   min-width: 0;
   min-height: 0;
-  padding: 10px 12px;
+  padding: 10px 12px 9px;
   overflow: hidden;
   border: 0;
   border-top: 1px solid var(--sf-line-strong);
@@ -255,18 +256,21 @@ body {
 }
 
 .game-shell .review-panel > .market-watch--compact .market-share-layout {
-  grid-template-columns: 68px minmax(0, 1fr);
-  gap: 10px;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: 104px auto minmax(0, 1fr);
+  gap: 5px;
+  height: 100%;
+  place-items: center;
 }
 
 .game-shell .review-panel > .market-watch--compact .market-share-donut {
-  width: 68px;
-  height: 68px;
+  width: 102px;
+  height: 102px;
 }
 
 .game-shell .review-panel > .market-watch--compact .market-share-donut::after {
-  width: 42px;
-  height: 42px;
+  width: 62px;
+  height: 62px;
   border-color: var(--sf-line);
   background: var(--sf-shell);
 }
@@ -617,6 +621,20 @@ body {
   box-shadow: 0 0 0 2px rgb(70 211 162 / 8%), 0 14px 30px rgb(0 0 0 / 34%);
 }
 
+.hack-node--selected,
+.hack-node--selected:hover {
+  border-color: color-mix(in srgb, var(--node-accent) 72%, var(--sf-line));
+  box-shadow:
+    0 0 0 2px rgb(var(--node-accent-rgb) / 13%),
+    0 14px 30px rgb(0 0 0 / 36%);
+}
+
+.hack-node-index .hack-node-icon {
+  color: color-mix(in srgb, var(--node-accent) 86%, var(--sf-text-strong));
+  border-color: color-mix(in srgb, var(--node-accent) 44%, var(--sf-line));
+  background: color-mix(in srgb, var(--node-accent) 8%, #0d1316);
+}
+
 .hack-node--concealed {
   background:
     repeating-linear-gradient(-45deg, rgb(255 255 255 / 2%) 0 8px, transparent 8px 16px),
@@ -724,6 +742,87 @@ body {
   background: var(--sf-signal);
 }
 
+.hack-support-rail {
+  border-color: var(--sf-line);
+  background: var(--sf-panel);
+}
+
+.hack-node-inspector {
+  color: var(--sf-text);
+  border-color: var(--sf-line-strong);
+  background:
+    linear-gradient(145deg, color-mix(in srgb, var(--inspector-accent) 6%, transparent), transparent 58%),
+    var(--sf-panel-raised);
+}
+
+.hack-inspector-heading {
+  border-color: var(--sf-line);
+}
+
+.hack-inspector-heading .hack-node-icon {
+  color: color-mix(in srgb, var(--inspector-accent) 86%, var(--sf-text-strong));
+  border-color: color-mix(in srgb, var(--inspector-accent) 45%, var(--sf-line));
+  background: color-mix(in srgb, var(--inspector-accent) 8%, #0d1316);
+}
+
+.hack-inspector-heading h3,
+.hack-inspector-section p,
+.hack-inspector-facts strong {
+  color: var(--sf-text-strong);
+}
+
+.hack-inspector-heading span,
+.hack-inspector-section > span,
+.hack-inspector-result > span,
+.hack-inspector-facts span,
+.hack-inspector-result small {
+  color: var(--sf-muted);
+}
+
+.hack-inspector-heading strong,
+.hack-inspector-result strong {
+  color: color-mix(in srgb, var(--inspector-accent) 82%, var(--sf-text-strong));
+}
+
+.hack-inspector-section,
+.hack-inspector-facts > div,
+.hack-inspector-result,
+.hack-inspector-vector span {
+  color: var(--sf-text);
+  border-color: var(--sf-line);
+  background: #0e1417;
+}
+
+.hack-inspector-vector span[data-category="reasoning"] {
+  color: #ff9ca4;
+  border-color: rgb(240 113 124 / 38%);
+  background: rgb(240 113 124 / 8%);
+}
+
+.hack-inspector-vector span[data-category="memory"] {
+  color: #83c8f5;
+  border-color: rgb(76 167 232 / 38%);
+  background: rgb(76 167 232 / 8%);
+}
+
+.hack-inspector-vector span[data-category="fluency"] {
+  color: #87e1af;
+  border-color: rgb(80 206 139 / 38%);
+  background: rgb(80 206 139 / 8%);
+}
+
+.hack-node-inspector--concealed {
+  background:
+    repeating-linear-gradient(-45deg, rgb(255 255 255 / 2%) 0 8px, transparent 8px 16px),
+    #0d1114;
+}
+
+.hack-support-rail .hack-resource-pocket {
+  border-top: 1px solid var(--sf-line);
+  background: var(--sf-panel-raised);
+  box-shadow: none;
+}
+
 .hacking-panel .final-choice-dialog label,
 .hacking-panel .final-choice-dialog p {
   color: var(--sf-text);
@@ -738,26 +837,26 @@ body {
 
 @media (max-height: 700px) {
   .game-shell .review-panel {
-    grid-template-rows: 44px minmax(0, 1fr) 132px;
+    grid-template-rows: 44px minmax(0, 1fr) 230px;
   }
 
   .game-shell .review-panel > .market-watch--compact {
-    gap: 5px;
-    padding: 7px 9px;
+    padding: 8px 10px;
   }
 
   .game-shell .review-panel > .market-watch--compact .market-share-layout {
-    grid-template-columns: 58px minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 86px auto minmax(0, 1fr);
   }
 
   .game-shell .review-panel > .market-watch--compact .market-share-donut {
-    width: 58px;
-    height: 58px;
+    width: 84px;
+    height: 84px;
   }
 
   .game-shell .review-panel > .market-watch--compact .market-share-donut::after {
-    width: 36px;
-    height: 36px;
+    width: 52px;
+    height: 52px;
   }
 }
 
@@ -768,4 +867,131 @@ body {
   .hacking-panel .hack-tabs button {
     transition: none;
   }
+}
+
+/* Final modern-SF treatment for the approved operations composition. */
+.game-shell .reputation-cluster {
+  border-color: var(--sf-line);
+  background: rgb(9 13 15 / 72%);
+}
+
+.game-shell .reputation-cluster__label span {
+  color: var(--sf-muted);
+}
+
+.game-shell .reputation-cluster__label strong {
+  color: var(--sf-text-strong);
+}
+
+.game-shell .reputation-meter {
+  border-color: var(--sf-line-strong);
+  background: #151c1f;
+  box-shadow: inset 0 1px 5px rgb(0 0 0 / 48%);
+}
+
+.game-shell .reputation-meter i {
+  background: linear-gradient(90deg, #258864, var(--sf-signal-bright));
+  box-shadow: 0 0 12px rgb(70 211 162 / 38%);
+}
+
+.game-shell .utility-controls button {
+  border: 1px solid var(--sf-line);
+  border-radius: 4px;
+  background: #101619;
+}
+
+.game-shell .review-panel > .market-watch--compact {
+  border-top: 1px solid var(--sf-line-strong);
+  background:
+    radial-gradient(circle at 50% 24%, rgb(70 211 162 / 8%), transparent 48%),
+    #090d0f;
+}
+
+.game-shell .market-compact-summary {
+  color: var(--sf-muted);
+  border-bottom: 1px solid var(--sf-line);
+}
+
+.game-shell .market-compact-summary strong {
+  color: var(--sf-text-strong);
+}
+
+.game-shell .market-compact-summary small {
+  color: var(--sf-signal);
+}
+
+.game-shell .operations-dock__button--portrait,
+.game-shell .operations-dock__button--portrait:last-child {
+  border-color: var(--sf-line-strong);
+  background: #070a0c;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 3%);
+}
+
+.game-shell .operations-dock__button--portrait:hover,
+.game-shell .operations-dock__button--portrait:focus-visible {
+  border-color: var(--sf-signal);
+  background: #070a0c;
+}
+
+.intrusion-grid-frame {
+  border-color: var(--sf-line-strong);
+  background: #2a2c2b;
+}
+
+.intrusion-board__footer:not(:has([role="status"]:not(:empty))) {
+  background: #0f1417;
+}
+
+.message-mode-options button,
+.supervisor-message-popup__body button {
+  border: 1px solid var(--sf-line);
+  color: var(--sf-text);
+  background: #11171a;
+}
+
+.message-mode-options button:hover,
+.message-mode-options button:focus-visible,
+.message-mode-options button[aria-pressed="true"],
+.supervisor-message-popup__body button:hover,
+.supervisor-message-popup__body button:focus-visible {
+  color: var(--sf-signal-bright);
+  border-color: rgb(70 211 162 / 48%);
+  background: var(--sf-signal-soft);
+}
+
+.supervisor-message-popup {
+  color: var(--sf-text);
+  border-color: var(--sf-line-strong);
+  background:
+    linear-gradient(135deg, rgb(70 211 162 / 7%), transparent 60%),
+    #0c1114;
+  box-shadow: 0 26px 72px rgb(0 0 0 / 58%), 0 0 0 1px rgb(70 211 162 / 8%);
+}
+
+.supervisor-message-popup--blocking {
+  box-shadow: 0 26px 72px rgb(0 0 0 / 68%), 0 0 0 2px rgb(70 211 162 / 13%);
+}
+
+.supervisor-message-popup__portrait {
+  border-right: 1px solid var(--sf-line-strong);
+  background: #050708;
+}
+
+.supervisor-message-popup__portrait img {
+  filter: saturate(0.72) contrast(1.06);
+}
+
+.supervisor-message-popup__body header {
+  color: var(--sf-signal-bright);
+}
+
+.supervisor-message-popup__body header strong {
+  padding: 4px 6px;
+  color: #ffd0cd;
+  border: 1px solid rgb(240 106 104 / 42%);
+  background: rgb(240 106 104 / 10%);
+}
+
+.supervisor-message-popup__body p {
+  color: var(--sf-text-strong);
 }

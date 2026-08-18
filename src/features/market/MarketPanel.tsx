@@ -62,17 +62,18 @@ export function MarketPanel({
       className={`market-watch${compact ? ' market-watch--compact' : ''}`}
       aria-label="경쟁 AI 현황"
     >
-      <header>
-        <div>
-          <span>시장 점유</span>
-          <strong>당신 {state.market.playerShare.toFixed(1)}%</strong>
-          <small>
-            {signedShareDelta
-              ? `직전 기록 대비 ${signedShareDelta}`
-              : '첫 시장 기록 전'}
-          </small>
-        </div>
-        {!compact && onOpenStatistics ? (
+      {!compact ? (
+        <header>
+          <div>
+            <span>시장 점유</span>
+            <strong>당신 {state.market.playerShare.toFixed(1)}%</strong>
+            <small>
+              {signedShareDelta
+                ? `직전 기록 대비 ${signedShareDelta}`
+                : '첫 시장 기록 전'}
+            </small>
+          </div>
+          {onOpenStatistics ? (
           <button
             type="button"
             aria-label="시장 통계 열기"
@@ -80,8 +81,9 @@ export function MarketPanel({
           >
             상세 통계 ↗
           </button>
-        ) : null}
-      </header>
+          ) : null}
+        </header>
+      ) : null}
       <div className="market-share-layout">
         <div
           className="market-share-donut"
@@ -94,6 +96,12 @@ export function MarketPanel({
             <strong>{state.market.playerShare.toFixed(1)}%</strong>
           </div>
         </div>
+        {compact ? (
+          <div className="market-compact-summary">
+            <strong>당신 {state.market.playerShare.toFixed(1)}%</strong>
+            <small>{signedShareDelta ?? '첫 시장 기록 전'}</small>
+          </div>
+        ) : null}
         <ul aria-label="시장 점유율 범례">
           {entries.map((entry, index) => (
             <li key={entry.id} data-market-share={entry.share}>
