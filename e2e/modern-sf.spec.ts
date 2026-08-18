@@ -125,7 +125,9 @@ test('keeps the review rail readable while reviews scroll inside the fixed works
   await page.goto('/')
 
   const reviewRail = page.getByRole('region', { name: '유저 리뷰' })
-  const reviewStream = reviewRail.getByRole('log', { name: '최근 유저 리뷰' })
+  const reviewStream = reviewRail.getByRole('button', {
+    name: '전체 유저 리뷰 열기',
+  })
   const market = reviewRail.getByRole('region', { name: '경쟁 AI 현황' })
   const railBox = await reviewRail.boundingBox()
 
