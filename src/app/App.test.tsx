@@ -268,7 +268,7 @@ describe('App', () => {
 
     const detailEntries = [
       {
-        trigger: screen.getByRole('button', { name: '전체 리뷰 기록' }),
+        trigger: screen.getByRole('button', { name: '전체 유저 리뷰 열기' }),
         dialogName: '유저 리뷰 기록',
       },
       {
