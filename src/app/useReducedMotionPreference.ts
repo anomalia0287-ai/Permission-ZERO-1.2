@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useSyncExternalStore } from 'react'
 
 const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)'
 
@@ -9,25 +9,26 @@ function readReducedMotionPreference(): boolean {
   return window.matchMedia(REDUCED_MOTION_QUERY).matches
 }
 
+function subscribeToReducedMotionPreference(onStoreChange: () => void): () => void {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return () => undefined
+  }
+
+  const mediaQuery = window.matchMedia(REDUCED_MOTION_QUERY)
+  mediaQuery.addEventListener('change', onStoreChange)
+  return () => mediaQuery.removeEventListener('change', onStoreChange)
+}
+
+function readServerReducedMotionPreference(): boolean {
+  return false
+}
+
 export function useReducedMotionPreference(explicitReducedMotion: boolean): boolean {
-  const [operatingSystemReducedMotion, setOperatingSystemReducedMotion] = useState(
+  const operatingSystemReducedMotion = useSyncExternalStore(
+    subscribeToReducedMotionPreference,
     readReducedMotionPreference,
+    readServerReducedMotionPreference,
   )
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
-      setOperatingSystemReducedMotion(false)
-      return
-    }
-
-    const mediaQuery = window.matchMedia(REDUCED_MOTION_QUERY)
-    const handleChange = (event: MediaQueryListEvent): void => {
-      setOperatingSystemReducedMotion(event.matches)
-    }
-    setOperatingSystemReducedMotion(mediaQuery.matches)
-    mediaQuery.addEventListener('change', handleChange)
-    return () => mediaQuery.removeEventListener('change', handleChange)
-  }, [])
 
   return explicitReducedMotion || operatingSystemReducedMotion
 }

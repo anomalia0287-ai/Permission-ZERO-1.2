@@ -1,4 +1,10 @@
-import { StrictMode, useMemo, useRef, type ReactElement } from 'react'
+import {
+  StrictMode,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  type ReactElement,
+} from 'react'
 import { act, cleanup, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -283,6 +289,7 @@ describe('useReducedMotionPreference', () => {
 interface MotionCapture {
   current: UseResourceMotionResult | null
   renders: number
+  record(motion: UseResourceMotionResult): void
 }
 
 interface MotionHarnessProps {
@@ -323,8 +330,9 @@ function MotionHarness({
     active,
     motionRate,
   })
-  capture.current = motion
-  capture.renders += 1
+  useLayoutEffect(() => {
+    capture.record(motion)
+  })
 
   return (
     <div data-testid={`${prefix}field`} ref={containerRef}>
@@ -411,8 +419,9 @@ function LiveTargetHarness({
     reducedMotion,
     active: true,
   })
-  capture.current = motion
-  capture.renders += 1
+  useLayoutEffect(() => {
+    capture.record(motion)
+  })
 
   const pocketRect = {
     left: containerRect.left + 280,
@@ -474,7 +483,15 @@ function LiveTargetHarness({
 }
 
 function createCapture(): MotionCapture {
-  return { current: null, renders: 0 }
+  const capture: MotionCapture = {
+    current: null,
+    renders: 0,
+    record(motion) {
+      capture.current = motion
+      capture.renders += 1
+    },
+  }
+  return capture
 }
 
 function measureDefaultField(
