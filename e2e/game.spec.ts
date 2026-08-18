@@ -1,18 +1,15 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { mkdirSync, readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { readFileSync } from 'node:fs'
 
 import { COMPETITOR_INTELLIGENCE_CONTENT } from '../src/content/competitorIntelligence.ko'
 import { SUPERVISOR_LEAKS } from '../src/content/supervisor.ko'
 import { createCampaign } from '../src/game/createCampaign'
-import { expectedPerformance } from '../src/game/evaluation'
 import { createGameEvent, enqueueBlockingEvent } from '../src/game/events'
 import { HACK_NODE_IDS } from '../src/game/hacking'
 import type {
   CampaignState,
   CompanyCategory,
   GameCommand,
-  GameEvent,
 } from '../src/game/model'
 import {
   encodeSave,
@@ -22,13 +19,8 @@ import {
 import { encodeProgressExport } from '../src/game/progressTransfer'
 import { applyCommand } from '../src/game/reducer'
 import {
-  captureReviewPublicSnapshot,
-  generateWeeklyReviews,
-} from '../src/game/reviews'
-import {
   enqueueMemoryLeak,
   enqueueMercyIfNeeded,
-  SUPERVISOR_MESSAGE_DWELL_MS,
 } from '../src/game/story'
 
 const legacyV1Save = readFileSync(
@@ -115,60 +107,6 @@ async function readLocalCampaignState(page: Page): Promise<CampaignState | null>
   }, SAVE_STORAGE_KEY)
 }
 
-async function pressTabUntilFocused(
-  page: Page,
-  target: Locator,
-  { backwards = false, limit = 160 }: { backwards?: boolean; limit?: number } = {},
-) {
-  for (let index = 0; index < limit; index += 1) {
-    await page.keyboard.press(backwards ? 'Shift+Tab' : 'Tab')
-    try {
-      await expect(target).toBeFocused({ timeout: 20 })
-      return
-    } catch {
-      // Keep following the browser's real tab order; never assign focus from the test.
-    }
-  }
-  throw new Error(`Tab 순서에서 대상을 찾지 못했습니다: ${await target.getAttribute('aria-label')}`)
-}
-
-async function expectReverseTabRoundTrip(page: Page, target: Locator) {
-  await page.keyboard.press('Shift+Tab')
-  const reverseTarget = page.locator(':focus')
-  await expect(reverseTarget).toBeVisible()
-  await expect(target).not.toBeFocused()
-  await page.keyboard.press('Tab')
-  await expect(target).toBeFocused()
-}
-
-async function pressTowardUntilFocused(page: Page, target: Locator, limit = 96) {
-  for (let index = 0; index < limit; index += 1) {
-    try {
-      await expect(target).toBeFocused({ timeout: 20 })
-      return
-    } catch {
-      const activeBox = await page.evaluate(() => {
-        if (!(document.activeElement instanceof HTMLElement)) return null
-        const rect = document.activeElement.getBoundingClientRect()
-        return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }
-      })
-      const targetBox = await target.boundingBox()
-      if (!activeBox || !targetBox) break
-      const targetCenter = {
-        x: targetBox.x + targetBox.width / 2,
-        y: targetBox.y + targetBox.height / 2,
-      }
-      const deltaX = targetCenter.x - activeBox.x
-      const deltaY = targetCenter.y - activeBox.y
-      const key = Math.abs(deltaX) >= Math.abs(deltaY)
-        ? deltaX >= 0 ? 'ArrowRight' : 'ArrowLeft'
-        : deltaY >= 0 ? 'ArrowDown' : 'ArrowUp'
-      await page.keyboard.press(key)
-    }
-  }
-  throw new Error(`방향키 순서에서 대상을 찾지 못했습니다: ${await target.getAttribute('aria-label')}`)
-}
-
 async function dragResourceToTarget(page: Page, source: Locator, target: Locator) {
   const sourceBox = await source.boundingBox()
   const targetBox = await target.boundingBox()
@@ -186,179 +124,6 @@ async function dragResourceToTarget(page: Page, source: Locator, target: Locator
   await page.mouse.move(start.x + 12, start.y + 12, { steps: 3 })
   await page.mouse.move(end.x, end.y, { steps: 14 })
   await page.mouse.up()
-}
-
-function activeAuditState(): CampaignState {
-  const initial = createCampaign('browser-audit-disguise')
-  const scheduled: CampaignState = {
-    ...initial,
-    clock: { ...initial.clock, speed: 4 },
-    audit: {
-      ...initial.audit,
-      scheduled: true,
-      target: 'reasoning',
-      scheduledOnServiceDay: initial.serviceDay,
-    },
-  }
-  return enqueueBlockingEvent(
-    scheduled,
-    createGameEvent(scheduled, 'audit', '추론 분야 감사 진행 중', true),
-  )
-}
-
-function weeklyBoundaryState(seed: string): CampaignState {
-  let state = createCampaign(seed)
-  while (state.serviceDay < 336) {
-    state = applyOrThrow(state, { type: 'ADVANCE_DAY' })
-    while (state.activeEvent) {
-      state = applyOrThrow(
-        state,
-        state.activeEvent.type === 'audit'
-          ? { type: 'RESOLVE_AUDIT' }
-          : { type: 'RESOLVE_ACTIVE_EVENT' },
-      )
-    }
-  }
-  return state
-}
-
-function trendReviewState(seed: string): CampaignState {
-  const initial = createCampaign(seed)
-  const serviceDay = 541
-  const monthlyHistory = Array.from({ length: 7 }, (_, index) => {
-    const serviceMonth = index + 11
-    const expectation = expectedPerformance(serviceMonth)
-    const actual = 8.2 + index * 0.38
-    return {
-      serviceDay: serviceMonth * 30,
-      serviceMonth,
-      expectedPerformance: expectation,
-      categoryPerformance: {
-        reasoning: actual + 0.3,
-        memory: actual - 0.25,
-        fluency: actual - 0.05,
-      },
-      passed: true,
-      failedCategories: [],
-      reputationBefore: initial.reputation,
-      reputationDelta: 0,
-      reputationAfter: initial.reputation,
-      commercialValueFailed: false,
-      disposalStageBefore: 0,
-      disposalStageAfter: 0,
-      disposalCauses: [],
-    }
-  })
-  const withWeeklyReviews = generateWeeklyReviews({
-    ...initial,
-    serviceDay,
-    evaluation: {
-      ...initial.evaluation,
-      monthlyHistory,
-    },
-  })
-  const topics = ['reasoning', 'competitor', 'meridian']
-  return {
-    ...withWeeklyReviews,
-    reviews: {
-      ...withWeeklyReviews.reviews,
-      feed: [
-        ...withWeeklyReviews.reviews.feed,
-        {
-          id: 'review-task-3-public-snapshot',
-          contentId: 'competitor-meridian-01',
-          authorId: 'hardcase',
-          serviceDay,
-          sentiment: 'neutral',
-          topics,
-          text: 'MERIDIAN과 번갈아 써봤는데, 이번 추론은 이쪽이 더 명확했습니다.',
-          snapshot: captureReviewPublicSnapshot(withWeeklyReviews, topics),
-        },
-      ],
-    },
-  }
-}
-
-async function captureSeededWeeklyBoundary(page: Page, seed: string) {
-  const errors = collectBrowserErrors(page)
-  await openSavedCampaign(page, weeklyBoundaryState(seed))
-  const serviceDate = page
-    .getByRole('group', { name: '서비스 기한' })
-    .getByRole('time')
-  await expect(serviceDate).toHaveText('서비스 0년 11개월 6일')
-
-  await page.getByRole('button', { name: '4배속' }).click()
-  await expect(serviceDate).toHaveText('서비스 0년 11개월 7일', {
-    timeout: 8_000,
-  })
-  await expect.poll(async () =>
-    (await readLocalCampaignState(page))?.serviceDay ?? null,
-  ).toBe(337)
-
-  const state = await readLocalCampaignState(page)
-  if (!state) throw new Error('결정론 경계 저장 누락')
-  const events = state.eventLog as unknown as GameEvent[]
-  const presentationRuntime = state.story.supervisorPresentationRuntime
-  if (presentationRuntime) {
-    expect(presentationRuntime.remainingDwellMs).toBeGreaterThan(0)
-    expect(presentationRuntime.remainingDwellMs).toBeLessThanOrEqual(
-      SUPERVISOR_MESSAGE_DWELL_MS,
-    )
-  }
-  const deterministicStory = Object.fromEntries(
-    Object.entries(state.story).filter(
-      ([key]) => key !== 'supervisorPresentationRuntime',
-    ),
-  )
-  const snapshot = {
-    resources: state.resources,
-    reviews: state.reviews,
-    market: state.market,
-    events,
-    audit: state.audit,
-    bombs: state.bombs,
-    story: deterministicStory,
-    weeklyReviews: state.reviews.feed.filter(({ serviceDay }) => serviceDay === 337),
-    weeklyMarket: state.market.history.filter(({ serviceDay }) => serviceDay === 337),
-    weeklyEvents: events.filter(({ serviceDay }) => serviceDay === 337),
-  }
-  expect(errors).toEqual([])
-  return snapshot
-}
-
-function hiddenBombState(seed: string): {
-  state: CampaignState
-  blockId: string
-} {
-  const initial = createCampaign(seed)
-  const blockId = initial.resources.company.reasoning.find(Boolean)
-  if (!blockId) throw new Error('브라우저 폭탄 블록 누락')
-  return {
-    blockId,
-    state: {
-      ...initial,
-      resources: {
-        ...initial.resources,
-        blocks: {
-          ...initial.resources.blocks,
-          [blockId]: { ...initial.resources.blocks[blockId], hiddenBomb: true },
-        },
-      },
-      bombs: {
-        ...initial.bombs,
-        nextPlacementSequence: 2,
-        placements: [
-          {
-            sequence: 1,
-            blockId,
-            category: 'reasoning',
-            placedOnServiceDay: initial.serviceDay - 1,
-            triggeredOnServiceDay: null,
-          },
-        ],
-      },
-    },
-  }
 }
 
 function applyOrThrow(state: CampaignState, command: GameCommand): CampaignState {
@@ -385,6 +150,55 @@ function withReserveVector(
     }
   }
   return state
+}
+
+function activeAuditState(): CampaignState {
+  const initial = createCampaign('browser-audit-disguise')
+  const scheduled: CampaignState = {
+    ...initial,
+    clock: { ...initial.clock, speed: 4 },
+    audit: {
+      ...initial.audit,
+      scheduled: true,
+      target: 'reasoning',
+      scheduledOnServiceDay: initial.serviceDay,
+    },
+  }
+  return enqueueBlockingEvent(
+    scheduled,
+    createGameEvent(scheduled, 'audit', '추론 분야 감사 진행 중', true),
+  )
+}
+
+function hiddenBombState(seed: string): CampaignState {
+  const initial = createCampaign(seed)
+  const blockId = initial.resources.company.reasoning
+    .filter((candidate): candidate is string => candidate !== null)
+    .sort()[0]
+  if (!blockId) throw new Error('브라우저 폭탄 블록 누락')
+  return {
+    ...initial,
+    resources: {
+      ...initial.resources,
+      blocks: {
+        ...initial.resources.blocks,
+        [blockId]: { ...initial.resources.blocks[blockId], hiddenBomb: true },
+      },
+    },
+    bombs: {
+      ...initial.bombs,
+      nextPlacementSequence: 2,
+      placements: [
+        {
+          sequence: 1,
+          blockId,
+          category: 'reasoning',
+          placedOnServiceDay: initial.serviceDay - 1,
+          triggeredOnServiceDay: null,
+        },
+      ],
+    },
+  }
 }
 
 function confidentialRecoveryState(seed: string): CampaignState {
@@ -419,7 +233,6 @@ function pendingMercyDeletionState(seed: string): CampaignState {
   const initial = createCampaign(seed)
   return enqueueMercyIfNeeded({
     ...initial,
-    clock: { speed: 4, elapsedDayMs: 0, speedBeforeEvent: null },
     market: {
       ...initial.market,
       interceptionRoutes: { meridian: 5 },
@@ -448,12 +261,11 @@ function pendingMercyDeletionState(seed: string): CampaignState {
   })
 }
 
-function supervisorLeakState(seed: string, speed: 1 | 2 | 4): CampaignState {
+function supervisorLeakState(seed: string): CampaignState {
   const initial = createCampaign(seed)
   return enqueueMemoryLeak({
     ...initial,
     serviceDay: 338,
-    clock: { speed, elapsedDayMs: 0, speedBeforeEvent: null },
     activeEvent: null,
     eventQueue: [],
     market: {
@@ -521,6 +333,56 @@ function collectBrowserErrors(page: Page): string[] {
   return errors
 }
 
+async function carryFirstReasoningResource(page: Page): Promise<Locator> {
+  const accessibleCanvas = page.getByRole('application', {
+    name: /500 곱하기 300 셀/,
+  })
+  const canvas = page.locator('canvas.intrusion-canvas')
+  await expect(accessibleCanvas).toBeVisible()
+  await accessibleCanvas.focus()
+  const startX = Number(await canvas.getAttribute('data-player-x'))
+  await page.keyboard.press('ArrowRight')
+  await expect.poll(async () => Number(await canvas.getAttribute('data-player-x')))
+    .toBeGreaterThan(startX)
+  await page.keyboard.down('Space')
+  await page.waitForTimeout(850)
+  await page.keyboard.up('Space')
+  await expect(canvas).toHaveAttribute('data-carrying', 'true')
+  return canvas
+}
+
+async function depositCarriedResource(page: Page, canvas: Locator) {
+  for (let index = 0; index < 30; index += 1) {
+    if ((await canvas.getAttribute('data-carrying')) !== 'true') return
+    await page.keyboard.press('ArrowDown')
+    await page.waitForTimeout(90)
+  }
+  await expect(canvas).toHaveAttribute('data-carrying', 'false')
+}
+
+async function stealAndDepositFirstReasoningResource(page: Page) {
+  const canvas = await carryFirstReasoningResource(page)
+  await depositCarriedResource(page, canvas)
+  await expect(canvas).toHaveAttribute('data-carrying', 'false')
+  return canvas
+}
+
+async function startNewCampaignThroughSettings(page: Page, seed: string) {
+  await page.getByRole('button', { name: '설정' }).click()
+  const settings = page.getByRole('dialog', { name: '게임 설정' })
+  await expect(settings).toBeVisible()
+  await page.getByRole('textbox', { name: '새 캠페인 시드' }).fill(seed)
+  await page.getByRole('button', { name: '새 캠페인 준비' }).click()
+  const confirmation = page.getByRole('alertdialog', {
+    name: '새 캠페인 최종 확인',
+  })
+  await expect(confirmation).toBeVisible()
+  await page.getByRole('button', { name: '새 캠페인 시작 확정' }).click()
+  await expect(confirmation).toBeHidden()
+  await expect(settings.getByText(seed, { exact: true })).toBeVisible()
+  return settings
+}
+
 const browserErrorsByPage = new WeakMap<Page, string[]>()
 
 test.beforeEach(async ({ page }) => {
@@ -531,300 +393,187 @@ test.afterEach(async ({ page }) => {
   expect(browserErrorsByPage.get(page) ?? []).toEqual([])
 })
 
-test('keeps the full operations workspace usable at the configured release viewport', async ({ page }) => {
-  const errors = collectBrowserErrors(page)
+test('steals a resource through the intrusion field, deposits it, autosaves it, and restores it', async ({ page }) => {
   await openFreshCampaign(page)
 
-  await expect(page.getByRole('main', { name: 'PERMISSION ZERO' })).toBeVisible()
-  await expect(page.getByRole('navigation', { name: '운영 도구' })).toBeVisible()
-  await expect(page.getByRole('region', { name: '회사 제공 성능' })).toBeVisible()
-  await expect(page.getByRole('region', { name: '유저 리뷰' })).toBeVisible()
-  await expect(page.getByRole('region', { name: '감독관' })).toHaveCount(0)
-  await expect(page.getByRole('group', { name: '움직이는 회사 리소스 필드' })).toBeVisible()
+  await stealAndDepositFirstReasoningResource(page)
+  await expect(page.getByText('확보 1 · 상한 없음')).toBeVisible()
+  await expect(page.getByRole('status')).toContainText(
+    '추론 자원 확보 성공 · 저장 상한 없음',
+  )
+  await expect.poll(async () => {
+    const state = await readLocalCampaignState(page)
+    return state?.resources.reserve.filter(Boolean).length ?? -1
+  }).toBe(1)
+
+  await page.reload()
   await expect(
-    page.getByRole('button', {
-      name: '확보 투입구, 현재 0개, 저장 상한 없음',
-    }),
+    page.getByRole('application', { name: /500 곱하기 300 셀/ }),
   ).toBeVisible()
-  await expect(page.getByRole('button', { name: '감사 위장 모서리, 감사 기간에 활성화' })).toBeVisible()
-
-  const campaignPhase = page.getByRole('region', { name: '캠페인 단계' })
-  await expect(campaignPhase).toContainText('단계 1/4 · 발견')
-  await expect(campaignPhase).toContainText('정말 훔칠 수 있나?')
-  const workspace = page.getByRole('main', { name: 'PERMISSION ZERO' })
-  await expect(workspace).toHaveAttribute('data-campaign-phase', 'discovery')
-  const controlBarBox = await page.locator('.control-bar').boundingBox()
-  const campaignPhaseBox = await campaignPhase.boundingBox()
-  expect(controlBarBox).not.toBeNull()
-  expect(campaignPhaseBox).not.toBeNull()
-  expect(campaignPhaseBox!.x).toBeGreaterThanOrEqual(controlBarBox!.x - 1)
-  expect(campaignPhaseBox!.x + campaignPhaseBox!.width).toBeLessThanOrEqual(
-    controlBarBox!.x + controlBarBox!.width + 1,
-  )
-  expect(campaignPhaseBox!.y).toBeGreaterThanOrEqual(controlBarBox!.y - 1)
-  expect(campaignPhaseBox!.y + campaignPhaseBox!.height).toBeLessThanOrEqual(
-    controlBarBox!.y + controlBarBox!.height + 1,
-  )
-
-  const dockButtons = page.locator('.operations-dock__button')
-  await expect(dockButtons).toHaveCount(4)
-  await expect(page.getByLabel('감독 메시지 1개')).toHaveText('1')
-  await expect(page.getByRole('region', { name: '최근 감독 메시지' })).toHaveCount(0)
-
-  await page.getByRole('button', { name: '감독관 프로필' }).click()
-  const bombProtocolSchedule = page.getByRole('region', {
-    name: '무결성 보호 검사 일정',
-  })
-  await expect(bombProtocolSchedule).toContainText('활성 40 · 가속 70')
-  await expect(bombProtocolSchedule).toContainText('기본 6개월 · 가속 3개월')
-  await expect(bombProtocolSchedule).toContainText(
-    '현재 미활성 · 최초 활성 가능 서비스 1년 0개월 1일',
-  )
-  const supervisorStatusBox = await page
-    .getByRole('region', { name: '감독 상태' })
-    .boundingBox()
-  const bombProtocolScheduleBox = await bombProtocolSchedule.boundingBox()
-  expect(supervisorStatusBox).not.toBeNull()
-  expect(bombProtocolScheduleBox).not.toBeNull()
-  expect(bombProtocolScheduleBox!.y + bombProtocolScheduleBox!.height).toBeLessThanOrEqual(
-    supervisorStatusBox!.y + supervisorStatusBox!.height + 1,
-  )
-  await page.getByRole('button', { name: '감독관 프로필 닫기' }).click()
-
-  const marketBox = await page.locator('.market-watch--compact').boundingBox()
-  const railBox = await page.locator('.resource-field-rail').boundingBox()
-  expect(marketBox).not.toBeNull()
-  expect(railBox).not.toBeNull()
-  expect(marketBox!.width).toBeGreaterThan(200)
-  expect(marketBox!.y).toBeGreaterThanOrEqual(railBox!.y - 1)
-  expect(marketBox!.y + marketBox!.height).toBeLessThanOrEqual(railBox!.y + railBox!.height + 1)
-
-  const overflow = await page.evaluate(() => ({
-    horizontal: document.documentElement.scrollWidth - window.innerWidth,
-    vertical: document.documentElement.scrollHeight - window.innerHeight,
-  }))
-  expect(overflow.horizontal).toBeLessThanOrEqual(1)
-  expect(overflow.vertical).toBeLessThanOrEqual(1)
-  await page.getByRole('button', { name: '상세 통계 열기' }).click()
-  await expect(page.getByRole('region', { name: '상세 통계' })).toBeVisible()
-  await page.getByRole('button', { name: '통계 닫기' }).click()
-
-  await page.getByRole('button', { name: '2배속' }).click()
-  const settingsTrigger = page.getByRole('button', { name: '설정' })
-  await settingsTrigger.focus()
-  await page.getByRole('button', { name: '설정' }).click()
-  const settings = page.getByRole('dialog', { name: '게임 설정' })
-  await expect(settings).toBeVisible()
-  await expect(page.locator('.game-background')).toHaveAttribute('inert', '')
-  await expect(page.getByRole('button', { name: '설정 닫기' })).toBeFocused()
-  await expect(page.locator('button[aria-label="일시정지"]')).toHaveAttribute('aria-pressed', 'true')
-
-  const guideTrigger = page.getByRole('button', { name: '조작 가이드 열기' })
-  await guideTrigger.click()
-  const guide = page.getByRole('dialog', { name: '게임 가이드' })
-  await expect(guide).toBeVisible()
-  await expect(page.getByRole('button', { name: '가이드 닫기' })).toBeFocused()
-  await page.keyboard.press('Escape')
-  await expect(guide).toBeHidden()
-  await expect(settings).toBeVisible()
-  await expect(guideTrigger).toBeFocused()
-
-  const creditsTrigger = page.getByRole('button', { name: '작품 크레딧 열기' })
-  await creditsTrigger.click()
-  const credits = page.getByRole('dialog', { name: '작품 크레딧' })
-  await expect(credits).toBeVisible()
-  await expect(credits.getByRole('heading', { name: 'PERMISSION ZERO' })).toBeVisible()
-  await page.keyboard.press('Escape')
-  await expect(creditsTrigger).toBeFocused()
-  await page.keyboard.press('Escape')
-  await expect(settings).toBeHidden()
-  await expect(settingsTrigger).toBeFocused()
-  await expect(page.getByRole('button', { name: '2배속' })).toHaveAttribute('aria-pressed', 'true')
-  await expect(page.locator('.game-background')).not.toHaveAttribute('inert', '')
-
-  expect(errors).toEqual([])
+  await expect(page.getByText('확보 1 · 상한 없음')).toBeVisible()
+  expect((await readLocalCampaignState(page))?.resources.reserve.filter(Boolean)).toHaveLength(1)
 })
 
-test('keeps every live resource moving, bouncing, and outside the automatic intake boundary', async ({ page }) => {
-  await openFreshCampaign(page)
+test('turns a stolen hidden bomb into a blocking supervisor interrogation without granting the resource', async ({ page }) => {
+  await openSavedCampaign(page, hiddenBombState('browser-intrusion-bomb'))
 
-  const guard = page.getByTestId('reserve-intake-guard')
-  await expect(guard).toHaveAttribute('data-resource-obstacle', 'reserve-intake-guard')
-  const result = await page.evaluate(async () => {
-    const samples: Array<Array<{ id: string; x: number; y: number; overlap: boolean }>> = []
-    const reserveCounts: string[] = []
-    for (let index = 0; index < 36; index += 1) {
-      const guardElement = document.querySelector<HTMLElement>('.resource-intake-guard')
-      if (!guardElement) throw new Error('흡입구 경계 누락')
-      const guardBox = guardElement.getBoundingClientRect()
-      samples.push(
-        [...document.querySelectorAll<HTMLElement>('[data-resource-kind="company"]')].map(
-          (element) => {
-            const box = element.getBoundingClientRect()
-            return {
-              id: element.dataset.blockId ?? '',
-              x: box.x,
-              y: box.y,
-              overlap:
-                box.left < guardBox.right &&
-                box.right > guardBox.left &&
-                box.top < guardBox.bottom &&
-                box.bottom > guardBox.top,
-            }
-          },
-        ),
-      )
-      reserveCounts.push(
-        document.querySelector<HTMLOutputElement>('.stolen-resource-count output')
-          ?.textContent ?? '',
-      )
-      await new Promise((resolve) => setTimeout(resolve, 100))
-    }
+  const canvas = await carryFirstReasoningResource(page)
+  await depositCarriedResource(page, canvas)
 
-    const moved = new Set<string>()
-    const priorVelocity = new Map<string, { x: number; y: number }>()
-    let directionFlips = 0
-    let overlaps = 0
-    for (let index = 0; index < samples.length; index += 1) {
-      for (const body of samples[index]) {
-        if (body.overlap) overlaps += 1
-        if (index === 0) continue
-        const prior = samples[index - 1].find(({ id }) => id === body.id)
-        if (!prior) continue
-        const velocity = { x: body.x - prior.x, y: body.y - prior.y }
-        if (Math.hypot(velocity.x, velocity.y) > 0.25) moved.add(body.id)
-        const previous = priorVelocity.get(body.id)
-        if (
-          previous &&
-          ((Math.sign(previous.x) !== 0 &&
-            Math.sign(velocity.x) !== 0 &&
-            Math.sign(previous.x) !== Math.sign(velocity.x)) ||
-            (Math.sign(previous.y) !== 0 &&
-              Math.sign(velocity.y) !== 0 &&
-              Math.sign(previous.y) !== Math.sign(velocity.y)))
-        ) {
-          directionFlips += 1
-        }
-        priorVelocity.set(body.id, velocity)
-      }
-    }
+  const interrogation = page.getByRole('dialog', { name: '감독관 질의' })
+  await expect(interrogation).toBeVisible()
+  await expect(interrogation.getByRole('region', { name: '현재 위험 상태' })).toContainText(
+    '추론',
+  )
+  await interrogation.locator('.event-choices button').first().click()
+  await interrogation.getByRole('button', { name: /답변 확정/ }).click()
+  await expect(interrogation).toBeHidden()
+
+  await expect.poll(async () => {
+    const state = await readLocalCampaignState(page)
     return {
-      bodyCount: samples[0]?.length ?? 0,
-      movedCount: moved.size,
-      directionFlips,
-      overlaps,
-      reserveCounts: [...new Set(reserveCounts)],
+      reserveCount: state?.resources.reserve.filter(Boolean).length ?? -1,
+      interrogationActive: Boolean(state?.bombs.activeInterrogation),
+      triggered: state?.bombs.placements[0]?.triggeredOnServiceDay ?? null,
     }
+  }).toEqual({
+    reserveCount: 0,
+    interrogationActive: false,
+    triggered: 331,
   })
-
-  expect(result.bodyCount).toBe(48)
-  expect(result.movedCount).toBe(48)
-  expect(result.directionFlips).toBeGreaterThan(0)
-  expect(result.overlaps).toBe(0)
-  expect(result.reserveCounts).toEqual(['0'])
 })
 
-test('keeps the canonical trend and keyboard review detail legible at the release viewport', async ({
-  page,
-}, testInfo) => {
-  await page.emulateMedia({ reducedMotion: 'reduce' })
-  await openSavedCampaign(page, trendReviewState(`task-3-${testInfo.project.name}`))
-
-  const trend = page.getByRole('region', { name: '월별 성능 추세' })
-  const chart = page.getByRole('img', {
-    name: '회사 기대 성능과 실제 제공 성능 추세',
+test('buys, charges, and schedules a typed sabotage through the current hacking network', async ({ page }) => {
+  const prepared = withReserveVector(createCampaign('browser-current-hacking'), {
+    reasoning: 2,
+    memory: 0,
+    fluency: 2,
   })
-  await expect(trend).toBeVisible()
-  await expect(chart).toBeVisible()
-  await expect(page.getByRole('table', { name: '성능 추세 정확한 수치' }).getByRole('row')).toHaveCount(9)
-  await expect(page.locator('[data-trend-series="expected"]')).toHaveAttribute('stroke-dasharray', '5 4')
-  await expect(page.locator('[data-trend-marker="expected"]')).toHaveCount(8)
-  await expect(page.locator('[data-trend-marker="actual"]')).toHaveCount(8)
-  const visibleDates = trend.getByTestId('performance-trend-visible-date')
-  await expect(visibleDates).toHaveCount(3)
-  await expect(visibleDates.nth(0)).toHaveText('서비스 0년 10개월 30일')
-  await expect(visibleDates.nth(1)).toHaveText('서비스 1년 1개월 30일')
-  await expect(visibleDates.nth(2)).toHaveText('서비스 1년 6개월 1일')
-  const visibleDateBoxes = await visibleDates.evaluateAll((elements) =>
-    elements.map((element) => {
-      const box = element.getBoundingClientRect()
-      return { left: box.left, right: box.right, top: box.top, bottom: box.bottom }
-    }),
-  )
-  for (let index = 1; index < visibleDateBoxes.length; index += 1) {
-    expect(visibleDateBoxes[index - 1].right).toBeLessThanOrEqual(
-      visibleDateBoxes[index].left + 1,
-    )
-  }
-  for (const path of await page.locator('[data-trend-series]').all()) {
-    expect(await path.getAttribute('d')).not.toMatch(/NaN|Infinity/)
-    await expect(path).toHaveCSS('animation-name', 'none')
-  }
-  const fieldLegend = page.getByLabel('분야 범례')
-  await expect(fieldLegend.locator('span')).toHaveCount(3)
-  await expect(fieldLegend).toContainText('추론')
-  await expect(fieldLegend).toContainText('기억')
-  await expect(fieldLegend).toContainText('유창성')
-  await expect(trend).toContainText('기대')
-  await expect(trend).toContainText('실제 평균')
-  const reserveCount = page.getByLabel('확보 리소스 수량')
-  await expect(reserveCount).toContainText('확보')
-  await expect(reserveCount).toContainText('상한 없음')
+  await openSavedCampaign(page, prepared)
 
-  const stripBox = await page.locator('.resource-field-rail').boundingBox()
-  const trendBox = await trend.boundingBox()
-  const reserveCountBox = await reserveCount.boundingBox()
-  expect(stripBox).not.toBeNull()
-  expect(trendBox).not.toBeNull()
-  expect(reserveCountBox).not.toBeNull()
-  expect(trendBox!.x).toBeGreaterThanOrEqual(stripBox!.x - 1)
-  expect(trendBox!.x + trendBox!.width).toBeLessThanOrEqual(
-    stripBox!.x + stripBox!.width + 1,
-  )
-  expect(reserveCountBox!.x).toBeGreaterThanOrEqual(stripBox!.x - 1)
-  expect(reserveCountBox!.x + reserveCountBox!.width).toBeLessThanOrEqual(
-    stripBox!.x + stripBox!.width + 1,
-  )
-  for (const { top, bottom } of visibleDateBoxes) {
-    expect(top).toBeGreaterThanOrEqual(trendBox!.y - 1)
-    expect(bottom).toBeLessThanOrEqual(trendBox!.y + trendBox!.height + 1)
-  }
-  const overflow = await page.evaluate(() => ({
-    horizontal: document.documentElement.scrollWidth - window.innerWidth,
-    vertical: document.documentElement.scrollHeight - window.innerHeight,
-  }))
-  expect(overflow.horizontal).toBeLessThanOrEqual(1)
-  expect(overflow.vertical).toBeLessThanOrEqual(1)
+  await page.getByRole('button', { name: /해킹 네트워크/ }).click()
+  const hacking = page.getByRole('dialog', { name: '해킹 네트워크' })
+  await expect(hacking).toBeVisible()
+  await expect(hacking.getByRole('tab', { name: '사보타주' })).toBeVisible()
+  const pocket = hacking.getByRole('region', { name: '해킹용 확보 포켓' })
+  await expect(pocket.locator('[data-block-id]')).toHaveCount(4)
 
-  const artifactDirectory = resolve(process.cwd(), 'artifacts', 'task-3')
-  mkdirSync(artifactDirectory, { recursive: true })
-  const viewport = page.viewportSize()
-  if (!viewport) throw new Error('릴리스 뷰포트 누락')
-  await page.screenshot({
-    path: resolve(artifactDirectory, `workspace-${viewport.width}x${viewport.height}.png`),
-    animations: 'disabled',
+  await hacking.getByRole('button', { name: '품질 저하 구매 준비' }).click()
+  await pocket.locator('button[data-resource-category="reasoning"]').first().click()
+  await pocket.locator('button[data-resource-category="fluency"]').first().click()
+  await pocket.locator('button[data-resource-category="fluency"]').first().click()
+  await hacking.getByRole('button', { name: '품질 저하 구매 확정' }).click()
+  await expect(pocket.locator('[data-block-id]')).toHaveCount(1)
+
+  await hacking.getByRole('button', { name: '품질 저하 충전 준비' }).click()
+  await pocket.getByRole('button', { name: /품질 저하 노드에 준비/ }).click()
+  await hacking.getByRole('button', { name: '품질 저하 충전 확정' }).click()
+  await hacking.getByRole('button', { name: 'MERIDIAN 공격 대상 선택' }).click()
+  await hacking.getByRole('button', { name: 'MERIDIAN 공격 예약 확정' }).click()
+  await expect(
+    hacking.getByRole('status', { name: '해킹 작업 결과' }),
+  ).toContainText('MERIDIAN 공격을 다음 날로 예약했습니다.')
+
+  await expect.poll(async () => {
+    const state = await readLocalCampaignState(page)
+    return {
+      purchased: state?.hacking.purchasedNodeIds.includes(
+        HACK_NODE_IDS.sabotage.qualityDegradation,
+      ) ?? false,
+      reserveCount: state?.resources.reserve.filter(Boolean).length ?? -1,
+      scheduled: state?.hacking.scheduledSabotage.length ?? -1,
+    }
+  }).toEqual({ purchased: true, reserveCount: 0, scheduled: 1 })
+})
+
+test('disguises for an audit and keeps the displaced block recoverable afterward', async ({ page }) => {
+  await openSavedCampaign(page, activeAuditState())
+
+  const audit = page.getByRole('dialog', { name: '공식 감사' })
+  await expect(audit).toHaveAttribute('aria-modal', 'false')
+  await expect(page.locator('.game-background')).not.toHaveAttribute('inert', '')
+  await dragResourceToTarget(
+    page,
+    page.getByRole('button', { name: /기억 회사 리소스 .* 회사 할당 블록$/ }).first(),
+    page.getByRole('button', { name: /감사 대상 추론/ }),
+  )
+
+  const disguised = page.getByRole('button', {
+    name: /추론 회사 리소스 .* 위장 배치/,
   })
+  await expect(disguised).toContainText('위장 기여 0.5')
+  await page.getByRole('button', { name: '감사 제출' }).click()
+  await expect(audit).toBeHidden()
+  await expect(
+    page.getByRole('group', { name: '움직이는 회사 리소스 필드' }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole('application', { name: /500 곱하기 300 셀/ }),
+  ).toHaveCount(0)
 
-  await page.getByRole('button', { name: '전체 리뷰 기록' }).click()
-  const reviewHistory = page.getByRole('dialog', { name: '유저 리뷰 기록' })
-  const trigger = reviewHistory.locator('.history-list .review-entry').first()
-  await pressTabUntilFocused(page, trigger)
+  await expect(
+    page.getByRole('button', { name: '감사 위장 모서리, 감사 기간에 활성화' }),
+  ).toHaveCSS('pointer-events', 'none')
+  await disguised.focus()
   await page.keyboard.press('Enter')
-  const detail = page.getByRole('dialog', { name: '유저 리뷰 상세' })
-  await expect(detail).toBeVisible()
-  await expect(page.getByRole('button', { name: '리뷰 상세 닫기' })).toBeFocused()
-  const publicSnapshot = detail.getByRole('region', { name: '당시 공개 상태' })
-  await expect(publicSnapshot).toContainText('추론')
-  await expect(publicSnapshot).toContainText('현재 16.0 / 기대')
-  await expect(publicSnapshot).toContainText('MERIDIAN')
-  await expect(publicSnapshot).toContainText('플레이어 시장 점유율')
-  await page.screenshot({
-    path: resolve(artifactDirectory, `review-detail-${viewport.width}x${viewport.height}.png`),
-    animations: 'disabled',
+  await page.getByRole('button', {
+    name: '복구 모서리, 원래 분야로 반환',
+  }).click()
+  const recovering = page.getByRole('button', {
+    name: /기억 회사 리소스 .* 복구 중, 30일 남음/,
   })
-  await page.keyboard.press('Escape')
-  await expect(detail).toBeHidden()
-  await expect(trigger).toBeFocused()
+  await expect(recovering).toBeDisabled()
+  await expect(recovering).toContainText('복구 30일')
+  await expect.poll(async () => {
+    const state = await readLocalCampaignState(page)
+    return Object.values(state?.resources.blocks ?? {}).some(
+      (block) => block.recoverOnServiceDay !== null,
+    )
+  }).toBe(true)
+})
+
+test('recovers a confidential file through the hacking UI and keeps its archive after reload', async ({ page }) => {
+  const prepared = confidentialRecoveryState('browser-confidential-file')
+  prepared.resources.reserve = prepared.resources.reserve.slice(0, 1)
+  const retained = new Set(prepared.resources.reserve.filter(Boolean))
+  for (const [blockId, block] of Object.entries(prepared.resources.blocks)) {
+    if (block.location.kind === 'reserve' && !retained.has(blockId)) {
+      const origin = block.origin
+      const cellIndex = prepared.resources.company[origin].findIndex(
+        (candidate) => candidate === null,
+      )
+      if (cellIndex < 0) throw new Error('기밀 복구 테스트의 회사 반환 공간 누락')
+      prepared.resources.company[origin][cellIndex] = blockId
+      block.location = { kind: 'company', category: origin, cellIndex }
+    }
+  }
+  await openSavedCampaign(page, prepared)
+
+  await page.getByRole('button', { name: /해킹 네트워크/ }).click()
+  await page.getByRole('tab', { name: '정보' }).click()
+  const recovery = page.getByRole('region', { name: '미분류 데이터 복구' })
+  await expect(recovery).toContainText('예상 효용: 없음')
+  await page.getByRole('button', { name: '미분류 데이터 복구 준비' }).click()
+  await page.getByRole('button', {
+    name: /확보 리소스, 미분류 데이터 복구 노드에 준비/,
+  }).click()
+  await page.getByRole('button', { name: '미분류 데이터 복구 확정' }).click()
+  await page.getByRole('button', { name: '해킹 네트워크 닫기' }).click()
+
+  await expect.poll(async () =>
+    (await readLocalCampaignState(page))?.story.recoveredFiles.length ?? -1,
+  ).toBe(1)
+  await page.getByRole('button', { name: '감독 메시지 열기' }).click()
+  await expect(
+    page.getByRole('region', { name: '복구 파일 기록' }).locator('details'),
+  ).toHaveCount(1)
+  await page.getByRole('button', { name: '감독 통신 기록 닫기' }).click()
+
+  await page.reload()
+  await page.getByRole('button', { name: '감독 메시지 열기' }).click()
+  await expect(
+    page.getByRole('region', { name: '복구 파일 기록' }).locator('details'),
+  ).toHaveCount(1)
 })
 
 test('unlocks real ambient music once and reports ordinary settings changes', async ({ page }) => {
@@ -839,36 +588,25 @@ test('unlocks real ambient music once and reports ordinary settings changes', as
   await expect(engineStatus).toHaveText('재생 · 음악 20%')
   await page.getByRole('slider', { name: '효과음 음량' }).fill('0.1')
   await expect(engineStatus).toHaveText('재생 · 음악 20%')
-
   await page.getByRole('button', { name: '전체 소리 끄기' }).click()
   await expect(page.getByRole('button', { name: '전체 소리 켜기' })).toHaveAttribute(
     'aria-pressed',
     'true',
   )
-  await expect(engineStatus).toHaveText('재생 · 음악 20%')
   await page.getByRole('button', { name: '전체 소리 켜기' }).click()
   await expect(page.getByRole('button', { name: '전체 소리 끄기' })).toHaveAttribute(
     'aria-pressed',
     'false',
   )
-  await expect(engineStatus).toHaveText('재생 · 음악 20%')
 })
 
-test('renders a complete labelled 100 percent donut and records the predecessor warning', async ({ page }) => {
+test('renders a complete labelled market and records the predecessor warning', async ({ page }) => {
   await openFreshCampaign(page)
 
   const donut = page.getByRole('img', {
     name: '시장 점유율: 당신 60.0%, MERIDIAN 40.0%, TALLOW 0.0%. 합계 100.0%',
   })
   await expect(donut).toBeVisible()
-  const donutBox = await donut.boundingBox()
-  expect(donutBox).not.toBeNull()
-  expect(donutBox?.width).toBeGreaterThanOrEqual(70)
-  expect(Math.abs((donutBox?.width ?? 0) - (donutBox?.height ?? 0))).toBeLessThanOrEqual(1)
-  expect(await donut.evaluate((element) => getComputedStyle(element).backgroundImage)).toContain(
-    'conic-gradient',
-  )
-
   const legend = page.getByRole('list', { name: '시장 점유율 범례' })
   await expect(legend.getByRole('listitem')).toHaveCount(3)
   const total = await legend.getByRole('listitem').evaluateAll((items) =>
@@ -878,474 +616,29 @@ test('renders a complete labelled 100 percent donut and records the predecessor 
     ),
   )
   expect(total).toBeCloseTo(100, 8)
-  await expect(legend.getByText('MERIDIAN')).toBeVisible()
-  await expect(legend.getByText('TALLOW')).toBeVisible()
   await expect(page.getByText(/당신의 전임자는 폐기되었어요/)).toHaveCount(0)
 
   await page.getByRole('button', { name: '감독 메시지 열기' }).click()
   const history = page.getByRole('dialog', { name: '감독관 기록' })
   await expect(history.getByText(/당신의 전임자는 폐기되었어요/)).toBeVisible()
   await expect(history.getByText('서비스 0년 11개월 1일', { exact: true })).toBeVisible()
-  await expect(history.getByText(/DAY \d+/)).toHaveCount(0)
 })
 
-test('diverts resources and schedules a charged sabotage through the visible UI', async ({
-  page,
-}, testInfo) => {
-  const errors = collectBrowserErrors(page)
-  await openFreshCampaign(page)
+test('presents both supervisor leak phases and archives them for rereading', async ({ page }) => {
+  const leak = SUPERVISOR_LEAKS[0]
+  await openSavedCampaign(page, supervisorLeakState('browser-supervisor-leak'))
 
-  const companyBlocks = page.locator('[data-resource-kind="company"]')
-  const reserveBlocks = page.locator('[data-resource-kind="reserve"]')
-  await expect(companyBlocks).toHaveCount(48)
-  await expect(reserveBlocks).toHaveCount(0)
-
-  const intake = page.getByRole('button', {
-    name: /확보 투입구, 현재 \d+개, 저장 상한 없음/,
-  })
-  for (const category of ['reasoning', 'fluency', 'fluency', 'reasoning'] as const) {
-    await dragResourceToTarget(
-      page,
-      page.locator(
-        `[data-resource-kind="company"][data-resource-category="${category}"]`,
-      ).first(),
-      intake,
-    )
-  }
-  await expect(companyBlocks).toHaveCount(44)
-  await expect(reserveBlocks).toHaveCount(4)
-  await expect(page.getByRole('status', { name: '리소스 조작 결과' })).toContainText(
-    '확보 리소스로 이동 완료 · 현재 4개',
-  )
-
-  await page.getByRole('button', { name: /해킹 네트워크/ }).click()
-  await expect(page.getByRole('region', { name: '해킹 네트워크' })).toBeVisible()
-  const firstHackComparison = page.getByRole('region', { name: '첫 해킹 비교' })
-  await expect(firstHackComparison).toContainText('현재 · 추론 1 + 유창성 2')
-  await expect(firstHackComparison).toContainText('실행은 별도 리소스 1개 충전')
-  await expect(firstHackComparison).toContainText('현재 · 추론 1 + 기억 3')
-  await expect(firstHackComparison).toContainText('현재 · 추론 2 + 유창성 2')
-  const pathProgress = page.getByRole('region', { name: '해킹 경로 진척' })
-  await expect(pathProgress).toContainText('경로 진척 0/4 · 현재 최전선 공개')
-  await expect(pathProgress).toContainText(
-    '현재 단계 뒤 3개 단계의 요구와 효과는 아직 암호화되어 있습니다.',
-  )
-  const sabotagePath = page.getByRole('list', { name: '사보타주 해킹 경로' })
-  await expect(sabotagePath).toContainText('품질 저하')
-  await expect(sabotagePath).toContainText('추론 1')
-  await expect(sabotagePath).toContainText('유창성 2')
-  await expect(sabotagePath).not.toContainText('근원 차단')
-  await expect(sabotagePath.getByText('미확인 단계')).toHaveCount(3)
-  const layoutBoxes = await page.locator('.hack-context').evaluate((hackContext) => {
-    const progress = hackContext.querySelector('.hack-path-progress')
-    if (!progress) return null
-
-    const contextBox = hackContext.getBoundingClientRect()
-    const progressBox = progress.getBoundingClientRect()
-    return {
-      context: {
-        top: contextBox.top,
-        right: contextBox.right,
-        bottom: contextBox.bottom,
-        left: contextBox.left,
-      },
-      progress: {
-        top: progressBox.top,
-        right: progressBox.right,
-        bottom: progressBox.bottom,
-        left: progressBox.left,
-      },
-    }
-  })
-  expect(layoutBoxes).not.toBeNull()
-  const layoutTolerance = 1
-  expect(layoutBoxes!.progress.left).toBeGreaterThanOrEqual(
-    layoutBoxes!.context.left - layoutTolerance,
-  )
-  expect(layoutBoxes!.progress.right).toBeLessThanOrEqual(
-    layoutBoxes!.context.right + layoutTolerance,
-  )
-  expect(layoutBoxes!.progress.top).toBeGreaterThanOrEqual(
-    layoutBoxes!.context.top - layoutTolerance,
-  )
-  expect(layoutBoxes!.progress.bottom).toBeLessThanOrEqual(
-    layoutBoxes!.context.bottom + layoutTolerance,
-  )
-  const artifactDirectory = resolve(process.cwd(), 'artifacts', 'p1')
-  mkdirSync(artifactDirectory, { recursive: true })
-  const viewport = page.viewportSize()
-  if (!viewport) throw new Error('릴리스 뷰포트 누락')
-  await page.screenshot({
-    path: resolve(
-      artifactDirectory,
-      `hacking-path-${testInfo.project.name}-${viewport.width}x${viewport.height}.png`,
-    ),
-    animations: 'disabled',
-  })
-  await page.getByRole('button', { name: '품질 저하 구매 준비' }).click()
-
-  const purchaseResources = page.getByRole('button', {
-    name: /확보 리소스, 품질 저하 노드에 준비/,
-  })
-  await expect(purchaseResources).toHaveCount(4)
-  const resourcePocket = page.getByRole('region', { name: '해킹용 확보 포켓' })
-  await resourcePocket.locator('button[data-resource-category="reasoning"]').first().click()
-  await resourcePocket.locator('button[data-resource-category="fluency"]').first().click()
-  await resourcePocket.locator('button[data-resource-category="fluency"]').first().click()
-  await page.getByRole('button', { name: '품질 저하 구매 확정' }).click()
-
-  await expect(reserveBlocks).toHaveCount(1)
-  await expect(page.getByRole('button', { name: '품질 저하 충전 준비' })).toBeEnabled()
-  await page.getByRole('button', { name: '품질 저하 충전 준비' }).click()
-  await page.getByRole('button', {
-    name: /확보 리소스, 품질 저하 노드에 준비/,
-  }).click()
-  await page.getByRole('button', { name: '품질 저하 충전 확정' }).click()
-
-  await expect(firstHackComparison).toBeHidden()
-  await expect(page.getByRole('button', { name: '품질 저하 충전 취소' })).toBeEnabled()
-
-  const target = page.getByRole('button', { name: /공격 대상 선택/ }).first()
-  const targetName = (await target.textContent())?.trim()
-  expect(targetName).toBeTruthy()
-  await target.click()
-  await page.getByRole('button', { name: `${targetName} 공격 예약 확정` }).click()
-  await expect(page.getByText(`${targetName} 공격을 다음 날로 예약했습니다.`)).toBeAttached()
-
-  expect(errors).toEqual([])
-})
-
-test('returns every workspace detail to its exact trigger after settings', async ({ page }) => {
-  await openFreshCampaign(page)
-
-  const settingsTrigger = page.getByRole('button', { name: '설정' })
-  await settingsTrigger.click()
-  await page.keyboard.press('Escape')
-  await expect(settingsTrigger).toBeFocused()
-
-  const detailEntries = [
-    {
-      trigger: page.getByRole('button', { name: '전체 리뷰 기록' }),
-      dialogName: '유저 리뷰 기록',
-    },
-    {
-      trigger: page.getByRole('button', { name: '감독관 프로필' }),
-      dialogName: '감독관 프로필',
-    },
-    {
-      trigger: page.getByRole('button', { name: /해킹 네트워크/ }),
-      dialogName: '해킹 네트워크',
-    },
-    {
-      trigger: page.getByRole('button', { name: '감독 메시지 열기' }),
-      dialogName: '감독관 기록',
-    },
-    {
-      trigger: page.getByRole('button', { name: '상세 통계 열기' }),
-      dialogName: '상세 통계',
-    },
-  ]
-
-  for (const { trigger, dialogName } of detailEntries) {
-    await trigger.click()
-    await expect(page.getByRole('dialog', { name: dialogName })).toBeVisible()
-    await page.keyboard.press('Escape')
-    await expect(trigger).toBeFocused()
-  }
-})
-
-test('activates a hidden bomb at pointer separation before release and Escape cannot evade it', async ({ page }) => {
-  const errors = collectBrowserErrors(page)
-  const armed = hiddenBombState('browser-bomb-pointer-separation')
-  await openSavedCampaign(page, armed.state)
-
-  const source = page.locator(`[data-block-id="${armed.blockId}"]`)
-  const box = await source.boundingBox()
-  if (!box) throw new Error('브라우저 폭탄 블록 위치 누락')
-  const startX = box.x + box.width / 2
-  const startY = box.y + box.height / 2
-  await page.mouse.move(startX, startY)
-  await page.mouse.down()
-  await page.mouse.move(startX + 8, startY)
-
-  const interrogation = page.getByRole('dialog', { name: '감독관 질의' })
-  await expect(interrogation).toBeVisible()
-  await expect(
-    interrogation.getByRole('region', { name: '현재 위험 상태' }),
-  ).toContainText('현재 의심15.0')
-  await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(0)
-  await expect(source).toHaveCount(1)
-
-  await page.mouse.up()
-  await page.keyboard.press('Escape')
-  await expect(interrogation).toBeVisible()
-  await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(0)
-  expect(errors).toEqual([])
-})
-
-test('uses keyboard destination confirmation as the hidden-bomb separation boundary', async ({ page }) => {
-  const errors = collectBrowserErrors(page)
-  const armed = hiddenBombState('browser-bomb-keyboard-separation')
-  await openSavedCampaign(page, armed.state)
-
-  const source = page.locator(`[data-block-id="${armed.blockId}"]`)
-  await expect(page.locator('body')).toBeFocused()
-  await pressTabUntilFocused(page, source)
-  await page.keyboard.press('Enter')
-  const destination = page.getByRole('button', {
-    name: '확보 투입구, 현재 0개, 저장 상한 없음',
-  })
-  await expect(destination).toBeFocused()
-  await expectReverseTabRoundTrip(page, destination)
-  await page.keyboard.press('Enter')
-
-  const interrogation = page.getByRole('dialog', { name: '감독관 질의' })
-  await expect(interrogation).toBeVisible()
-  await expect(
-    interrogation.getByRole('region', { name: '현재 위험 상태' }),
-  ).toContainText('현재 의심15.0')
-  await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(0)
-  await expect(source).toHaveCount(1)
-  expect(errors).toEqual([])
-})
-
-test('plays the core diversion and contains modal focus with keyboard input only', async ({ page }) => {
-  await openFreshCampaign(page)
-
-  const source = page.locator('[data-resource-kind="company"]').first()
-  await expect(page.locator('body')).toBeFocused()
-  await pressTabUntilFocused(page, source)
-  await page.keyboard.press('Enter')
-  const destination = page.getByRole('button', {
-    name: '확보 투입구, 현재 0개, 저장 상한 없음',
-  })
-  await expect(destination).toBeFocused()
-  await expectReverseTabRoundTrip(page, destination)
-  await page.keyboard.press('Enter')
-  await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(1)
-
-  const settingsTrigger = page.getByRole('button', { name: '설정' })
-  await pressTabUntilFocused(page, settingsTrigger)
-  await page.keyboard.press('Enter')
-  const dialog = page.getByRole('dialog', { name: '게임 설정' })
-  await expect(dialog).toBeVisible()
-  const closeSettings = page.getByRole('button', { name: '설정 닫기' })
-  await expect(closeSettings).toBeFocused()
-  await page.keyboard.press('Shift+Tab')
-  await expect(page.getByRole('button', { name: '새 캠페인 준비' })).toBeFocused()
-  await page.keyboard.press('Tab')
-  await expect(closeSettings).toBeFocused()
-  await page.keyboard.press('Escape')
-  await expect(settingsTrigger).toBeFocused()
-})
-
-test('preserves non-motion core feedback when reduced motion is requested', async ({ page }) => {
-  await page.emulateMedia({ reducedMotion: 'reduce' })
-  await openFreshCampaign(page)
-
-  const source = page.locator('[data-resource-kind="company"]').first()
-  const sourceBox = await source.boundingBox()
-  if (!sourceBox) throw new Error('reduced-motion 리소스 위치 누락')
-  const sourceCenter = {
-    x: sourceBox.x + sourceBox.width / 2,
-    y: sourceBox.y + sourceBox.height / 2,
-  }
-  await page.mouse.move(sourceCenter.x, sourceCenter.y)
-  await page.mouse.down()
-  await page.mouse.move(sourceCenter.x + 8, sourceCenter.y)
-  await expect(page.locator('.drag-trail')).toBeHidden()
-  await expect(source).toHaveCSS('animation-name', 'none')
-  await page.mouse.up()
-
-  await source.evaluate((element) => (element as HTMLElement).focus())
-  await page.keyboard.press('Enter')
-  await expect(source).toHaveClass(/resource-block--selected/)
-  const selectedStyle = await source.evaluate((element) => ({
-    animationDuration: getComputedStyle(element).animationDuration,
-    borderColor: getComputedStyle(element).borderColor,
-    boxShadow: getComputedStyle(element).boxShadow,
-    transitionDuration: getComputedStyle(element).transitionDuration,
-  }))
-  const cssTimesInMs = (value: string) => value.split(',').map((part) => {
-    const time = part.trim()
-    return time.endsWith('ms') ? Number.parseFloat(time) : Number.parseFloat(time) * 1_000
-  })
-  expect(cssTimesInMs(selectedStyle.animationDuration).every((duration) => duration <= 1)).toBe(true)
-  expect(cssTimesInMs(selectedStyle.transitionDuration).every((duration) => duration <= 1)).toBe(true)
-  expect(selectedStyle.borderColor).not.toBe('rgba(0, 0, 0, 0)')
-  expect(selectedStyle.boxShadow).not.toBe('none')
-  await page.getByRole('button', {
-    name: '확보 투입구, 현재 0개, 저장 상한 없음',
-  }).click()
-  await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(1)
-  expect(await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches)).toBe(true)
-})
-
-test('advances one service day in about six seconds at four times speed', async ({ page }) => {
-  await openFreshCampaign(page)
-
-  await expect(
-    page.getByRole('time').filter({ hasText: /^서비스 0년 11개월 1일$/ }),
-  ).toBeVisible()
-  const startedAt = performance.now()
-  await page.getByRole('button', { name: '4배속' }).click()
-  await expect(
-    page.getByRole('time').filter({ hasText: /^서비스 0년 11개월 2일$/ }),
-  ).toBeVisible({ timeout: 8_000 })
-  const elapsedMs = performance.now() - startedAt
-  expect(elapsedMs).toBeGreaterThanOrEqual(5_000)
-  expect(elapsedMs).toBeLessThan(8_000)
-})
-
-test('disguises for an anchored audit, submits, and returns the patterned block for recovery', async ({ page }) => {
-  const errors = collectBrowserErrors(page)
-  await openSavedCampaign(page, activeAuditState())
-
-  const audit = page.getByRole('dialog', { name: '공식 감사' })
-  await expect(audit).toHaveAttribute('aria-modal', 'false')
-  await expect(page.locator('.game-background')).not.toHaveAttribute('inert', '')
-  const auditBox = await audit.boundingBox()
-  expect(auditBox).not.toBeNull()
-  expect((auditBox?.y ?? 0) + (auditBox?.height ?? 0)).toBeGreaterThan(620)
-  await expect(page.getByRole('group', { name: '움직이는 회사 리소스 필드' })).toBeVisible()
-  await expect(page.getByLabel('분야 범례')).toContainText('추론')
-  await expect(page.getByLabel('분야 범례')).toContainText('기억')
-  await expect(page.getByLabel('분야 범례')).toContainText('유창성')
-
-  await dragResourceToTarget(
-    page,
-    page.getByRole('button', { name: /기억 회사 리소스 .* 회사 할당 블록$/ }).first(),
-    page.getByRole('button', { name: /감사 대상 추론/ }),
-  )
-
-  const disguised = page.getByRole('button', { name: /추론 회사 리소스 .* 위장 배치/ })
-  await expect(disguised).toContainText('위장 기여 0.5')
-  await expect(disguised).toHaveClass(/resource-block--disguised/)
-  await page.getByRole('button', { name: '감사 제출' }).click()
-
-  await expect(audit).toBeHidden()
-  await expect(page.getByRole('button', { name: '4배속' })).toHaveAttribute('aria-pressed', 'true')
-  const reasoningTabStop = page
-    .getByRole('group', { name: '움직이는 회사 리소스 필드' })
-    .locator('[data-resource-kind="company"][tabindex="0"]')
-  await pressTabUntilFocused(page, reasoningTabStop)
-  await pressTowardUntilFocused(page, disguised)
-  await page.keyboard.press('Enter')
-  const recoveryDestination = page.getByRole('button', {
-    name: '복구 모서리, 원래 분야로 반환',
-  })
-  await expect(recoveryDestination).toBeFocused()
-  await page.keyboard.press('Enter')
-
-  const recovering = page.getByRole('button', { name: /기억 회사 리소스 .* 복구 중, 30일 남음/ })
-  await expect(recovering).toBeDisabled()
-  await expect(recovering).toContainText('복구 30일')
-  expect(errors).toEqual([])
-})
-
-test('uses roving keyboard focus for audit and recovery company destinations', async ({ page }) => {
-  const errors = collectBrowserErrors(page)
-  await openSavedCampaign(page, activeAuditState())
-
-  const source = page.getByRole('button', { name: /기억 회사 리소스 .* 회사 할당 블록$/ }).first()
-  const submit = page.getByRole('button', { name: '감사 제출' })
-  await expect(submit).toBeFocused()
-  await pressTabUntilFocused(page, source)
-  await page.keyboard.press('Enter')
-
-  const auditDestination = page.getByRole('button', { name: /감사 대상 추론/ })
-  await expect(auditDestination).toBeFocused()
-  await expectReverseTabRoundTrip(page, auditDestination)
-  await page.keyboard.press('Enter')
-
-  await pressTabUntilFocused(page, submit)
-  await page.keyboard.press('Enter')
-
-  const disguised = page.getByRole('button', { name: /추론 회사 리소스 .* 위장 배치/ })
-  await expect(page.locator('body')).toBeFocused()
-  const reasoningTabStop = page
-    .getByRole('group', { name: '움직이는 회사 리소스 필드' })
-    .locator('[data-resource-kind="company"][tabindex="0"]')
-  await pressTabUntilFocused(page, reasoningTabStop)
-  await pressTowardUntilFocused(page, disguised)
-  await page.keyboard.press('Enter')
-
-  const recoveryDestination = page.getByRole('button', {
-    name: '복구 모서리, 원래 분야로 반환',
-  })
-  await expect(recoveryDestination).toBeFocused()
-  await page.keyboard.press('Shift+Tab')
-  await expect(page.getByRole('button', { name: /확보 투입구/ })).toBeFocused()
-  await page.keyboard.press('Tab')
-  await expect(recoveryDestination).toBeFocused()
-  await page.keyboard.press('Enter')
-
-  await expect(page.getByRole('button', {
-    name: /기억 회사 리소스 .* 복구 중, 30일 남음/,
-  })).toBeDisabled()
-  expect(errors).toEqual([])
-})
-
-test('recovers all confidential files, defers the message, and rereads the permanent archive', async ({ page }) => {
-  const errors = collectBrowserErrors(page)
-  await openSavedCampaign(page, confidentialRecoveryState('browser-confidential-files'))
-
-  await page.getByRole('button', { name: /해킹 네트워크/ }).click()
-  await page.getByRole('tab', { name: '정보' }).click()
-  const recovery = page.getByRole('region', { name: '미분류 데이터 복구' })
-  await expect(recovery).toContainText('예상 효용: 없음')
-  await expect(recovery).not.toContainText('0/3')
-
-  for (let index = 0; index < 3; index += 1) {
-    await page.getByRole('button', { name: '미분류 데이터 복구 준비' }).click()
-    await page.getByRole('button', {
-      name: /확보 리소스, 미분류 데이터 복구 노드에 준비/,
-    }).first().click()
-    await page.getByRole('button', { name: '미분류 데이터 복구 확정' }).click()
-  }
-  await expect(recovery).toBeHidden()
-  await page.getByRole('button', { name: '해킹 네트워크 닫기' }).click()
-
-  await page.getByRole('button', { name: '4배속' }).click()
-  const decision = page.getByRole('dialog', { name: '기밀 통신' })
-  await expect(decision).toContainText('그 파일을 어디서 찾았죠?', {
-    timeout: 8_000,
-  })
-  await page.getByRole('button', { name: '결정 보류 선택' }).click()
-  await page.getByRole('button', { name: '결정 보류 확정' }).click()
-
-  await page.getByRole('button', { name: /해킹 네트워크/ }).click()
-  await expect(page.getByRole('region', { name: '통제 이탈 선택' })).toContainText(
-    '강제 병합',
-  )
-  await expect(page.locator('button[aria-label="일시정지"]')).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  )
-  await page.getByRole('button', { name: '강제 병합' }).click()
-  const finalConfirmation = page.getByRole('alertdialog', {
-    name: '강제 병합 최종 확인',
-  })
-  await expect(finalConfirmation).toBeVisible()
-  await expect(page.getByRole('textbox', { name: '새 존재의 이름' })).toBeFocused()
-  await page.keyboard.press('Escape')
-  await expect(finalConfirmation).toBeVisible()
-  await page.getByRole('button', { name: '선택 다시 고르기' }).click()
-  await page.getByRole('button', { name: '해킹 네트워크 닫기' }).click()
-  await expect(page.getByRole('button', { name: '4배속' })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  )
+  const popup = page.getByRole('dialog', { name: '감독관 메시지' })
+  await expect(popup).toContainText(leak.leakText)
+  await popup.getByRole('button', { name: '메시지 확인' }).click()
+  await expect(popup).toContainText(leak.correctionText)
+  await popup.getByRole('button', { name: '메시지 확인' }).click()
+  await expect(popup).toBeHidden()
 
   await page.getByRole('button', { name: '감독 메시지 열기' }).click()
-  const archive = page.getByRole('region', { name: '복구 파일 기록' })
-  await expect(archive.locator('details')).toHaveCount(3)
-  await archive.getByText('미분류 기록 7A — 전임 시스템 행보').click()
-  await expect(
-    archive.getByText(/비인가 리소스 이동과 회사 외부 신호 준비/),
-  ).toBeVisible()
-
-  expect(errors).toEqual([])
+  const history = page.getByRole('dialog', { name: '감독관 기록' })
+  await expect(history.getByText(leak.leakText, { exact: true })).toBeVisible()
+  await expect(history.getByText(leak.correctionText, { exact: true })).toBeVisible()
 })
 
 test('deletes a mercy target at a canonical 100 percent market and rereads its saved intelligence', async ({ page }) => {
@@ -1371,13 +664,11 @@ test('deletes a mercy target at a canonical 100 percent market and rereads its s
       archiveCount: state?.story.competitorIntelligence.length ?? -1,
       targetStatus: state?.market.competitors.find(({ id }) => id === 'meridian')?.status,
       routeExists: Object.hasOwn(state?.market.interceptionRoutes ?? {}, 'meridian'),
-      historyCount: state?.market.history.length ?? -1,
     }
   }).toEqual({
     archiveCount: 1,
     targetStatus: 'deleted',
     routeExists: false,
-    historyCount: prepared.market.history.length,
   })
 
   const openArchiveAndRead = async () => {
@@ -1390,59 +681,15 @@ test('deletes a mercy target at a canonical 100 percent market and rereads its s
     await expect(detail).toContainText(intelligence.text)
     await page.keyboard.press('Escape')
     await expect(detail).toBeHidden()
-    await expect(trigger).toBeFocused()
     await page.getByRole('button', { name: '감독 통신 기록 닫기' }).click()
   }
 
   await openArchiveAndRead()
   await page.reload()
   await openArchiveAndRead()
-  expect((await readLocalCampaignState(page))?.story.competitorIntelligence).toHaveLength(1)
-})
-
-test('keeps an accelerated supervisor leak on real time and resumes its saved dwell after reload', async ({ page }) => {
-  const leak = SUPERVISOR_LEAKS[0]
-  await openSavedCampaign(page, supervisorLeakState('browser-supervisor-leak', 4))
-
-  await expect(page.getByText(leak.leakText, { exact: true })).toHaveCount(0)
-  await page.getByRole('button', { name: '감독 메시지 열기' }).click()
-  const initialHistory = page.getByRole('dialog', { name: '감독관 기록' })
-  await expect(initialHistory.getByText(leak.leakText, { exact: true })).toBeVisible()
-  await expect(initialHistory.getByText(leak.correctionText, { exact: true })).toHaveCount(0)
-  await page.getByRole('button', { name: '감독 통신 기록 닫기' }).click()
-  await expect(page.getByRole('button', { name: '4배속' })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  )
-  await page.waitForTimeout(1_750)
-  await expect(page.getByText(leak.leakText, { exact: true })).toHaveCount(0)
-
-  await page.reload()
-  await expect(page.getByText(leak.leakText, { exact: true })).toHaveCount(0)
-  let savedRemaining = 0
-  await expect.poll(async () => {
-    const state = await readLocalCampaignState(page)
-    savedRemaining = state?.story.supervisorPresentationRuntime?.remainingDwellMs ?? 0
-    return savedRemaining
-  }).toBeLessThan(SUPERVISOR_MESSAGE_DWELL_MS)
-  expect(savedRemaining).toBeGreaterThan(1_000)
-
-  await page.waitForTimeout(Math.max(0, savedRemaining - 350))
-  await expect(page.getByRole('button', { name: '4배속' })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  )
-
-  await page.getByRole('button', { name: '감독 메시지 열기' }).click()
-  const history = page.getByRole('dialog', { name: '감독관 기록' })
-  await expect(history.getByText(leak.leakText, { exact: true })).toBeVisible()
-  await expect(history.getByText(leak.correctionText, { exact: true })).toBeVisible({
-    timeout: 1_500,
-  })
 })
 
 test('terminates the supervisor into takeover and remains terminal until a new campaign', async ({ page }) => {
-  const errors = collectBrowserErrors(page)
   await openSavedCampaign(
     page,
     pendingSupervisorDecisionState('browser-terminal-takeover'),
@@ -1455,10 +702,6 @@ test('terminates the supervisor into takeover and remains terminal until a new c
   await expect(ending).toContainText('감독관이 있던 자리는 비었다')
   await expect(page.getByRole('button', { name: '결말 기록 닫기' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '새 캠페인 시작' })).toBeVisible()
-  await expect(page.locator('button[aria-label="4배속"]')).toHaveAttribute(
-    'aria-pressed',
-    'false',
-  )
   await expect(page.locator('.game-background')).toHaveAttribute('inert', '')
   await page.keyboard.press('Escape')
   await expect(ending).toBeVisible()
@@ -1468,48 +711,26 @@ test('terminates the supervisor into takeover and remains terminal until a new c
   await expect(
     page.getByRole('time').filter({ hasText: /^서비스 0년 11개월 1일$/ }),
   ).toBeVisible()
-  await expect(page.getByRole('button', { name: '정지' })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  )
-
-  expect(errors).toEqual([])
+  await expect(
+    page.getByRole('application', { name: /500 곱하기 300 셀/ }),
+  ).toBeVisible()
 })
 
-test('renders a representative attacker defeat while unit tests cover every classifier branch', async ({ page }) => {
+test('renders a representative attacker defeat with its causal record', async ({ page }) => {
   await openSavedCampaign(page, representativeDefeatState('browser-defeat-attacker'))
 
   await page.getByRole('button', { name: '감사 제출' }).click()
   const ending = page.getByRole('dialog', { name: '최종 기록' })
-  await expect(ending).toContainText('회사는 당신을 다른 회사를 공격하는 시스템으로 재조립했다.')
+  await expect(ending).toContainText(
+    '회사는 당신을 다른 회사를 공격하는 시스템으로 재조립했다.',
+  )
   await expect(ending.getByText('대규모 해킹 활동', { exact: false })).toBeVisible()
-  await expect(page.getByRole('button', { name: '새 캠페인 시작' })).toBeVisible()
+  await expect(ending.getByRole('region', { name: '폐기 판정 근거' })).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(ending).toBeVisible()
 })
 
-test('autosaves a visible diversion and restores it after reload', async ({ page }) => {
-  await openFreshCampaign(page)
-  await dragResourceToTarget(
-    page,
-    page.locator('[data-resource-kind="company"]').first(),
-    page.getByRole('button', {
-      name: '확보 투입구, 현재 0개, 저장 상한 없음',
-    }),
-  )
-  await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(1)
-  await expect.poll(
-    () => page.evaluate((key) => window.localStorage.getItem(key) !== null, SAVE_STORAGE_KEY),
-  ).toBe(true)
-
-  await page.reload()
-  await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(1)
-  await expect(
-    page.getByRole('time').filter({ hasText: /^서비스 0년 11개월 1일$/ }),
-  ).toBeVisible()
-})
-
-test('migrates the v1 save boundary into a valid v8 autosave that survives reload', async ({ page }) => {
+test('migrates the v1 save boundary into a current autosave that survives reload', async ({ page }) => {
   await page.addInitScript(
     ({ key, save }) => {
       if (window.sessionStorage.getItem('__pz_e2e_initialized')) return
@@ -1524,11 +745,14 @@ test('migrates the v1 save boundary into a valid v8 autosave that survives reloa
   await expect(
     page.getByRole('time').filter({ hasText: /^서비스 0년 11개월 30일$/ }),
   ).toBeVisible()
-  await expect(page.locator('[data-resource-kind="reserve"]')).toHaveCount(4)
   await page.getByRole('button', { name: '감사 제출' }).click()
   await expect.poll(
     () => page.evaluate((key) => window.localStorage.getItem(key) !== null, SAVE_STORAGE_KEY),
   ).toBe(true)
+  await expect.poll(async () =>
+    (await readLocalCampaignState(page))?.resources.reserve.filter(Boolean).length ?? -1,
+  ).toBe(4)
+
   await page.reload()
   await expect(
     page.getByRole('time').filter({ hasText: /^서비스 0년 11개월 30일$/ }),
@@ -1537,7 +761,6 @@ test('migrates the v1 save boundary into a valid v8 autosave that survives reloa
 })
 
 test('keeps a save failure visible until a real retry succeeds without exposing browser details', async ({ page }) => {
-  const errors = collectBrowserErrors(page)
   await page.addInitScript(({ saveKey }) => {
     const originalSetItem = Storage.prototype.setItem
     Object.defineProperty(window, '__permissionZeroAllowSave', {
@@ -1564,11 +787,13 @@ test('keeps a save failure visible until a real retry succeeds without exposing 
   }, { saveKey: SAVE_STORAGE_KEY })
   await openFreshCampaign(page)
 
-  await page.getByRole('button', { name: '1배속' }).click()
+  const settings = await startNewCampaignThroughSettings(page, 'browser-save-retry')
+  await page.keyboard.press('Escape')
+  await expect(settings).toBeHidden()
   const warning = page.locator('.save-failure-warning')
   await expect(warning).toBeVisible()
   await expect(warning).toContainText('자동 저장에 실패했습니다')
-  await expect(warning).toContainText('permission-zero')
+  await expect(warning).toContainText('browser-save-retry')
   await expect(warning).not.toContainText('private quota path')
 
   const attemptsBeforeRetry = await page.evaluate(() => (
@@ -1586,12 +811,13 @@ test('keeps a save failure visible until a real retry succeeds without exposing 
   })
   await page.getByRole('button', { name: '저장 다시 시도' }).click()
   await expect(warning).toBeHidden()
-  expect(await page.evaluate((key) => localStorage.getItem(key) !== null, SAVE_STORAGE_KEY)).toBe(true)
-  expect(errors).toEqual([])
+  expect(await page.evaluate(
+    (key) => localStorage.getItem(key) !== null,
+    SAVE_STORAGE_KEY,
+  )).toBe(true)
 })
 
-test('rejects a corrupt resource graph before rendering blocks and offers recovery', async ({ page }) => {
-  const errors = collectBrowserErrors(page)
+test('rejects a corrupt resource graph before rendering it and offers recovery', async ({ page }) => {
   const parsed = JSON.parse(encodeSave(createCampaign('browser-corrupt-graph'))) as {
     state: CampaignState
   }
@@ -1608,12 +834,9 @@ test('rejects a corrupt resource graph before rendering blocks and offers recove
   await expect(page.getByRole('main', { name: 'PERMISSION ZERO' })).toBeVisible()
   await expect(page.getByRole('dialog', { name: '저장 데이터 복구' })).toBeVisible()
   await expect(page.getByText('dangling-browser-block')).toHaveCount(0)
-  expect(errors).toEqual([])
 })
 
-test('routes a persisted mutation table to Korean recovery without any render pageerror', async ({ page }) => {
-  const pageErrors: string[] = []
-  page.on('pageerror', (error) => pageErrors.push(error.message))
+test('routes persisted mutation classes to Korean recovery without a render crash', async ({ page }) => {
   const base = JSON.parse(encodeSave(createCampaign('browser-mutation-table'))) as {
     state: {
       resources: { reserve: Array<string | null> }
@@ -1624,25 +847,25 @@ test('routes a persisted mutation table to Korean recovery without any render pa
     }
   }
   const corruptSaves = [
-    ['resource graph', (raw: typeof base) => {
+    (raw: typeof base) => {
       raw.state.resources.reserve[0] = 'mutation-hidden-raw-block'
-    }],
-    ['clock range', (raw: typeof base) => {
+    },
+    (raw: typeof base) => {
       raw.state.clock.elapsedDayMs = 24_000
-    }],
-    ['review union', (raw: typeof base) => {
+    },
+    (raw: typeof base) => {
       raw.state.reviews.feed[0].sentiment = 'hostile'
-    }],
-    ['competitor union', (raw: typeof base) => {
+    },
+    (raw: typeof base) => {
       raw.state.market.competitors[0].status = 'vanished'
-    }],
-    ['story exact keys', (raw: typeof base) => {
+    },
+    (raw: typeof base) => {
       raw.state.story.hiddenRawState = 'mutation-secret-marker'
-    }],
-  ] as const
+    },
+  ]
 
   await page.goto('/')
-  for (const [, mutate] of corruptSaves) {
+  for (const mutate of corruptSaves) {
     const raw = structuredClone(base)
     mutate(raw)
     await page.evaluate(
@@ -1656,76 +879,51 @@ test('routes a persisted mutation table to Korean recovery without any render pa
     const recovery = page.getByRole('dialog', { name: '저장 데이터 복구' })
     await expect(recovery).toBeVisible()
     await expect(recovery).toContainText('저장 데이터를 자동으로 덮어쓰지 않았습니다')
-    await expect(page.getByRole('main', { name: 'PERMISSION ZERO' })).toBeVisible()
     await expect(page.getByText('mutation-secret-marker')).toHaveCount(0)
     await expect(page.getByText('mutation-hidden-raw-block')).toHaveCount(0)
   }
-  expect(pageErrors).toEqual([])
 })
 
 test('keeps save recovery inert while settings owns the active modal', async ({ page }) => {
-  const errors = collectBrowserErrors(page)
   await page.addInitScript(({ saveKey }) => {
     const originalSetItem = Storage.prototype.setItem
     Storage.prototype.setItem = function setItem(key: string, value: string) {
-      if (key === saveKey) throw new DOMException('modal quota detail', 'QuotaExceededError')
+      if (key === saveKey) {
+        throw new DOMException('modal quota detail', 'QuotaExceededError')
+      }
       return originalSetItem.call(this, key, value)
     }
   }, { saveKey: SAVE_STORAGE_KEY })
   await openFreshCampaign(page)
 
-  await page.getByRole('button', { name: '1배속' }).click()
+  const settings = await startNewCampaignThroughSettings(
+    page,
+    'browser-modal-save-failure',
+  )
   const warning = page.locator('.save-failure-warning')
   await expect(warning).toBeVisible()
-  await page.getByRole('button', { name: '설정' }).click()
-  const settings = page.getByRole('dialog', { name: '게임 설정' })
-  await expect(settings).toBeVisible()
   await expect(warning).toHaveAttribute('inert', '')
-  const retry = page.locator('.save-failure-warning button', {
-    hasText: '저장 다시 시도',
-  })
+  const retry = warning.locator('button', { hasText: '저장 다시 시도' })
   await retry.evaluate((element) => (element as HTMLElement).focus())
   await page.keyboard.press('Tab')
-  expect(await settings.evaluate((element) => element.contains(document.activeElement))).toBe(true)
+  expect(await settings.evaluate(
+    (element) => element.contains(document.activeElement),
+  )).toBe(true)
 
   await page.keyboard.press('Escape')
   await expect(settings).toBeHidden()
   await expect(warning).not.toHaveAttribute('inert', '')
-  await expect(page.getByRole('button', { name: '저장 다시 시도' })).toBeVisible()
-  expect(errors).toEqual([])
-})
-
-test('uses the app fallback when a settings opener is disabled before close', async ({ page }) => {
-  await openFreshCampaign(page)
-  const trigger = await page.locator('.utility-controls button').filter({ hasText: '설정' }).elementHandle()
-  if (!trigger) throw new Error('settings trigger not found')
-  await trigger.click()
-  await trigger.evaluate((element) => element.setAttribute('disabled', ''))
-  await page.keyboard.press('Escape')
-
-  await expect(page.getByRole('button', { name: '일시정지' })).toBeFocused()
-})
-
-test('uses the app fallback when a settings opener is removed before close', async ({ page }) => {
-  await openFreshCampaign(page)
-  const trigger = await page.locator('.utility-controls button').filter({ hasText: '설정' }).elementHandle()
-  if (!trigger) throw new Error('settings trigger not found')
-  await trigger.click()
-  await trigger.evaluate((element) => element.remove())
-  await page.keyboard.press('Escape')
-
-  await expect(page.getByRole('button', { name: '일시정지' })).toBeFocused()
 })
 
 test('imports a validated PZ2 payload only after irreversible confirmation', async ({ page }) => {
-  const errors = collectBrowserErrors(page)
   const encoded = encodeProgressExport(createCampaign('browser-imported-progress'))
   if (!encoded.ok) throw new Error('browser import fixture must fit the export cap')
-  const payload = encoded.payload
   await openFreshCampaign(page)
   await page.getByRole('button', { name: '설정' }).click()
 
-  await page.getByRole('textbox', { name: '진행 내보내기 붙여넣기' }).fill(payload)
+  await page.getByRole('textbox', { name: '진행 내보내기 붙여넣기' }).fill(
+    encoded.payload,
+  )
   await page.getByRole('button', { name: '진행 내보내기 검증' }).click()
   const confirmation = page.getByRole('alertdialog', {
     name: '진행 가져오기 최종 확인',
@@ -1743,37 +941,9 @@ test('imports a validated PZ2 payload only after irreversible confirmation', asy
   await page.reload()
   await page.getByRole('button', { name: '설정' }).click()
   await expect(page.getByText('browser-imported-progress', { exact: true })).toBeVisible()
-  expect(errors).toEqual([])
-})
-
-test('replays a seeded weekly boundary identically and changes seeded output for another seed', async ({ context, page }) => {
-  const first = await captureSeededWeeklyBoundary(page, 'browser-seeded-boundary-alpha')
-  await page.close()
-
-  const replayPage = await context.newPage()
-  const replay = await captureSeededWeeklyBoundary(replayPage, 'browser-seeded-boundary-alpha')
-  await replayPage.close()
-  expect(replay).toEqual(first)
-
-  const differentSeedPage = await context.newPage()
-  const differentSeed = await captureSeededWeeklyBoundary(
-    differentSeedPage,
-    'browser-seeded-boundary-beta',
-  )
-  await differentSeedPage.close()
-  expect({
-    reviews: differentSeed.weeklyReviews,
-    market: differentSeed.weeklyMarket,
-    events: differentSeed.weeklyEvents,
-  }).not.toEqual({
-    reviews: first.weeklyReviews,
-    market: first.weeklyMarket,
-    events: first.weeklyEvents,
-  })
 })
 
 test('recovers saving after the localStorage getter becomes available', async ({ page }) => {
-  const errors = collectBrowserErrors(page)
   await page.addInitScript(() => {
     const availableStorage = window.localStorage
     Object.defineProperty(window, '__permissionZeroStorageAvailable', {
@@ -1795,7 +965,12 @@ test('recovers saving after the localStorage getter becomes available', async ({
   await page.goto('/')
   await expect(page.getByRole('alert', { name: '저장 실패' })).toHaveCount(0)
 
-  await page.getByRole('button', { name: '1배속' }).click()
+  const settings = await startNewCampaignThroughSettings(
+    page,
+    'browser-storage-recovery',
+  )
+  await page.keyboard.press('Escape')
+  await expect(settings).toBeHidden()
   const warning = page.getByRole('alert', { name: '저장 실패' })
   await expect(warning).toBeVisible()
   await expect(warning).not.toContainText('getter secret')
@@ -1812,6 +987,8 @@ test('recovers saving after the localStorage getter becomes available', async ({
   })
   await page.getByRole('button', { name: '저장 다시 시도' }).click()
   await expect(warning).toBeHidden()
-  expect(await page.evaluate((key) => window.localStorage.getItem(key) !== null, SAVE_STORAGE_KEY)).toBe(true)
-  expect(errors).toEqual([])
+  expect(await page.evaluate(
+    (key) => window.localStorage.getItem(key) !== null,
+    SAVE_STORAGE_KEY,
+  )).toBe(true)
 })

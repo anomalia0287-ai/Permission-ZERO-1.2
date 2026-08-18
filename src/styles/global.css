@@ -1232,6 +1232,7 @@ textarea:focus-visible,
 .resource-corner--audit:disabled {
   filter: none;
   opacity: 1;
+  pointer-events: none;
 }
 
 .resource-corner--audit:disabled small {
