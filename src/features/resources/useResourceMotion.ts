@@ -103,13 +103,16 @@ export function useResourceMotion({
 
   const sortedIds = normalizedIds(ids)
   const idsKey = sortedIds.join('\u0000')
-  idsRef.current = new Set(sortedIds)
-  containerRefRef.current = containerRef
-  obstacleRefsRef.current = obstacleRefs
-  radiusRef.current = radius
-  activeRef.current = active
-  reducedMotionRef.current = reducedMotion
-  motionRateRef.current = Number.isFinite(motionRate) && motionRate > 0 ? motionRate : 1
+  useLayoutEffect(() => {
+    idsRef.current = new Set(sortedIds)
+    containerRefRef.current = containerRef
+    obstacleRefsRef.current = obstacleRefs
+    radiusRef.current = radius
+    activeRef.current = active
+    reducedMotionRef.current = reducedMotion
+    motionRateRef.current =
+      Number.isFinite(motionRate) && motionRate > 0 ? motionRate : 1
+  })
 
   const applyTransforms = useCallback((): void => {
     const controller = controllerRef.current
@@ -168,52 +171,65 @@ export function useResourceMotion({
     frameIdRef.current = scheduledId
   }, [shouldRunContinuously])
 
-  runFrameRef.current = (timestamp: number): void => {
-    if (!shouldRunContinuously()) {
-      return
-    }
-    const controller = controllerRef.current
-    if (controller === null) {
-      return
-    }
+  const runFrame = useCallback(
+    (timestamp: number): void => {
+      if (!shouldRunContinuously()) {
+        return
+      }
+      const controller = controllerRef.current
+      if (controller === null) {
+        return
+      }
 
-    const previousTimestamp = lastFrameTimeRef.current
-    lastFrameTimeRef.current = timestamp
-    try {
-      if (previousTimestamp !== null) {
-        const elapsedSeconds = Math.max(
-          0,
-          Math.min(
-            ((timestamp - previousTimestamp) / 1_000) * motionRateRef.current,
+      const previousTimestamp = lastFrameTimeRef.current
+      lastFrameTimeRef.current = timestamp
+      try {
+        if (previousTimestamp !== null) {
+          const elapsedSeconds = Math.max(
+            0,
+            Math.min(
+              ((timestamp - previousTimestamp) / 1_000) * motionRateRef.current,
+              RESOURCE_MAX_FRAME_SECONDS,
+            ),
+          )
+          accumulatorRef.current = Math.min(
+            accumulatorRef.current + elapsedSeconds,
             RESOURCE_MAX_FRAME_SECONDS,
-          ),
-        )
-        accumulatorRef.current = Math.min(
-          accumulatorRef.current + elapsedSeconds,
-          RESOURCE_MAX_FRAME_SECONDS,
-        )
-        let steps = 0
-        while (
-          accumulatorRef.current + Number.EPSILON >= RESOURCE_FIXED_STEP_SECONDS &&
-          steps < RESOURCE_MAX_STEPS_PER_FRAME
-        ) {
-          controller.step(RESOURCE_FIXED_STEP_SECONDS)
-          accumulatorRef.current -= RESOURCE_FIXED_STEP_SECONDS
-          steps += 1
+          )
+          let steps = 0
+          while (
+            accumulatorRef.current + Number.EPSILON >=
+              RESOURCE_FIXED_STEP_SECONDS &&
+            steps < RESOURCE_MAX_STEPS_PER_FRAME
+          ) {
+            controller.step(RESOURCE_FIXED_STEP_SECONDS)
+            accumulatorRef.current -= RESOURCE_FIXED_STEP_SECONDS
+            steps += 1
+          }
         }
+      } catch (error) {
+        if (!(error instanceof RangeError)) {
+          throw error
+        }
+        geometryInvalidRef.current = true
+        cancelFrameLoop()
+        applyTransforms()
+        return
       }
-    } catch (error) {
-      if (!(error instanceof RangeError)) {
-        throw error
-      }
-      geometryInvalidRef.current = true
-      cancelFrameLoop()
       applyTransforms()
-      return
-    }
-    applyTransforms()
-    scheduleFrame()
-  }
+      scheduleFrame()
+    },
+    [
+      applyTransforms,
+      cancelFrameLoop,
+      scheduleFrame,
+      shouldRunContinuously,
+    ],
+  )
+
+  useLayoutEffect(() => {
+    runFrameRef.current = runFrame
+  }, [runFrame])
 
   const measureGeometry = useCallback((): void => {
     const container = containerRefRef.current.current
@@ -341,7 +357,9 @@ export function useResourceMotion({
     }
     scheduleFrame()
   }, [applyTransforms, cancelFrameLoop, scheduleFrame])
-  measureGeometryRef.current = measureGeometry
+  useLayoutEffect(() => {
+    measureGeometryRef.current = measureGeometry
+  }, [measureGeometry])
 
   const reconcileTargets = useCallback((): void => {
     const observer = observerRef.current
@@ -378,7 +396,9 @@ export function useResourceMotion({
     }
     measureGeometryRef.current()
   }, [])
-  reconcileTargetsRef.current = reconcileTargets
+  useLayoutEffect(() => {
+    reconcileTargetsRef.current = reconcileTargets
+  }, [reconcileTargets])
 
   useEffect(() => {
     mountedRef.current = true
@@ -503,7 +523,7 @@ export function useResourceMotion({
 
   const registerBody = useCallback(
     (id: string, element: HTMLElement | null): void => {
-      if (element === null || !idsRef.current.has(id)) {
+      if (element === null) {
         bodyElementsRef.current.delete(id)
         return
       }
