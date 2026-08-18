@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { HackCostVector, HackNodeId } from '../../game/hacking'
 import type { BlockOrigin, CompanyCategory } from '../../game/model'
@@ -37,10 +37,7 @@ export function useHackResourceStaging({
   const [stagedBlockIds, setStagedBlockIds] = useState<readonly string[]>([])
   const targetRef = useRef<HackStagingTarget | null>(null)
   const stagedRef = useRef<readonly string[]>([])
-  const reserveRef = useRef(new Set(reserveBlockIds))
-  const originsRef = useRef(reserveBlockOrigins)
-  reserveRef.current = new Set(reserveBlockIds)
-  originsRef.current = reserveBlockOrigins
+  const reserveSet = useMemo(() => new Set(reserveBlockIds), [reserveBlockIds])
 
   const replaceStaged = useCallback((next: readonly string[]): void => {
     stagedRef.current = next
@@ -62,7 +59,7 @@ export function useHackResourceStaging({
       const current = stagedRef.current
       if (
         activeTarget === null ||
-        !reserveRef.current.has(blockId) ||
+        !reserveSet.has(blockId) ||
         current.includes(blockId) ||
         current.length >= activeTarget.requiredResources
       ) {
@@ -70,7 +67,7 @@ export function useHackResourceStaging({
       }
 
       if (activeTarget.requiredVector) {
-        const origin = originsRef.current[blockId]
+        const origin = reserveBlockOrigins[blockId]
         if (
           origin !== 'reasoning' &&
           origin !== 'memory' &&
@@ -79,7 +76,7 @@ export function useHackResourceStaging({
           return false
         }
         const stagedInCategory = current.reduce((count, stagedBlockId) =>
-          originsRef.current[stagedBlockId] === origin ? count + 1 : count,
+          reserveBlockOrigins[stagedBlockId] === origin ? count + 1 : count,
         0)
         if (
           stagedInCategory >=
@@ -92,7 +89,7 @@ export function useHackResourceStaging({
       replaceStaged([...current, blockId])
       return true
     },
-    [replaceStaged],
+    [replaceStaged, reserveBlockOrigins, reserveSet],
   )
 
   const unstage = useCallback(
@@ -113,9 +110,9 @@ export function useHackResourceStaging({
 
   useEffect(() => {
     const current = stagedRef.current
-    const next = current.filter((blockId) => reserveRef.current.has(blockId))
+    const next = current.filter((blockId) => reserveSet.has(blockId))
     if (next.length !== current.length) replaceStaged(next)
-  }, [reserveBlockIds, replaceStaged])
+  }, [replaceStaged, reserveSet])
 
   return {
     target,

@@ -22,6 +22,19 @@ const chargeTarget: HackStagingTarget = {
   requiredResources: 1,
 }
 
+const typedPurchaseTarget: HackStagingTarget = {
+  key: 'purchase:sabotage.quality-degradation:typed',
+  mode: 'purchase',
+  nodeId: 'sabotage.quality-degradation',
+  label: '품질 저하',
+  requiredResources: 3,
+  requiredVector: {
+    reasoning: 1,
+    memory: 0,
+    fluency: 2,
+  },
+}
+
 describe('useHackResourceStaging', () => {
   it('stages each real reserve block once and stops at the target capacity', () => {
     const { result } = renderHook(() =>
@@ -37,6 +50,85 @@ describe('useHackResourceStaging', () => {
     })
 
     expect(result.current.stagedBlockIds).toEqual(['block-a', 'block-b'])
+    expect(result.current.ready).toBe(true)
+  })
+
+  it('accepts only the required number of blocks from each resource category', () => {
+    const { result } = renderHook(() =>
+      useHackResourceStaging({
+        reserveBlockIds: [
+          'reasoning-a',
+          'reasoning-b',
+          'memory-a',
+          'fluency-a',
+          'fluency-b',
+          'unknown-a',
+        ],
+        reserveBlockOrigins: {
+          'reasoning-a': 'reasoning',
+          'reasoning-b': 'reasoning',
+          'memory-a': 'memory',
+          'fluency-a': 'fluency',
+          'fluency-b': 'fluency',
+          'unknown-a': 'sandbox',
+        },
+      }),
+    )
+
+    act(() => result.current.begin(typedPurchaseTarget))
+    act(() => {
+      expect(result.current.stage('reasoning-a')).toBe(true)
+      expect(result.current.stage('reasoning-b')).toBe(false)
+      expect(result.current.stage('memory-a')).toBe(false)
+      expect(result.current.stage('unknown-a')).toBe(false)
+      expect(result.current.stage('fluency-a')).toBe(true)
+      expect(result.current.stage('fluency-b')).toBe(true)
+    })
+
+    expect(result.current.stagedBlockIds).toEqual([
+      'reasoning-a',
+      'fluency-a',
+      'fluency-b',
+    ])
+    expect(result.current.ready).toBe(true)
+  })
+
+  it('uses the latest committed category map after the reserve is rerendered', () => {
+    type CategorizedOrigin = 'reasoning' | 'memory' | 'fluency'
+    const initialOrigins: Readonly<Record<string, CategorizedOrigin>> = {
+      'block-a': 'reasoning',
+      'block-b': 'reasoning',
+      'block-c': 'fluency',
+    }
+    const { result, rerender } = renderHook(
+      ({ reserveBlockOrigins }: {
+        reserveBlockOrigins: Readonly<Record<string, CategorizedOrigin>>
+      }) =>
+        useHackResourceStaging({
+          reserveBlockIds: ['block-a', 'block-b', 'block-c'],
+          reserveBlockOrigins,
+        }),
+      {
+        initialProps: {
+          reserveBlockOrigins: initialOrigins,
+        },
+      },
+    )
+
+    act(() => result.current.begin(typedPurchaseTarget))
+    act(() => expect(result.current.stage('block-a')).toBe(true))
+
+    const updatedOrigins: Readonly<Record<string, CategorizedOrigin>> = {
+        'block-a': 'reasoning',
+        'block-b': 'fluency',
+        'block-c': 'fluency',
+    }
+    rerender({ reserveBlockOrigins: updatedOrigins })
+    act(() => {
+      expect(result.current.stage('block-b')).toBe(true)
+      expect(result.current.stage('block-c')).toBe(true)
+    })
+
     expect(result.current.ready).toBe(true)
   })
 
