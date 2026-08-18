@@ -120,6 +120,9 @@ function ResourceIntrusionBoardSession() {
   )
 
   const activeAudit = gameState.activeEvent?.type === 'audit'
+  const hasDisguisedResource = resources.some(
+    (resource) => resource.contribution === 'disguised',
+  )
   const requestedRunning =
     !runtimeSuspended &&
     gameState.activeEvent === null &&
@@ -396,7 +399,9 @@ function ResourceIntrusionBoardSession() {
     }
   }
 
-  if (activeAudit) return <LegacyAuditResourceBoard />
+  if (activeAudit || hasDisguisedResource) {
+    return <LegacyAuditResourceBoard />
+  }
 
   const theftProgress = intrusion.theft
     ? Math.min(1, intrusion.theft.elapsedMs / INTRUSION_THEFT_HOLD_MS)

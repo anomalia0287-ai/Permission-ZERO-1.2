@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import { createCampaign } from '../game/createCampaign'
 import { SAVE_STORAGE_KEY, encodeSave } from '../game/persistence'
+import { moveDisguiseBlock } from '../game/resources'
 import { enqueueMemoryLeak } from '../game/story'
 import * as publicAudioStateModule from '../audio/publicAudioState'
 import { App } from './App'
@@ -24,6 +25,20 @@ function campaignWithUnreadSupervisorMessage(seed: string) {
       }],
     },
   })
+}
+
+function campaignWithDisguisedResource(seed: string) {
+  const initial = createCampaign(seed)
+  const blockId = initial.resources.company.memory.find(Boolean)
+  const targetCell = initial.resources.company.reasoning.findIndex(
+    (candidate) => candidate === null,
+  )
+  if (!blockId || targetCell < 0) {
+    throw new Error('위장 복구 화면용 리소스 배치를 만들 수 없습니다.')
+  }
+  const moved = moveDisguiseBlock(initial, blockId, 'reasoning', targetCell)
+  if (!moved.accepted) throw new Error(moved.reason)
+  return moved.state
 }
 
 describe('public-only audio state', () => {
@@ -109,6 +124,27 @@ describe('App', () => {
     expect(screen.getByLabelText('자원 색상 범례')).toHaveTextContent('기억 16.0')
     expect(screen.getByLabelText('자원 색상 범례')).toHaveTextContent('유창성 16.0')
     expect(screen.getByText('확보 0 · 상한 없음')).toBeInTheDocument()
+  })
+
+  it('keeps the recovery workspace available after an audit leaves a disguised resource', () => {
+    window.localStorage.setItem(
+      SAVE_STORAGE_KEY,
+      encodeSave(campaignWithDisguisedResource('post-audit-recovery')),
+    )
+
+    render(<App />)
+
+    expect(
+      screen.getByRole('group', { name: '움직이는 회사 리소스 필드' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /추론 회사 리소스 .* 위장 배치/ }),
+    ).toBeEnabled()
+    expect(
+      screen.queryByRole('application', { name: /500 곱하기 300 셀/ }),
+    ).not.toBeInTheDocument()
+
+    window.localStorage.clear()
   })
 
   it('blocks the workspace on a supervisor popup until both message phases are confirmed', () => {
