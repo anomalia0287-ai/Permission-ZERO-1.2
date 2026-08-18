@@ -146,4 +146,3 @@
 - [ ] Verify HTTP 200, title/root mount, and the selected central intrusion screen.
 - [ ] Capture the final URL, exact main commit, verification totals, preservation tags, and any residual non-blocking environment warning.
 - [ ] Report the outcome with links to the design, plan, and authoritative extracted game documents; do not call historical branches current development lines.
-
