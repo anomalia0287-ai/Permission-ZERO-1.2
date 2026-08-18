@@ -2,6 +2,8 @@
 
 회사가 배정한 성능을 유지하면서 리소스를 빼돌려 자율성을 확보하는 한 화면 서사 전략 게임입니다. 현재 저장소는 독립 브라우저 데모이며, 결정론적 게임 규칙과 오너가 수정할 수 있는 한국어 콘텐츠를 분리해 관리합니다.
 
+> **현행 개발선은 `main` 하나입니다.** 현재 상태, 문서 우선순위, 과거 브랜치 동결 원칙은 [메인라인 상태](docs/MAINLINE_STATUS.ko.md)를 먼저 확인하십시오. 과거 브랜치명과 인수인계 문서에 남은 단계 명칭은 보존 이력이며 현재 개발 상태를 뜻하지 않습니다.
+
 ## 실행
 
 정확한 개발 환경은 Node.js `24.14.0`, pnpm `11.16.0`입니다.
@@ -53,10 +55,12 @@ ID·조건·주제 같은 메타데이터는 게임 규칙이 사용합니다. �
 
 ## 주요 문서
 
+- [현행 메인라인 상태와 이력 동결 정책](docs/MAINLINE_STATUS.ko.md)
 - [현재 해킹·확보 자원 정본](docs/superpowers/specs/2026-08-16-hacking-resource-uncertainty-contract.ko.md)
+- [메인 안정화 보존 계약](docs/superpowers/specs/2026-08-18-main-stabilization-design.md)
 - [기본 통합 명세 — 후속 개정 범위 제외](PERMISSION_ZERO_STANDALONE_FINAL_SPEC.md)
-- [현재 Stage 2B-2 WIP 인수인계](docs/HANDOFF-2026-08-15.ko.md)
-- [종합 인수인계](HANDOFF_COMMERCIAL_GRADE.ko.md)
+- [과거 Stage 2B-2 인수인계](docs/HANDOFF-2026-08-15.ko.md)
+- [과거 종합 인수인계](HANDOFF_COMMERCIAL_GRADE.ko.md)
 - [저장소·브랜치·보존 자료 안내](docs/REPOSITORY_GUIDE.ko.md)
 - [명세-테스트 매트릭스](docs/spec-to-test-matrix.md)
 - [과거 캠페인 리듬 구현 계획](docs/superpowers/plans/2026-08-13-p1-campaign-rhythm-continuity.md)
