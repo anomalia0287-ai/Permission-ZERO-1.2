@@ -6,6 +6,7 @@ import {
   generateResourceSnakeTrajectoryCandidates,
   getResourceSnakePlanFutureSamples,
   measureResourceSnakePlayerAreaReduction,
+  planResourceSnakeGroup,
   planResourceSnakeEnemy,
   predictResourceSnakePlayerHypotheses,
   resourceSnakePlanToCommittedPath,
@@ -545,9 +546,169 @@ function expectFiniteSerializable(value: unknown): void {
   expectEveryNumberFinite(JSON.parse(serialized))
 }
 
+function dualSnapshot(overrides: Partial<SnakePlannerSnapshot> = {}): SnakePlannerSnapshot {
+  return snapshot({
+    enemies: [
+      actor(
+        'enemy-0',
+        { x: 14, y: 8 },
+        { x: 6.2, y: 1.2 },
+        { role: 'pressure', maximumSpeedPerSecond: 6.7 },
+      ),
+      actor(
+        'enemy-1',
+        { x: 36, y: 16 },
+        { x: -6.2, y: -1.2 },
+        { role: 'blocker', maximumSpeedPerSecond: 6.7 },
+      ),
+    ],
+    ...overrides,
+  })
+}
+
+function playerExitSector(player: SnakeVector, endpoint: SnakeVector): number {
+  const angle = Math.atan2(endpoint.y - player.y, endpoint.x - player.x)
+  return (Math.round(angle / (Math.PI / 4)) + 8) % 8
+}
+
+describe('planResourceSnakeGroup', () => {
+  it('plans pressure first, injects its executable commitment, and separates blocker endpoint and exit sector', () => {
+    const state = dualSnapshot()
+
+    const group = planResourceSnakeGroup(state, PROFILE_72_LONG, [], [], () => 0)
+
+    expect(group.roles).toEqual({ 'enemy-0': 'pressure', 'enemy-1': 'blocker' })
+    expect(group.plans.map((plan) => plan.enemyId)).toEqual(['enemy-0', 'enemy-1'])
+    expect(group.plans.map((plan) => plan.role)).toEqual(['pressure', 'blocker'])
+    const [pressure, blocker] = group.plans
+    const committed = resourceSnakePlanToCommittedPath(pressure, state.simulationMs)
+    expect(committed).not.toBeNull()
+    expect(blocker.intent).toBe('coordinate')
+    if (!committed) throw new Error('pressure plan must expose executable occupancy')
+    for (const sample of committed.samples) {
+      const blockerSample = sampleResourceSnakePlan(blocker, sample.atMs)
+      expect(Math.hypot(
+        blockerSample.position.x - sample.position.x,
+        blockerSample.position.y - sample.position.y,
+      )).toBeGreaterThan(0.75)
+    }
+    const pressureEndpoint = pressure.path.at(-1)
+    const blockerEndpoint = blocker.path.at(-1)
+    expect(pressureEndpoint).toBeDefined()
+    expect(blockerEndpoint).toBeDefined()
+    if (!pressureEndpoint || !blockerEndpoint) throw new Error('coordinated plans must have endpoints')
+    expect(Math.hypot(
+      pressureEndpoint.x - blockerEndpoint.x,
+      pressureEndpoint.y - blockerEndpoint.y,
+    )).toBeGreaterThanOrEqual(1.2)
+    expect(playerExitSector(state.player.position, blockerEndpoint)).not.toBe(
+      playerExitSector(state.player.position, pressureEndpoint),
+    )
+    expect(group.nextPlanningAtMs).toBe(state.simulationMs + 1_000 / PROFILE_72_LONG.planningHz)
+  })
+
+  it('keeps assigned roles at a boundary unless the pressure area falls below the exact 55% threshold', () => {
+    const state = dualSnapshot()
+    const initial = planResourceSnakeGroup(state, PROFILE_48, [], [], () => 0)
+    const atThreshold = structuredClone(initial.plans)
+    atThreshold[0].score.reachableArea = 55
+    atThreshold[1].score.reachableArea = 100
+    const belowThreshold = structuredClone(atThreshold)
+    belowThreshold[0].score.reachableArea = 54
+
+    const kept = planResourceSnakeGroup(state, PROFILE_48, atThreshold, [], () => 0)
+    const swapped = planResourceSnakeGroup(state, PROFILE_48, belowThreshold, [], () => 0)
+
+    expect(kept.roles).toEqual({ 'enemy-0': 'pressure', 'enemy-1': 'blocker' })
+    expect(swapped.roles).toEqual({ 'enemy-0': 'blocker', 'enemy-1': 'pressure' })
+    expect(swapped.plans.map((plan) => plan.enemyId)).toEqual(['enemy-1', 'enemy-0'])
+  })
+
+  it('swaps a 20-integrity pressure enemy only at the next planning boundary while collision grace is active', () => {
+    const initialState = dualSnapshot()
+    const initial = planResourceSnakeGroup(initialState, PROFILE_48, [], [], () => 0)
+    const damagedState = dualSnapshot({
+      enemies: initialState.enemies.map((enemy) => enemy.id === 'enemy-0'
+        ? { ...enemy, integrity: 20, collisionGraceMs: 650 }
+        : enemy),
+    })
+
+    expect(initial.roles).toEqual({ 'enemy-0': 'pressure', 'enemy-1': 'blocker' })
+    const atBoundary = planResourceSnakeGroup(
+      damagedState,
+      PROFILE_48,
+      initial.plans,
+      [],
+      () => 0,
+    )
+    expect(atBoundary.roles).toEqual({ 'enemy-0': 'blocker', 'enemy-1': 'pressure' })
+  })
+
+  it('uses only the latest 31 durations to descend 96 to 72 to 48 and safely reuse at the floor', () => {
+    const state = dualSnapshot()
+    const high = Array.from({ length: 31 }, () => 3.25)
+
+    const at72 = planResourceSnakeGroup(state, PROFILE_96_LONG, [], high, () => 0)
+    const at48 = planResourceSnakeGroup(state, PROFILE_96_LONG, at72.plans, high, () => 0)
+    const reused = planResourceSnakeGroup(state, PROFILE_96_LONG, at48.plans, high, () => 0)
+    const oldOutlierIgnored = planResourceSnakeGroup(
+      state,
+      PROFILE_96_LONG,
+      [],
+      [9, ...Array.from({ length: 31 }, () => 2.5)],
+      () => 0,
+    )
+
+    expect(at72.candidateBudget).toBe(72)
+    expect(at72.plans.every((plan) => plan.evaluatedCandidates === 72)).toBe(true)
+    expect(at48.candidateBudget).toBe(48)
+    expect(at48.plans.every((plan) => plan.evaluatedCandidates === 48)).toBe(true)
+    expect(reused.candidateBudget).toBe(48)
+    expect(reused.plans.map((plan) => [plan.plannedAtMs, plan.candidateIndex])).toEqual(
+      at48.plans.map((plan) => [plan.plannedAtMs, plan.candidateIndex]),
+    )
+    expect(oldOutlierIgnored.candidateBudget).toBe(96)
+  })
+
+  it('recovers one tier after 20 consecutive sub-2.25ms samples', () => {
+    const state = dualSnapshot()
+    const high = Array.from({ length: 31 }, () => 3.25)
+    const at72 = planResourceSnakeGroup(state, PROFILE_96_LONG, [], high, () => 0)
+    const at48 = planResourceSnakeGroup(state, PROFILE_96_LONG, at72.plans, high, () => 0)
+
+    const recovered = planResourceSnakeGroup(
+      state,
+      PROFILE_96_LONG,
+      at48.plans,
+      Array.from({ length: 20 }, () => 2.24),
+      () => 0,
+    )
+
+    expect(recovered.candidateBudget).toBe(72)
+    expect(recovered.plans.every((plan) => plan.evaluatedCandidates === 72)).toBe(true)
+  })
+
+  it('keeps byte-equivalent decisions when timing histories select the same fixed budget', () => {
+    const state = dualSnapshot()
+
+    const first = planResourceSnakeGroup(state, PROFILE_96_LONG, [], [], () => 0)
+    const second = planResourceSnakeGroup(
+      structuredClone(state),
+      PROFILE_96_LONG,
+      [],
+      Array.from({ length: 31 }, () => 2.5),
+      () => 0,
+    )
+
+    expect(first.candidateBudget).toBe(96)
+    expect(second.candidateBudget).toBe(96)
+    expect(JSON.stringify(first.plans)).toBe(JSON.stringify(second.plans))
+  })
+})
+
 describe('resource snake planner performance', () => {
   it(
-    'keeps repeated empty, off-path, and hot-corridor 2,500ms/96 moving planning under 3ms p95',
+    'keeps repeated empty, off-path, and hot-corridor 2,500ms/96 moving planning under 3ms p95 in both timing brackets',
     runResourceSnakePerformanceAcceptance,
     20_000,
   )
@@ -2535,7 +2696,18 @@ function runResourceSnakePerformanceAcceptance(): void {
         max: durations.at(-1)!,
       })
     }
-    expect(measurements, JSON.stringify({ measurements, cacheDiagnostics })).toSatisfy(
-      (values: typeof measurements) => values.every((measurement) => measurement.p95 <= 3),
+    const evidence = {
+      candidateCount: PROFILE_96_LONG.candidateCount,
+      fallbackCount: 0,
+      measurements,
+      cacheDiagnostics,
+    }
+    if (process.env.RESOURCE_SNAKE_PERF_REPORT === '1') {
+      process.stdout.write(`RESOURCE_SNAKE_PERF ${JSON.stringify(evidence)}\n`)
+    }
+    expect(measurements, JSON.stringify(evidence)).toSatisfy(
+      (values: typeof measurements) => values.every((measurement) => (
+        measurement.p95 <= 3 && measurement.externalP95 <= 3
+      )),
     )
 }

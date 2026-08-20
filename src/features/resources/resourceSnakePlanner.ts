@@ -92,6 +92,14 @@ export interface SnakePlan {
   fallback: boolean
 }
 
+export interface SnakeGroupPlan {
+  plans: SnakePlan[]
+  roles: Record<string, SnakeEnemyRole>
+  nextPlanningAtMs: number
+  candidateBudget: number
+  elapsedMs: number
+}
+
 export interface SnakePlanSample {
   atMs: number
   cursor: number
@@ -139,6 +147,9 @@ const LOW_INTEGRITY_CLEARANCE_RESERVE = 1.75
 const TWO_PI = Math.PI * 2
 const EPSILON = 1e-9
 const SPEED_SCALES = [1, 0.5, 0] as const
+const ADAPTIVE_CANDIDATE_BUDGETS = [48, 72, 96] as const
+const GROUP_ENDPOINT_SEPARATION = 1.2
+const GROUP_EXIT_SECTOR_COUNT = 8
 const INTENTS: readonly SnakeIntent[] = [
   'observe', 'pursue', 'cutoff', 'herd', 'escape', 'coordinate', 'defeated',
 ]
@@ -171,8 +182,8 @@ interface InternalTrajectoryCandidate extends SnakeTrajectoryCandidate {
   steeringCost: number
   bounds: PathBounds
   rawBounds: PathBounds
-  localDirections?: readonly SnakeVector[]
-  localRawPath?: readonly SnakeVector[]
+  localDirectionCoordinates?: Float64Array
+  localRawPathCoordinates?: Float64Array
   transformOrigin?: SnakeVector
   transformCosine?: number
   transformSine?: number
@@ -185,6 +196,22 @@ interface InternalTrajectoryCandidate extends SnakeTrajectoryCandidate {
 }
 
 type ScoredCandidate = InternalTrajectoryCandidate
+
+interface LocalTrajectoryTemplate {
+  candidateIndex: number
+  speedScale: 0 | 0.5 | 1
+  directionCoordinates: Float64Array
+  rawPathCoordinates: Float64Array
+  steeringCost: number
+  rawBounds: PathBounds
+}
+
+interface GroupCandidateConstraints {
+  endpointSeparationFrom: SnakeVector
+  endpointSeparation: number
+  exitSectorOrigin: SnakeVector
+  forbiddenExitSector: number
+}
 
 interface RolloutResult {
   path: SnakeVector[]
@@ -263,7 +290,7 @@ interface OccupancyBaseCache {
 }
 
 const gridWorkspacePool = new Map<string, GridWorkspace[]>()
-const localTrajectoryTemplateCache = new Map<string, InternalTrajectoryCandidate[]>()
+const localTrajectoryTemplateCache = new Map<string, LocalTrajectoryTemplate[]>()
 const trajectoryBufferPool = new Map<string, InternalTrajectoryCandidate[][]>()
 const playerHypothesisPool = new Map<number, SnakePlayerHypotheses[]>()
 const relevantHistoryPool: SnakePlayerHistorySample[][] = []
@@ -359,6 +386,26 @@ function magnitude(vector: SnakeVector): number {
 
 function distance(left: SnakeVector, right: SnakeVector): number {
   return Math.hypot(left.x - right.x, left.y - right.y)
+}
+
+function groupExitSector(origin: SnakeVector, endpoint: SnakeVector): number {
+  const angle = Math.atan2(endpoint.y - origin.y, endpoint.x - origin.x)
+  return (
+    Math.round(angle / (TWO_PI / GROUP_EXIT_SECTOR_COUNT))
+    + GROUP_EXIT_SECTOR_COUNT
+  ) % GROUP_EXIT_SECTOR_COUNT
+}
+
+function satisfiesGroupCandidateConstraints(
+  endpoint: SnakeVector | undefined,
+  constraints: GroupCandidateConstraints | undefined,
+): boolean {
+  if (!constraints) return true
+  return !!endpoint
+    && distance(endpoint, constraints.endpointSeparationFrom) + EPSILON
+      >= constraints.endpointSeparation
+    && groupExitSector(constraints.exitSectorOrigin, endpoint)
+      !== constraints.forbiddenExitSector
 }
 
 function normalize(vector: SnakeVector, fallback: SnakeVector = { x: 0, y: 0 }): SnakeVector {
@@ -926,8 +973,8 @@ function generateInternalCandidates(
     candidate.candidateIndex = template.candidateIndex
     candidate.speedScale = template.speedScale
     candidate.steeringCost = template.steeringCost
-    candidate.localDirections = template.directions
-    candidate.localRawPath = template.rawPath
+    candidate.localDirectionCoordinates = template.directionCoordinates
+    candidate.localRawPathCoordinates = template.rawPathCoordinates
     candidate.transformOrigin = enemy.position
     candidate.transformCosine = cosine
     candidate.transformSine = sine
@@ -949,9 +996,13 @@ function generateInternalCandidates(
     candidate.bounds.maximumY = field
       ? clamp(candidate.rawBounds.maximumY, field.padding, field.height - field.padding)
       : candidate.rawBounds.maximumY
-    const endpoint = template.rawPath[stepCount - 1]
-    const endpointX = enemy.position.x + endpoint.x * cosine - endpoint.y * sine
-    const endpointY = enemy.position.y + endpoint.x * sine + endpoint.y * cosine
+    const endpointOffset = (stepCount - 1) * 2
+    const endpointX = enemy.position.x
+      + template.rawPathCoordinates[endpointOffset] * cosine
+      - template.rawPathCoordinates[endpointOffset + 1] * sine
+    const endpointY = enemy.position.y
+      + template.rawPathCoordinates[endpointOffset] * sine
+      + template.rawPathCoordinates[endpointOffset + 1] * cosine
     candidate.rawPath[stepCount - 1].x = endpointX
     candidate.rawPath[stepCount - 1].y = endpointY
     candidate.path[stepCount - 1].x = field
@@ -997,18 +1048,20 @@ function materializeCandidatePathThrough(
   inclusiveStep: number,
 ): void {
   if (candidate.pathMaterialized) return
-  const localRawPath = candidate.localRawPath
+  const localRawPathCoordinates = candidate.localRawPathCoordinates
   const origin = candidate.transformOrigin
   const cosine = candidate.transformCosine
   const sine = candidate.transformSine
-  if (!localRawPath || !origin || cosine === undefined || sine === undefined) return
+  if (!localRawPathCoordinates || !origin || cosine === undefined || sine === undefined) return
   const field = candidate.transformField
   const until = Math.min(candidate.path.length, inclusiveStep + 1)
   const from = candidate.pathMaterializedSteps ?? 0
   for (let step = from; step < until; step += 1) {
-    const point = localRawPath[step]
-    const rawX = origin.x + point.x * cosine - point.y * sine
-    const rawY = origin.y + point.x * sine + point.y * cosine
+    const offset = step * 2
+    const localX = localRawPathCoordinates[offset]
+    const localY = localRawPathCoordinates[offset + 1]
+    const rawX = origin.x + localX * cosine - localY * sine
+    const rawY = origin.y + localX * sine + localY * cosine
     candidate.rawPath[step].x = rawX
     candidate.rawPath[step].y = rawY
     candidate.path[step].x = field ? clamp(rawX, field.padding, field.width - field.padding) : rawX
@@ -1025,14 +1078,16 @@ function materializeCandidatePath(candidate: InternalTrajectoryCandidate): void 
 function materializeCandidate(candidate: InternalTrajectoryCandidate): void {
   if (candidate.materialized) return
   materializeCandidatePath(candidate)
-  const localDirections = candidate.localDirections
+  const localDirectionCoordinates = candidate.localDirectionCoordinates
   const cosine = candidate.transformCosine
   const sine = candidate.transformSine
-  if (!localDirections || cosine === undefined || sine === undefined) return
+  if (!localDirectionCoordinates || cosine === undefined || sine === undefined) return
   for (let step = 0; step < candidate.directions.length; step += 1) {
-    const direction = localDirections[step]
-    candidate.directions[step].x = direction.x * cosine - direction.y * sine
-    candidate.directions[step].y = direction.x * sine + direction.y * cosine
+    const offset = step * 2
+    const localX = localDirectionCoordinates[offset]
+    const localY = localDirectionCoordinates[offset + 1]
+    candidate.directions[step].x = localX * cosine - localY * sine
+    candidate.directions[step].y = localX * sine + localY * cosine
   }
   candidate.materialized = true
 }
@@ -1071,9 +1126,9 @@ function generateLocalTrajectoryTemplates(
   profile: SnakePlannerProfile,
   headingCount: number,
   stepCount: number,
-): InternalTrajectoryCandidate[] {
+): LocalTrajectoryTemplate[] {
   const maximumTurn = RESOURCE_SNAKE_MAX_TURN_RADIANS_PER_SECOND * profile.rolloutStepMs / 1_000
-  const result: InternalTrajectoryCandidate[] = []
+  const result: LocalTrajectoryTemplate[] = []
   for (let headingIndex = 0; headingIndex < headingCount; headingIndex += 1) {
     const targetHeading = headingIndex / headingCount * TWO_PI
     for (let speedIndex = 0; speedIndex < SPEED_SCALES.length; speedIndex += 1) {
@@ -1097,16 +1152,22 @@ function generateLocalTrajectoryTemplates(
         speedScale,
         profile.rolloutStepMs,
       )
+      const directionCoordinates = new Float64Array(stepCount * 2)
+      const rawPathCoordinates = new Float64Array(stepCount * 2)
+      for (let step = 0; step < stepCount; step += 1) {
+        const offset = step * 2
+        directionCoordinates[offset] = directions[step].x
+        directionCoordinates[offset + 1] = directions[step].y
+        rawPathCoordinates[offset] = rollout.rawPath[step].x
+        rawPathCoordinates[offset + 1] = rollout.rawPath[step].y
+      }
       result.push({
         candidateIndex: headingIndex * 3 + speedIndex,
         speedScale,
-        directions,
-        path: rollout.path,
-        rawPath: rollout.rawPath,
+        directionCoordinates,
+        rawPathCoordinates,
         steeringCost,
-        bounds: pathBounds({ x: 0, y: 0 }, rollout.path),
         rawBounds: pathBounds({ x: 0, y: 0 }, rollout.rawPath),
-        score: emptyScore(),
       })
     }
   }
@@ -2359,21 +2420,24 @@ function markInternalCandidateTrail(
   workspace: GridWorkspace,
   candidate: InternalTrajectoryCandidate,
 ): number {
-  const localRawPath = candidate.localRawPath
+  const localRawPathCoordinates = candidate.localRawPathCoordinates
   const origin = candidate.transformOrigin
   const cosine = candidate.transformCosine
   const sine = candidate.transformSine
-  if (!localRawPath || !origin || cosine === undefined || sine === undefined) {
+  if (!localRawPathCoordinates || !origin || cosine === undefined || sine === undefined) {
     return markCandidateTrail(workspace, candidate.path)
   }
   const field = candidate.transformField
   let recordedCount = 0
   let priorX = Infinity
   let priorY = Infinity
-  for (let index = 0; index + 1 < localRawPath.length; index += 1) {
-    const point = localRawPath[index]
-    const rawX = origin.x + point.x * cosine - point.y * sine
-    const rawY = origin.y + point.x * sine + point.y * cosine
+  const stepCount = localRawPathCoordinates.length / 2
+  for (let index = 0; index + 1 < stepCount; index += 1) {
+    const offset = index * 2
+    const localX = localRawPathCoordinates[offset]
+    const localY = localRawPathCoordinates[offset + 1]
+    const rawX = origin.x + localX * cosine - localY * sine
+    const rawY = origin.y + localX * sine + localY * cosine
     const x = field ? clamp(rawX, field.padding, field.width - field.padding) : rawX
     const y = field ? clamp(rawY, field.padding, field.height - field.padding) : rawY
     if (x === priorX && y === priorY) continue
@@ -3534,12 +3598,13 @@ function earliestCertainFatalMs(
   return earliest
 }
 
-export function planResourceSnakeEnemy(
+function planResourceSnakeEnemyInternal(
   snapshot: unknown,
   enemyId: SnakeId,
   profile: SnakePlannerProfile,
   previousPlan: SnakePlan | null,
   clock: () => number = () => 0,
+  groupConstraints?: GroupCandidateConstraints,
 ): SnakePlan {
   const startedAt = safeClockValue(clock)
   if (!enemyIdValid(enemyId)) {
@@ -3588,6 +3653,7 @@ export function planResourceSnakeEnemy(
       authoritative
       && authoritativeCandidateIndex !== null
       && (fatalInMs === null || fatalInMs > COMMIT_FATAL_OVERRIDE_MS + EPSILON)
+      && satisfiesGroupCandidateConstraints(previousPlan.path.at(-1), groupConstraints)
     ) {
       const sample = sampleResourceSnakePlan(previousPlan, snapshot.simulationMs)
       const retained = cloneRetainedPlan(
@@ -3647,6 +3713,7 @@ export function planResourceSnakeEnemy(
     // it win; this preserves exact comparison while avoiding redundant floods.
     let contenders: ScoredCandidate[] = []
     for (const candidate of scored) {
+      if (!satisfiesGroupCandidateConstraints(candidate.path.at(-1), groupConstraints)) continue
       if (candidateSurvives(
         snapshot,
         enemy,
@@ -3661,6 +3728,9 @@ export function planResourceSnakeEnemy(
       }
     }
     if (contenders.length === 0) {
+      if (groupConstraints) {
+        return stoppedPlan(snapshot, enemyId, enemy, startedAt, clock, 'coordinate', true)
+      }
       return safeFallback(snapshot, enemyId, profile, enemy, startedAt, clock)
     }
 
@@ -3746,5 +3816,192 @@ export function planResourceSnakeEnemy(
   }
   } catch {
     return stoppedPlan(null, enemyId, undefined, startedAt, clock, 'escape', true)
+  }
+}
+
+export function planResourceSnakeEnemy(
+  snapshot: unknown,
+  enemyId: SnakeId,
+  profile: SnakePlannerProfile,
+  previousPlan: SnakePlan | null,
+  clock: () => number = () => 0,
+): SnakePlan {
+  return planResourceSnakeEnemyInternal(snapshot, enemyId, profile, previousPlan, clock)
+}
+
+function compareEnemyIds(left: SnakePlannerActor, right: SnakePlannerActor): number {
+  if (left.id === right.id) return 0
+  return left.id < right.id ? -1 : 1
+}
+
+function previousCandidateBudget(
+  profile: SnakePlannerProfile,
+  previousPlans: readonly SnakePlan[],
+): 48 | 72 | 96 {
+  const legal = previousPlans
+    .map((plan) => plan.evaluatedCandidates)
+    .filter((count): count is 48 | 72 | 96 => (
+      ADAPTIVE_CANDIDATE_BUDGETS.includes(count as 48 | 72 | 96)
+      && count <= profile.candidateCount
+    ))
+  return legal.length > 0 && legal.every((count) => count === legal[0])
+    ? legal[0]
+    : profile.candidateCount
+}
+
+function adaptiveCandidateBudget(
+  profile: SnakePlannerProfile,
+  previousPlans: readonly SnakePlan[],
+  timingHistoryMs: readonly number[],
+): 48 | 72 | 96 {
+  const current = previousCandidateBudget(profile, previousPlans)
+  const maximumIndex = ADAPTIVE_CANDIDATE_BUDGETS.indexOf(profile.candidateCount)
+  let currentIndex = Math.min(
+    maximumIndex,
+    ADAPTIVE_CANDIDATE_BUDGETS.indexOf(current),
+  )
+  const durations: number[] = []
+  const start = Math.max(0, timingHistoryMs.length - 31)
+  for (let index = start; index < timingHistoryMs.length; index += 1) {
+    const duration = timingHistoryMs[index]
+    if (finite(duration) && duration >= 0) durations.push(duration)
+  }
+  const recoveryWindow = durations.slice(-20)
+  if (
+    currentIndex < maximumIndex
+    && recoveryWindow.length === 20
+    && recoveryWindow.every((duration) => duration < 2.25)
+  ) {
+    currentIndex += 1
+  } else if (durations.length > 0) {
+    const ordered = durations.slice().sort((left, right) => left - right)
+    const p95 = ordered[Math.ceil(ordered.length * 0.95) - 1]
+    if (p95 > 3 && currentIndex > 0) currentIndex -= 1
+  }
+  return ADAPTIVE_CANDIDATE_BUDGETS[currentIndex]
+}
+
+function roleOwnersAtPlanningBoundary(
+  snapshot: SnakePlannerSnapshot,
+  previousPlans: readonly SnakePlan[],
+): { pressure: SnakePlannerActor | null; blocker: SnakePlannerActor | null } {
+  const enemies = [...snapshot.enemies].sort(compareEnemyIds)
+  if (enemies.length === 0) return { pressure: null, blocker: null }
+  if (enemies.length === 1) return { pressure: enemies[0], blocker: null }
+  const byId = new Map(enemies.map((enemy) => [enemy.id, enemy]))
+  const priorPressure = previousPlans.find((plan) => plan.role === 'pressure')
+  const priorBlocker = previousPlans.find((plan) => plan.role === 'blocker')
+  let pressure = priorPressure ? byId.get(priorPressure.enemyId) : undefined
+  let blocker = priorBlocker ? byId.get(priorBlocker.enemyId) : undefined
+  if (!pressure || !blocker || pressure.id === blocker.id) {
+    pressure = enemies.find((enemy) => enemy.role === 'pressure') ?? enemies[0]
+    blocker = enemies.find((enemy) => (
+      enemy.id !== pressure!.id && enemy.role === 'blocker'
+    )) ?? enemies.find((enemy) => enemy.id !== pressure!.id)!
+  }
+  const pressurePlan = previousPlans.find((plan) => plan.enemyId === pressure!.id)
+  const blockerPlan = previousPlans.find((plan) => plan.enemyId === blocker!.id)
+  const pressureHasAreaDisadvantage = !!pressurePlan
+    && !!blockerPlan
+    && finite(pressurePlan.score.reachableArea)
+    && finite(blockerPlan.score.reachableArea)
+    && blockerPlan.score.reachableArea > 0
+    && pressurePlan.score.reachableArea / blockerPlan.score.reachableArea < 0.55
+  const pressureNeedsRelief = pressure.collisionGraceMs > 0 && pressure.integrity <= 20
+  if (pressureHasAreaDisadvantage || pressureNeedsRelief) {
+    return { pressure: blocker, blocker: pressure }
+  }
+  return { pressure, blocker }
+}
+
+export function planResourceSnakeGroup(
+  snapshot: SnakePlannerSnapshot,
+  profile: SnakePlannerProfile,
+  previousPlans: readonly SnakePlan[],
+  timingHistoryMs: readonly number[],
+  clock: () => number = () => 0,
+): SnakeGroupPlan {
+  const startedAt = safeClockValue(clock)
+  try {
+    if (!snapshotIsValid(snapshot) || !profileIsValid(profile)) {
+      return {
+        plans: [],
+        roles: {},
+        nextPlanningAtMs: 0,
+        candidateBudget: 48,
+        elapsedMs: elapsedSince(startedAt, clock),
+      }
+    }
+    const candidateBudget = adaptiveCandidateBudget(profile, previousPlans, timingHistoryMs)
+    const adaptiveProfile = { ...profile, candidateCount: candidateBudget } as SnakePlannerProfile
+    const owners = roleOwnersAtPlanningBoundary(snapshot, previousPlans)
+    const roles: Record<string, SnakeEnemyRole> = {}
+    for (const enemy of [...snapshot.enemies].sort(compareEnemyIds)) {
+      roles[enemy.id] = enemy.id === owners.pressure?.id ? 'pressure' : 'blocker'
+    }
+    const assignedSnapshot: SnakePlannerSnapshot = {
+      ...snapshot,
+      enemies: snapshot.enemies.map((enemy) => ({ ...enemy, role: roles[enemy.id] })),
+    }
+    const previousFor = (enemyId: SnakeId) => (
+      previousPlans.find((plan) => plan.enemyId === enemyId) ?? null
+    )
+    const plans: SnakePlan[] = []
+    if (owners.pressure) {
+      const pressurePlan = planResourceSnakeEnemyInternal(
+        assignedSnapshot,
+        owners.pressure.id,
+        adaptiveProfile,
+        previousFor(owners.pressure.id),
+        clock,
+      )
+      plans.push(pressurePlan)
+      if (owners.blocker) {
+        const pressureCommitment = resourceSnakePlanToCommittedPath(
+          pressurePlan,
+          snapshot.simulationMs,
+        )
+        const committedAllyPaths = assignedSnapshot.committedAllyPaths.filter(
+          (committed) => committed.enemyId !== owners.pressure!.id,
+        )
+        if (pressureCommitment) committedAllyPaths.push(pressureCommitment)
+        const blockerSnapshot: SnakePlannerSnapshot = {
+          ...assignedSnapshot,
+          committedAllyPaths,
+        }
+        const pressureEndpoint = pressurePlan.path.at(-1)
+        const constraints = pressureEndpoint
+          ? {
+              endpointSeparationFrom: pressureEndpoint,
+              endpointSeparation: GROUP_ENDPOINT_SEPARATION,
+              exitSectorOrigin: snapshot.player.position,
+              forbiddenExitSector: groupExitSector(snapshot.player.position, pressureEndpoint),
+            }
+          : undefined
+        plans.push(planResourceSnakeEnemyInternal(
+          blockerSnapshot,
+          owners.blocker.id,
+          adaptiveProfile,
+          previousFor(owners.blocker.id),
+          clock,
+          constraints,
+        ))
+      }
+    }
+    return {
+      plans,
+      roles,
+      nextPlanningAtMs: snapshot.simulationMs + 1_000 / profile.planningHz,
+      candidateBudget,
+      elapsedMs: elapsedSince(startedAt, clock),
+    }
+  } catch {
+    return {
+      plans: [],
+      roles: {},
+      nextPlanningAtMs: 0,
+      candidateBudget: 48,
+      elapsedMs: elapsedSince(startedAt, clock),
+    }
   }
 }
