@@ -55,6 +55,7 @@ export interface SnakeActor {
   velocity: SnakeVector
   integrity: number
   maximumIntegrity: number
+  maximumSpeedPerSecond: number
   collisionGraceMs: number
   phase: SnakeActorPhase
   trail: SnakeTrailDot[]
@@ -210,6 +211,7 @@ function createActor(
     velocity: zeroVector(),
     integrity: 0,
     maximumIntegrity: 0,
+    maximumSpeedPerSecond: RESOURCE_SNAKE_CONFIG.playerMaximumSpeedPerSecond,
     collisionGraceMs: 0,
     phase: 'spawning',
     trail: [],
@@ -261,6 +263,7 @@ export function deployResourceSnakeRound(
       role: enemy.role,
       integrity: enemy.maximumIntegrity,
       maximumIntegrity: enemy.maximumIntegrity,
+      maximumSpeedPerSecond: enemy.maximumSpeedPerSecond,
       phase: 'spawning',
     }),
   )
@@ -340,7 +343,7 @@ function advanceActor(
   simulationMs: number,
 ): SnakeActor {
   const intent = normalize(direction)
-  const maximumSpeed = RESOURCE_SNAKE_CONFIG.playerMaximumSpeedPerSecond
+  const maximumSpeed = actor.maximumSpeedPerSecond
   const targetVelocity = {
     x: intent.x * maximumSpeed,
     y: intent.y * maximumSpeed,
@@ -656,7 +659,9 @@ function resolveCollisions(state: ResourceSnakeRoundState, stepMs: number): Reso
       const died = {
         ...actor,
         phase: 'exploding' as const,
-        reservationStatus: actor.kind === 'enemy' ? 'pending' as const : actor.reservationStatus,
+        reservationStatus: actor.kind === 'enemy' && actor.reservationStatus === 'active'
+          ? 'pending' as const
+          : actor.reservationStatus,
       }
       next = updateActor(next, died)
       next = appendEvent(next, {

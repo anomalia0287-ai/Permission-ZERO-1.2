@@ -12,6 +12,7 @@ import {
   type SnakeRoundSetup,
   type SnakeTrailDot,
 } from './resourceSnakeRuntime'
+import { reconcileSnakeReservations } from './resourceSnakeEncounter'
 
 const input: SnakeFrameInput = {
   playerDirection: { x: 0, y: 0 },
@@ -244,6 +245,29 @@ function collisionEvents(state: ResourceSnakeRoundState) {
 }
 
 describe('resource snake swept collision ownership and lifecycle', () => {
+  it('does not request a reward for an enemy reservation cancelled after deployment', () => {
+    const state = activeCollisionState()
+    const cancelled = reconcileSnakeReservations(state, new Set<string>())
+    const prepared: ResourceSnakeRoundState = {
+      ...cancelled,
+      player: fastActor(cancelled.player, { x: 42, y: 12 }, { x: 0, y: 0 }, [
+        matureDot(1, 22, 12, cancelled.simulationMs),
+      ]),
+      enemies: [{
+        ...fastActor(cancelled.enemies[0], { x: 20, y: 12 }, { x: 500, y: 0 }),
+        integrity: 20,
+      }],
+    }
+
+    const next = oneStep(prepared, {
+      ...input,
+      enemyDirections: { 'enemy-1': { x: 1, y: 0 } },
+    })
+
+    expect(next.enemies[0]).toMatchObject({ reservationStatus: 'cancelled', phase: 'exploding' })
+    expect(next.effects).toEqual([])
+  })
+
   it('sweeps a fast head through its mature own tail, burns the gap, separates, and grants grace', () => {
     const state = activeCollisionState()
     const dot = matureDot(1, 22, 12, state.simulationMs)

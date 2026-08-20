@@ -1,0 +1,303 @@
+import {
+  COMPANY_CATEGORIES,
+  type CompanyCategory,
+  type ResourceState,
+} from '../../game/model'
+import type {
+  ResourceSnakeRoundState,
+  SnakeEnemySetup,
+  SnakeRoundSetup,
+} from './resourceSnakeRuntime'
+
+export const SNAKE_CATEGORY_COLORS = {
+  reasoning: '#f06a43',
+  memory: '#4f8df7',
+  fluency: '#e8bd59',
+} as const
+
+export interface SnakeResourceCandidate {
+  blockId: string
+  origin: CompanyCategory
+  contribution: 'normal' | 'disguised'
+  hiddenBomb: boolean
+}
+
+export interface SnakeShuffleBagState {
+  cycle: number
+  remainingCategories: CompanyCategory[]
+}
+
+export interface CreateSnakeEncounterInput {
+  campaignSeed: string
+  roundOrdinal: number
+  successfulDeposits: number
+  candidates: readonly SnakeResourceCandidate[]
+  bag: SnakeShuffleBagState
+}
+
+export interface SnakePlannerProfile {
+  lookaheadMs: 1_000 | 1_400 | 1_600 | 2_000 | 2_500
+  candidateCount: 48 | 72 | 96
+  planningHz: 6 | 7 | 8 | 9 | 10
+  commitMs: 220 | 260 | 320 | 360 | 420
+  rolloutStepMs: 50
+}
+
+export interface SnakeEncounterResult {
+  setup: SnakeRoundSetup | null
+  bag: SnakeShuffleBagState
+  disabledReason: 'no-eligible-resource' | null
+  plannerProfile: SnakePlannerProfile
+}
+
+interface SnakeDifficulty {
+  enemyCount: 1 | 2
+  maximumIntegrity: 30 | 35 | 50 | 65 | 80
+  maximumSpeedPerSecond: number
+  plannerProfile: SnakePlannerProfile
+}
+
+const DIFFICULTIES: readonly SnakeDifficulty[] = [
+  {
+    enemyCount: 1, maximumIntegrity: 30, maximumSpeedPerSecond: 6.2,
+    plannerProfile: { lookaheadMs: 1_000, candidateCount: 48, planningHz: 6, commitMs: 420, rolloutStepMs: 50 },
+  },
+  {
+    enemyCount: 1, maximumIntegrity: 50, maximumSpeedPerSecond: 6.5,
+    plannerProfile: { lookaheadMs: 1_400, candidateCount: 72, planningHz: 7, commitMs: 360, rolloutStepMs: 50 },
+  },
+  {
+    enemyCount: 2, maximumIntegrity: 35, maximumSpeedPerSecond: 6.7,
+    plannerProfile: { lookaheadMs: 1_600, candidateCount: 72, planningHz: 8, commitMs: 320, rolloutStepMs: 50 },
+  },
+  {
+    enemyCount: 1, maximumIntegrity: 65, maximumSpeedPerSecond: 7,
+    plannerProfile: { lookaheadMs: 2_000, candidateCount: 96, planningHz: 9, commitMs: 260, rolloutStepMs: 50 },
+  },
+  {
+    enemyCount: 1, maximumIntegrity: 80, maximumSpeedPerSecond: 7.2,
+    plannerProfile: { lookaheadMs: 2_500, candidateCount: 96, planningHz: 10, commitMs: 220, rolloutStepMs: 50 },
+  },
+]
+
+function hash(value: string): number {
+  let result = 0x811c9dc5
+  for (let index = 0; index < value.length; index += 1) {
+    result ^= value.charCodeAt(index)
+    result = Math.imul(result, 0x01000193)
+  }
+  return result >>> 0
+}
+
+function isCompanyCategory(value: unknown): value is CompanyCategory {
+  return COMPANY_CATEGORIES.includes(value as CompanyCategory)
+}
+
+/**
+ * Establishes the authoritative campaign-to-encounter boundary.  Compact
+ * candidates intentionally do not carry location or company-membership proof.
+ */
+export function selectEligibleSnakeResourceCandidates(
+  resources: Pick<ResourceState, 'company' | 'blocks'>,
+): SnakeResourceCandidate[] {
+  return Object.values(resources.blocks)
+    .filter((block) => (
+      block.location.kind === 'company'
+      && block.contribution === 'normal'
+      && isCompanyCategory(block.origin)
+      && resources.company[block.location.category].includes(block.id)
+    ))
+    .map((block) => ({
+      blockId: block.id,
+      origin: block.origin as CompanyCategory,
+      contribution: block.contribution,
+      hiddenBomb: block.hiddenBomb,
+    }))
+    .sort((left, right) => left.blockId.localeCompare(right.blockId))
+}
+
+function difficultyFor(successfulDeposits: number): SnakeDifficulty {
+  if (successfulDeposits <= 2) return DIFFICULTIES[0]
+  if (successfulDeposits <= 5) return DIFFICULTIES[1]
+  if (successfulDeposits <= 8) return DIFFICULTIES[2]
+  if (successfulDeposits <= 11) return DIFFICULTIES[3]
+  return DIFFICULTIES[4]
+}
+
+function compactEligibleCandidates(
+  candidates: readonly SnakeResourceCandidate[],
+): SnakeResourceCandidate[] {
+  const seenBlockIds = new Set<string>()
+  return [...candidates]
+    .filter((candidate) => candidate.contribution === 'normal' && isCompanyCategory(candidate.origin))
+    .sort((left, right) => (
+      left.blockId.localeCompare(right.blockId) || left.origin.localeCompare(right.origin)
+    ))
+    .filter((candidate) => {
+      if (seenBlockIds.has(candidate.blockId)) return false
+      seenBlockIds.add(candidate.blockId)
+      return true
+    })
+}
+
+function availableCategories(candidates: readonly SnakeResourceCandidate[]): CompanyCategory[] {
+  return COMPANY_CATEGORIES.filter((category) => candidates.some((candidate) => candidate.origin === category))
+}
+
+function newBagCycle(
+  campaignSeed: string,
+  cycle: number,
+  categories: readonly CompanyCategory[],
+): SnakeShuffleBagState {
+  return {
+    cycle,
+    remainingCategories: [...categories].sort((left, right) => (
+      hash(`${campaignSeed}:snake:bag:${cycle}:${right}`)
+      - hash(`${campaignSeed}:snake:bag:${cycle}:${left}`)
+      || left.localeCompare(right)
+    )),
+  }
+}
+
+function chooseCategory(
+  campaignSeed: string,
+  candidates: readonly SnakeResourceCandidate[],
+  bag: SnakeShuffleBagState,
+): { category: CompanyCategory; bag: SnakeShuffleBagState } | null {
+  const available = availableCategories(candidates)
+  if (available.length === 0) return null
+  const availableSet = new Set(available)
+  const remaining = bag.remainingCategories.filter((category, index, source) => (
+    availableSet.has(category) && source.indexOf(category) === index
+  ))
+  const current = remaining.length > 0
+    ? { cycle: bag.cycle, remainingCategories: remaining }
+    : newBagCycle(campaignSeed, bag.cycle + 1, available)
+  const [category, ...nextRemaining] = current.remainingCategories
+  return { category, bag: { cycle: current.cycle, remainingCategories: nextRemaining } }
+}
+
+function chooseBlock(
+  campaignSeed: string,
+  roundOrdinal: number,
+  category: CompanyCategory,
+  candidates: readonly SnakeResourceCandidate[],
+): SnakeResourceCandidate {
+  return candidates
+    .filter((candidate) => candidate.origin === category)
+    .sort((left, right) => (
+      hash(`${campaignSeed}:${roundOrdinal}:${category}:${right.blockId}`)
+      - hash(`${campaignSeed}:${roundOrdinal}:${category}:${left.blockId}`)
+      || left.blockId.localeCompare(right.blockId)
+    ))[0]
+}
+
+function desiredEnemyCount(
+  input: CreateSnakeEncounterInput,
+  candidateCount: number,
+): 1 | 2 {
+  if (input.successfulDeposits < 12) return difficultyFor(input.successfulDeposits).enemyCount
+  const seededCount = (hash(`${input.campaignSeed}:${input.roundOrdinal}`) & 1) === 0 ? 1 : 2
+  return candidateCount < 2 ? 1 : seededCount
+}
+
+export function createResourceSnakeEncounter(
+  input: CreateSnakeEncounterInput,
+): SnakeEncounterResult {
+  const difficulty = difficultyFor(input.successfulDeposits)
+  const candidates = compactEligibleCandidates(input.candidates)
+  if (candidates.length === 0) {
+    return {
+      setup: null,
+      bag: input.bag,
+      disabledReason: 'no-eligible-resource',
+      plannerProfile: difficulty.plannerProfile,
+    }
+  }
+
+  const count = Math.min(desiredEnemyCount(input, candidates.length), candidates.length)
+  const roundId = `${input.campaignSeed}:snake:${input.roundOrdinal}`
+  const selected: SnakeResourceCandidate[] = []
+  let bag = input.bag
+  let pool = candidates
+  for (let index = 0; index < count; index += 1) {
+    const choice = chooseCategory(input.campaignSeed, pool, bag)
+    if (!choice) break
+    const block = chooseBlock(input.campaignSeed, input.roundOrdinal, choice.category, pool)
+    selected.push(block)
+    bag = choice.bag
+    pool = pool.filter((candidate) => candidate.blockId !== block.blockId)
+  }
+
+  const twoEnemies = selected.length === 2
+  const atTwelveOrMore = input.successfulDeposits >= 12
+  const maximumIntegrity = atTwelveOrMore && twoEnemies ? 50 : difficulty.maximumIntegrity
+  const enemies: SnakeEnemySetup[] = selected.map((block, index) => {
+    const id = `enemy-${index}` as const
+    return {
+      id,
+      category: block.origin,
+      reservedBlockId: block.blockId,
+      rewardKey: `${roundId}:${id}:${block.blockId}`,
+      role: twoEnemies && index === 1 ? 'blocker' : 'pressure',
+      spawn: twoEnemies
+        ? { x: index === 0 ? 16 : 34, y: 3.5 }
+        : { x: 25, y: 3.5 },
+      maximumIntegrity,
+      maximumSpeedPerSecond: difficulty.maximumSpeedPerSecond,
+    }
+  })
+  return {
+    setup: { roundId, playerSpawn: { x: 25, y: 21 }, enemies },
+    bag,
+    disabledReason: null,
+    plannerProfile: difficulty.plannerProfile,
+  }
+}
+
+/**
+ * Cancels invalid reservations in place. The active duel remains intact and
+ * cannot select another block after deployment.
+ */
+export function reconcileSnakeReservations(
+  state: ResourceSnakeRoundState,
+  eligibleBlockIds: ReadonlySet<string>,
+): ResourceSnakeRoundState {
+  const cancelled = new Set(
+    state.enemies
+      .filter((enemy) => (
+        enemy.reservedBlockId
+        && enemy.reservationStatus !== 'resolved'
+        && enemy.reservationStatus !== 'cancelled'
+        && !eligibleBlockIds.has(enemy.reservedBlockId)
+      ))
+      .map((enemy) => enemy.rewardKey)
+      .filter((rewardKey): rewardKey is string => rewardKey !== null),
+  )
+  if (cancelled.size === 0) return state
+
+  let next: ResourceSnakeRoundState = {
+    ...state,
+    enemies: state.enemies.map((enemy) => (
+      enemy.rewardKey && cancelled.has(enemy.rewardKey)
+        ? { ...enemy, reservationStatus: 'cancelled' as const }
+        : enemy
+    )),
+    effects: state.effects.filter((effect) => !cancelled.has(effect.rewardKey)),
+  }
+  for (const enemy of next.enemies) {
+    if (!enemy.rewardKey || !cancelled.has(enemy.rewardKey)) continue
+    next = {
+      ...next,
+      events: [...next.events, {
+        id: next.nextEventId,
+        type: 'resource-reward-resolved',
+        rewardKey: enemy.rewardKey,
+        outcome: 'cancelled',
+        category: enemy.category,
+      }],
+      nextEventId: next.nextEventId + 1,
+    }
+  }
+  return next
+}
