@@ -5,8 +5,11 @@ import {
   compareSnakePlanScores,
   generateResourceSnakeTrajectoryCandidates,
   getResourceSnakePlanFutureSamples,
+  measureResourceSnakePlayerAreaReduction,
   planResourceSnakeEnemy,
   predictResourceSnakePlayerHypotheses,
+  resourceSnakePlanToCommittedPath,
+  sampleResourceSnakeCommittedPath,
   sampleResourceSnakePlan,
   type SnakeCommittedPath,
   type SnakePlan,
@@ -93,7 +96,7 @@ function history(
     { simulationMs: simulationMs - 1_000, position: { ...position }, velocity: { ...velocity } },
     { simulationMs: simulationMs - 500, position: { ...position }, velocity: { ...velocity } },
     { simulationMs, position: { ...position }, velocity: { ...velocity } },
-  ]
+  ].filter((sample) => sample.simulationMs >= 0)
 }
 
 function snapshot(overrides: Partial<SnakePlannerSnapshot> = {}): SnakePlannerSnapshot {
@@ -199,6 +202,74 @@ function independentlyMeasuredEnclosureReduction(
     if (!base[index] && candidate[index]) footprint += 1
   }
   return Math.max(0, baselineArea - flood(candidate) - footprint)
+}
+
+function independentlyMeasuredEnemyArea(
+  state: SnakePlannerSnapshot,
+  origin: SnakeVector,
+): number {
+  const gridSize = 0.75
+  const width = Math.ceil(state.field.width / gridSize)
+  const height = Math.ceil(state.field.height / gridSize)
+  const occupancy = new Uint8Array(width * height)
+  const markDisk = (point: SnakeVector, radius: number) => {
+    const expanded = radius + gridSize * 0.5
+    const squared = expanded * expanded
+    const minX = Math.max(0, Math.floor((point.x - radius) / gridSize))
+    const maxX = Math.min(width - 1, Math.floor((point.x + radius) / gridSize))
+    const minY = Math.max(0, Math.floor((point.y - radius) / gridSize))
+    const maxY = Math.min(height - 1, Math.floor((point.y + radius) / gridSize))
+    for (let y = minY; y <= maxY; y += 1) {
+      for (let x = minX; x <= maxX; x += 1) {
+        const dx = (x + 0.5) * gridSize - point.x
+        const dy = (y + 0.5) * gridSize - point.y
+        if (dx * dx + dy * dy <= squared) occupancy[y * width + x] = 1
+      }
+    }
+  }
+  for (let index = 0; index < occupancy.length; index += 1) {
+    const x = (index % width + 0.5) * gridSize
+    const y = (Math.floor(index / width) + 0.5) * gridSize
+    if (
+      x < state.field.padding
+      || x > state.field.width - state.field.padding
+      || y < state.field.padding
+      || y > state.field.height - state.field.padding
+    ) occupancy[index] = 1
+  }
+  for (const dot of state.trailDots) {
+    if (dot.spawnedAtMs < state.simulationMs && dot.expiresAtMs > state.simulationMs) {
+      markDisk(dot.position, 0.55)
+    }
+  }
+  markDisk(state.player.position, 1.1)
+  const startX = Math.floor(origin.x / gridSize)
+  const startY = Math.floor(origin.y / gridSize)
+  const start = startY * width + startX
+  occupancy[start] = 0
+  const visited = new Uint8Array(occupancy.length)
+  const queue = new Int32Array(occupancy.length)
+  let read = 0
+  let write = 1
+  queue[0] = start
+  visited[start] = 1
+  while (read < write) {
+    const cell = queue[read]
+    read += 1
+    const x = cell % width
+    const up = cell - width
+    const down = cell + width
+    const left = x > 0 ? cell - 1 : -1
+    const right = x + 1 < width ? cell + 1 : -1
+    for (const neighbor of [up, down, left, right]) {
+      if (neighbor >= 0 && neighbor < occupancy.length && !occupancy[neighbor] && !visited[neighbor]) {
+        visited[neighbor] = 1
+        queue[write] = neighbor
+        write += 1
+      }
+    }
+  }
+  return write
 }
 
 function trailWall(
@@ -323,6 +394,14 @@ function expectEveryNumberFinite(value: unknown): void {
   }
 }
 
+describe('resource snake planner performance', () => {
+  it(
+    'keeps repeated moving-state empty and 320-dot 2,500ms/96 planning under 3ms p95',
+    runResourceSnakePerformanceAcceptance,
+    20_000,
+  )
+})
+
 describe('planResourceSnakeEnemy', () => {
   it('ignores only its own newest runtime-shaped trail dot for exactly 240ms', () => {
     const simulationMs = 5_000
@@ -347,6 +426,32 @@ describe('planResourceSnakeEnemy', () => {
     expect(moving.path.length).toBeGreaterThan(0)
     expect(hazardous.fallback).toBe(true)
     expect(hazardous.speedScale).toBe(0)
+  })
+
+  it.each([
+    [100, false],
+    [199, false],
+    [200, false],
+    [210, true],
+    [239.999, true],
+    [240, true],
+  ] as const)('activates an already-active own dot from its exact rollout age %ims', (ageMs, hazardous) => {
+    const simulationMs = 5_000
+    const state = snapshot({
+      simulationMs,
+      trailDots: [{
+        id: 31_000,
+        ownerId: 'enemy-0',
+        position: { x: 9.68, y: 12 },
+        spawnedAtMs: simulationMs - ageMs,
+        expiresAtMs: simulationMs + 10_000,
+      }],
+    })
+
+    const plan = planResourceSnakeEnemy(state, 'enemy-0', PROFILE_48, null, () => 0)
+
+    expect(plan.fallback).toBe(hazardous)
+    expect(plan.speedScale === 0).toBe(hazardous)
   })
   it('uses only serializable observations from the last 2,000ms without mutating them', () => {
     const base = snapshot({
@@ -600,19 +705,49 @@ describe('planResourceSnakeEnemy', () => {
     expect(observableTuple(first)).toEqual(observableTuple(second))
   })
 
+  it('isolates every returned nested value from siblings and trajectory-cache storage', () => {
+    const state = snapshot()
+    const first = planResourceSnakeEnemy(state, 'enemy-0', PROFILE_96, null, () => 0)
+    const sibling = planResourceSnakeEnemy(structuredClone(state), 'enemy-0', PROFILE_96, null, () => 0)
+    const expectedSibling = observableTuple(sibling)
+
+    first.direction.x += 10
+    first.originPosition.x += 10
+    first.originVelocity.y += 10
+    first.directions[0].x += 10
+    first.path[0].y += 10
+    first.score.reachableArea += 10
+    first.score.allyClearance += 10
+    first.score.playerAreaReduction += 10
+    first.score.cutoffProgress += 10
+    first.score.pressureDistance += 10
+    first.score.steeringCost += 10
+
+    const later = planResourceSnakeEnemy(structuredClone(state), 'enemy-0', PROFILE_96, null, () => 0)
+
+    expect(observableTuple(sibling)).toEqual(expectedSibling)
+    expect(observableTuple(later)).toEqual(expectedSibling)
+    expect(later.path).not.toBe(sibling.path)
+    expect(later.path[0]).not.toBe(sibling.path[0])
+    expect(later.directions).not.toBe(sibling.directions)
+    expect(later.directions[0]).not.toBe(sibling.directions[0])
+    expect(later.score).not.toBe(sibling.score)
+  })
+
   it('treats committed ally paths as dynamic occupancy rather than choosing the same lane', () => {
     const allyPath: SnakeCommittedPath = {
       enemyId: 'enemy-1',
-      startsAtMs: 5_000,
-      stepMs: 50,
-      commitUntilMs: 6_000,
-      path: Array.from({ length: 20 }, (_, index) => ({ x: 14 + index * 0.325, y: 12 })),
+      commitUntilMs: 5_950,
+      samples: Array.from({ length: 20 }, (_, index) => ({
+        atMs: 5_000 + index * 50,
+        position: { x: 14 + index * 0.325, y: 12 },
+      })),
     }
     const state = snapshot({ committedAllyPaths: [allyPath] })
 
     const plan = planResourceSnakeEnemy(state, 'enemy-0', PROFILE_48, null, () => 0)
     const simultaneousClearances = plan.path.map((point, index) => {
-      const allyPoint = allyPath.path[Math.min(index, allyPath.path.length - 1)]
+      const allyPoint = allyPath.samples[Math.min(index + 1, allyPath.samples.length - 1)].position
       return Math.hypot(point.x - allyPoint.x, point.y - allyPoint.y)
     })
 
@@ -636,6 +771,43 @@ describe('planResourceSnakeEnemy', () => {
     expect(JSON.stringify(plan)).not.toContain('NaN')
   })
 
+  it('reroutes invalid-number fallback around a swept ally lane and stops when every heading conflicts', () => {
+    const simulationMs = 5_000
+    const invalid = snapshot({
+      simulationMs,
+      enemies: [actor('enemy-0', { x: 10, y: 12 }, { x: Number.NaN, y: 0 })],
+    })
+    const baseline = planResourceSnakeEnemy(invalid, 'enemy-0', PROFILE_48, null, () => 0)
+    const lane = { ...resourceSnakePlanToCommittedPath(baseline, simulationMs), enemyId: 'enemy-1' as const }
+    const rerouted = planResourceSnakeEnemy(
+      { ...invalid, committedAllyPaths: [lane] },
+      'enemy-0',
+      PROFILE_48,
+      null,
+      () => 0,
+    )
+    const stationaryConflict: SnakeCommittedPath = {
+      enemyId: 'enemy-1',
+      commitUntilMs: simulationMs + 1_000,
+      samples: Array.from({ length: 21 }, (_, index) => ({
+        atMs: simulationMs + index * 50,
+        position: { x: 10, y: 12 },
+      })),
+    }
+    const stopped = planResourceSnakeEnemy(
+      { ...invalid, committedAllyPaths: [stationaryConflict] },
+      'enemy-0',
+      PROFILE_48,
+      null,
+      () => 0,
+    )
+
+    expect(rerouted.candidateIndex).not.toBe(baseline.candidateIndex)
+    expect(minimumDistance(rerouted.path, baseline.path[0])).toBeGreaterThan(0.1)
+    expect(stopped.speedScale).toBe(0)
+    expect(stopped.direction).toEqual({ x: 0, y: 0 })
+  })
+
   it('returns a stopped finite fallback only when all eight clearance headings are invalid', () => {
     const invalid = snapshot({
       field: { width: Number.NaN as 50, height: 24, padding: 0.5 },
@@ -652,10 +824,8 @@ describe('planResourceSnakeEnemy', () => {
     const invalid = snapshot({
       committedAllyPaths: [{
         enemyId: 'enemy-1',
-        startsAtMs: 5_000,
-        stepMs: Number.NaN,
         commitUntilMs: 6_000,
-        path: [{ x: 14, y: 12 }],
+        samples: [{ atMs: Number.NaN, position: { x: 14, y: 12 } }],
       }],
     })
 
@@ -758,15 +928,86 @@ describe('planResourceSnakeEnemy', () => {
     expect(compareSnakePlanScores(higherPriority, 99, lowerPriority, 0)).toBeGreaterThan(0)
   })
 
+  it('preserves exact reachable areas above 128 before every lower score component', () => {
+    const state = snapshot()
+    const plan = planResourceSnakeEnemy(state, 'enemy-0', PROFILE_96_LONG, null, () => 0)
+    const independentlyMeasured = independentlyMeasuredEnemyArea(state, plan.path.at(-1)!)
+    const largerArea = {
+      ...plan.score,
+      reachableArea: 700,
+      allyClearance: -10_000,
+      playerAreaReduction: -10_000,
+      cutoffProgress: -10_000,
+      pressureDistance: 10_000,
+      steeringCost: 10_000,
+    }
+    const smallerArea = {
+      ...plan.score,
+      reachableArea: 500,
+      allyClearance: 10_000,
+      playerAreaReduction: 10_000,
+      cutoffProgress: 10_000,
+      pressureDistance: 0,
+      steeringCost: 0,
+    }
+
+    expect(independentlyMeasured).toBeGreaterThan(128)
+    expect(plan.score.reachableArea).toBe(independentlyMeasured)
+    expect(compareSnakePlanScores(largerArea, 95, smallerArea, 0)).toBeGreaterThan(0)
+  })
+
+  it('selects the larger of two real reachable components above 128 before offensive terms', () => {
+    const simulationMs = 5_000
+    const wall = trailWall(20, 0.5, 23.5, simulationMs + 10_000)
+    const state = snapshot({
+      simulationMs,
+      player: actor('player', { x: 45, y: 12 }, { x: 0, y: 0 }),
+      enemies: [actor('enemy-0', { x: 19, y: 12 }, { x: 6.5, y: 0 }, { collisionGraceMs: 240 })],
+      trailDots: wall,
+    })
+    const candidates = generateResourceSnakeTrajectoryCandidates(state.enemies[0], PROFILE_96_LONG)
+    const areas = candidates.map((candidate) => independentlyMeasuredEnemyArea(
+      state,
+      candidate.path.at(-1)!,
+    ))
+    const realComponents = [...new Set(areas.filter((area) => area > 128))]
+    const plan = planResourceSnakeEnemy(state, 'enemy-0', PROFILE_96_LONG, null, () => 0)
+
+    expect(realComponents.length).toBeGreaterThanOrEqual(2)
+    expect(plan.score.reachableArea).toBe(Math.max(...areas))
+    expect(plan.score.reachableArea).toBe(independentlyMeasuredEnemyArea(state, plan.path.at(-1)!))
+  })
+
+  it('measures an unanchored public trajectory by exact connectivity rather than an anchor shortcut', () => {
+    const state = snapshot({
+      player: actor('player', { x: 30, y: 12 }, { x: 0, y: 0 }),
+      enemies: [actor('enemy-0', { x: 22, y: 12 }, { x: 6.5, y: 0 })],
+    })
+    const candidate = generateResourceSnakeTrajectoryCandidates(
+      state.enemies[0],
+      PROFILE_96_LONG,
+    )[3]
+    const independent = independentlyMeasuredEnclosureReduction(state, candidate.path)
+
+    expect(minimumDistance(candidate.path, state.player.position)).toBeGreaterThan(1.1)
+    expect(independent).toBe(0)
+    expect(measureResourceSnakePlayerAreaReduction(
+      state,
+      'enemy-0',
+      PROFILE_96_LONG,
+      candidate.path,
+    )).toBe(independent)
+  })
+
   it('emits a time-addressed command trajectory that the authoritative runtime executes', () => {
     let runtime = activeRuntime()
     const state = snapshotFromRuntime(runtime)
-    const plan = planResourceSnakeEnemy(state, 'enemy-0', PROFILE_96, null, () => 0)
+    const plan = planResourceSnakeEnemy(state, 'enemy-0', PROFILE_96_LONG, null, () => 0)
 
     expect(plan.plannedAtMs).toBe(state.simulationMs)
     expect(plan.stepMs).toBe(50)
     expect(plan.directions).toHaveLength(plan.path.length)
-    for (let index = 0; index < 30; index += 1) {
+    for (let index = 0; index < 300; index += 1) {
       runtime = advanceResourceSnakeFrame(runtime, {
         enemyDirections: { 'enemy-0': commandVector(plan, runtime.simulationMs) },
       }, 1_000 / 120)
@@ -824,11 +1065,14 @@ describe('planResourceSnakeEnemy', () => {
       (plan) => { plan.score.cutoffProgress = Number.NaN },
       (plan) => { plan.score.pressureDistance = Number.NaN },
       (plan) => { plan.score.steeringCost = Number.NaN },
+      (plan) => { plan.score = null as unknown as SnakePlan['score'] },
       (plan) => { plan.path = [] },
+      (plan) => { plan.path = null as unknown as SnakePlan['path'] },
       (plan) => { plan.path = plan.path.slice(0, -1) },
       (plan) => { plan.path.push({ ...plan.path.at(-1)! }) },
       (plan) => { plan.path[0].y = Number.NEGATIVE_INFINITY },
       (plan) => { plan.directions = plan.directions.slice(0, -1) },
+      (plan) => { plan.directions = null as unknown as SnakePlan['directions'] },
       (plan) => { plan.directions.push({ ...plan.directions.at(-1)! }) },
       (plan) => { plan.directions[0] = { x: -plan.directions[0].x, y: -plan.directions[0].y } },
       (plan) => { plan.directions[0].x = Number.NaN },
@@ -839,6 +1083,7 @@ describe('planResourceSnakeEnemy', () => {
       (plan) => { plan.commandAtMs = plan.plannedAtMs - 1 },
       (plan) => { plan.stepMs = 25 as SnakePlan['stepMs'] },
       (plan) => { plan.originPosition.x = Number.NaN },
+      (plan) => { plan.direction = null as unknown as SnakePlan['direction'] },
       (plan) => { plan.originVelocity.y = Number.POSITIVE_INFINITY },
       (plan) => { plan.originMaximumSpeedPerSecond = Number.NaN },
       (plan) => { plan.originMaximumSpeedPerSecond += 1 },
@@ -883,6 +1128,46 @@ describe('planResourceSnakeEnemy', () => {
     expect(retained.candidateIndex).toBe(plan.candidateIndex)
   })
 
+  it('converts plans to canonical timed ally occupancy at boundaries and off-grid re-entry', () => {
+    const state = snapshot()
+    const plan = planResourceSnakeEnemy(state, 'enemy-0', PROFILE_96_LONG, null, () => 0)
+    const committed = resourceSnakePlanToCommittedPath(plan, plan.plannedAtMs)
+    const reenteredAtMs = plan.plannedAtMs + 170
+    const reentered = resourceSnakePlanToCommittedPath(plan, reenteredAtMs)
+    const checkedTimes = [
+      plan.plannedAtMs,
+      plan.plannedAtMs + 25,
+      plan.plannedAtMs + 50,
+      reenteredAtMs,
+      plan.commitUntilMs,
+    ]
+
+    expect(committed.samples[0]).toEqual({
+      atMs: plan.plannedAtMs,
+      position: sampleResourceSnakePlan(plan, plan.plannedAtMs).position,
+    })
+    for (const atMs of checkedTimes) {
+      expect(sampleResourceSnakeCommittedPath(committed, atMs)?.position).toEqual(
+        sampleResourceSnakePlan(plan, atMs).position,
+      )
+    }
+    expect(reentered.samples[0]).toEqual({
+      atMs: reenteredAtMs,
+      position: sampleResourceSnakePlan(plan, reenteredAtMs).position,
+    })
+    expect(sampleResourceSnakeCommittedPath(reentered, reenteredAtMs + 25)?.position).toEqual(
+      sampleResourceSnakePlan(plan, reenteredAtMs + 25).position,
+    )
+    expect(sampleResourceSnakeCommittedPath(committed, plan.commitUntilMs + 0.001)).toBeNull()
+    expect(sampleResourceSnakeCommittedPath(
+      committed,
+      plan.plannedAtMs + plan.path.length * plan.stepMs + 500,
+    )).toBeNull()
+    expect(getResourceSnakePlanFutureSamples(plan, reenteredAtMs).every((sample) => (
+      sample.atMs > reenteredAtMs
+    ))).toBe(true)
+  })
+
   it('keeps a trail open when expiresAtMs equals the exact collision time', () => {
     const simulationMs = 5_000
     const dot = {
@@ -909,6 +1194,41 @@ describe('planResourceSnakeEnemy', () => {
 
     expect(open.fallback).toBe(false)
     expect(blocked.fallback).toBe(true)
+  })
+
+  it('keeps a future swept trail contact open at exact expiry equality', () => {
+    const simulationMs = 5_000
+    const state = snapshot({ simulationMs })
+    const kept = planResourceSnakeEnemy(state, 'enemy-0', PROFILE_48, null, () => 0)
+    const relativeMs = 180
+    const segmentIndex = Math.floor(relativeMs / kept.stepMs)
+    const segmentStartMs = segmentIndex * kept.stepMs
+    const start = kept.path[segmentIndex - 1]
+    const end = kept.path[segmentIndex]
+    const fraction = (relativeMs - segmentStartMs) / kept.stepMs
+    const dx = end.x - start.x
+    const dy = end.y - start.y
+    const size = Math.hypot(dx, dy)
+    const contact = {
+      x: start.x + dx * fraction,
+      y: start.y + dy * fraction,
+    }
+    const dot: SnakePlannerTrailDot = {
+      id: 32_000,
+      ownerId: 'player',
+      position: { x: contact.x + dx / size * 0.55, y: contact.y + dy / size * 0.55 },
+      spawnedAtMs: 0,
+      expiresAtMs: simulationMs + relativeMs,
+    }
+
+    const open = planResourceSnakeEnemy({ ...state, trailDots: [dot] }, 'enemy-0', PROFILE_48, kept, () => 0)
+    const blocked = planResourceSnakeEnemy({
+      ...state,
+      trailDots: [{ ...dot, expiresAtMs: dot.expiresAtMs + 0.001 }],
+    }, 'enemy-0', PROFILE_48, kept, () => 0)
+
+    expect(observableTuple(open)).toEqual(observableTuple(kept))
+    expect(observableTuple(blocked)).not.toEqual(observableTuple(kept))
   })
 
   it('uses collision grace only until its exact remaining time, then resumes hazard avoidance', () => {
@@ -1037,26 +1357,152 @@ describe('planResourceSnakeEnemy', () => {
     expectEveryNumberFinite(plan)
   })
 
-  it('keeps warmed empty and 320-dot 2,500ms/96 planning under the 3ms p95 budget', () => {
+  it('accepts only legal tier tuples while allowing adaptive candidate counts', () => {
+    const adaptive = { ...PROFILE_48, candidateCount: 96 } as SnakePlannerProfile
+    const legal = planResourceSnakeEnemy(snapshot(), 'enemy-0', adaptive, null, () => 0)
+    const invalidProfiles = [
+      { ...PROFILE_48, lookaheadMs: 50 },
+      { ...PROFILE_48, commitMs: 1 },
+      { ...PROFILE_48, planningHz: 0.1 },
+      { ...PROFILE_48, commitMs: PROFILE_72.commitMs },
+      { ...PROFILE_48, rolloutStepMs: 25 },
+    ] as unknown as SnakePlannerProfile[]
+
+    expect(legal.fallback).toBe(false)
+    expect(legal.evaluatedCandidates).toBe(96)
+    for (const profile of invalidProfiles) {
+      const plan = planResourceSnakeEnemy(snapshot(), 'enemy-0', profile, null, () => 0)
+      expect(plan.fallback).toBe(true)
+      expectEveryNumberFinite(plan)
+    }
+  })
+
+  it('bounds authoritative field, timestamps, and malformed runtime arrays before allocation', () => {
+    const validDot: SnakePlannerTrailDot = {
+      id: 50_000,
+      ownerId: 'player',
+      position: { x: 40, y: 2 },
+      spawnedAtMs: 0,
+      expiresAtMs: 10_000,
+    }
+    const validCommitted: SnakeCommittedPath = {
+      enemyId: 'enemy-1',
+      commitUntilMs: 5_050,
+      samples: [
+        { atMs: 5_000, position: { x: 40, y: 2 } },
+        { atMs: 5_050, position: { x: 40, y: 2 } },
+      ],
+    }
+    const invalidSnapshots: SnakePlannerSnapshot[] = [
+      snapshot({ field: { width: 51 as 50, height: 24, padding: 0.5 } }),
+      snapshot({ field: { width: 1e308 as 50, height: 24, padding: 0.5 } }),
+      snapshot({ field: { width: 50, height: 25 as 24, padding: 0.5 } }),
+      snapshot({ field: { width: 50, height: 24, padding: -1 } }),
+      snapshot({ field: { width: 50, height: 24, padding: 12 } }),
+      snapshot({ simulationMs: -1 }),
+      snapshot({ simulationMs: 1e308 }),
+      snapshot({ playerHistory: [{ ...history(5_000, { x: 30, y: 12 }, { x: 0, y: 0 })[0], simulationMs: -1 }] }),
+      snapshot({ playerHistory: [{ ...history(5_000, { x: 30, y: 12 }, { x: 0, y: 0 })[0], simulationMs: 1e308 }] }),
+      snapshot({ trailDots: [{
+        id: 1,
+        ownerId: 'player',
+        position: { x: 20, y: 12 },
+        spawnedAtMs: -1,
+        expiresAtMs: 10_000,
+      }] }),
+      snapshot({ trailDots: [{ ...validDot, expiresAtMs: 1e308 }] }),
+      snapshot({ committedAllyPaths: [{ ...validCommitted, commitUntilMs: 1e308 }] }),
+      snapshot({ enemies: [...snapshot().enemies, actor('enemy-1', { x: 12, y: 12 }, { x: 0, y: 0 }), actor('enemy-1', { x: 14, y: 12 }, { x: 0, y: 0 })] }),
+      snapshot({ trailDots: new Array(2_049).fill(validDot) }),
+      snapshot({ playerHistory: new Array(513).fill(history(5_000, { x: 30, y: 12 }, { x: 0, y: 0 })[0]) }),
+      snapshot({ committedAllyPaths: new Array(9).fill(validCommitted) }),
+      { ...snapshot(), trailDots: null } as unknown as SnakePlannerSnapshot,
+      { ...snapshot(), playerHistory: null } as unknown as SnakePlannerSnapshot,
+      { ...snapshot(), committedAllyPaths: null } as unknown as SnakePlannerSnapshot,
+      { ...snapshot(), enemies: null } as unknown as SnakePlannerSnapshot,
+      { ...snapshot(), player: null } as unknown as SnakePlannerSnapshot,
+    ]
+
+    for (const state of invalidSnapshots) {
+      expect(() => planResourceSnakeEnemy(state, 'enemy-0', PROFILE_48, null, () => 0)).not.toThrow()
+      const plan = planResourceSnakeEnemy(state, 'enemy-0', PROFILE_48, null, () => 0)
+      expect(plan.fallback).toBe(true)
+      expectEveryNumberFinite(plan)
+    }
+  })
+
+})
+
+function runResourceSnakePerformanceAcceptance(): void {
     const simulationMs = 5_000
     const trailDots = Array.from({ length: 320 }, (_, index): SnakePlannerTrailDot => ({
       id: 20_000 + index,
       ownerId: 'player',
       position: { x: 42 + (index % 16) * 0.4, y: 1 + Math.floor(index / 16) * 0.08 },
       spawnedAtMs: 0,
-      expiresAtMs: simulationMs + 10_000,
+      expiresAtMs: simulationMs + 100_000,
     }))
     const clock = () => performance.now()
-    for (const state of [snapshot({ simulationMs }), snapshot({ simulationMs, trailDots })]) {
-      for (let index = 0; index < 50; index += 1) {
-        planResourceSnakeEnemy(state, 'enemy-0', PROFILE_96_LONG, null, clock)
-      }
-      const durations = Array.from({ length: 31 }, () => (
-        planResourceSnakeEnemy(state, 'enemy-0', PROFILE_96_LONG, null, clock).elapsedMs
-      )).sort((left, right) => left - right)
-      const p95 = durations[Math.ceil(durations.length * 0.95) - 1]
-
-      expect(p95).toBeLessThanOrEqual(3)
+    const measurements: Array<{ field: string; run: number; median: number; p95: number; max: number }> = []
+    const fields: Array<[string, SnakePlannerTrailDot[]]> = [['empty', []], ['dense', trailDots]]
+    // Isolate V8 compilation from the acceptance samples. Every individual
+    // moving series below still performs its own required 50-state warmup.
+    const jitWarmup = snapshot()
+    for (let index = 0; index < 100; index += 1) {
+      planResourceSnakeEnemy(jitWarmup, 'enemy-0', PROFILE_96_LONG, null, clock)
     }
-  }, 10_000)
-})
+    for (const [field, dots] of fields) {
+      for (let run = 0; run < 3; run += 1) {
+        const durations: number[] = []
+        for (let index = 0; index < 81; index += 1) {
+          const sequenceIndex = run * 81 + index
+          const heading = sequenceIndex * 0.000_013
+          const velocity = { x: Math.cos(heading) * 6.5, y: Math.sin(heading) * 6.5 }
+          const moving = snapshot({
+            simulationMs: simulationMs + sequenceIndex * 50,
+            enemies: [actor(
+              'enemy-0',
+              { x: 10 + sequenceIndex * 0.000_013, y: 12 + sequenceIndex * 0.000_007 },
+              velocity,
+            )],
+            trailDots: dots,
+          })
+          const elapsed = planResourceSnakeEnemy(
+            moving,
+            'enemy-0',
+            PROFILE_96_LONG,
+            null,
+            clock,
+          ).elapsedMs
+          if (index >= 50) durations.push(elapsed)
+        }
+        durations.sort((left, right) => left - right)
+        const median = durations[Math.floor(durations.length / 2)]
+        const p95 = durations[Math.ceil(durations.length * 0.95) - 1]
+        measurements.push({ field, run, median, p95, max: durations.at(-1)! })
+      }
+    }
+    const cacheDiagnostics: Array<{ field: string; median: number; p95: number; max: number }> = []
+    for (const [field, dots] of fields) {
+      const identical = snapshot({ trailDots: dots })
+      for (let index = 0; index < 50; index += 1) {
+        planResourceSnakeEnemy(identical, 'enemy-0', PROFILE_96_LONG, null, clock)
+      }
+      const durations: number[] = []
+      for (let index = 0; index < 31; index += 1) {
+        const plan = planResourceSnakeEnemy(identical, 'enemy-0', PROFILE_96_LONG, null, clock)
+        expect(plan.evaluatedCandidates).toBe(96)
+        durations.push(plan.elapsedMs)
+      }
+      durations.sort((left, right) => left - right)
+      cacheDiagnostics.push({
+        field,
+        median: durations[Math.floor(durations.length / 2)],
+        p95: durations[Math.ceil(durations.length * 0.95) - 1],
+        max: durations.at(-1)!,
+      })
+    }
+    expect(measurements, JSON.stringify({ measurements, cacheDiagnostics })).toSatisfy(
+      (values: typeof measurements) => values.every((measurement) => measurement.p95 <= 3),
+    )
+}
