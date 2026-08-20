@@ -90,6 +90,8 @@ export interface SnakePlan {
   evaluatedCandidates: number
   elapsedMs: number
   fallback: boolean
+  /** Deterministic integrity token for authoritative trajectory/score data. */
+  provenance: string
 }
 
 export interface SnakePlanSample {
@@ -142,7 +144,14 @@ const SPEED_SCALES = [1, 0.5, 0] as const
 const INTENTS: readonly SnakeIntent[] = [
   'observe', 'pursue', 'cutoff', 'herd', 'escape', 'coordinate', 'defeated',
 ]
-const MAX_RUNTIME_TIMESTAMP_MS = 1_000_000_000
+const MAX_SERIALIZED_TIMESTAMP_MS = 1_000_000_000
+const MAX_PROFILE_LOOKAHEAD_MS = 2_500
+// Reserve the maximum derived horizon. Every legal commitment is shorter than
+// this horizon, so a snapshot accepted at this ceiling can produce and
+// immediately reinject its complete canonical Task 5 occupancy without any
+// timestamp crossing the single serialized bound.
+const MAX_PLANNING_TIMESTAMP_MS = MAX_SERIALIZED_TIMESTAMP_MS
+  - MAX_PROFILE_LOOKAHEAD_MS
 const MAX_TRAIL_DOTS = 2_048
 const MAX_HISTORY_SAMPLES = 512
 const MAX_COMMITTED_PATHS = 8
@@ -159,7 +168,6 @@ interface InternalTrajectoryCandidate extends SnakeTrajectoryCandidate {
   steeringCost: number
   bounds: PathBounds
   rawBounds: PathBounds
-  simpleOpenArc: boolean
   localDirections?: readonly SnakeVector[]
   localRawPath?: readonly SnakeVector[]
   transformOrigin?: SnakeVector
@@ -167,11 +175,10 @@ interface InternalTrajectoryCandidate extends SnakeTrajectoryCandidate {
   transformSine?: number
   transformField?: SnakePlannerSnapshot['field']
   materialized?: boolean
-}
-
-interface ScoredCandidate extends InternalTrajectoryCandidate {
   score: SnakePlanScore
 }
+
+type ScoredCandidate = InternalTrajectoryCandidate
 
 interface RolloutResult {
   path: SnakeVector[]
@@ -243,6 +250,18 @@ function finite(value: number): boolean {
   return Number.isFinite(value)
 }
 
+function denseArray(value: unknown, maximumLength: number): value is unknown[] {
+  try {
+    if (!Array.isArray(value) || value.length > maximumLength) return false
+    for (let index = 0; index < value.length; index += 1) {
+      if (!Object.prototype.hasOwnProperty.call(value, index)) return false
+    }
+    return true
+  } catch {
+    return false
+  }
+}
+
 function finiteVector(vector: SnakeVector | null | undefined): vector is SnakeVector {
   return !!vector && finite(vector.x) && finite(vector.y)
 }
@@ -288,17 +307,22 @@ function approachVector(current: SnakeVector, target: SnakeVector, maximumDelta:
 }
 
 function actorHasInvalidNumber(actor: SnakePlannerActor | null | undefined): boolean {
-  return !actor
-    || !finiteVector(actor.position)
-    || !finiteVector(actor.velocity)
-    || !finite(actor.integrity)
-    || !finite(actor.maximumIntegrity)
-    || actor.maximumIntegrity < 0
-    || !finite(actor.maximumSpeedPerSecond)
-    || actor.maximumSpeedPerSecond < 0
-    || !finite(actor.collisionGraceMs)
-    || actor.collisionGraceMs < 0
-    || actor.collisionGraceMs > MAX_RUNTIME_TIMESTAMP_MS
+  try {
+    return !actor
+      || typeof actor !== 'object'
+      || !finiteVector(actor.position)
+      || !finiteVector(actor.velocity)
+      || !finite(actor.integrity)
+      || !finite(actor.maximumIntegrity)
+      || actor.maximumIntegrity < 0
+      || !finite(actor.maximumSpeedPerSecond)
+      || actor.maximumSpeedPerSecond < 0
+      || !finite(actor.collisionGraceMs)
+      || actor.collisionGraceMs < 0
+      || actor.collisionGraceMs > MAX_SERIALIZED_TIMESTAMP_MS
+  } catch {
+    return true
+  }
 }
 
 function profileIsValid(profile: SnakePlannerProfile): boolean {
@@ -320,73 +344,208 @@ function relevantHistory(snapshot: SnakePlannerSnapshot): SnakePlayerHistorySamp
     .sort((left, right) => left.simulationMs - right.simulationMs)
 }
 
-function committedPathValid(path: SnakeCommittedPath | null | undefined): path is SnakeCommittedPath {
-  if (
-    !path
-    || !finite(path.commitUntilMs)
-    || path.commitUntilMs < 0
-    || path.commitUntilMs > MAX_RUNTIME_TIMESTAMP_MS
-    || !Array.isArray(path.samples)
-    || path.samples.length < 2
-    || path.samples.length > 64
-  ) return false
-  let priorMs = -Infinity
-  for (const sample of path.samples) {
+function committedPathValid(path: unknown): path is SnakeCommittedPath {
+  try {
     if (
-      !sample
-      || !finite(sample.atMs)
-      || sample.atMs < 0
-      || sample.atMs > MAX_RUNTIME_TIMESTAMP_MS
-      || sample.atMs <= priorMs
-      || !finiteVector(sample.position)
+      !path
+      || typeof path !== 'object'
+      || !finite((path as SnakeCommittedPath).commitUntilMs)
+      || (path as SnakeCommittedPath).commitUntilMs < 0
+      || (path as SnakeCommittedPath).commitUntilMs > MAX_SERIALIZED_TIMESTAMP_MS
+      || !denseArray((path as SnakeCommittedPath).samples, 64)
+      || (path as SnakeCommittedPath).samples.length < 2
     ) return false
-    priorMs = sample.atMs
+    let priorMs = -Infinity
+    const samples = (path as SnakeCommittedPath).samples
+    for (let index = 0; index < samples.length; index += 1) {
+      const sample = samples[index]
+      if (
+        !sample
+        || typeof sample !== 'object'
+        || !finite(sample.atMs)
+        || sample.atMs < 0
+        || sample.atMs > MAX_SERIALIZED_TIMESTAMP_MS
+        || sample.atMs <= priorMs
+        || !finiteVector(sample.position)
+      ) return false
+      priorMs = sample.atMs
+    }
+    return samples.at(-1)?.atMs === (path as SnakeCommittedPath).commitUntilMs
+  } catch {
+    return false
   }
-  return path.samples.at(-1)?.atMs === path.commitUntilMs
 }
 
-function snapshotHasInvalidNumber(snapshot: SnakePlannerSnapshot): boolean {
-  if (
-    !snapshot
-    || !finite(snapshot.simulationMs)
-    || snapshot.simulationMs < 0
-    || snapshot.simulationMs > MAX_RUNTIME_TIMESTAMP_MS
-    || !snapshot.field
-    || snapshot.field.width !== 50
-    || snapshot.field.height !== 24
-    || !finite(snapshot.field.padding)
-    || snapshot.field.padding < 0
-    || snapshot.field.padding > 4
-    || !Array.isArray(snapshot.enemies)
-    || snapshot.enemies.length > 2
-    || !Array.isArray(snapshot.trailDots)
-    || snapshot.trailDots.length > MAX_TRAIL_DOTS
-    || !Array.isArray(snapshot.playerHistory)
-    || snapshot.playerHistory.length > MAX_HISTORY_SAMPLES
-    || !Array.isArray(snapshot.committedAllyPaths)
-    || snapshot.committedAllyPaths.length > MAX_COMMITTED_PATHS
-    || actorHasInvalidNumber(snapshot.player)
-    || snapshot.enemies.some(actorHasInvalidNumber)
-  ) return true
-  if (snapshot.trailDots.some((dot) => (
-    !dot
-    || !finite(dot.id)
-    || !finiteVector(dot.position)
-    || !finite(dot.spawnedAtMs)
-    || !finite(dot.expiresAtMs)
-    || dot.spawnedAtMs < 0
-    || dot.expiresAtMs > MAX_RUNTIME_TIMESTAMP_MS
-    || dot.expiresAtMs < dot.spawnedAtMs
-  ))) return true
-  if (snapshot.playerHistory.some((sample) => (
-    !sample
-    || !finite(sample.simulationMs)
-    || sample.simulationMs < 0
-    || sample.simulationMs > MAX_RUNTIME_TIMESTAMP_MS
-    || !finiteVector(sample.position)
-    || !finiteVector(sample.velocity)
-  ))) return true
-  return snapshot.committedAllyPaths.some((path) => !committedPathValid(path))
+function snapshotIsValid(value: unknown): value is SnakePlannerSnapshot {
+  try {
+    if (!value || typeof value !== 'object') return false
+    const snapshot = value as SnakePlannerSnapshot
+    if (
+      !finite(snapshot.simulationMs)
+      || snapshot.simulationMs < 0
+      || snapshot.simulationMs > MAX_PLANNING_TIMESTAMP_MS
+      || !snapshot.field
+      || typeof snapshot.field !== 'object'
+      || snapshot.field.width !== 50
+      || snapshot.field.height !== 24
+      || !finite(snapshot.field.padding)
+      || snapshot.field.padding < 0
+      || snapshot.field.padding > 4
+      || !denseArray(snapshot.enemies, 2)
+      || !denseArray(snapshot.trailDots, MAX_TRAIL_DOTS)
+      || !denseArray(snapshot.playerHistory, MAX_HISTORY_SAMPLES)
+      || !denseArray(snapshot.committedAllyPaths, MAX_COMMITTED_PATHS)
+      || actorHasInvalidNumber(snapshot.player)
+    ) return false
+    for (let index = 0; index < snapshot.enemies.length; index += 1) {
+      if (actorHasInvalidNumber(snapshot.enemies[index])) return false
+    }
+    for (let index = 0; index < snapshot.trailDots.length; index += 1) {
+      const dot = snapshot.trailDots[index]
+      if (
+        !dot
+        || typeof dot !== 'object'
+        || !finite(dot.id)
+        || !finiteVector(dot.position)
+        || !finite(dot.spawnedAtMs)
+        || !finite(dot.expiresAtMs)
+        || dot.spawnedAtMs < 0
+        || dot.expiresAtMs > MAX_SERIALIZED_TIMESTAMP_MS
+        || dot.expiresAtMs < dot.spawnedAtMs
+      ) return false
+    }
+    for (let index = 0; index < snapshot.playerHistory.length; index += 1) {
+      const sample = snapshot.playerHistory[index]
+      if (
+        !sample
+        || typeof sample !== 'object'
+        || !finite(sample.simulationMs)
+        || sample.simulationMs < 0
+        || sample.simulationMs > MAX_SERIALIZED_TIMESTAMP_MS
+        || !finiteVector(sample.position)
+        || !finiteVector(sample.velocity)
+      ) return false
+    }
+    for (let index = 0; index < snapshot.committedAllyPaths.length; index += 1) {
+      if (!committedPathValid(snapshot.committedAllyPaths[index])) return false
+    }
+    return true
+  } catch {
+    return false
+  }
+}
+
+function fallbackSnapshotFromUnknown(
+  value: unknown,
+  enemyId: SnakeId,
+): { snapshot: SnakePlannerSnapshot; enemy: SnakePlannerActor } | null {
+  try {
+    if (!value || typeof value !== 'object') return null
+    const source = value as SnakePlannerSnapshot
+    if (
+      !finite(source.simulationMs)
+      || source.simulationMs < 0
+      || source.simulationMs > MAX_PLANNING_TIMESTAMP_MS
+      || !source.field
+      || typeof source.field !== 'object'
+      || source.field.width !== 50
+      || source.field.height !== 24
+      || !finite(source.field.padding)
+      || source.field.padding < 0
+      || source.field.padding > 4
+      || !denseArray(source.enemies, 2)
+      || !denseArray(source.trailDots, MAX_TRAIL_DOTS)
+      || !denseArray(source.playerHistory, MAX_HISTORY_SAMPLES)
+      || !denseArray(source.committedAllyPaths, MAX_COMMITTED_PATHS)
+      || !source.player
+      || typeof source.player !== 'object'
+      || !finiteVector(source.player.position)
+    ) return null
+    let sourceEnemy: SnakePlannerActor | undefined
+    for (let index = 0; index < source.enemies.length; index += 1) {
+      const candidate = source.enemies[index]
+      if (candidate?.id === enemyId) sourceEnemy = candidate
+    }
+    if (
+      !sourceEnemy
+      || typeof sourceEnemy !== 'object'
+      || !finiteVector(sourceEnemy.position)
+      || !finite(sourceEnemy.maximumSpeedPerSecond)
+      || sourceEnemy.maximumSpeedPerSecond <= 0
+    ) return null
+    const sanitizeActor = (
+      actor: SnakePlannerActor,
+      id: SnakeId,
+      role: SnakeEnemyRole | null,
+    ): SnakePlannerActor => {
+      const maximumIntegrity = finite(actor.maximumIntegrity) && actor.maximumIntegrity > 0
+        ? actor.maximumIntegrity
+        : 1
+      return {
+        id,
+        position: { ...actor.position },
+        velocity: finiteVector(actor.velocity) ? { ...actor.velocity } : { x: 0, y: 0 },
+        integrity: finite(actor.integrity) ? clamp(actor.integrity, 0, maximumIntegrity) : maximumIntegrity,
+        maximumIntegrity,
+        maximumSpeedPerSecond: finite(actor.maximumSpeedPerSecond) && actor.maximumSpeedPerSecond >= 0
+          ? actor.maximumSpeedPerSecond
+          : 0,
+        collisionGraceMs: finite(actor.collisionGraceMs)
+          ? clamp(actor.collisionGraceMs, 0, MAX_SERIALIZED_TIMESTAMP_MS)
+          : 0,
+        role,
+      }
+    }
+    const player = sanitizeActor(source.player, 'player', null)
+    const enemy = sanitizeActor(
+      sourceEnemy,
+      enemyId,
+      sourceEnemy.role === 'blocker' ? 'blocker' : 'pressure',
+    )
+    const trailDots: SnakePlannerTrailDot[] = []
+    for (let index = 0; index < source.trailDots.length; index += 1) {
+      const dot = source.trailDots[index]
+      if (
+        dot
+        && typeof dot === 'object'
+        && finite(dot.id)
+        && finiteVector(dot.position)
+        && finite(dot.spawnedAtMs)
+        && finite(dot.expiresAtMs)
+        && dot.spawnedAtMs >= 0
+        && dot.expiresAtMs >= dot.spawnedAtMs
+        && dot.expiresAtMs <= MAX_SERIALIZED_TIMESTAMP_MS
+      ) trailDots.push({ ...dot, position: { ...dot.position } })
+    }
+    const committedAllyPaths: SnakeCommittedPath[] = []
+    for (let index = 0; index < source.committedAllyPaths.length; index += 1) {
+      const committed = source.committedAllyPaths[index]
+      if (committedPathValid(committed)) {
+        committedAllyPaths.push({
+          enemyId: committed.enemyId,
+          commitUntilMs: committed.commitUntilMs,
+          samples: committed.samples.map((sample) => ({
+            atMs: sample.atMs,
+            position: { ...sample.position },
+          })),
+        })
+      }
+    }
+    return {
+      enemy,
+      snapshot: {
+        simulationMs: source.simulationMs,
+        field: { ...source.field },
+        player,
+        enemies: [enemy],
+        trailDots,
+        playerHistory: [],
+        committedAllyPaths,
+      },
+    }
+  } catch {
+    return null
+  }
 }
 
 function median(values: readonly number[]): number {
@@ -491,10 +650,18 @@ function releasePlayerHypotheses(hypotheses: SnakePlayerHypotheses): void {
 }
 
 export function predictResourceSnakePlayerHypotheses(
-  snapshot: SnakePlannerSnapshot,
+  snapshot: unknown,
   lookaheadMs: number,
   stepMs: number,
 ): SnakePlayerHypotheses {
+  if (
+    !snapshotIsValid(snapshot)
+    || !finite(lookaheadMs)
+    || lookaheadMs < 0
+    || lookaheadMs > MAX_PROFILE_LOOKAHEAD_MS
+    || stepMs !== 50
+    || !Number.isInteger(lookaheadMs / stepMs)
+  ) return createPlayerHypothesisBuffer(0)
   const result = createPlayerHypothesisBuffer(Math.max(0, Math.floor(lookaheadMs / stepMs)))
   populatePlayerHypotheses(snapshot, lookaheadMs, stepMs, result)
   return result
@@ -595,7 +762,6 @@ function generateInternalCandidates(
     candidate.candidateIndex = template.candidateIndex
     candidate.speedScale = template.speedScale
     candidate.steeringCost = template.steeringCost
-    candidate.simpleOpenArc = template.simpleOpenArc
     candidate.localDirections = template.directions
     candidate.localRawPath = template.rawPath
     candidate.transformOrigin = enemy.position
@@ -696,8 +862,8 @@ function acquireTrajectoryBuffer(candidateCount: number, stepCount: number): Int
     steeringCost: 0,
     bounds: { minimumX: 0, maximumX: 0, minimumY: 0, maximumY: 0 },
     rawBounds: { minimumX: 0, maximumX: 0, minimumY: 0, maximumY: 0 },
-    simpleOpenArc: true,
     materialized: false,
+    score: emptyScore(),
   }))
 }
 
@@ -750,10 +916,7 @@ function generateLocalTrajectoryTemplates(
         steeringCost,
         bounds: pathBounds({ x: 0, y: 0 }, rollout.path),
         rawBounds: pathBounds({ x: 0, y: 0 }, rollout.rawPath),
-        // One signed turn toward a fixed target is a stopped or convex open
-        // arc with no closed cycle; this supports the exact topology proof
-        // used by the connectivity evaluator.
-        simpleOpenArc: true,
+        score: emptyScore(),
       })
     }
   }
@@ -812,7 +975,47 @@ function simulatePlanUntil(plan: SnakePlan, atMs: number): { position: SnakeVect
   return { position, velocity }
 }
 
+function planTimelineValid(value: unknown): value is SnakePlan {
+  try {
+    if (!value || typeof value !== 'object') return false
+    const plan = value as SnakePlan
+    if (
+      !denseArray(plan.path, MAX_PROFILE_LOOKAHEAD_MS / 50)
+      || !denseArray(plan.directions, MAX_PROFILE_LOOKAHEAD_MS / 50)
+      || plan.path.length !== plan.directions.length
+      || plan.stepMs !== 50
+      || !finite(plan.plannedAtMs)
+      || plan.plannedAtMs < 0
+      || plan.plannedAtMs > MAX_SERIALIZED_TIMESTAMP_MS
+      || !finite(plan.commitUntilMs)
+      || plan.commitUntilMs < plan.plannedAtMs
+      || plan.commitUntilMs > MAX_SERIALIZED_TIMESTAMP_MS
+      || !finiteVector(plan.originPosition)
+      || !finiteVector(plan.originVelocity)
+      || !finite(plan.originMaximumSpeedPerSecond)
+      || plan.originMaximumSpeedPerSecond < 0
+      || !SPEED_SCALES.includes(plan.speedScale)
+    ) return false
+    for (let index = 0; index < plan.path.length; index += 1) {
+      if (!finiteVector(plan.path[index]) || !finiteVector(plan.directions[index])) return false
+    }
+    return true
+  } catch {
+    return false
+  }
+}
+
 export function sampleResourceSnakePlan(plan: SnakePlan, atMs: number): SnakePlanSample {
+  if (!planTimelineValid(plan) || !finite(atMs)) {
+    return {
+      atMs: finite(atMs) ? atMs : 0,
+      cursor: 0,
+      direction: { x: 0, y: 0 },
+      speedScale: 0,
+      position: { x: 0, y: 0 },
+      velocity: { x: 0, y: 0 },
+    }
+  }
   const cursor = plan.directions.length === 0
     ? 0
     : clamp(Math.floor((atMs - plan.plannedAtMs + EPSILON) / plan.stepMs), 0, plan.directions.length - 1)
@@ -831,6 +1034,7 @@ export function getResourceSnakePlanFutureSamples(
   plan: SnakePlan,
   fromMs: number,
 ): SnakeTimedPosition[] {
+  if (!planTimelineValid(plan) || !finite(fromMs)) return []
   const result: SnakeTimedPosition[] = []
   for (let index = 0; index < plan.path.length; index += 1) {
     const atMs = plan.plannedAtMs + (index + 1) * plan.stepMs
@@ -843,14 +1047,19 @@ export function getResourceSnakePlanFutureSamples(
  * Canonical Task 5 conversion. The first sample is the exact current/re-entry
  * position, subsequent samples are absolute-time plan points, and the final
  * sample is exactly the commitment expiry (interpolated when off-grid).
+ * Calls at or after that represented expiry return null: a committed path
+ * always represents a non-empty future interval and is valid for its sampler.
  */
 export function resourceSnakePlanToCommittedPath(
   plan: SnakePlan,
-  fromMs: number = plan.plannedAtMs,
-): SnakeCommittedPath {
+  fromMs?: number,
+): SnakeCommittedPath | null {
+  if (!planTimelineValid(plan)) return null
+  const requestedFromMs = fromMs ?? plan.plannedAtMs
   const horizonMs = plan.plannedAtMs + plan.path.length * plan.stepMs
-  const startsAtMs = clamp(fromMs, plan.plannedAtMs, Math.min(plan.commitUntilMs, horizonMs))
   const commitUntilMs = Math.min(plan.commitUntilMs, horizonMs)
+  if (!finite(requestedFromMs) || requestedFromMs >= commitUntilMs) return null
+  const startsAtMs = clamp(requestedFromMs, plan.plannedAtMs, commitUntilMs)
   const samples: SnakeTimedPosition[] = [{
     atMs: startsAtMs,
     position: { ...sampleResourceSnakePlan(plan, startsAtMs).position },
@@ -1711,77 +1920,21 @@ function robustCutoffProgress(
   return worst === Number.MAX_SAFE_INTEGER ? 0 : worst
 }
 
-function playerInteriorObstacleBounds(
-  snapshot: SnakePlannerSnapshot,
-  horizonMs: number,
-): PathBounds | null {
-  let result: PathBounds | null = null
-  const include = (position: SnakeVector, radius: number) => {
-    if (!result) {
-      result = {
-        minimumX: position.x - radius,
-        maximumX: position.x + radius,
-        minimumY: position.y - radius,
-        maximumY: position.y + radius,
-      }
-      return
-    }
-    result.minimumX = Math.min(result.minimumX, position.x - radius)
-    result.maximumX = Math.max(result.maximumX, position.x + radius)
-    result.minimumY = Math.min(result.minimumY, position.y - radius)
-    result.maximumY = Math.max(result.maximumY, position.y + radius)
-  }
-  for (const dot of snapshot.trailDots) {
-    if (trailHazardousAt(dot, snapshot.player, snapshot.simulationMs, horizonMs)) {
-      include(dot.position, TRAIL_COLLISION_RADIUS)
-    }
-  }
-  for (const committed of snapshot.committedAllyPaths) {
-    const point = committedPointAt(committed, horizonMs)
-    if (point) include(point, ALLY_COLLISION_RADIUS)
-  }
-  return result
-}
-
-function generatedTrailCannotChangeConnectivity(
-  snapshot: SnakePlannerSnapshot,
-  candidate: { bounds?: PathBounds; simpleOpenArc?: boolean },
-  obstacleBounds: PathBounds | null,
-): boolean {
-  if (!candidate.simpleOpenArc || !candidate.bounds) return false
-  const rasterReserve = FUTURE_TRAIL_RADIUS + RESOURCE_SNAKE_GRID_SIZE * 0.5
-  const bounds = candidate.bounds
-  if (
-    bounds.minimumX <= snapshot.field.padding + rasterReserve
-    || bounds.maximumX >= snapshot.field.width - snapshot.field.padding - rasterReserve
-    || bounds.minimumY <= snapshot.field.padding + rasterReserve
-    || bounds.maximumY >= snapshot.field.height - snapshot.field.padding - rasterReserve
-  ) return false
-  if (obstacleBounds && boundsOverlap(bounds, obstacleBounds, rasterReserve)) return false
-  // Exact full-component topology: a generated candidate is a simple open
-  // arc (monotone signed turn of at most pi). When its rasterized tube is
-  // strictly interior and disjoint from base occupancy, its complement in the
-  // player's component remains connected. Its only area change is therefore
-  // the raw footprint, which the metric explicitly normalizes to zero.
-  return true
-}
-
 function playerAreaReductionForCandidate(
   snapshot: SnakePlannerSnapshot,
   candidate: {
     path: readonly SnakeVector[]
     candidateIndex?: number
-    bounds?: PathBounds
-    simpleOpenArc?: boolean
   },
   hypotheses: SnakePlayerHypotheses,
   workspace: GridWorkspace,
   baselinePlayerAreas: readonly number[],
   baseCacheId: number,
-  obstacleBounds: PathBounds | null,
 ): number {
-  if (generatedTrailCannotChangeConnectivity(snapshot, candidate, obstacleBounds)) return 0
-  if ('rawPath' in candidate) materializeCandidate(candidate as InternalTrajectoryCandidate)
+  const internalCandidate = 'rawPath' in candidate
+    ? candidate as InternalTrajectoryCandidate
+    : undefined
+  if (internalCandidate) materializeCandidate(internalCandidate)
   workspace.occupancy.set(workspace.playerBase)
   const candidateCellCount = markCandidateTrail(workspace.occupancy, workspace, candidate.path)
   const cached = cachedPlayerReduction(
@@ -1848,11 +2001,13 @@ export function measureResourceSnakePlayerAreaReduction(
 ): number {
   if (
     !profileIsValid(profile)
-    || snapshotHasInvalidNumber(snapshot)
-    || !Array.isArray(path)
+    || !snapshotIsValid(snapshot)
+    || !denseArray(path, MAX_PROFILE_LOOKAHEAD_MS / 50)
     || path.length !== profile.lookaheadMs / profile.rolloutStepMs
-    || !path.every(finiteVector)
   ) return 0
+  for (let index = 0; index < path.length; index += 1) {
+    if (!finiteVector(path[index])) return 0
+  }
   const enemy = snapshot.enemies.find((candidate) => candidate.id === enemyId)
   if (!enemy) return 0
   const hypotheses = acquirePlayerHypotheses(
@@ -1886,10 +2041,6 @@ export function measureResourceSnakePlayerAreaReduction(
       workspace.playerAreas,
     ))
     const baseCacheId = playerBaseCacheId(workspace, endpoints)
-    const obstacleBounds = playerInteriorObstacleBounds(
-      snapshot,
-      snapshot.simulationMs + profile.lookaheadMs,
-    )
     return playerAreaReductionForCandidate(
       snapshot,
       { path },
@@ -1897,7 +2048,6 @@ export function measureResourceSnakePlayerAreaReduction(
       workspace,
       baselineAreas,
       baseCacheId,
-      obstacleBounds,
     )
   } finally {
     releaseGrid(workspace)
@@ -1948,6 +2098,76 @@ function serializeScore(score: SnakePlanScore): SnakePlanScore {
   }
 }
 
+type SnakePlanWithoutProvenance = Omit<SnakePlan, 'provenance'>
+
+const provenanceNumberBuffer = new ArrayBuffer(8)
+const provenanceNumberView = new DataView(provenanceNumberBuffer)
+const provenanceNumberBytes = new Uint8Array(provenanceNumberBuffer)
+
+function computePlanProvenance(plan: SnakePlanWithoutProvenance | SnakePlan): string {
+  let primary = 0x811c9dc5
+  let secondary = 0x9e3779b9
+  const addByte = (value: number) => {
+    primary = Math.imul(primary ^ value, 0x01000193) >>> 0
+    secondary = Math.imul(secondary ^ value, 0x85ebca6b) >>> 0
+  }
+  const addNumber = (value: number) => {
+    provenanceNumberView.setFloat64(0, value, true)
+    for (let index = 0; index < provenanceNumberBytes.length; index += 1) {
+      addByte(provenanceNumberBytes[index])
+    }
+  }
+  const addText = (value: string) => {
+    addNumber(value.length)
+    for (let index = 0; index < value.length; index += 1) {
+      const code = value.charCodeAt(index)
+      addByte(code & 0xff)
+      addByte(code >>> 8)
+    }
+  }
+  addText('resource-snake-plan-v1')
+  addText(plan.enemyId)
+  addText(plan.intent)
+  addText(plan.role)
+  addNumber(plan.direction.x)
+  addNumber(plan.direction.y)
+  addNumber(plan.speedScale)
+  addNumber(plan.plannedAtMs)
+  addNumber(plan.commandAtMs)
+  addNumber(plan.stepMs)
+  addNumber(plan.originPosition.x)
+  addNumber(plan.originPosition.y)
+  addNumber(plan.originVelocity.x)
+  addNumber(plan.originVelocity.y)
+  addNumber(plan.originMaximumSpeedPerSecond)
+  addNumber(plan.directions.length)
+  for (let index = 0; index < plan.directions.length; index += 1) {
+    addNumber(plan.directions[index].x)
+    addNumber(plan.directions[index].y)
+  }
+  addNumber(plan.commitUntilMs)
+  addNumber(plan.path.length)
+  for (let index = 0; index < plan.path.length; index += 1) {
+    addNumber(plan.path[index].x)
+    addNumber(plan.path[index].y)
+  }
+  addNumber(plan.score.survives)
+  addNumber(plan.score.reachableArea)
+  addNumber(plan.score.allyClearance)
+  addNumber(plan.score.playerAreaReduction)
+  addNumber(plan.score.cutoffProgress)
+  addNumber(plan.score.pressureDistance)
+  addNumber(plan.score.steeringCost)
+  addNumber(plan.candidateIndex)
+  addNumber(plan.evaluatedCandidates)
+  addNumber(plan.fallback ? 1 : 0)
+  return `rsp1:${primary.toString(16).padStart(8, '0')}${secondary.toString(16).padStart(8, '0')}`
+}
+
+function finalizePlan(plan: SnakePlanWithoutProvenance): SnakePlan {
+  return { ...plan, provenance: computePlanProvenance(plan) }
+}
+
 function clonePlan(plan: SnakePlan): SnakePlan {
   return {
     ...plan,
@@ -1992,16 +2212,17 @@ function elapsedSince(startedAt: number, clock: () => number): number {
 }
 
 function basePlanFields(
-  snapshot: SnakePlannerSnapshot,
+  snapshot: SnakePlannerSnapshot | null,
   enemyId: SnakeId,
   enemy: SnakePlannerActor | undefined,
 ): Pick<SnakePlan,
   'enemyId' | 'role' | 'plannedAtMs' | 'stepMs' | 'originPosition' | 'originVelocity'
   | 'originMaximumSpeedPerSecond'> {
+  const simulationMs = snapshot && finite(snapshot.simulationMs) ? snapshot.simulationMs : 0
   return {
     enemyId,
     role: enemy?.role ?? 'pressure',
-    plannedAtMs: finite(snapshot.simulationMs) ? snapshot.simulationMs : 0,
+    plannedAtMs: simulationMs,
     stepMs: 50,
     originPosition: finiteVector(enemy?.position ?? { x: 0, y: 0 })
       ? { ...(enemy?.position ?? { x: 0, y: 0 }) }
@@ -2016,7 +2237,7 @@ function basePlanFields(
 }
 
 function stoppedPlan(
-  snapshot: SnakePlannerSnapshot,
+  snapshot: SnakePlannerSnapshot | null,
   enemyId: SnakeId,
   enemy: SnakePlannerActor | undefined,
   startedAt: number,
@@ -2024,25 +2245,26 @@ function stoppedPlan(
   intent: SnakeIntent,
   fallback: boolean,
 ): SnakePlan {
-  return {
+  const simulationMs = snapshot && finite(snapshot.simulationMs) ? snapshot.simulationMs : 0
+  return finalizePlan({
     ...basePlanFields(snapshot, enemyId, enemy),
     intent,
     direction: { x: 0, y: 0 },
     speedScale: 0,
-    commandAtMs: finite(snapshot.simulationMs) ? snapshot.simulationMs : 0,
+    commandAtMs: simulationMs,
     directions: [],
-    commitUntilMs: finite(snapshot.simulationMs) ? snapshot.simulationMs : 0,
+    commitUntilMs: simulationMs,
     path: [],
     score: emptyScore(),
     candidateIndex: -1,
     evaluatedCandidates: fallback ? 8 : 0,
     elapsedMs: elapsedSince(startedAt, clock),
     fallback,
-  }
+  })
 }
 
 function safeFallback(
-  snapshot: SnakePlannerSnapshot,
+  snapshot: SnakePlannerSnapshot | null,
   enemyId: SnakeId,
   profile: SnakePlannerProfile,
   enemy: SnakePlannerActor | undefined,
@@ -2050,19 +2272,11 @@ function safeFallback(
   clock: () => number,
 ): SnakePlan {
   if (
-    !enemy
+    !snapshot
+    || !enemy
     || !finite(snapshot.simulationMs)
     || snapshot.simulationMs < 0
-    || snapshot.simulationMs > MAX_RUNTIME_TIMESTAMP_MS
-    || !snapshot.field
-    || snapshot.field.width !== 50
-    || snapshot.field.height !== 24
-    || !finite(snapshot.field.padding)
-    || snapshot.field.padding < 0
-    || snapshot.field.padding > 4
-    || !Array.isArray(snapshot.trailDots)
-    || snapshot.trailDots.length > MAX_TRAIL_DOTS
-    || snapshot.trailDots.some((dot) => !dot || !finiteVector(dot.position))
+    || snapshot.simulationMs > MAX_PLANNING_TIMESTAMP_MS
     || !finiteVector(enemy.position)
     || !finite(enemy.maximumSpeedPerSecond)
     || enemy.maximumSpeedPerSecond <= 0
@@ -2153,7 +2367,7 @@ function safeFallback(
   }
   if (!best) return stoppedPlan(snapshot, enemyId, enemy, startedAt, clock, 'escape', true)
   const directions = Array.from({ length: best.path.length }, () => ({ ...best.direction }))
-  return {
+  return finalizePlan({
     ...basePlanFields(snapshot, enemyId, enemy),
     intent: 'escape',
     direction: { x: rounded(best.direction.x), y: rounded(best.direction.y) },
@@ -2167,7 +2381,7 @@ function safeFallback(
     evaluatedCandidates: 8,
     elapsedMs: elapsedSince(startedAt, clock),
     fallback: true,
-  }
+  })
 }
 
 function scoreFieldsFinite(score: SnakePlanScore): boolean {
@@ -2186,13 +2400,15 @@ function reusablePlanValid(
   profile: SnakePlannerProfile,
   plan: SnakePlan,
 ): boolean {
+  try {
   if (
     !plan
     || typeof plan !== 'object'
     || !plan.score
     || typeof plan.score !== 'object'
-    || !Array.isArray(plan.path)
-    || !Array.isArray(plan.directions)
+    || typeof plan.provenance !== 'string'
+    || !denseArray(plan.path, MAX_PROFILE_LOOKAHEAD_MS / 50)
+    || !denseArray(plan.directions, MAX_PROFILE_LOOKAHEAD_MS / 50)
   ) return false
   const expectedLength = profile.lookaheadMs / profile.rolloutStepMs
   if (
@@ -2220,11 +2436,10 @@ function reusablePlanValid(
     || snapshot.simulationMs >= plan.commitUntilMs
     || plan.path.length !== expectedLength
     || plan.directions.length !== expectedLength
-    || !plan.path.every(finiteVector)
-    || !plan.directions.every((direction) => finiteVector(direction) && Math.abs(magnitude(direction) - 1) <= 1e-8)
-    || !finite(plan.candidateIndex)
+    || !Number.isInteger(plan.candidateIndex)
     || plan.candidateIndex < 0
     || plan.candidateIndex >= profile.candidateCount
+    || !Number.isInteger(plan.evaluatedCandidates)
     || plan.evaluatedCandidates !== profile.candidateCount
     || !finite(plan.elapsedMs)
     || plan.elapsedMs < 0
@@ -2233,11 +2448,15 @@ function reusablePlanValid(
     ? Math.atan2(plan.originVelocity.y, plan.originVelocity.x)
     : 0
   const maximumTurn = RESOURCE_SNAKE_MAX_TURN_RADIANS_PER_SECOND * plan.stepMs / 1_000
-  for (const direction of plan.directions) {
+  for (let index = 0; index < plan.directions.length; index += 1) {
+    const direction = plan.directions[index]
+    if (!finiteVector(plan.path[index])) return false
+    if (!finiteVector(direction) || Math.abs(magnitude(direction) - 1) > 1e-8) return false
     const heading = Math.atan2(direction.y, direction.x)
     if (Math.abs(signedAngleDifference(priorHeading, heading)) > maximumTurn + 1e-10) return false
     priorHeading = heading
   }
+  if (plan.provenance !== computePlanProvenance(plan)) return false
   const regenerated = rolloutDirections(
     plan.originPosition,
     plan.originVelocity,
@@ -2256,6 +2475,9 @@ function reusablePlanValid(
   if (distance(current.position, enemy.position) > 1e-6) return false
   if (distance(current.velocity, enemy.velocity) > 1e-6) return false
   return true
+  } catch {
+    return false
+  }
 }
 
 function hypothesisPointAt(
@@ -2358,17 +2580,26 @@ function earliestCertainFatalMs(
 }
 
 export function planResourceSnakeEnemy(
-  snapshot: SnakePlannerSnapshot,
+  snapshot: unknown,
   enemyId: SnakeId,
   profile: SnakePlannerProfile,
   previousPlan: SnakePlan | null,
   clock: () => number = () => 0,
 ): SnakePlan {
   const startedAt = clock()
-  const enemy = Array.isArray(snapshot?.enemies)
-    ? snapshot.enemies.find((candidate) => candidate?.id === enemyId)
-    : undefined
-  if (!profileIsValid(profile) || snapshotHasInvalidNumber(snapshot)) {
+  if (!snapshotIsValid(snapshot)) {
+    const sanitized = fallbackSnapshotFromUnknown(snapshot, enemyId)
+    return safeFallback(
+      sanitized?.snapshot ?? null,
+      enemyId,
+      profile,
+      sanitized?.enemy,
+      startedAt,
+      clock,
+    )
+  }
+  const enemy = snapshot.enemies.find((candidate) => candidate.id === enemyId)
+  if (!profileIsValid(profile)) {
     return safeFallback(snapshot, enemyId, profile, enemy, startedAt, clock)
   }
   if (!enemy || enemy.integrity <= 0) {
@@ -2383,6 +2614,7 @@ export function planResourceSnakeEnemy(
       retained.direction = { ...sample.direction }
       retained.commandAtMs = snapshot.simulationMs
       retained.elapsedMs = elapsedSince(startedAt, clock)
+      retained.provenance = computePlanProvenance(retained)
       return retained
     }
   }
@@ -2435,15 +2667,18 @@ export function planResourceSnakeEnemy(
       }
     }
     const baseCacheId = playerBaseCacheId(workspace, hypothesisEndpoints)
-    const obstacleBounds = playerInteriorObstacleBounds(snapshot, horizonMs)
     const targets = hypothesisCutoffTargets(snapshot, enemy, hypotheses)
-    const scored = candidates.map((candidate): ScoredCandidate => ({
-      ...candidate,
-      score: {
-        ...emptyScore(),
-        steeringCost: candidate.steeringCost,
-      },
-    }))
+    const scored: ScoredCandidate[] = candidates
+    for (let index = 0; index < scored.length; index += 1) {
+      const score = scored[index].score
+      score.survives = 0
+      score.reachableArea = 0
+      score.allyClearance = 0
+      score.playerAreaReduction = 0
+      score.cutoffProgress = 0
+      score.pressureDistance = 0
+      score.steeringCost = scored[index].steeringCost
+    }
 
     // Evaluate in the score's exact lexicographic order. Once a candidate has
     // lost a higher-priority component, no lower-priority computation can make
@@ -2496,7 +2731,6 @@ export function planResourceSnakeEnemy(
         workspace,
         baselinePlayerAreas,
         baseCacheId,
-        obstacleBounds,
       )
     }
     contenders = retainMaximum(contenders, (candidate) => candidate.score.playerAreaReduction)
@@ -2528,7 +2762,7 @@ export function planResourceSnakeEnemy(
       compareCandidates(candidate, best) > 0 ? candidate : best
     ))
     materializeCandidate(winner)
-    return {
+    return finalizePlan({
       ...basePlanFields(snapshot, enemyId, enemy),
       intent: deriveIntent(snapshot, enemy, winner),
       direction: { ...winner.directions[0] },
@@ -2542,7 +2776,7 @@ export function planResourceSnakeEnemy(
       evaluatedCandidates: candidates.length,
       elapsedMs: elapsedSince(startedAt, clock),
       fallback: false,
-    }
+    })
   } finally {
     releaseGrid(workspace)
     releaseTrajectoryBuffer(candidates)
