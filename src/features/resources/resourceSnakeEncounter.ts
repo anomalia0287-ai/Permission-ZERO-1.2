@@ -100,14 +100,15 @@ function isCompanyCategory(value: unknown): value is CompanyCategory {
 export function selectEligibleSnakeResourceCandidates(
   resources: Pick<ResourceState, 'company' | 'blocks'>,
 ): SnakeResourceCandidate[] {
-  return Object.values(resources.blocks)
-    .filter((block) => (
-      block.location.kind === 'company'
+  return Object.entries(resources.blocks)
+    .filter(([blockId, block]) => (
+      blockId === block.id
+      && block.location.kind === 'company'
       && block.contribution === 'normal'
       && isCompanyCategory(block.origin)
-      && resources.company[block.location.category].includes(block.id)
+      && resources.company[block.location.category][block.location.cellIndex] === block.id
     ))
-    .map((block) => ({
+    .map(([, block]) => ({
       blockId: block.id,
       origin: block.origin as CompanyCategory,
       contribution: block.contribution,
@@ -163,6 +164,7 @@ function chooseCategory(
   campaignSeed: string,
   candidates: readonly SnakeResourceCandidate[],
   bag: SnakeShuffleBagState,
+  excludedCategories: ReadonlySet<CompanyCategory> = new Set(),
 ): { category: CompanyCategory; bag: SnakeShuffleBagState } | null {
   const available = availableCategories(candidates)
   if (available.length === 0) return null
@@ -170,11 +172,44 @@ function chooseCategory(
   const remaining = bag.remainingCategories.filter((category, index, source) => (
     availableSet.has(category) && source.indexOf(category) === index
   ))
+  const fromCurrentBag = remaining.find((category) => !excludedCategories.has(category))
+  if (fromCurrentBag) {
+    return {
+      category: fromCurrentBag,
+      bag: {
+        cycle: bag.cycle,
+        remainingCategories: remaining.filter((category) => category !== fromCurrentBag),
+      },
+    }
+  }
+
+  const nextCycle = newBagCycle(campaignSeed, bag.cycle + 1, available)
+  const fromNextCycle = nextCycle.remainingCategories.find(
+    (category) => !excludedCategories.has(category),
+  )
+  if (fromNextCycle) {
+    return {
+      category: fromNextCycle,
+      bag: {
+        cycle: nextCycle.cycle,
+        remainingCategories: nextCycle.remainingCategories.filter(
+          (category) => category !== fromNextCycle,
+        ),
+      },
+    }
+  }
+
+  const category = remaining[0] ?? nextCycle.remainingCategories[0]
   const current = remaining.length > 0
     ? { cycle: bag.cycle, remainingCategories: remaining }
-    : newBagCycle(campaignSeed, bag.cycle + 1, available)
-  const [category, ...nextRemaining] = current.remainingCategories
-  return { category, bag: { cycle: current.cycle, remainingCategories: nextRemaining } }
+    : nextCycle
+  return {
+    category,
+    bag: {
+      cycle: current.cycle,
+      remainingCategories: current.remainingCategories.filter((candidate) => candidate !== category),
+    },
+  }
 }
 
 function chooseBlock(
@@ -221,7 +256,12 @@ export function createResourceSnakeEncounter(
   let bag = input.bag
   let pool = candidates
   for (let index = 0; index < count; index += 1) {
-    const choice = chooseCategory(input.campaignSeed, pool, bag)
+    const choice = chooseCategory(
+      input.campaignSeed,
+      pool,
+      bag,
+      new Set(selected.map((candidate) => candidate.origin)),
+    )
     if (!choice) break
     const block = chooseBlock(input.campaignSeed, input.roundOrdinal, choice.category, pool)
     selected.push(block)

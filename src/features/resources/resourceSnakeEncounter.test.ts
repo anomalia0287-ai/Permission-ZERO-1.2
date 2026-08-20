@@ -100,6 +100,30 @@ describe('snake encounter resource authority', () => {
     expect(selected).toEqual([])
   })
 
+  it('rejects a block when its ID is present at a different company cell than its location', () => {
+    const selected = selectEligibleSnakeResourceCandidates(resources({
+      misplaced: {
+        id: 'misplaced', origin: 'reasoning', contribution: 'normal', hiddenBomb: false,
+        disguisedFrom: null, recoverOnServiceDay: null,
+        location: { kind: 'company', category: 'reasoning', cellIndex: 1 },
+      },
+    }, { ...emptyCompany, reasoning: ['misplaced', null] }))
+
+    expect(selected).toEqual([])
+  })
+
+  it('rejects a resource block whose record key does not match its claimed ID', () => {
+    const selected = selectEligibleSnakeResourceCandidates(resources({
+      staleKey: {
+        id: 'claimed-id', origin: 'reasoning', contribution: 'normal', hiddenBomb: false,
+        disguisedFrom: null, recoverOnServiceDay: null,
+        location: { kind: 'company', category: 'reasoning', cellIndex: 0 },
+      },
+    }, { ...emptyCompany, reasoning: ['claimed-id'] }))
+
+    expect(selected).toEqual([])
+  })
+
   it('exposes the fixed category colors at the encounter boundary', () => {
     expect(SNAKE_CATEGORY_COLORS).toEqual({
       reasoning: '#f06a43',
@@ -131,6 +155,23 @@ describe('snake encounter resource authority', () => {
     }
 
     expect(new Set(categories)).toEqual(new Set(['reasoning', 'memory', 'fluency']))
+  })
+
+  it('uses a distinct available origin for the second dual reservation across an incoming bag boundary', () => {
+    const result = createResourceSnakeEncounter({
+      campaignSeed: 'seed-3',
+      roundOrdinal: 1,
+      successfulDeposits: 6,
+      candidates: [
+        candidate('r1', 'reasoning'),
+        candidate('r2', 'reasoning'),
+        candidate('m1', 'memory'),
+      ],
+      bag: { cycle: 1, remainingCategories: ['reasoning'] },
+    })
+
+    expect(result.setup!.enemies.map((enemy) => enemy.category)).toEqual(['reasoning', 'memory'])
+    expect(result.bag).toEqual({ cycle: 2, remainingCategories: ['reasoning'] })
   })
 })
 
@@ -169,7 +210,7 @@ describe('snake encounter difficulty and reservation setup', () => {
     })
   })
 
-  it('uses the seeded 12+ parity branch and falls back to one 80-integrity enemy without two blocks', () => {
+  it('uses the seeded 12+ parity branch, full late-tier configuration, and odd-parity one-block fallback', () => {
     const candidates = [candidate('reasoning-1', 'reasoning'), candidate('memory-1', 'memory')]
     const even = createResourceSnakeEncounter({
       campaignSeed: 'seed-0', roundOrdinal: 1, successfulDeposits: 12, candidates,
@@ -179,11 +220,30 @@ describe('snake encounter difficulty and reservation setup', () => {
       campaignSeed: 'seed-1', roundOrdinal: 1, successfulDeposits: 12, candidates,
       bag: { cycle: 0, remainingCategories: [] },
     })
-    const fallback = encounter([candidate('reasoning-only', 'reasoning')], 12, 2)
+    const fallback = createResourceSnakeEncounter({
+      campaignSeed: 'seed-1', roundOrdinal: 1, successfulDeposits: 12,
+      candidates: [candidate('reasoning-only', 'reasoning')],
+      bag: { cycle: 0, remainingCategories: [] },
+    })
 
     expect(even.setup!.enemies.map((enemy) => enemy.maximumIntegrity)).toEqual([80])
-    expect(odd.setup!.enemies.map((enemy) => enemy.maximumIntegrity)).toEqual([50, 50])
-    expect(fallback.setup!.enemies.map((enemy) => enemy.maximumIntegrity)).toEqual([80])
+    expect(odd.setup).toMatchObject({
+      playerSpawn: { x: 25, y: 21 },
+      enemies: [
+        { maximumIntegrity: 50, maximumSpeedPerSecond: 7.2, spawn: { x: 16, y: 3.5 }, role: 'pressure' },
+        { maximumIntegrity: 50, maximumSpeedPerSecond: 7.2, spawn: { x: 34, y: 3.5 }, role: 'blocker' },
+      ],
+    })
+    expect(odd.plannerProfile).toEqual({
+      lookaheadMs: 2_500, candidateCount: 96, planningHz: 10, commitMs: 220, rolloutStepMs: 50,
+    })
+    expect(fallback.setup).toMatchObject({
+      playerSpawn: { x: 25, y: 21 },
+      enemies: [{
+        maximumIntegrity: 80, maximumSpeedPerSecond: 7.2,
+        spawn: { x: 25, y: 3.5 }, role: 'pressure',
+      }],
+    })
   })
 
   it('creates deterministic round, enemy, reward, spawn, and role identifiers', () => {
@@ -241,5 +301,32 @@ describe('snake encounter difficulty and reservation setup', () => {
       rewardKey: 'campaign-alpha:snake:1:enemy-0:reasoning-1',
       outcome: 'cancelled',
     }))
+  })
+
+  it('removes a pending reservation reward exactly once and remains cancelled after reconciliation', () => {
+    const setup = encounter([candidate('reasoning-1', 'reasoning')]).setup!
+    const state = deployResourceSnakeRound(createIdleResourceSnakeState(), setup)
+    const pending = {
+      ...state,
+      enemies: state.enemies.map((enemy) => ({ ...enemy, reservationStatus: 'pending' as const })),
+      effects: [{
+        id: 1,
+        type: 'request-resource-reward' as const,
+        rewardKey: 'campaign-alpha:snake:1:enemy-0:reasoning-1',
+        roundId: 'campaign-alpha:snake:1',
+        enemyId: 'enemy-0' as const,
+        blockId: 'reasoning-1',
+      }],
+    }
+
+    const cancelled = reconcileSnakeReservations(pending, new Set<string>())
+    const repeated = reconcileSnakeReservations(cancelled, new Set<string>())
+
+    expect(cancelled.effects).toEqual([])
+    expect(cancelled.enemies[0].reservationStatus).toBe('cancelled')
+    expect(cancelled.events.filter((event) => event.type === 'resource-reward-resolved')).toHaveLength(1)
+    expect(repeated).toBe(cancelled)
+    expect(repeated.enemies[0].reservationStatus).toBe('cancelled')
+    expect(repeated.effects).toEqual([])
   })
 })

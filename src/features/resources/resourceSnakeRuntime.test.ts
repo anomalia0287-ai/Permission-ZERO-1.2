@@ -35,6 +35,32 @@ function activeState(): ResourceSnakeRoundState {
 }
 
 describe('resource snake fixed-step movement kernel', () => {
+  it('uses an encounter-provided enemy speed rather than the player speed cap', () => {
+    let state = deployResourceSnakeRound(createIdleResourceSnakeState(), {
+      roundId: 'speed-round',
+      playerSpawn: { x: 25, y: 21 },
+      enemies: [{
+        id: 'enemy-0', category: 'reasoning', reservedBlockId: 'block-speed',
+        rewardKey: 'speed-round:enemy-0:block-speed', role: 'pressure',
+        spawn: { x: 16, y: 3.5 }, maximumIntegrity: 30, maximumSpeedPerSecond: 6.2,
+      }],
+    })
+    state = advanceResourceSnakeFrame(state, input, 100)
+    state = advanceResourceSnakeFrame(state, input, 100)
+    state = advanceResourceSnakeFrame(state, input, 20)
+    state = advanceResourceSnakeFrame(state, {
+      ...input,
+      enemyDirections: { 'enemy-0': { x: 1, y: 0 } },
+    }, 100)
+    state = advanceResourceSnakeFrame(state, {
+      ...input,
+      enemyDirections: { 'enemy-0': { x: 1, y: 0 } },
+    }, 20 + RESOURCE_SNAKE_CONFIG.fixedStepMs)
+
+    expect(state.enemies[0].velocity).toEqual({ x: 6.2, y: 0 })
+    expect(state.enemies[0].position.x).toBeCloseTo(16.4284027778, 8)
+  })
+
   it('keeps the player position unchanged while input is idle', () => {
     const state = activeState()
     const next = advanceResourceSnakeFrame(state, input, 100)
