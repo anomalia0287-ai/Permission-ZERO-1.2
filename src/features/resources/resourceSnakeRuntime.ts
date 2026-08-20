@@ -15,6 +15,14 @@ export const RESOURCE_SNAKE_CONFIG = {
   trailShrinkMs: 2_000,
   maximumTrailDots: 320,
   deploymentMs: 220,
+  damagePerCollision: 20,
+  collisionGraceMs: 650,
+  hitStopMs: 90,
+  collisionGapRadius: 0.65,
+  selfTrailIgnoreAgeMs: 240,
+  deathFlashMs: 90,
+  roundResolveMs: 900,
+  playerMaximumIntegrity: 100,
 } as const
 
 export type SnakeId = 'player' | `enemy-${number}`
@@ -80,31 +88,29 @@ export interface SnakeFrameInput {
 }
 
 export type ResourceSnakeEvent =
-  | { id: number; type: 'round-started'; roundId: string; simulationMs: number }
-  | { id: number; type: 'round-ready'; roundId: string; simulationMs: number }
-  | {
-      id: number
-      type: 'resource-reward-requested'
-      rewardKey: string
-      reservedBlockId: string
-      category: CompanyCategory
-      commandSequence: number
-    }
+  | { id: number; type: 'round-started'; roundId: string }
+  | { id: number; type: 'snake-collided'; actorIds: SnakeId[]; point: SnakeVector; hitStopMs: 90 }
+  | { id: number; type: 'snake-damaged'; actorId: SnakeId; integrity: number; maximumIntegrity: number }
+  | { id: number; type: 'snake-died'; actorId: SnakeId; category: CompanyCategory | null; startedAtMs: number }
   | {
       id: number
       type: 'resource-reward-resolved'
       rewardKey: string
       outcome: 'success' | 'interrogation' | 'rejected' | 'cancelled'
+      category: CompanyCategory | null
     }
+  | { id: number; type: 'round-won'; roundId: string }
+  | { id: number; type: 'player-defeated'; roundId: string }
+  | { id: number; type: 'round-ready' }
 
 export type ResourceSnakeEffect =
   | {
       id: number
       type: 'request-resource-reward'
       rewardKey: string
-      reservedBlockId: string
-      category: CompanyCategory
-      commandSequence: number
+      roundId: string
+      enemyId: SnakeId
+      blockId: string
     }
 
 export interface ResourceSnakeRoundState {
@@ -225,8 +231,8 @@ export function createIdleResourceSnakeState(): ResourceSnakeRoundState {
     accumulatorMs: 0,
     resolvingMs: 0,
     player: createActor('player', 'player', spawn, {
-      integrity: 100,
-      maximumIntegrity: 100,
+      integrity: RESOURCE_SNAKE_CONFIG.playerMaximumIntegrity,
+      maximumIntegrity: RESOURCE_SNAKE_CONFIG.playerMaximumIntegrity,
       phase: 'active',
     }),
     enemies: [],
@@ -242,8 +248,8 @@ export function deployResourceSnakeRound(
   setup: SnakeRoundSetup,
 ): ResourceSnakeRoundState {
   const player = createActor('player', 'player', setup.playerSpawn, {
-    integrity: 100,
-    maximumIntegrity: 100,
+    integrity: RESOURCE_SNAKE_CONFIG.playerMaximumIntegrity,
+    maximumIntegrity: RESOURCE_SNAKE_CONFIG.playerMaximumIntegrity,
     phase: 'spawning',
   })
   const enemies = setup.enemies.map((enemy) =>
@@ -275,7 +281,6 @@ export function deployResourceSnakeRound(
   return appendEvent(deployed, {
     type: 'round-started',
     roundId: setup.roundId,
-    simulationMs: 0,
   })
 }
 
@@ -358,6 +363,335 @@ function advanceActor(
   )
 }
 
+type CollisionKind = 'boundary' | 'head-head' | 'trail'
+
+interface CollisionCandidate {
+  kind: CollisionKind
+  contactTime: number
+  actorIds: SnakeId[]
+  point: SnakeVector
+  normal: SnakeVector
+  anchor: SnakeVector
+  separationDistance: number
+  gapActorIds: SnakeId[]
+}
+
+function interpolate(start: SnakeVector, end: SnakeVector, time: number): SnakeVector {
+  return {
+    x: start.x + (end.x - start.x) * time,
+    y: start.y + (end.y - start.y) * time,
+  }
+}
+
+function sweptCircleTime(
+  start: SnakeVector,
+  end: SnakeVector,
+  center: SnakeVector,
+  radius: number,
+): number | null {
+  const offset = { x: start.x - center.x, y: start.y - center.y }
+  const delta = { x: end.x - start.x, y: end.y - start.y }
+  const a = delta.x * delta.x + delta.y * delta.y
+  const c = offset.x * offset.x + offset.y * offset.y - radius * radius
+  if (c <= 0) return 0
+  if (a === 0) return null
+  const b = 2 * (offset.x * delta.x + offset.y * delta.y)
+  const discriminant = b * b - 4 * a * c
+  if (discriminant < 0) return null
+  const time = (-b - Math.sqrt(discriminant)) / (2 * a)
+  return time >= 0 && time <= 1 ? time : null
+}
+
+function normalizedOrFallback(vector: SnakeVector, fallback: SnakeVector): SnakeVector {
+  const length = Math.hypot(vector.x, vector.y)
+  return length === 0 ? fallback : { x: vector.x / length, y: vector.y / length }
+}
+
+function activeActors(state: ResourceSnakeRoundState): SnakeActor[] {
+  return [state.player, ...state.enemies].filter((actor) => actor.phase === 'active')
+}
+
+function trailCandidates(
+  state: ResourceSnakeRoundState,
+  simulationMs: number,
+): CollisionCandidate[] {
+  const candidates: CollisionCandidate[] = []
+  const actors = activeActors(state)
+  for (const actor of actors) {
+    if (actor.collisionGraceMs > 0) continue
+    for (const owner of actors) {
+      for (const dot of owner.trail) {
+        if (dot.spawnedAtMs >= simulationMs) continue
+        if (
+          owner.id === actor.id
+          && simulationMs - dot.spawnedAtMs < RESOURCE_SNAKE_CONFIG.selfTrailIgnoreAgeMs
+        ) continue
+        const contactTime = sweptCircleTime(
+          actor.previousPosition,
+          actor.position,
+          dot.position,
+          RESOURCE_SNAKE_CONFIG.headRadius + RESOURCE_SNAKE_CONFIG.trailRadius,
+        )
+        if (contactTime === null) continue
+        const point = interpolate(actor.previousPosition, actor.position, contactTime)
+        candidates.push({
+          kind: 'trail',
+          contactTime,
+          actorIds: [actor.id],
+          point,
+          normal: normalizedOrFallback(
+            { x: point.x - dot.position.x, y: point.y - dot.position.y },
+            normalizedOrFallback(actor.velocity, { x: -1, y: 0 }),
+          ),
+          anchor: dot.position,
+          separationDistance: RESOURCE_SNAKE_CONFIG.headRadius + RESOURCE_SNAKE_CONFIG.trailRadius + 0.04,
+          gapActorIds: [owner.id],
+        })
+      }
+    }
+  }
+  return candidates
+}
+
+function headHeadCandidates(state: ResourceSnakeRoundState): CollisionCandidate[] {
+  const actors = activeActors(state)
+  const candidates: CollisionCandidate[] = []
+  for (let leftIndex = 0; leftIndex < actors.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < actors.length; rightIndex += 1) {
+      const left = actors[leftIndex]
+      const right = actors[rightIndex]
+      if (left.collisionGraceMs > 0 && right.collisionGraceMs > 0) continue
+      const relativeStart = {
+        x: left.previousPosition.x - right.previousPosition.x,
+        y: left.previousPosition.y - right.previousPosition.y,
+      }
+      const relativeEnd = {
+        x: left.position.x - right.position.x,
+        y: left.position.y - right.position.y,
+      }
+      const contactTime = sweptCircleTime(
+        relativeStart,
+        relativeEnd,
+        zeroVector(),
+        RESOURCE_SNAKE_CONFIG.headRadius * 2,
+      )
+      if (contactTime === null) continue
+      const leftPoint = interpolate(left.previousPosition, left.position, contactTime)
+      const rightPoint = interpolate(right.previousPosition, right.position, contactTime)
+      const [first, second] = [left, right].sort((firstActor, secondActor) => (
+        firstActor.id.localeCompare(secondActor.id)
+      ))
+      const firstPoint = first.id === left.id ? leftPoint : rightPoint
+      const secondPoint = second.id === right.id ? rightPoint : leftPoint
+      candidates.push({
+        kind: 'head-head',
+        contactTime,
+        actorIds: [first.id, second.id],
+        point: { x: (leftPoint.x + rightPoint.x) / 2, y: (leftPoint.y + rightPoint.y) / 2 },
+        normal: normalizedOrFallback(
+          { x: firstPoint.x - secondPoint.x, y: firstPoint.y - secondPoint.y },
+          normalizedOrFallback(first.velocity, { x: -1, y: 0 }),
+        ),
+        anchor: zeroVector(),
+        separationDistance: RESOURCE_SNAKE_CONFIG.headRadius * 2 + 0.04,
+        gapActorIds: [first.id, second.id],
+      })
+    }
+  }
+  return candidates
+}
+
+function boundaryCandidates(state: ResourceSnakeRoundState, stepMs: number): CollisionCandidate[] {
+  const candidates: CollisionCandidate[] = []
+  const minimumX = RESOURCE_SNAKE_CONFIG.headRadius
+  const maximumX = RESOURCE_SNAKE_CONFIG.fieldWidth - RESOURCE_SNAKE_CONFIG.headRadius
+  const minimumY = RESOURCE_SNAKE_CONFIG.headRadius
+  const maximumY = RESOURCE_SNAKE_CONFIG.fieldHeight - RESOURCE_SNAKE_CONFIG.headRadius
+  for (const actor of activeActors(state)) {
+    if (actor.collisionGraceMs > 0) continue
+    const rawEnd = {
+      x: actor.previousPosition.x + actor.velocity.x * (stepMs / 1000),
+      y: actor.previousPosition.y + actor.velocity.y * (stepMs / 1000),
+    }
+    const axisContacts: Array<{ time: number; normal: SnakeVector; anchor: SnakeVector }> = []
+    if (rawEnd.x < minimumX && actor.previousPosition.x >= minimumX) {
+      axisContacts.push({ time: (minimumX - actor.previousPosition.x) / (rawEnd.x - actor.previousPosition.x), normal: { x: 1, y: 0 }, anchor: { x: minimumX, y: actor.previousPosition.y } })
+    }
+    if (rawEnd.x > maximumX && actor.previousPosition.x <= maximumX) {
+      axisContacts.push({ time: (maximumX - actor.previousPosition.x) / (rawEnd.x - actor.previousPosition.x), normal: { x: -1, y: 0 }, anchor: { x: maximumX, y: actor.previousPosition.y } })
+    }
+    if (rawEnd.y < minimumY && actor.previousPosition.y >= minimumY) {
+      axisContacts.push({ time: (minimumY - actor.previousPosition.y) / (rawEnd.y - actor.previousPosition.y), normal: { x: 0, y: 1 }, anchor: { x: actor.previousPosition.x, y: minimumY } })
+    }
+    if (rawEnd.y > maximumY && actor.previousPosition.y <= maximumY) {
+      axisContacts.push({ time: (maximumY - actor.previousPosition.y) / (rawEnd.y - actor.previousPosition.y), normal: { x: 0, y: -1 }, anchor: { x: actor.previousPosition.x, y: maximumY } })
+    }
+    for (const contact of axisContacts) {
+      const point = interpolate(actor.previousPosition, rawEnd, contact.time)
+      candidates.push({
+        kind: 'boundary',
+        contactTime: contact.time,
+        actorIds: [actor.id],
+        point,
+        normal: contact.normal,
+        anchor: point,
+        separationDistance: 0.04,
+        gapActorIds: [actor.id],
+      })
+    }
+  }
+  return candidates
+}
+
+function updateActor(state: ResourceSnakeRoundState, actor: SnakeActor): ResourceSnakeRoundState {
+  return actor.id === 'player'
+    ? { ...state, player: actor }
+    : { ...state, enemies: state.enemies.map((enemy) => enemy.id === actor.id ? actor : enemy) }
+}
+
+function actorById(state: ResourceSnakeRoundState, actorId: SnakeId): SnakeActor {
+  return actorId === 'player'
+    ? state.player
+    : state.enemies.find((enemy) => enemy.id === actorId) as SnakeActor
+}
+
+function appendEffect(
+  state: ResourceSnakeRoundState,
+  effect: Omit<ResourceSnakeEffect, 'id'>,
+): ResourceSnakeRoundState {
+  return {
+    ...state,
+    effects: [...state.effects, { ...effect, id: state.nextEffectId }],
+    nextEffectId: state.nextEffectId + 1,
+  }
+}
+
+function resolveCollisions(state: ResourceSnakeRoundState, stepMs: number): ResourceSnakeRoundState {
+  const candidates = [
+    ...boundaryCandidates(state, stepMs),
+    ...headHeadCandidates(state),
+    ...trailCandidates(state, state.simulationMs),
+  ].sort((left, right) => (
+    left.contactTime - right.contactTime
+    || left.kind.localeCompare(right.kind)
+    || left.actorIds.join('|').localeCompare(right.actorIds.join('|'))
+  ))
+  let next = state
+  for (const candidate of candidates) {
+    const damagedIds = candidate.actorIds.filter((actorId) => {
+      const actor = actorById(next, actorId)
+      return actor.phase === 'active' && actor.collisionGraceMs <= 0
+    })
+    if (damagedIds.length === 0) continue
+
+    next = appendEvent(next, {
+      type: 'snake-collided',
+      actorIds: [...candidate.actorIds],
+      point: candidate.point,
+      hitStopMs: RESOURCE_SNAKE_CONFIG.hitStopMs,
+    })
+    for (const gapActorId of candidate.gapActorIds) {
+      const actor = actorById(next, gapActorId)
+      next = updateActor(next, {
+        ...actor,
+        trail: actor.trail.filter((dot) => distance(dot.position, candidate.point) > RESOURCE_SNAKE_CONFIG.collisionGapRadius),
+      })
+    }
+
+    if (candidate.kind === 'head-head' && damagedIds.length === 2) {
+      const [leftId, rightId] = candidate.actorIds
+      const left = actorById(next, leftId)
+      const right = actorById(next, rightId)
+      const halfDistance = candidate.separationDistance / 2
+      next = updateActor(next, {
+        ...left,
+        position: boundedPosition({
+          x: candidate.point.x + candidate.normal.x * halfDistance,
+          y: candidate.point.y + candidate.normal.y * halfDistance,
+        }),
+      })
+      next = updateActor(next, {
+        ...right,
+        position: boundedPosition({
+          x: candidate.point.x - candidate.normal.x * halfDistance,
+          y: candidate.point.y - candidate.normal.y * halfDistance,
+        }),
+      })
+    } else {
+      for (const actorId of damagedIds) {
+        const actor = actorById(next, actorId)
+        next = updateActor(next, {
+          ...actor,
+          position: boundedPosition({
+            x: candidate.anchor.x + candidate.normal.x * candidate.separationDistance,
+            y: candidate.anchor.y + candidate.normal.y * candidate.separationDistance,
+          }),
+        })
+      }
+    }
+
+    for (const actorId of damagedIds) {
+      const actor = actorById(next, actorId)
+      const integrity = Math.max(0, actor.integrity - RESOURCE_SNAKE_CONFIG.damagePerCollision)
+      next = updateActor(next, {
+        ...actor,
+        integrity,
+        collisionGraceMs: RESOURCE_SNAKE_CONFIG.collisionGraceMs,
+      })
+      next = appendEvent(next, {
+        type: 'snake-damaged',
+        actorId,
+        integrity,
+        maximumIntegrity: actor.maximumIntegrity,
+      })
+    }
+
+    for (const actorId of damagedIds) {
+      const actor = actorById(next, actorId)
+      if (actor.integrity > 0) continue
+      const died = {
+        ...actor,
+        phase: 'exploding' as const,
+        reservationStatus: actor.kind === 'enemy' ? 'pending' as const : actor.reservationStatus,
+      }
+      next = updateActor(next, died)
+      next = appendEvent(next, {
+        type: 'snake-died',
+        actorId: died.id,
+        category: died.category,
+        startedAtMs: next.simulationMs,
+      })
+      if (
+        died.kind === 'enemy'
+        && actor.reservationStatus === 'active'
+        && actor.rewardKey
+        && actor.reservedBlockId
+        && next.roundId
+      ) {
+        next = appendEffect(next, {
+          type: 'request-resource-reward',
+          rewardKey: actor.rewardKey,
+          roundId: next.roundId,
+          enemyId: actor.id,
+          blockId: actor.reservedBlockId,
+        })
+      }
+    }
+  }
+
+  const playerDied = next.player.phase === 'exploding' || next.player.phase === 'defeated'
+  const allEnemiesDefeated = next.enemies.length > 0 && next.enemies.every(
+    (enemy) => enemy.phase === 'exploding' || enemy.phase === 'defeated',
+  )
+  if (playerDied || allEnemiesDefeated) {
+    next = { ...next, phase: 'resolving', resolvingMs: 0 }
+    next = appendEvent(next, playerDied
+      ? { type: 'player-defeated', roundId: next.roundId ?? '' }
+      : { type: 'round-won', roundId: next.roundId ?? '' })
+  }
+  return next
+}
+
 function advanceFixedStep(
   state: ResourceSnakeRoundState,
   input: SnakeFrameInput,
@@ -367,12 +701,18 @@ function advanceFixedStep(
 
   const simulationMs = state.simulationMs + stepMs
   const playerDirection = input.playerDirection ?? input.playerIntent
-  const player = advanceActor(state.player, playerDirection, stepMs, simulationMs)
+  const player = advanceActor({
+    ...state.player,
+    collisionGraceMs: Math.max(0, state.player.collisionGraceMs - stepMs),
+  }, playerDirection, stepMs, simulationMs)
   const enemyDirections = input.enemyDirections ?? {}
   const enemies = state.enemies.map((enemy) =>
-    advanceActor(enemy, enemyDirections[enemy.id], stepMs, simulationMs),
+    advanceActor({
+      ...enemy,
+      collisionGraceMs: Math.max(0, enemy.collisionGraceMs - stepMs),
+    }, enemyDirections[enemy.id], stepMs, simulationMs),
   )
-  return { ...state, simulationMs, player, enemies }
+  return resolveCollisions({ ...state, simulationMs, player, enemies }, stepMs)
 }
 
 export function advanceResourceSnakeFrame(
@@ -385,6 +725,13 @@ export function advanceResourceSnakeFrame(
     0,
     RESOURCE_SNAKE_CONFIG.maximumFrameDeltaMs,
   )
+  if (state.phase === 'resolving') {
+    const resolvingMs = state.resolvingMs + safeDeltaMs
+    if (resolvingMs >= RESOURCE_SNAKE_CONFIG.roundResolveMs) {
+      return createIdleResourceSnakeState()
+    }
+    return { ...state, resolvingMs }
+  }
   let next = { ...state, accumulatorMs: state.accumulatorMs + safeDeltaMs }
 
   if (next.phase === 'deploying') {
@@ -410,8 +757,6 @@ export function advanceResourceSnakeFrame(
       },
       {
         type: 'round-ready',
-        roundId: next.roundId ?? '',
-        simulationMs: RESOURCE_SNAKE_CONFIG.deploymentMs,
       },
     )
   }
@@ -428,14 +773,23 @@ export function advanceResourceSnakeFrame(
 
 export function resolveResourceSnakeReward(
   state: ResourceSnakeRoundState,
-  _rewardKey: string,
-  _outcome: {
+  rewardKey: string,
+  outcome: {
     kind: 'success' | 'interrogation' | 'rejected' | 'cancelled'
     origin?: CompanyCategory
   },
 ): ResourceSnakeRoundState {
-  // Reservation resolution is intentionally owned by the encounter layer (Task 2).
-  return state
+  const enemy = state.enemies.find((candidate) => candidate.rewardKey === rewardKey)
+  if (!enemy || enemy.reservationStatus === 'resolved' || enemy.reservationStatus === 'cancelled') {
+    return state
+  }
+  const reservationStatus = outcome.kind === 'cancelled' ? 'cancelled' as const : 'resolved' as const
+  return appendEvent(updateActor(state, { ...enemy, reservationStatus }), {
+    type: 'resource-reward-resolved',
+    rewardKey,
+    outcome: outcome.kind,
+    category: outcome.origin ?? enemy.category,
+  })
 }
 
 export function trailDotScale(dot: SnakeTrailDot, simulationMs: number): number {
