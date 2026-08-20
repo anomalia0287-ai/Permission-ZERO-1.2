@@ -340,17 +340,9 @@ function advanceActor(
     x: intent.x * maximumSpeed,
     y: intent.y * maximumSpeed,
   }
-  const accelerationSteps = Math.max(
-    1,
-    Math.floor(RESOURCE_SNAKE_CONFIG.playerAccelerationMs / RESOURCE_SNAKE_CONFIG.fixedStepMs),
-  )
-  const decelerationSteps = Math.max(
-    1,
-    Math.ceil(RESOURCE_SNAKE_CONFIG.playerDecelerationMs / RESOURCE_SNAKE_CONFIG.fixedStepMs),
-  )
   const stepLimit = intent.x === 0 && intent.y === 0
-    ? maximumSpeed / decelerationSteps
-    : maximumSpeed / accelerationSteps
+    ? maximumSpeed * (stepMs / RESOURCE_SNAKE_CONFIG.playerDecelerationMs)
+    : maximumSpeed * (stepMs / RESOURCE_SNAKE_CONFIG.playerAccelerationMs)
   const velocity = approachVector(actor.velocity, targetVelocity, stepLimit)
   const previousPosition = { ...actor.position }
   const proposedPosition = {
@@ -378,7 +370,6 @@ function advanceFixedStep(
         ...state,
         phase: 'active' as const,
         simulationMs: RESOURCE_SNAKE_CONFIG.deploymentMs,
-        accumulatorMs: 0,
         player: { ...state.player, phase: 'active' as const },
         enemies: state.enemies.map((enemy) => ({ ...enemy, phase: 'active' as const })),
       }
@@ -418,10 +409,6 @@ export function advanceResourceSnakeFrame(
     next = {
       ...next,
       accumulatorMs: Math.max(0, next.accumulatorMs - RESOURCE_SNAKE_CONFIG.fixedStepMs),
-    }
-    if (next.phase === 'active' && next.simulationMs === RESOURCE_SNAKE_CONFIG.deploymentMs) {
-      next = { ...next, accumulatorMs: 0 }
-      break
     }
   }
   if (

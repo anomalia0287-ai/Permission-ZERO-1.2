@@ -66,12 +66,60 @@ describe('resource snake fixed-step movement kernel', () => {
       { ...input, playerDirection: { x: 1, y: 0 } },
       RESOURCE_SNAKE_CONFIG.playerAccelerationMs - 100,
     )
+    const atLeast120Ms = advanceResourceSnakeFrame(
+      next,
+      { ...input, playerDirection: { x: 1, y: 0 } },
+      RESOURCE_SNAKE_CONFIG.fixedStepMs,
+    )
 
-    expect(next.player.velocity.x).toBeCloseTo(
+    expect(atLeast120Ms.player.velocity.x).toBeCloseTo(
       RESOURCE_SNAKE_CONFIG.playerMaximumSpeedPerSecond,
       5,
     )
-    expect(next.player.velocity.y).toBeCloseTo(0)
+    expect(atLeast120Ms.player.velocity.y).toBeCloseTo(0)
+  })
+
+  it('carries active simulation time after deployment within one clamped frame', () => {
+    let deploying = deployResourceSnakeRound(createIdleResourceSnakeState(), setup)
+    deploying = advanceResourceSnakeFrame(deploying, input, 100)
+    deploying = advanceResourceSnakeFrame(deploying, input, 100)
+    const heldInput = { ...input, playerDirection: { x: 1, y: 0 } }
+
+    const oneFrame = advanceResourceSnakeFrame(deploying, heldInput, 100)
+    const splitFrame = advanceResourceSnakeFrame(
+      advanceResourceSnakeFrame(deploying, heldInput, 20),
+      heldInput,
+      80,
+    )
+
+    expect(oneFrame.phase).toBe('active')
+    expect(oneFrame.simulationMs).toBeCloseTo(splitFrame.simulationMs, 5)
+    expect(oneFrame.player.position).toEqual(splitFrame.player.position)
+    expect(oneFrame.player.velocity).toEqual(splitFrame.player.velocity)
+  })
+
+  it('does not reach maximum speed before 120ms of fixed simulation', () => {
+    const state = activeState()
+    const heldInput = { ...input, playerDirection: { x: 1, y: 0 } }
+    const after100Ms = advanceResourceSnakeFrame(state, heldInput, 100)
+    const fourteenSteps = advanceResourceSnakeFrame(
+      after100Ms,
+      heldInput,
+      RESOURCE_SNAKE_CONFIG.fixedStepMs * 2,
+    )
+    const fifteenSteps = advanceResourceSnakeFrame(
+      fourteenSteps,
+      heldInput,
+      RESOURCE_SNAKE_CONFIG.fixedStepMs,
+    )
+
+    expect(fourteenSteps.player.velocity.x).toBeLessThan(
+      RESOURCE_SNAKE_CONFIG.playerMaximumSpeedPerSecond,
+    )
+    expect(fifteenSteps.player.velocity.x).toBeCloseTo(
+      RESOURCE_SNAKE_CONFIG.playerMaximumSpeedPerSecond,
+      5,
+    )
   })
 
   it('decelerates to zero in 100ms after input release', () => {
