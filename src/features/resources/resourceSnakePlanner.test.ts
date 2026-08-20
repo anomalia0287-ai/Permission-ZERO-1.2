@@ -537,6 +537,14 @@ function expectEveryNumberFinite(value: unknown): void {
   }
 }
 
+function expectFiniteSerializable(value: unknown): void {
+  const serialized = JSON.stringify(value)
+  expect(typeof serialized).toBe('string')
+  expect(serialized).not.toContain('NaN')
+  expect(serialized).not.toContain('Infinity')
+  expectEveryNumberFinite(JSON.parse(serialized))
+}
+
 describe('resource snake planner performance', () => {
   it(
     'keeps repeated empty, off-path, and hot-corridor 2,500ms/96 moving planning under 3ms p95',
@@ -1011,6 +1019,58 @@ describe('planResourceSnakeEnemy', () => {
     expect(expired.speedScale).not.toBe(0)
   })
 
+  it('subdivides ally sweeps at every irregular timed sample inside a planner segment', () => {
+    const simulationMs = 5_000
+    const initial = snapshot({ simulationMs })
+    const selected = planResourceSnakeEnemy(initial, 'enemy-0', PROFILE_48, null, () => 0)
+    const start = initial.enemies[0].position
+    const end = selected.path[0]
+    const segment = { x: end.x - start.x, y: end.y - start.y }
+    const segmentLength = Math.hypot(segment.x, segment.y)
+    const normal = { x: -segment.y / segmentLength, y: segment.x / segmentLength }
+    const offsets = [0, 12, 25, 37, 50] as const
+    const clearances = [0.78, 0.78, 0.74, 0.78, 0.78] as const
+    const ally: SnakeCommittedPath = {
+      enemyId: 'enemy-1',
+      commitUntilMs: simulationMs + 50,
+      samples: offsets.map((offsetMs, index) => ({
+        atMs: simulationMs + offsetMs,
+        position: {
+          x: start.x + segment.x * offsetMs / 50 + normal.x * clearances[index],
+          y: start.y + segment.y * offsetMs / 50 + normal.y * clearances[index],
+        },
+      })),
+    }
+
+    const blocked = planResourceSnakeEnemy(
+      { ...initial, committedAllyPaths: [ally] },
+      'enemy-0',
+      PROFILE_48,
+      null,
+      () => 0,
+    )
+    const retainedBlocked = planResourceSnakeEnemy(
+      { ...initial, committedAllyPaths: [ally] },
+      'enemy-0',
+      PROFILE_48,
+      selected,
+      () => 0,
+    )
+
+    expect(blocked.candidateIndex).not.toBe(selected.candidateIndex)
+    expect(retainedBlocked.candidateIndex).not.toBe(selected.candidateIndex)
+
+    const atExpiry = sampleResourceSnakePlan(selected, simulationMs + 50)
+    const expired = snapshot({
+      simulationMs: simulationMs + 50,
+      enemies: [actor('enemy-0', atExpiry.position, atExpiry.velocity)],
+      committedAllyPaths: [ally],
+    })
+    const retained = planResourceSnakeEnemy(expired, 'enemy-0', PROFILE_48, selected, () => 0)
+    expect(retained.plannedAtMs).toBe(selected.plannedAtMs)
+    expect(retained.candidateIndex).toBe(selected.candidateIndex)
+  })
+
   it.each([220, 260])(
     'clips retained ally collision checks to the legal %ims off-grid expiry',
     (expiryOffsetMs) => {
@@ -1085,6 +1145,41 @@ describe('planResourceSnakeEnemy', () => {
     expect(baselineCommitted).not.toBeNull()
     if (!baselineCommitted) throw new Error('expected an active committed path')
     const lane = { ...baselineCommitted, enemyId: 'enemy-1' as const }
+    const firstEnd = baseline.path[0]
+    const firstDelta = { x: firstEnd.x - 10, y: firstEnd.y - 12 }
+    const firstLength = Math.hypot(firstDelta.x, firstDelta.y)
+    const firstNormal = { x: -firstDelta.y / firstLength, y: firstDelta.x / firstLength }
+    const internalLane: SnakeCommittedPath = {
+      enemyId: 'enemy-1',
+      commitUntilMs: simulationMs + 50,
+      samples: [
+        {
+          atMs: simulationMs,
+          position: { x: 10 + firstNormal.x * 0.78, y: 12 + firstNormal.y * 0.78 },
+        },
+        {
+          atMs: simulationMs + 25,
+          position: {
+            x: 10 + firstDelta.x * 0.5 + firstNormal.x * 0.74,
+            y: 12 + firstDelta.y * 0.5 + firstNormal.y * 0.74,
+          },
+        },
+        {
+          atMs: simulationMs + 50,
+          position: {
+            x: firstEnd.x + firstNormal.x * 0.78,
+            y: firstEnd.y + firstNormal.y * 0.78,
+          },
+        },
+      ],
+    }
+    const internallyRerouted = planResourceSnakeEnemy(
+      { ...invalid, committedAllyPaths: [internalLane] },
+      'enemy-0',
+      PROFILE_48,
+      null,
+      () => 0,
+    )
     const rerouted = planResourceSnakeEnemy(
       { ...invalid, committedAllyPaths: [lane] },
       'enemy-0',
@@ -1108,6 +1203,7 @@ describe('planResourceSnakeEnemy', () => {
       () => 0,
     )
 
+    expect(internallyRerouted.candidateIndex).not.toBe(baseline.candidateIndex)
     expect(rerouted.candidateIndex).not.toBe(baseline.candidateIndex)
     expect(minimumDistance(rerouted.path, baseline.path[0])).toBeGreaterThan(0.1)
     expect(stopped.speedScale).toBe(0)
@@ -1232,6 +1328,26 @@ describe('planResourceSnakeEnemy', () => {
     }
 
     expect(compareSnakePlanScores(higherPriority, 99, lowerPriority, 0)).toBeGreaterThan(0)
+  })
+
+  it('returns only a finite comparison sign for extreme finite score and index values', () => {
+    const high = {
+      survives: 1 as const,
+      reachableArea: 1e308,
+      allyClearance: 0,
+      playerAreaReduction: 0,
+      cutoffProgress: 0,
+      pressureDistance: 0,
+      steeringCost: 0,
+    }
+    const low = { ...high, reachableArea: -1e308 }
+    const tied = { ...high, reachableArea: 0 }
+
+    expect(compareSnakePlanScores(high, 0, low, 0)).toBe(1)
+    expect(compareSnakePlanScores(low, 0, high, 0)).toBe(-1)
+    expect(compareSnakePlanScores(tied, -1e308, tied, 1e308)).toBe(1)
+    expect(compareSnakePlanScores(tied, 1e308, tied, -1e308)).toBe(-1)
+    expect(compareSnakePlanScores(tied, 0, tied, 0)).toBe(0)
   })
 
   it('preserves exact reachable areas above 128 before every lower score component', () => {
@@ -1646,6 +1762,55 @@ describe('planResourceSnakeEnemy', () => {
     expect(retained.score).not.toEqual(forged.score)
     expect(retained.candidateIndex).toBe(authoritative.candidateIndex)
     expect(retained).not.toBe(forged)
+  })
+
+  it('reconstructs every retained diagnostic and identity from the executable trajectory', () => {
+    const state = snapshot()
+    const authoritative = planResourceSnakeEnemy(state, 'enemy-0', PROFILE_48, null, () => 0)
+    const forged = structuredClone(authoritative)
+    forged.intent = authoritative.intent === 'coordinate' ? 'observe' : 'coordinate'
+    forged.candidateIndex = (authoritative.candidateIndex + 1) % PROFILE_48.candidateCount
+    forged.score = {
+      survives: 0,
+      reachableArea: authoritative.score.reachableArea + 1_234,
+      allyClearance: authoritative.score.allyClearance + 1_234,
+      playerAreaReduction: authoritative.score.playerAreaReduction + 1_234,
+      cutoffProgress: authoritative.score.cutoffProgress + 1_234,
+      pressureDistance: authoritative.score.pressureDistance + 1_234,
+      steeringCost: authoritative.score.steeringCost + 1_234,
+    }
+    ;(forged as SnakePlan & { provenance: string }).provenance = forgeCallerPlanChecksum(forged)
+
+    const retained = planResourceSnakeEnemy(
+      structuredClone(state),
+      'enemy-0',
+      PROFILE_48,
+      forged,
+      () => 0,
+    )
+
+    const forgedIdentity = structuredClone(forged)
+    forgedIdentity.enemyId = 'enemy-1'
+    forgedIdentity.role = 'blocker'
+    const identityResult = planResourceSnakeEnemy(
+      structuredClone(state),
+      'enemy-0',
+      PROFILE_48,
+      forgedIdentity,
+      () => 0,
+    )
+
+    expect(retained.enemyId).toBe('enemy-0')
+    expect(retained.role).toBe('pressure')
+    expect(retained.intent).toBe(authoritative.intent)
+    expect(retained.candidateIndex).toBe(authoritative.candidateIndex)
+    expect(retained.score).toEqual(authoritative.score)
+    expect(retained).not.toHaveProperty('provenance')
+    expect(identityResult.enemyId).toBe('enemy-0')
+    expect(identityResult.role).toBe('pressure')
+    expect(identityResult.intent).toBe(authoritative.intent)
+    expect(identityResult.candidateIndex).toBe(authoritative.candidateIndex)
+    expect(identityResult.score).toEqual(authoritative.score)
   })
 
   it('uses only future path samples for fatal checks after commitment re-entry', () => {
@@ -2116,6 +2281,7 @@ describe('planResourceSnakeEnemy', () => {
     ]
     for (const outcome of outcomes) expect(outcome).not.toThrow()
     const results = outcomes.map((outcome) => outcome())
+    for (const result of results) expectFiniteSerializable(result)
     expectEveryNumberFinite(results[0])
     expect(results.slice(1, 3)).toEqual([[], []])
     expect(results.slice(3, 6)).toEqual([0, 0, 0])
@@ -2154,6 +2320,86 @@ describe('planResourceSnakeEnemy', () => {
     expectEveryNumberFinite(throwingClock)
     expect(extremeClock.elapsedMs).toBeLessThanOrEqual(1_000_000_000)
     expect(throwingClock.elapsedMs).toBe(0)
+  })
+
+  it('returns fresh finite JSON-safe values for cyclic identities, roles, scores, and timelines', () => {
+    const state = snapshot()
+    const cyclicId = {} as { self?: unknown }
+    cyclicId.self = cyclicId
+    const cyclicRole = {} as { self?: unknown }
+    cyclicRole.self = cyclicRole
+    const cyclicScore = { survives: 1 } as { survives: number; self?: unknown }
+    cyclicScore.self = cyclicScore
+
+    const cyclicRequested = planResourceSnakeEnemy(
+      state,
+      cyclicId as unknown as SnakePlannerActor['id'],
+      PROFILE_48,
+      null,
+      () => 0,
+    )
+    const invalidActor = actor('enemy-0', { x: 10, y: 12 }, { x: 6.5, y: 0 })
+    invalidActor.id = cyclicId as unknown as SnakePlannerActor['id']
+    invalidActor.role = cyclicRole as unknown as SnakePlannerActor['role']
+    const cyclicSnapshot = planResourceSnakeEnemy(
+      snapshot({ enemies: [invalidActor] }),
+      cyclicId as unknown as SnakePlannerActor['id'],
+      PROFILE_48,
+      null,
+      () => 0,
+    )
+    const cyclicRoleActor = actor('enemy-0', { x: 10, y: 12 }, { x: 6.5, y: 0 })
+    cyclicRoleActor.role = cyclicRole as unknown as SnakePlannerActor['role']
+    const cyclicRolePlan = planResourceSnakeEnemy(
+      snapshot({ enemies: [cyclicRoleActor] }),
+      'enemy-0',
+      PROFILE_48,
+      null,
+      () => 0,
+    )
+    const duplicateTimeline: SnakeCommittedPath = {
+      enemyId: 'enemy-1',
+      commitUntilMs: state.simulationMs + 50,
+      samples: [
+        { atMs: state.simulationMs, position: { x: 10, y: 12 } },
+        { atMs: state.simulationMs, position: { x: 10.1, y: 12 } },
+      ],
+    }
+    const duplicatePlan = planResourceSnakeEnemy(
+      { ...state, committedAllyPaths: [duplicateTimeline] },
+      'enemy-0',
+      PROFILE_48,
+      null,
+      () => 0,
+    )
+    const cyclicPlan = structuredClone(
+      planResourceSnakeEnemy(state, 'enemy-0', PROFILE_48, null, () => 0),
+    )
+    cyclicPlan.enemyId = cyclicId as unknown as SnakePlannerActor['id']
+
+    const results = [
+      cyclicRequested,
+      cyclicSnapshot,
+      cyclicRolePlan,
+      duplicatePlan,
+      compareSnakePlanScores(
+        cyclicScore as unknown as SnakePlan['score'],
+        0,
+        cyclicScore as unknown as SnakePlan['score'],
+        1,
+      ),
+      sampleResourceSnakePlan(cyclicPlan, state.simulationMs),
+      getResourceSnakePlanFutureSamples(cyclicPlan, state.simulationMs),
+      resourceSnakePlanToCommittedPath(cyclicPlan, state.simulationMs),
+      sampleResourceSnakeCommittedPath(duplicateTimeline, state.simulationMs),
+    ]
+
+    for (const result of results) expectFiniteSerializable(result)
+    for (const plan of [cyclicRequested, cyclicSnapshot, cyclicRolePlan, duplicatePlan]) {
+      expect(typeof plan.enemyId).toBe('string')
+      expect(['pressure', 'blocker']).toContain(plan.role)
+    }
+    expect(sampleResourceSnakeCommittedPath(duplicateTimeline, state.simulationMs)).toBeNull()
   })
 
   it('reserves the timestamp ceiling through plan, adapter, and commitment reinjection', () => {

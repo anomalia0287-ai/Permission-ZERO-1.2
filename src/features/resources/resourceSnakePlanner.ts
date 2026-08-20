@@ -177,6 +177,8 @@ interface InternalTrajectoryCandidate extends SnakeTrajectoryCandidate {
   transformCosine?: number
   transformSine?: number
   transformField?: SnakePlannerSnapshot['field']
+  pathMaterializedSteps?: number
+  pathMaterialized?: boolean
   materialized?: boolean
   segmentDurationsMs?: readonly number[]
   score: SnakePlanScore
@@ -196,6 +198,8 @@ interface TrailSpatialIndex {
   rows: number
   bucketOffsets: Int32Array
   bucketDotIndices: Int32Array
+  occupiedRows: Uint8Array
+  occupiedRowPrefix: Int16Array
   dots: readonly SnakePlannerTrailDot[]
   minimumX: number
   maximumX: number
@@ -226,6 +230,9 @@ interface GridWorkspace {
   playerBaselineMemberships: Uint8Array[]
   singlePlayerBaselineComponent: number
   candidateCells: Int32Array
+  candidateVisitMarks: Uint32Array
+  candidateGeneration: number
+  occupancyBaseCache: OccupancyBaseCache | null
 }
 
 interface OccupancyBaseCache {
@@ -245,12 +252,22 @@ interface OccupancyBaseCache {
   committedPoints: Array<SnakeVector | null>
   enemyBase: Uint8Array
   playerBase: Uint8Array
+  playerBaseId: number | null
+  enemyLabels: Int32Array | null
+  enemyAreas: Int32Array | null
+  playerLabels: Int32Array | null
+  playerAreas: Int32Array | null
+  playerBaselineMemberships: Uint8Array[] | null
+  playerBaselineAreas: number[] | null
+  singlePlayerBaselineComponent: number
 }
 
 const gridWorkspacePool = new Map<string, GridWorkspace[]>()
 const localTrajectoryTemplateCache = new Map<string, InternalTrajectoryCandidate[]>()
 const trajectoryBufferPool = new Map<string, InternalTrajectoryCandidate[][]>()
 const playerHypothesisPool = new Map<number, SnakePlayerHypotheses[]>()
+const relevantHistoryPool: SnakePlayerHistorySample[][] = []
+const turnRatePool: number[][] = []
 interface PlayerBaseCacheRecord {
   id: number
   hash: number
@@ -259,6 +276,7 @@ interface PlayerBaseCacheRecord {
 }
 interface PlayerReductionCacheRecord {
   count: number
+  hash: number
   cells: Int32Array
   value: number
 }
@@ -267,14 +285,31 @@ interface PlayerReductionCacheSlot {
   nextReplacement: number
 }
 const PLAYER_REDUCTION_PATTERNS_PER_CANDIDATE = 16
+const PLAYER_BASE_CACHE_RECORD_LIMIT = 4
 const playerBaseCacheRecords: PlayerBaseCacheRecord[] = []
 const playerReductionCache = new Map<string, PlayerReductionCacheSlot>()
 let nextPlayerBaseCacheId = 1
 let cachedTrailIndex: TrailSpatialIndex | null = null
 let cachedOccupancyBases: OccupancyBaseCache | null = null
+let validatedTrailIndexHint: {
+  source: readonly SnakePlannerTrailDot[]
+  index: TrailSpatialIndex
+} | null = null
 
 function finite(value: number): boolean {
   return Number.isFinite(value)
+}
+
+function enemyIdValid(value: unknown): value is SnakeId {
+  return typeof value === 'string' && /^enemy-(?:0|[1-9]\d*)$/.test(value)
+}
+
+function snakeIdValid(value: unknown): value is SnakeId {
+  return value === 'player' || enemyIdValid(value)
+}
+
+function enemyRoleValid(value: unknown): value is SnakeEnemyRole {
+  return value === 'pressure' || value === 'blocker'
 }
 
 function denseArray(value: unknown, maximumLength: number): value is unknown[] {
@@ -362,6 +397,8 @@ function actorHasInvalidNumber(actor: SnakePlannerActor | null | undefined): boo
   try {
     return !actor
       || typeof actor !== 'object'
+      || !snakeIdValid(actor.id)
+      || (actor.id === 'player' ? actor.role !== null : !enemyRoleValid(actor.role))
       || !finiteVector(actor.position)
       || !finiteVector(actor.velocity)
       || !finite(actor.integrity)
@@ -393,19 +430,12 @@ function profileIsValid(profile: SnakePlannerProfile): boolean {
   }
 }
 
-function relevantHistory(snapshot: SnakePlannerSnapshot): SnakePlayerHistorySample[] {
-  const earliest = snapshot.simulationMs - 2_000
-  return snapshot.playerHistory
-    .filter((sample) => sample.simulationMs >= earliest && sample.simulationMs <= snapshot.simulationMs)
-    .slice()
-    .sort((left, right) => left.simulationMs - right.simulationMs)
-}
-
 function committedPathValid(path: unknown): path is SnakeCommittedPath {
   try {
     if (
       !path
       || typeof path !== 'object'
+      || !enemyIdValid((path as SnakeCommittedPath).enemyId)
       || !finite((path as SnakeCommittedPath).commitUntilMs)
       || (path as SnakeCommittedPath).commitUntilMs < 0
       || (path as SnakeCommittedPath).commitUntilMs > MAX_SERIALIZED_TIMESTAMP_MS
@@ -434,6 +464,7 @@ function committedPathValid(path: unknown): path is SnakeCommittedPath {
 }
 
 function snapshotIsValid(value: unknown): value is SnakePlannerSnapshot {
+  validatedTrailIndexHint = null
   try {
     if (!value || typeof value !== 'object') return false
     const snapshot = value as SnakePlannerSnapshot
@@ -453,16 +484,23 @@ function snapshotIsValid(value: unknown): value is SnakePlannerSnapshot {
       || !denseArray(snapshot.playerHistory, MAX_HISTORY_SAMPLES)
       || !denseArray(snapshot.committedAllyPaths, MAX_COMMITTED_PATHS)
       || actorHasInvalidNumber(snapshot.player)
+      || snapshot.player.id !== 'player'
     ) return false
     for (let index = 0; index < snapshot.enemies.length; index += 1) {
-      if (actorHasInvalidNumber(snapshot.enemies[index])) return false
+      if (
+        actorHasInvalidNumber(snapshot.enemies[index])
+        || !enemyIdValid(snapshot.enemies[index].id)
+      ) return false
     }
+    let trailIndexMatches = !!cachedTrailIndex
+      && cachedTrailIndex.dots.length === snapshot.trailDots.length
     for (let index = 0; index < snapshot.trailDots.length; index += 1) {
       const dot = snapshot.trailDots[index]
       if (
         !dot
         || typeof dot !== 'object'
         || !finite(dot.id)
+        || !snakeIdValid(dot.ownerId)
         || !coordinateVectorSafe(dot.position)
         || !finite(dot.spawnedAtMs)
         || !finite(dot.expiresAtMs)
@@ -470,6 +508,17 @@ function snapshotIsValid(value: unknown): value is SnakePlannerSnapshot {
         || dot.expiresAtMs > MAX_SERIALIZED_TIMESTAMP_MS
         || dot.expiresAtMs < dot.spawnedAtMs
       ) return false
+      if (trailIndexMatches) {
+        const cached = cachedTrailIndex!.dots[index]
+        if (
+          cached.id !== dot.id
+          || cached.ownerId !== dot.ownerId
+          || cached.position.x !== dot.position.x
+          || cached.position.y !== dot.position.y
+          || cached.spawnedAtMs !== dot.spawnedAtMs
+          || cached.expiresAtMs !== dot.expiresAtMs
+        ) trailIndexMatches = false
+      }
     }
     for (let index = 0; index < snapshot.playerHistory.length; index += 1) {
       const sample = snapshot.playerHistory[index]
@@ -486,6 +535,9 @@ function snapshotIsValid(value: unknown): value is SnakePlannerSnapshot {
     }
     for (let index = 0; index < snapshot.committedAllyPaths.length; index += 1) {
       if (!committedPathValid(snapshot.committedAllyPaths[index])) return false
+    }
+    if (trailIndexMatches && cachedTrailIndex) {
+      validatedTrailIndexHint = { source: snapshot.trailDots, index: cachedTrailIndex }
     }
     return true
   } catch {
@@ -574,6 +626,7 @@ function fallbackSnapshotFromUnknown(
         dot
         && typeof dot === 'object'
         && finite(dot.id)
+        && snakeIdValid(dot.ownerId)
         && coordinateVectorSafe(dot.position)
         && finite(dot.spawnedAtMs)
         && finite(dot.expiresAtMs)
@@ -613,30 +666,46 @@ function fallbackSnapshotFromUnknown(
   }
 }
 
-function median(values: readonly number[]): number {
-  if (values.length === 0) return 0
-  const sorted = [...values].sort((left, right) => left - right)
-  const middle = Math.floor(sorted.length / 2)
-  return sorted.length % 2 === 0
-    ? (sorted[middle - 1] + sorted[middle]) / 2
-    : sorted[middle]
-}
-
-function medianSignedTurnRate(samples: readonly SnakePlayerHistorySample[]): number {
-  const values: number[] = []
-  for (let index = 1; index < samples.length; index += 1) {
-    const prior = samples[index - 1]
-    const current = samples[index]
-    const seconds = (current.simulationMs - prior.simulationMs) / 1_000
-    if (seconds <= 0 || magnitude(prior.velocity) <= EPSILON || magnitude(current.velocity) <= EPSILON) {
-      continue
+function medianSignedTurnRate(snapshot: SnakePlannerSnapshot): number {
+  const samples = relevantHistoryPool.pop() ?? []
+  const values = turnRatePool.pop() ?? []
+  samples.length = 0
+  values.length = 0
+  try {
+    const earliest = snapshot.simulationMs - 2_000
+    for (let index = 0; index < snapshot.playerHistory.length; index += 1) {
+      const sample = snapshot.playerHistory[index]
+      if (sample.simulationMs >= earliest && sample.simulationMs <= snapshot.simulationMs) {
+        samples.push(sample)
+      }
     }
-    values.push(signedAngleDifference(
-      Math.atan2(prior.velocity.y, prior.velocity.x),
-      Math.atan2(current.velocity.y, current.velocity.x),
-    ) / seconds)
+    samples.sort((left, right) => left.simulationMs - right.simulationMs)
+    for (let index = 1; index < samples.length; index += 1) {
+      const prior = samples[index - 1]
+      const current = samples[index]
+      const seconds = (current.simulationMs - prior.simulationMs) / 1_000
+      if (
+        seconds <= 0
+        || magnitude(prior.velocity) <= EPSILON
+        || magnitude(current.velocity) <= EPSILON
+      ) continue
+      values.push(signedAngleDifference(
+        Math.atan2(prior.velocity.y, prior.velocity.x),
+        Math.atan2(current.velocity.y, current.velocity.x),
+      ) / seconds)
+    }
+    if (values.length === 0) return 0
+    values.sort((left, right) => left - right)
+    const middle = Math.floor(values.length / 2)
+    return values.length % 2 === 0
+      ? (values[middle - 1] + values[middle]) / 2
+      : values[middle]
+  } finally {
+    samples.length = 0
+    values.length = 0
+    relevantHistoryPool.push(samples)
+    turnRatePool.push(values)
   }
-  return median(values)
 }
 
 function createPlayerHypothesisBuffer(stepCount: number): SnakePlayerHypotheses {
@@ -665,7 +734,7 @@ function populatePlayerHypotheses(
   const velocity = snapshot.player.velocity
   const speed = magnitude(velocity)
   const heading = speed > EPSILON ? Math.atan2(velocity.y, velocity.x) : 0
-  const signedTurnRate = medianSignedTurnRate(relevantHistory(snapshot))
+  const signedTurnRate = medianSignedTurnRate(snapshot)
   let turningX = origin.x
   let turningY = origin.y
   let priorSeconds = 0
@@ -863,6 +932,8 @@ function generateInternalCandidates(
     candidate.transformCosine = cosine
     candidate.transformSine = sine
     candidate.transformField = field
+    candidate.pathMaterializedSteps = 0
+    candidate.pathMaterialized = false
     candidate.materialized = false
     candidate.segmentDurationsMs = undefined
     transformBounds(template.rawBounds, candidate.rawBounds, enemy.position, cosine, sine)
@@ -921,19 +992,20 @@ function transformBounds(
   result.maximumY = origin.y + maximumY
 }
 
-function materializeCandidate(candidate: InternalTrajectoryCandidate): void {
-  if (candidate.materialized) return
-  const localDirections = candidate.localDirections
+function materializeCandidatePathThrough(
+  candidate: InternalTrajectoryCandidate,
+  inclusiveStep: number,
+): void {
+  if (candidate.pathMaterialized) return
   const localRawPath = candidate.localRawPath
   const origin = candidate.transformOrigin
   const cosine = candidate.transformCosine
   const sine = candidate.transformSine
-  if (!localDirections || !localRawPath || !origin || cosine === undefined || sine === undefined) return
+  if (!localRawPath || !origin || cosine === undefined || sine === undefined) return
   const field = candidate.transformField
-  for (let step = 0; step < candidate.path.length; step += 1) {
-    const direction = localDirections[step]
-    candidate.directions[step].x = direction.x * cosine - direction.y * sine
-    candidate.directions[step].y = direction.x * sine + direction.y * cosine
+  const until = Math.min(candidate.path.length, inclusiveStep + 1)
+  const from = candidate.pathMaterializedSteps ?? 0
+  for (let step = from; step < until; step += 1) {
     const point = localRawPath[step]
     const rawX = origin.x + point.x * cosine - point.y * sine
     const rawY = origin.y + point.x * sine + point.y * cosine
@@ -941,6 +1013,26 @@ function materializeCandidate(candidate: InternalTrajectoryCandidate): void {
     candidate.rawPath[step].y = rawY
     candidate.path[step].x = field ? clamp(rawX, field.padding, field.width - field.padding) : rawX
     candidate.path[step].y = field ? clamp(rawY, field.padding, field.height - field.padding) : rawY
+  }
+  candidate.pathMaterializedSteps = Math.max(from, until)
+  candidate.pathMaterialized = candidate.pathMaterializedSteps >= candidate.path.length
+}
+
+function materializeCandidatePath(candidate: InternalTrajectoryCandidate): void {
+  materializeCandidatePathThrough(candidate, candidate.path.length - 1)
+}
+
+function materializeCandidate(candidate: InternalTrajectoryCandidate): void {
+  if (candidate.materialized) return
+  materializeCandidatePath(candidate)
+  const localDirections = candidate.localDirections
+  const cosine = candidate.transformCosine
+  const sine = candidate.transformSine
+  if (!localDirections || cosine === undefined || sine === undefined) return
+  for (let step = 0; step < candidate.directions.length; step += 1) {
+    const direction = localDirections[step]
+    candidate.directions[step].x = direction.x * cosine - direction.y * sine
+    candidate.directions[step].y = direction.x * sine + direction.y * cosine
   }
   candidate.materialized = true
 }
@@ -958,6 +1050,8 @@ function acquireTrajectoryBuffer(candidateCount: number, stepCount: number): Int
     steeringCost: 0,
     bounds: { minimumX: 0, maximumX: 0, minimumY: 0, maximumY: 0 },
     rawBounds: { minimumX: 0, maximumX: 0, minimumY: 0, maximumY: 0 },
+    pathMaterializedSteps: 0,
+    pathMaterialized: false,
     materialized: false,
     score: emptyScore(),
   }))
@@ -1082,6 +1176,9 @@ function planTimelineValid(value: unknown): value is SnakePlan {
     if (
       !denseArray(plan.path, MAX_PROFILE_LOOKAHEAD_MS / 50)
       || !denseArray(plan.directions, MAX_PROFILE_LOOKAHEAD_MS / 50)
+      || !enemyIdValid(plan.enemyId)
+      || !enemyRoleValid(plan.role)
+      || !INTENTS.includes(plan.intent)
       || plan.path.length !== plan.directions.length
       || plan.stepMs !== 50
       || !finite(plan.plannedAtMs)
@@ -1230,32 +1327,6 @@ export function sampleResourceSnakeCommittedPath(
   }
 }
 
-function segmentCircleInterval(
-  start: SnakeVector,
-  end: SnakeVector,
-  center: SnakeVector,
-  radius: number,
-): [number, number] | null {
-  const ox = start.x - center.x
-  const oy = start.y - center.y
-  const dx = end.x - start.x
-  const dy = end.y - start.y
-  const a = dx * dx + dy * dy
-  const c = ox * ox + oy * oy - radius * radius
-  if (a <= EPSILON) return c <= 0 ? [0, 1] : null
-  const b = 2 * (ox * dx + oy * dy)
-  const discriminant = b * b - 4 * a * c
-  if (discriminant < 0) return null
-  const root = Math.sqrt(discriminant)
-  const first = (-b - root) / (2 * a)
-  const second = (-b + root) / (2 * a)
-  const enter = c <= 0 ? 0 : Math.max(0, first)
-  const exit = Math.min(1, second)
-  return enter <= exit + EPSILON && exit >= -EPSILON && enter <= 1 + EPSILON
-    ? [clamp(enter, 0, 1), clamp(exit, 0, 1)]
-    : null
-}
-
 function movingCircleInterval(
   leftStart: SnakeVector,
   leftEnd: SnakeVector,
@@ -1329,6 +1400,9 @@ function riskMargin(enemy: SnakePlannerActor): number {
 }
 
 function buildTrailIndex(snapshot: SnakePlannerSnapshot): TrailSpatialIndex {
+  if (validatedTrailIndexHint?.source === snapshot.trailDots) {
+    return validatedTrailIndexHint.index
+  }
   const columns = Math.ceil(snapshot.field.width / SPATIAL_CELL_SIZE)
   const rows = Math.ceil(snapshot.field.height / SPATIAL_CELL_SIZE)
   if (
@@ -1376,8 +1450,14 @@ function buildTrailIndex(snapshot: SnakePlannerSnapshot): TrailSpatialIndex {
     bucketCounts[bucketIndex] += 1
   }
   const bucketOffsets = new Int32Array(bucketCounts.length + 1)
+  const occupiedRows = new Uint8Array(rows)
   for (let index = 0; index < bucketCounts.length; index += 1) {
     bucketOffsets[index + 1] = bucketOffsets[index] + bucketCounts[index]
+    if (bucketCounts[index] > 0) occupiedRows[Math.floor(index / columns)] = 1
+  }
+  const occupiedRowPrefix = new Int16Array(rows + 1)
+  for (let row = 0; row < rows; row += 1) {
+    occupiedRowPrefix[row + 1] = occupiedRowPrefix[row] + occupiedRows[row]
   }
   const bucketWrites = bucketOffsets.slice(0, -1)
   const bucketDotIndices = new Int32Array(dots.length)
@@ -1394,6 +1474,8 @@ function buildTrailIndex(snapshot: SnakePlannerSnapshot): TrailSpatialIndex {
     rows,
     bucketOffsets,
     bucketDotIndices,
+    occupiedRows,
+    occupiedRowPrefix,
     dots,
     minimumX,
     maximumX,
@@ -1413,12 +1495,17 @@ function trailCollisionTime(
   radius: number,
   graceUntilMs: number,
 ): number | null {
-  const minimumX = clamp(Math.floor((Math.min(start.x, end.x) - radius) / SPATIAL_CELL_SIZE), 0, index.columns - 1)
-  const maximumX = clamp(Math.floor((Math.max(start.x, end.x) + radius) / SPATIAL_CELL_SIZE), 0, index.columns - 1)
   const minimumY = clamp(Math.floor((Math.min(start.y, end.y) - radius) / SPATIAL_CELL_SIZE), 0, index.rows - 1)
   const maximumY = clamp(Math.floor((Math.max(start.y, end.y) + radius) / SPATIAL_CELL_SIZE), 0, index.rows - 1)
+  if (index.occupiedRowPrefix[maximumY + 1] === index.occupiedRowPrefix[minimumY]) return null
+  const minimumX = clamp(Math.floor((Math.min(start.x, end.x) - radius) / SPATIAL_CELL_SIZE), 0, index.columns - 1)
+  const maximumX = clamp(Math.floor((Math.max(start.x, end.x) + radius) / SPATIAL_CELL_SIZE), 0, index.columns - 1)
+  const deltaX = end.x - start.x
+  const deltaY = end.y - start.y
+  const lengthSquared = deltaX * deltaX + deltaY * deltaY
   let earliest: number | null = null
   for (let y = minimumY; y <= maximumY; y += 1) {
+    if (!index.occupiedRows[y]) continue
     for (let x = minimumX; x <= maximumX; x += 1) {
       const bucket = y * index.columns + x
       const bucketEnd = index.bucketOffsets[bucket + 1]
@@ -1428,10 +1515,34 @@ function trailCollisionTime(
         bucketOffset += 1
       ) {
         const dot = index.dots[index.bucketDotIndices[bucketOffset]]
-        const interval = segmentCircleInterval(start, end, dot.position, radius)
-        if (!interval) continue
-        const insideStartMs = segmentStartMs + interval[0] * segmentDurationMs
-        const insideEndMs = segmentStartMs + interval[1] * segmentDurationMs
+        const offsetX = start.x - dot.position.x
+        const offsetY = start.y - dot.position.y
+        const radiusDelta = offsetX * offsetX + offsetY * offsetY - radius * radius
+        let enter: number
+        let exit: number
+        if (lengthSquared <= EPSILON) {
+          if (radiusDelta > 0) continue
+          enter = 0
+          exit = 1
+        } else {
+          const projection = 2 * (offsetX * deltaX + offsetY * deltaY)
+          const discriminant = projection * projection - 4 * lengthSquared * radiusDelta
+          if (discriminant < 0) continue
+          const root = Math.sqrt(discriminant)
+          const first = (-projection - root) / (2 * lengthSquared)
+          const second = (-projection + root) / (2 * lengthSquared)
+          enter = radiusDelta <= 0 ? 0 : Math.max(0, first)
+          exit = Math.min(1, second)
+          if (
+            enter > exit + EPSILON
+            || exit < -EPSILON
+            || enter > 1 + EPSILON
+          ) continue
+          enter = clamp(enter, 0, 1)
+          exit = clamp(exit, 0, 1)
+        }
+        const insideStartMs = segmentStartMs + enter * segmentDurationMs
+        const insideEndMs = segmentStartMs + exit * segmentDurationMs
         const ownerReadyMs = dot.ownerId === actorId
           ? dot.spawnedAtMs + SELF_TRAIL_IGNORE_MS
           : dot.spawnedAtMs + EPSILON
@@ -1454,6 +1565,32 @@ interface SweptCommittedAllyResult {
   clearance: number
 }
 
+interface CommittedAllySweepCursor {
+  sampleIndex: number
+}
+
+function committedSweepPointAt(
+  committed: SnakeCommittedPath,
+  atMs: number,
+  cursor: CommittedAllySweepCursor,
+): SnakeVector {
+  const samples = committed.samples
+  let index = clamp(cursor.sampleIndex, 0, samples.length - 1)
+  while (index > 0 && samples[index].atMs > atMs + EPSILON) index -= 1
+  while (index + 1 < samples.length && samples[index + 1].atMs <= atMs + EPSILON) index += 1
+  cursor.sampleIndex = index
+  const lower = samples[index]
+  const upper = samples[Math.min(index + 1, samples.length - 1)]
+  if (upper.atMs <= lower.atMs + EPSILON || atMs <= lower.atMs + EPSILON) {
+    return lower.position
+  }
+  const fraction = clamp((atMs - lower.atMs) / (upper.atMs - lower.atMs), 0, 1)
+  return {
+    x: lower.position.x + (upper.position.x - lower.position.x) * fraction,
+    y: lower.position.y + (upper.position.y - lower.position.y) * fraction,
+  }
+}
+
 function sweptCommittedAllyOverlap(
   actorStart: SnakeVector,
   actorEnd: SnakeVector,
@@ -1461,6 +1598,7 @@ function sweptCommittedAllyOverlap(
   segmentEndMs: number,
   committed: SnakeCommittedPath,
   collisionRadius: number,
+  cursor: CommittedAllySweepCursor = { sampleIndex: 0 },
 ): SweptCommittedAllyResult | null {
   const firstAtMs = committed.samples[0]?.atMs
   if (!finite(firstAtMs) || segmentEndMs <= segmentStartMs + EPSILON) return null
@@ -1475,29 +1613,44 @@ function sweptCommittedAllyOverlap(
       y: actorStart.y + (actorEnd.y - actorStart.y) * fraction,
     }
   }
-  const clippedActorStart = actorAt(overlapStartMs)
-  const clippedActorEnd = actorAt(overlapEndMs)
-  const allyStart = committedPointAt(committed, overlapStartMs)
-  const allyEnd = committedPointAt(committed, overlapEndMs)
-  if (!allyStart || !allyEnd) return null
-  const interval = movingCircleInterval(
-    clippedActorStart,
-    clippedActorEnd,
-    allyStart,
-    allyEnd,
-    collisionRadius,
-  )
-  return {
-    collisionAtMs: interval
-      ? overlapStartMs + interval[0] * (overlapEndMs - overlapStartMs)
-      : null,
-    clearance: movingCircleMinimumDistance(
-      clippedActorStart,
-      clippedActorEnd,
-      allyStart,
-      allyEnd,
-    ) - collisionRadius,
+  let intervalStartMs = overlapStartMs
+  let actorIntervalStart = actorAt(intervalStartMs)
+  let allyIntervalStart = committedSweepPointAt(committed, intervalStartMs, cursor)
+  let collisionAtMs: number | null = null
+  let clearance = Infinity
+  while (intervalStartMs < overlapEndMs - EPSILON) {
+    const nextSampleAtMs = committed.samples[cursor.sampleIndex + 1]?.atMs ?? Infinity
+    const intervalEndMs = Math.min(overlapEndMs, nextSampleAtMs)
+    const actorIntervalEnd = actorAt(intervalEndMs)
+    const allyIntervalEnd = committedSweepPointAt(committed, intervalEndMs, cursor)
+    const collision = movingCircleInterval(
+      actorIntervalStart,
+      actorIntervalEnd,
+      allyIntervalStart,
+      allyIntervalEnd,
+      collisionRadius,
+    )
+    if (collision) {
+      const atMs = intervalStartMs + collision[0] * (intervalEndMs - intervalStartMs)
+      if (atMs < overlapEndMs - EPSILON) {
+        collisionAtMs = collisionAtMs === null ? atMs : Math.min(collisionAtMs, atMs)
+      }
+    }
+    clearance = Math.min(
+      clearance,
+      movingCircleMinimumDistance(
+        actorIntervalStart,
+        actorIntervalEnd,
+        allyIntervalStart,
+        allyIntervalEnd,
+      ) - collisionRadius,
+    )
+    if (intervalEndMs <= intervalStartMs + EPSILON) break
+    intervalStartMs = intervalEndMs
+    actorIntervalStart = actorIntervalEnd
+    allyIntervalStart = allyIntervalEnd
   }
+  return { collisionAtMs, clearance }
 }
 
 function distinctHypothesisPaths(hypotheses: SnakePlayerHypotheses): SnakeVector[][] {
@@ -1564,14 +1717,26 @@ function candidateSurvives(
     || rawBounds.maximumX > maximumX
     || rawBounds.minimumY < minimumY
     || rawBounds.maximumY > maximumY
-  const trailBounds: PathBounds = {
-    minimumX: trailIndex.minimumX,
-    maximumX: trailIndex.maximumX,
-    minimumY: trailIndex.minimumY,
-    maximumY: trailIndex.maximumY,
+  const trailRadius = TRAIL_COLLISION_RADIUS + margin
+  let checkTrails = trailIndex.dots.length > 0
+    && candidateBounds.minimumX <= trailIndex.maximumX + TRAIL_COLLISION_RADIUS + margin
+    && candidateBounds.maximumX >= trailIndex.minimumX - TRAIL_COLLISION_RADIUS - margin
+    && candidateBounds.minimumY <= trailIndex.maximumY + TRAIL_COLLISION_RADIUS + margin
+    && candidateBounds.maximumY >= trailIndex.minimumY - TRAIL_COLLISION_RADIUS - margin
+  if (checkTrails) {
+    const minimumTrailRow = clamp(
+      Math.floor((candidateBounds.minimumY - trailRadius) / SPATIAL_CELL_SIZE),
+      0,
+      trailIndex.rows - 1,
+    )
+    const maximumTrailRow = clamp(
+      Math.floor((candidateBounds.maximumY + trailRadius) / SPATIAL_CELL_SIZE),
+      0,
+      trailIndex.rows - 1,
+    )
+    checkTrails = trailIndex.occupiedRowPrefix[maximumTrailRow + 1]
+      !== trailIndex.occupiedRowPrefix[minimumTrailRow]
   }
-  const checkTrails = trailIndex.dots.length > 0
-    && boundsOverlap(candidateBounds, trailBounds, TRAIL_COLLISION_RADIUS + margin)
   let checkPlayer = false
   for (const bounds of hypothesisBounds) {
     if (boundsOverlap(candidateBounds, bounds, PLAYER_HEAD_CLEARANCE + margin * 0.5)) {
@@ -1585,11 +1750,14 @@ function candidateSurvives(
     && !checkPlayer
     && snapshot.committedAllyPaths.length === 0
   ) return true
-  materializeCandidate(candidate)
+  const allyCursors = snapshot.committedAllyPaths.length > 0
+    ? snapshot.committedAllyPaths.map(() => ({ sampleIndex: 0 }))
+    : null
   let start = enemy.position
   let elapsedMs = 0
   for (let pathIndex = 0; pathIndex < candidate.path.length; pathIndex += 1) {
     if (elapsedMs >= maximumSurvivalMs - EPSILON) break
+    materializeCandidatePathThrough(candidate, pathIndex)
     const fullEnd = candidate.path[pathIndex]
     const fullRawEnd = candidate.rawPath[pathIndex]
     const fullDurationMs = candidate.segmentDurationsMs?.[pathIndex] ?? stepMs
@@ -1619,10 +1787,11 @@ function candidateSurvives(
       end,
       segmentStartMs,
       segmentDurationMs,
-      TRAIL_COLLISION_RADIUS + margin,
+      trailRadius,
       graceUntilMs,
     ) !== null) return false
-    for (const committed of snapshot.committedAllyPaths) {
+    for (let allyIndex = 0; allyIndex < snapshot.committedAllyPaths.length; allyIndex += 1) {
+      const committed = snapshot.committedAllyPaths[allyIndex]
       if (committed.enemyId === enemy.id) continue
       const overlap = sweptCommittedAllyOverlap(
         start,
@@ -1631,6 +1800,7 @@ function candidateSurvives(
         segmentStartMs + segmentDurationMs,
         committed,
         ALLY_COLLISION_RADIUS + margin,
+        allyCursors![allyIndex],
       )
       if (overlap && overlap.collisionAtMs !== null) return false
     }
@@ -1684,6 +1854,9 @@ function acquireGrid(snapshot: SnakePlannerSnapshot): GridWorkspace {
     playerBaselineMemberships: Array.from({ length: 4 }, () => new Uint8Array(size)),
     singlePlayerBaselineComponent: 0,
     candidateCells: new Int32Array(size),
+    candidateVisitMarks: new Uint32Array(size),
+    candidateGeneration: 0,
+    occupancyBaseCache: null,
   }
 }
 
@@ -1702,18 +1875,38 @@ function markDisk(
   recordedCells?: Int32Array,
   recordedCount = 0,
 ): number {
-  const minimumX = Math.max(0, Math.floor((position.x - radius) / RESOURCE_SNAKE_GRID_SIZE))
-  const maximumX = Math.min(workspace.width - 1, Math.floor((position.x + radius) / RESOURCE_SNAKE_GRID_SIZE))
-  const minimumY = Math.max(0, Math.floor((position.y - radius) / RESOURCE_SNAKE_GRID_SIZE))
-  const maximumY = Math.min(workspace.height - 1, Math.floor((position.y + radius) / RESOURCE_SNAKE_GRID_SIZE))
+  return markDiskCoordinates(
+    occupancy,
+    workspace,
+    position.x,
+    position.y,
+    radius,
+    recordedCells,
+    recordedCount,
+  )
+}
+
+function markDiskCoordinates(
+  occupancy: Uint8Array,
+  workspace: GridWorkspace,
+  positionX: number,
+  positionY: number,
+  radius: number,
+  recordedCells?: Int32Array,
+  recordedCount = 0,
+): number {
+  const minimumX = Math.max(0, Math.floor((positionX - radius) / RESOURCE_SNAKE_GRID_SIZE))
+  const maximumX = Math.min(workspace.width - 1, Math.floor((positionX + radius) / RESOURCE_SNAKE_GRID_SIZE))
+  const minimumY = Math.max(0, Math.floor((positionY - radius) / RESOURCE_SNAKE_GRID_SIZE))
+  const maximumY = Math.min(workspace.height - 1, Math.floor((positionY + radius) / RESOURCE_SNAKE_GRID_SIZE))
   const expanded = radius + RESOURCE_SNAKE_GRID_SIZE * 0.5
   const squared = expanded * expanded
   for (let y = minimumY; y <= maximumY; y += 1) {
     const centerY = (y + 0.5) * RESOURCE_SNAKE_GRID_SIZE
     for (let x = minimumX; x <= maximumX; x += 1) {
       const centerX = (x + 0.5) * RESOURCE_SNAKE_GRID_SIZE
-      const dx = centerX - position.x
-      const dy = centerY - position.y
+      const dx = centerX - positionX
+      const dy = centerY - positionY
       if (dx * dx + dy * dy <= squared) {
         const index = y * workspace.width + x
         if (!occupancy[index]) {
@@ -1810,6 +2003,7 @@ function prepareOccupancyBases(
   trailIndex: TrailSpatialIndex,
 ): void {
   const enemyMargin = riskMargin(enemy)
+  workspace.occupancyBaseCache = null
   if (cachedOccupancyBases && occupancyBaseCacheMatches(
     cachedOccupancyBases,
     snapshot,
@@ -1821,6 +2015,7 @@ function prepareOccupancyBases(
   )) {
     workspace.enemyBase.set(cachedOccupancyBases.enemyBase)
     workspace.playerBase.set(cachedOccupancyBases.playerBase)
+    workspace.occupancyBaseCache = cachedOccupancyBases
     return
   }
   workspace.enemyBase.fill(0)
@@ -1889,7 +2084,16 @@ function prepareOccupancyBases(
     committedPoints,
     enemyBase: workspace.enemyBase.slice(),
     playerBase: workspace.playerBase.slice(),
+    playerBaseId: null,
+    enemyLabels: null,
+    enemyAreas: null,
+    playerLabels: null,
+    playerAreas: null,
+    playerBaselineMemberships: null,
+    playerBaselineAreas: null,
+    singlePlayerBaselineComponent: 0,
   }
+  workspace.occupancyBaseCache = cachedOccupancyBases
 }
 
 function cellIndex(workspace: GridWorkspace, position: SnakeVector): number | null {
@@ -1954,6 +2158,20 @@ function labelGridComponents(
         }
       }
     }
+  }
+}
+
+function prepareEnemyGridComponents(workspace: GridWorkspace): void {
+  const cache = workspace.occupancyBaseCache
+  if (cache?.enemyLabels && cache.enemyAreas) {
+    workspace.enemyLabels.set(cache.enemyLabels)
+    workspace.enemyAreas.set(cache.enemyAreas)
+    return
+  }
+  labelGridComponents(workspace, workspace.enemyBase, workspace.enemyLabels, workspace.enemyAreas)
+  if (cache) {
+    cache.enemyLabels = workspace.enemyLabels.slice()
+    cache.enemyAreas = workspace.enemyAreas.slice()
   }
 }
 
@@ -2028,12 +2246,39 @@ function preparePlayerHypothesisBaselines(
   occupancy: Uint8Array,
   origins: readonly SnakeVector[],
 ): number[] {
+  const cache = workspace.occupancyBaseCache
+  if (
+    cache?.playerLabels
+    && cache.playerAreas
+    && cache.playerBaselineMemberships
+    && cache.playerBaselineAreas
+  ) {
+    workspace.playerLabels.set(cache.playerLabels)
+    workspace.playerAreas.set(cache.playerAreas)
+    for (let index = 0; index < workspace.playerBaselineMemberships.length; index += 1) {
+      workspace.playerBaselineMemberships[index].set(cache.playerBaselineMemberships[index])
+    }
+    workspace.singlePlayerBaselineComponent = cache.singlePlayerBaselineComponent
+    return cache.playerBaselineAreas
+  }
+  const remember = (areas: number[]): number[] => {
+    if (cache) {
+      cache.playerLabels = workspace.playerLabels.slice()
+      cache.playerAreas = workspace.playerAreas.slice()
+      cache.playerBaselineMemberships = workspace.playerBaselineMemberships.map(
+        (membership) => membership.slice(),
+      )
+      cache.playerBaselineAreas = areas.slice()
+      cache.singlePlayerBaselineComponent = workspace.singlePlayerBaselineComponent
+    }
+    return areas
+  }
   workspace.singlePlayerBaselineComponent = 0
   if (origins.length > 0 && origins.every((origin) => (
     origin.x === origins[0].x && origin.y === origins[0].y
   ))) {
     const start = cellIndex(workspace, origins[0])
-    if (start === null) return origins.map(() => 0)
+    if (start === null) return remember(origins.map(() => 0))
     const startOccupancy = occupancy[start]
     occupancy[start] = 0
     labelGridComponents(
@@ -2044,7 +2289,7 @@ function preparePlayerHypothesisBaselines(
     )
     occupancy[start] = startOccupancy
     workspace.singlePlayerBaselineComponent = workspace.playerLabels[start]
-    return origins.map(() => workspace.playerAreas[workspace.singlePlayerBaselineComponent])
+    return remember(origins.map(() => workspace.playerAreas[workspace.singlePlayerBaselineComponent]))
   }
   const baselineAreas: number[] = []
   for (let hypothesisIndex = 0; hypothesisIndex < origins.length; hypothesisIndex += 1) {
@@ -2085,24 +2330,103 @@ function preparePlayerHypothesisBaselines(
       }
     }
   }
-  return baselineAreas
+  return remember(baselineAreas)
 }
 
 function markCandidateTrail(
-  occupancy: Uint8Array,
   workspace: GridWorkspace,
   path: readonly SnakeVector[],
 ): number {
   let recordedCount = 0
   for (let index = 0; index + 1 < path.length; index += 1) {
-    recordedCount = markDisk(
-      occupancy,
+    if (
+      index > 0
+      && path[index].x === path[index - 1].x
+      && path[index].y === path[index - 1].y
+    ) continue
+    recordedCount = recordCandidateDisk(
       workspace,
-      path[index],
+      path[index].x,
+      path[index].y,
       FUTURE_TRAIL_RADIUS,
-      workspace.candidateCells,
       recordedCount,
     )
+  }
+  return recordedCount
+}
+
+function markInternalCandidateTrail(
+  workspace: GridWorkspace,
+  candidate: InternalTrajectoryCandidate,
+): number {
+  const localRawPath = candidate.localRawPath
+  const origin = candidate.transformOrigin
+  const cosine = candidate.transformCosine
+  const sine = candidate.transformSine
+  if (!localRawPath || !origin || cosine === undefined || sine === undefined) {
+    return markCandidateTrail(workspace, candidate.path)
+  }
+  const field = candidate.transformField
+  let recordedCount = 0
+  let priorX = Infinity
+  let priorY = Infinity
+  for (let index = 0; index + 1 < localRawPath.length; index += 1) {
+    const point = localRawPath[index]
+    const rawX = origin.x + point.x * cosine - point.y * sine
+    const rawY = origin.y + point.x * sine + point.y * cosine
+    const x = field ? clamp(rawX, field.padding, field.width - field.padding) : rawX
+    const y = field ? clamp(rawY, field.padding, field.height - field.padding) : rawY
+    if (x === priorX && y === priorY) continue
+    recordedCount = recordCandidateDisk(
+      workspace,
+      x,
+      y,
+      FUTURE_TRAIL_RADIUS,
+      recordedCount,
+    )
+    priorX = x
+    priorY = y
+  }
+  return recordedCount
+}
+
+function beginCandidateCells(workspace: GridWorkspace): void {
+  workspace.candidateGeneration += 1
+  if (workspace.candidateGeneration >= 0xffff_fffe) {
+    workspace.candidateVisitMarks.fill(0)
+    workspace.candidateGeneration = 1
+  }
+}
+
+function recordCandidateDisk(
+  workspace: GridWorkspace,
+  positionX: number,
+  positionY: number,
+  radius: number,
+  recordedCount: number,
+): number {
+  const minimumX = Math.max(0, Math.floor((positionX - radius) / RESOURCE_SNAKE_GRID_SIZE))
+  const maximumX = Math.min(workspace.width - 1, Math.floor((positionX + radius) / RESOURCE_SNAKE_GRID_SIZE))
+  const minimumY = Math.max(0, Math.floor((positionY - radius) / RESOURCE_SNAKE_GRID_SIZE))
+  const maximumY = Math.min(workspace.height - 1, Math.floor((positionY + radius) / RESOURCE_SNAKE_GRID_SIZE))
+  const expanded = radius + RESOURCE_SNAKE_GRID_SIZE * 0.5
+  const squared = expanded * expanded
+  const generation = workspace.candidateGeneration
+  for (let y = minimumY; y <= maximumY; y += 1) {
+    const centerY = (y + 0.5) * RESOURCE_SNAKE_GRID_SIZE
+    for (let x = minimumX; x <= maximumX; x += 1) {
+      const centerX = (x + 0.5) * RESOURCE_SNAKE_GRID_SIZE
+      const dx = centerX - positionX
+      const dy = centerY - positionY
+      if (dx * dx + dy * dy <= squared) {
+        const index = y * workspace.width + x
+        if (!workspace.playerBase[index] && workspace.candidateVisitMarks[index] !== generation) {
+          workspace.candidateVisitMarks[index] = generation
+          workspace.candidateCells[recordedCount] = index
+          recordedCount += 1
+        }
+      }
+    }
   }
   return recordedCount
 }
@@ -2111,6 +2435,10 @@ function playerBaseCacheId(
   workspace: GridWorkspace,
   endpoints: readonly SnakeVector[],
 ): number {
+  const preparedBase = workspace.occupancyBaseCache
+  if (preparedBase && preparedBase.playerBaseId !== null) {
+    return preparedBase.playerBaseId
+  }
   let hash = 0x811c9dc5
   for (let index = 0; index < workspace.playerBase.length; index += 1) {
     hash ^= workspace.playerBase[index] + index
@@ -2134,9 +2462,12 @@ function playerBaseCacheId(
         }
       }
     }
-    if (equal) return record.id
+    if (equal) {
+      if (preparedBase) preparedBase.playerBaseId = record.id
+      return record.id
+    }
   }
-  if (playerBaseCacheRecords.length >= 16) {
+  if (playerBaseCacheRecords.length >= PLAYER_BASE_CACHE_RECORD_LIMIT) {
     playerBaseCacheRecords.length = 0
     playerReductionCache.clear()
   }
@@ -2148,6 +2479,7 @@ function playerBaseCacheId(
     endpointCoordinates,
     occupancy: workspace.playerBase.slice(),
   })
+  if (preparedBase) preparedBase.playerBaseId = id
   return id
 }
 
@@ -2156,12 +2488,13 @@ function cachedPlayerReduction(
   candidateIndex: number | undefined,
   cells: Int32Array,
   count: number,
+  hash: number,
 ): number | null {
   if (candidateIndex === undefined) return null
   const slot = playerReductionCache.get(`${baseId}:${candidateIndex}`)
   if (!slot) return null
   for (const record of slot.records) {
-    if (record.count !== count) continue
+    if (record.count !== count || record.hash !== hash) continue
     let equal = true
     for (let index = 0; index < count; index += 1) {
       if (record.cells[index] !== cells[index]) {
@@ -2179,6 +2512,7 @@ function cachePlayerReduction(
   candidateIndex: number | undefined,
   cells: Int32Array,
   count: number,
+  hash: number,
   value: number,
 ): void {
   if (candidateIndex === undefined) return
@@ -2190,7 +2524,7 @@ function cachePlayerReduction(
   }
   let record: PlayerReductionCacheRecord
   if (slot.records.length < PLAYER_REDUCTION_PATTERNS_PER_CANDIDATE) {
-    record = { count: 0, cells: new Int32Array(count), value: 0 }
+    record = { count: 0, hash: 0, cells: new Int32Array(count), value: 0 }
     slot.records.push(record)
   } else {
     record = slot.records[slot.nextReplacement]
@@ -2198,8 +2532,17 @@ function cachePlayerReduction(
     if (record.cells.length < count) record.cells = new Int32Array(count)
   }
   record.count = count
+  record.hash = hash
   record.cells.set(cells.subarray(0, count), 0)
   record.value = value
+}
+
+function candidateCellHash(cells: Int32Array, count: number): number {
+  let hash = 0x811c9dc5
+  for (let index = 0; index < count; index += 1) {
+    hash = Math.imul(hash ^ cells[index], 0x01000193)
+  }
+  return hash >>> 0
 }
 
 function minimumAllyClearance(
@@ -2212,7 +2555,8 @@ function minimumAllyClearance(
   if (!snapshot.committedAllyPaths.some((committed) => committed.enemyId !== enemy.id)) {
     return clearance
   }
-  materializeCandidate(candidate)
+  materializeCandidatePath(candidate)
+  const allyCursors = snapshot.committedAllyPaths.map(() => ({ sampleIndex: 0 }))
   let elapsedMs = 0
   let start = enemy.position
   for (let index = 0; index < candidate.path.length; index += 1) {
@@ -2220,7 +2564,8 @@ function minimumAllyClearance(
     const segmentStartMs = snapshot.simulationMs + elapsedMs
     elapsedMs += durationMs
     const end = candidate.path[index]
-    for (const committed of snapshot.committedAllyPaths) {
+    for (let allyIndex = 0; allyIndex < snapshot.committedAllyPaths.length; allyIndex += 1) {
+      const committed = snapshot.committedAllyPaths[allyIndex]
       if (committed.enemyId === enemy.id) continue
       const overlap = sweptCommittedAllyOverlap(
         start,
@@ -2229,6 +2574,7 @@ function minimumAllyClearance(
         segmentStartMs + durationMs,
         committed,
         0,
+        allyCursors[allyIndex],
       )
       if (overlap) clearance = Math.min(clearance, overlap.clearance)
     }
@@ -2241,7 +2587,7 @@ function robustPressureDistance(
   candidate: InternalTrajectoryCandidate,
   hypotheses: SnakePlayerHypotheses,
 ): number {
-  materializeCandidate(candidate)
+  materializeCandidatePath(candidate)
   let worst = 0
   for (const hypothesis of hypotheses.all) {
     let closest = Number.MAX_SAFE_INTEGER
@@ -2308,16 +2654,23 @@ function playerAreaReductionForCandidate(
   const internalCandidate = 'rawPath' in candidate
     ? candidate as InternalTrajectoryCandidate
     : undefined
-  if (internalCandidate) materializeCandidate(internalCandidate)
-  workspace.occupancy.set(workspace.playerBase)
-  const candidateCellCount = markCandidateTrail(workspace.occupancy, workspace, candidate.path)
+  beginCandidateCells(workspace)
+  const candidateCellCount = internalCandidate
+    ? markInternalCandidateTrail(workspace, internalCandidate)
+    : markCandidateTrail(workspace, candidate.path)
+  const cellHash = candidateCellHash(workspace.candidateCells, candidateCellCount)
   const cached = cachedPlayerReduction(
     baseCacheId,
     candidate.candidateIndex,
     workspace.candidateCells,
     candidateCellCount,
+    cellHash,
   )
   if (cached !== null) return cached
+  workspace.occupancy.set(workspace.playerBase)
+  for (let index = 0; index < candidateCellCount; index += 1) {
+    workspace.occupancy[workspace.candidateCells[index]] = 1
+  }
   // Normalize only the raw footprint within each hypothesis' original
   // component. This prevents stopping/painting cells from being rewarded,
   // while preserving every genuine connectivity difference of the exact
@@ -2359,6 +2712,7 @@ function playerAreaReductionForCandidate(
     candidate.candidateIndex,
     workspace.candidateCells,
     candidateCellCount,
+    cellHash,
     result,
   )
   return result
@@ -2376,7 +2730,7 @@ function evaluateAuthoritativeCandidateScore(
   survivalLookaheadMs = Number.POSITIVE_INFINITY,
 ): SnakePlanScore {
   prepareOccupancyBases(snapshot, enemy, hypotheses, workspace, horizonMs, trailIndex)
-  labelGridComponents(workspace, workspace.enemyBase, workspace.enemyLabels, workspace.enemyAreas)
+  prepareEnemyGridComponents(workspace)
   const endpoints = hypotheses.all.map(
     (hypothesis) => hypothesis.at(-1) ?? snapshot.player.position,
   )
@@ -2513,16 +2867,17 @@ export function compareSnakePlanScores(
       || !Number.isInteger(leftCandidateIndex)
       || !Number.isInteger(rightCandidateIndex)
     ) return 0
-    if (left.survives !== right.survives) return left.survives - right.survives
-    if (left.reachableArea !== right.reachableArea) return left.reachableArea - right.reachableArea
-    if (left.allyClearance !== right.allyClearance) return left.allyClearance - right.allyClearance
+    if (left.survives !== right.survives) return left.survives > right.survives ? 1 : -1
+    if (left.reachableArea !== right.reachableArea) return left.reachableArea > right.reachableArea ? 1 : -1
+    if (left.allyClearance !== right.allyClearance) return left.allyClearance > right.allyClearance ? 1 : -1
     if (left.playerAreaReduction !== right.playerAreaReduction) {
-      return left.playerAreaReduction - right.playerAreaReduction
+      return left.playerAreaReduction > right.playerAreaReduction ? 1 : -1
     }
-    if (left.cutoffProgress !== right.cutoffProgress) return left.cutoffProgress - right.cutoffProgress
-    if (left.pressureDistance !== right.pressureDistance) return right.pressureDistance - left.pressureDistance
-    if (left.steeringCost !== right.steeringCost) return right.steeringCost - left.steeringCost
-    return rightCandidateIndex - leftCandidateIndex
+    if (left.cutoffProgress !== right.cutoffProgress) return left.cutoffProgress > right.cutoffProgress ? 1 : -1
+    if (left.pressureDistance !== right.pressureDistance) return left.pressureDistance < right.pressureDistance ? 1 : -1
+    if (left.steeringCost !== right.steeringCost) return left.steeringCost < right.steeringCost ? 1 : -1
+    if (leftCandidateIndex === rightCandidateIndex) return 0
+    return leftCandidateIndex < rightCandidateIndex ? 1 : -1
   } catch {
     return 0
   }
@@ -2548,11 +2903,18 @@ function finalizePlan(plan: SnakePlan): SnakePlan {
   return plan
 }
 
-function clonePlan(plan: SnakePlan, authoritativeScore: SnakePlanScore): SnakePlan {
+function cloneRetainedPlan(
+  enemy: SnakePlannerActor,
+  plan: SnakePlan,
+  authoritativeScore: SnakePlanScore,
+  authoritativeCandidateIndex: number,
+  authoritativeIntent: SnakeIntent,
+  evaluatedCandidates: number,
+): SnakePlan {
   return {
-    enemyId: plan.enemyId,
-    intent: plan.intent,
-    role: plan.role,
+    enemyId: enemy.id,
+    intent: authoritativeIntent,
+    role: enemy.role ?? 'pressure',
     direction: { ...plan.direction },
     speedScale: plan.speedScale,
     plannedAtMs: plan.plannedAtMs,
@@ -2565,10 +2927,47 @@ function clonePlan(plan: SnakePlan, authoritativeScore: SnakePlanScore): SnakePl
     commitUntilMs: plan.commitUntilMs,
     path: plan.path.map((position) => ({ ...position })),
     score: { ...authoritativeScore },
-    candidateIndex: plan.candidateIndex,
-    evaluatedCandidates: plan.evaluatedCandidates,
+    candidateIndex: authoritativeCandidateIndex,
+    evaluatedCandidates,
     elapsedMs: plan.elapsedMs,
     fallback: plan.fallback,
+  }
+}
+
+function identifyRetainedCandidate(
+  enemy: SnakePlannerActor,
+  plan: SnakePlan,
+  profile: SnakePlannerProfile,
+  field: SnakePlannerSnapshot['field'],
+): number | null {
+  const originActor: SnakePlannerActor = {
+    ...enemy,
+    position: plan.originPosition,
+    velocity: plan.originVelocity,
+    maximumSpeedPerSecond: plan.originMaximumSpeedPerSecond,
+  }
+  const candidates = generateInternalCandidates(originActor, profile, field)
+  try {
+    for (const candidate of candidates) {
+      if (candidate.speedScale !== plan.speedScale) continue
+      materializeCandidate(candidate)
+      let equal = true
+      for (let index = 0; index < plan.path.length; index += 1) {
+        if (
+          candidate.directions[index].x !== plan.directions[index].x
+          || candidate.directions[index].y !== plan.directions[index].y
+          || candidate.path[index].x !== plan.path[index].x
+          || candidate.path[index].y !== plan.path[index].y
+        ) {
+          equal = false
+          break
+        }
+      }
+      if (equal) return candidate.candidateIndex
+    }
+    return null
+  } finally {
+    releaseTrajectoryBuffer(candidates)
   }
 }
 
@@ -2636,6 +3035,7 @@ function retainedCandidateAt(
       steeringCost: steeringCostForDirections(enemy, directions, plan.speedScale),
       bounds: { ...bounds },
       rawBounds: { ...bounds },
+      pathMaterialized: true,
       materialized: true,
       segmentDurationsMs,
       score: emptyScore(),
@@ -2648,13 +3048,15 @@ function recomputeRetainedPlanScore(
   enemy: SnakePlannerActor,
   plan: SnakePlan,
   trailIndex: TrailSpatialIndex,
-): SnakePlanScore | null {
+  authoritativeCandidateIndex: number,
+): { candidate: InternalTrajectoryCandidate; score: SnakePlanScore } | null {
   const retained = retainedCandidateAt(snapshot, enemy, plan)
   if (!retained) return null
+  retained.candidate.candidateIndex = authoritativeCandidateIndex
   const timed = createTimedPlayerHypotheses(snapshot, retained.lookaheadMs, plan.stepMs)
   const workspace = acquireGrid(snapshot)
   try {
-    return evaluateAuthoritativeCandidateScore(
+    const score = evaluateAuthoritativeCandidateScore(
       snapshot,
       enemy,
       retained.candidate,
@@ -2665,6 +3067,7 @@ function recomputeRetainedPlanScore(
       plan.stepMs,
       Math.min(retained.lookaheadMs, plan.commitUntilMs - snapshot.simulationMs),
     )
+    return { candidate: retained.candidate, score }
   } finally {
     releaseGrid(workspace)
   }
@@ -2723,8 +3126,8 @@ function basePlanFields(
   | 'originMaximumSpeedPerSecond'> {
   const simulationMs = snapshot && finite(snapshot.simulationMs) ? snapshot.simulationMs : 0
   return {
-    enemyId,
-    role: enemy?.role ?? 'pressure',
+    enemyId: enemyIdValid(enemyId) ? enemyId : 'enemy-0',
+    role: enemyRoleValid(enemy?.role) ? enemy.role : 'pressure',
     plannedAtMs: simulationMs,
     stepMs: 50,
     originPosition: finiteVector(enemy?.position ?? { x: 0, y: 0 })
@@ -2810,6 +3213,7 @@ function safeFallback(
       stepMs,
       snapshot.field,
     )
+    const allyCursors = snapshot.committedAllyPaths.map(() => ({ sampleIndex: 0 }))
     let start = enemy.position
     let clearance = Number.MAX_SAFE_INTEGER
     let valid = true
@@ -2833,9 +3237,8 @@ function safeFallback(
         valid = false
         break
       }
-      for (const committed of Array.isArray(snapshot.committedAllyPaths)
-        ? snapshot.committedAllyPaths
-        : []) {
+      for (let allyIndex = 0; allyIndex < snapshot.committedAllyPaths.length; allyIndex += 1) {
+        const committed = snapshot.committedAllyPaths[allyIndex]
         if (committed.enemyId === enemy.id || !committedPathValid(committed)) continue
         const collisionRadius = ALLY_COLLISION_RADIUS + riskMargin(enemy)
         const overlap = sweptCommittedAllyOverlap(
@@ -2845,6 +3248,7 @@ function safeFallback(
           atMs + stepMs,
           committed,
           collisionRadius,
+          allyCursors[allyIndex],
         )
         if (overlap && overlap.collisionAtMs !== null) {
           valid = false
@@ -3049,6 +3453,7 @@ function earliestCertainFatalMs(
   let start = enemy.position
   let segmentStartMs = snapshot.simulationMs
   let earliest: number | null = null
+  const allyCursors = snapshot.committedAllyPaths.map(() => ({ sampleIndex: 0 }))
   for (const sample of future) {
     const durationMs = sample.atMs - segmentStartMs
     const end = sample.position
@@ -3072,7 +3477,8 @@ function earliestCertainFatalMs(
       const fatalMs = trailAtMs - snapshot.simulationMs
       earliest = earliest === null ? fatalMs : Math.min(earliest, fatalMs)
     }
-    for (const committed of snapshot.committedAllyPaths) {
+    for (let allyIndex = 0; allyIndex < snapshot.committedAllyPaths.length; allyIndex += 1) {
+      const committed = snapshot.committedAllyPaths[allyIndex]
       if (committed.enemyId === enemy.id) continue
       const overlap = sweptCommittedAllyOverlap(
         start,
@@ -3081,6 +3487,7 @@ function earliestCertainFatalMs(
         sample.atMs,
         committed,
         ALLY_COLLISION_RADIUS + riskMargin(enemy),
+        allyCursors[allyIndex],
       )
       if (overlap && overlap.collisionAtMs !== null) {
         const fatalMs = overlap.collisionAtMs - snapshot.simulationMs
@@ -3135,6 +3542,9 @@ export function planResourceSnakeEnemy(
   clock: () => number = () => 0,
 ): SnakePlan {
   const startedAt = safeClockValue(clock)
+  if (!enemyIdValid(enemyId)) {
+    return stoppedPlan(null, 'enemy-0', undefined, startedAt, clock, 'escape', true)
+  }
   try {
   if (!snapshotIsValid(snapshot)) {
     const sanitized = fallbackSnapshotFromUnknown(snapshot, enemyId)
@@ -3156,16 +3566,38 @@ export function planResourceSnakeEnemy(
   }
   const trailIndex = buildTrailIndex(snapshot)
   if (previousPlan && reusablePlanValid(snapshot, enemy, profile, previousPlan)) {
-    const authoritativeScore = recomputeRetainedPlanScore(snapshot, enemy, previousPlan, trailIndex)
-    const fatalInMs = authoritativeScore
+    const authoritativeCandidateIndex = identifyRetainedCandidate(
+      enemy,
+      previousPlan,
+      profile,
+      snapshot.field,
+    )
+    const authoritative = authoritativeCandidateIndex === null
+      ? null
+      : recomputeRetainedPlanScore(
+        snapshot,
+        enemy,
+        previousPlan,
+        trailIndex,
+        authoritativeCandidateIndex,
+      )
+    const fatalInMs = authoritative
       ? earliestCertainFatalMs(snapshot, enemy, previousPlan, trailIndex)
       : 0
     if (
-      authoritativeScore
+      authoritative
+      && authoritativeCandidateIndex !== null
       && (fatalInMs === null || fatalInMs > COMMIT_FATAL_OVERRIDE_MS + EPSILON)
     ) {
       const sample = sampleResourceSnakePlan(previousPlan, snapshot.simulationMs)
-      const retained = clonePlan(previousPlan, authoritativeScore)
+      const retained = cloneRetainedPlan(
+        enemy,
+        previousPlan,
+        authoritative.score,
+        authoritativeCandidateIndex,
+        deriveIntent(snapshot, enemy, authoritative.candidate),
+        profile.candidateCount,
+      )
       retained.direction = { ...sample.direction }
       retained.commandAtMs = snapshot.simulationMs
       retained.elapsedMs = elapsedSince(startedAt, clock)
@@ -3187,7 +3619,7 @@ export function planResourceSnakeEnemy(
   try {
     const horizonMs = snapshot.simulationMs + profile.lookaheadMs
     prepareOccupancyBases(snapshot, enemy, hypotheses, workspace, horizonMs, trailIndex)
-    labelGridComponents(workspace, workspace.enemyBase, workspace.enemyLabels, workspace.enemyAreas)
+    prepareEnemyGridComponents(workspace)
     const hypothesisEndpoints = hypotheses.all.map(
       (hypothesis) => hypothesis.at(-1) ?? snapshot.player.position,
     )
