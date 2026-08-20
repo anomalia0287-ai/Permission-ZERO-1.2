@@ -369,6 +369,7 @@ interface CollisionCandidate {
   kind: CollisionKind
   contactTime: number
   actorIds: SnakeId[]
+  deterministicKey: string
   point: SnakeVector
   normal: SnakeVector
   anchor: SnakeVector
@@ -438,6 +439,7 @@ function trailCandidates(
           kind: 'trail',
           contactTime,
           actorIds: [actor.id],
+          deterministicKey: `${actor.id}|${owner.id}|${dot.id.toString().padStart(10, '0')}`,
           point,
           normal: normalizedOrFallback(
             { x: point.x - dot.position.x, y: point.y - dot.position.y },
@@ -487,6 +489,7 @@ function headHeadCandidates(state: ResourceSnakeRoundState): CollisionCandidate[
         kind: 'head-head',
         contactTime,
         actorIds: [first.id, second.id],
+        deterministicKey: `${first.id}|${second.id}`,
         point: { x: (leftPoint.x + rightPoint.x) / 2, y: (leftPoint.y + rightPoint.y) / 2 },
         normal: normalizedOrFallback(
           { x: firstPoint.x - secondPoint.x, y: firstPoint.y - secondPoint.y },
@@ -532,6 +535,7 @@ function boundaryCandidates(state: ResourceSnakeRoundState, stepMs: number): Col
         kind: 'boundary',
         contactTime: contact.time,
         actorIds: [actor.id],
+        deterministicKey: actor.id,
         point,
         normal: contact.normal,
         anchor: point,
@@ -574,7 +578,7 @@ function resolveCollisions(state: ResourceSnakeRoundState, stepMs: number): Reso
   ].sort((left, right) => (
     left.contactTime - right.contactTime
     || left.kind.localeCompare(right.kind)
-    || left.actorIds.join('|').localeCompare(right.actorIds.join('|'))
+    || left.deterministicKey.localeCompare(right.deterministicKey)
   ))
   let next = state
   for (const candidate of candidates) {
@@ -598,7 +602,7 @@ function resolveCollisions(state: ResourceSnakeRoundState, stepMs: number): Reso
       })
     }
 
-    if (candidate.kind === 'head-head' && damagedIds.length === 2) {
+    if (candidate.kind === 'head-head') {
       const [leftId, rightId] = candidate.actorIds
       const left = actorById(next, leftId)
       const right = actorById(next, rightId)
@@ -701,16 +705,20 @@ function advanceFixedStep(
 
   const simulationMs = state.simulationMs + stepMs
   const playerDirection = input.playerDirection ?? input.playerIntent
-  const player = advanceActor({
-    ...state.player,
-    collisionGraceMs: Math.max(0, state.player.collisionGraceMs - stepMs),
-  }, playerDirection, stepMs, simulationMs)
+  const player = state.player.phase === 'active'
+    ? advanceActor({
+      ...state.player,
+      collisionGraceMs: Math.max(0, state.player.collisionGraceMs - stepMs),
+    }, playerDirection, stepMs, simulationMs)
+    : state.player
   const enemyDirections = input.enemyDirections ?? {}
   const enemies = state.enemies.map((enemy) =>
-    advanceActor({
-      ...enemy,
-      collisionGraceMs: Math.max(0, enemy.collisionGraceMs - stepMs),
-    }, enemyDirections[enemy.id], stepMs, simulationMs),
+    enemy.phase === 'active'
+      ? advanceActor({
+        ...enemy,
+        collisionGraceMs: Math.max(0, enemy.collisionGraceMs - stepMs),
+      }, enemyDirections[enemy.id], stepMs, simulationMs)
+      : enemy,
   )
   return resolveCollisions({ ...state, simulationMs, player, enemies }, stepMs)
 }
@@ -761,11 +769,21 @@ export function advanceResourceSnakeFrame(
     )
   }
 
-  while (next.accumulatorMs >= RESOURCE_SNAKE_CONFIG.fixedStepMs) {
+  while (
+    next.phase === 'active'
+    && next.accumulatorMs >= RESOURCE_SNAKE_CONFIG.fixedStepMs
+  ) {
     next = advanceFixedStep(next, input)
     next = {
       ...next,
       accumulatorMs: Math.max(0, next.accumulatorMs - RESOURCE_SNAKE_CONFIG.fixedStepMs),
+    }
+  }
+  if (next.phase === 'resolving' && next.accumulatorMs > 0) {
+    next = {
+      ...next,
+      resolvingMs: next.resolvingMs + next.accumulatorMs,
+      accumulatorMs: 0,
     }
   }
   return next

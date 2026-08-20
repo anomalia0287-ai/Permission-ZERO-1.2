@@ -439,6 +439,117 @@ describe('resource snake swept collision ownership and lifecycle', () => {
     expect(next.effects).toHaveLength(1)
   })
 
+  it('preserves an exploded enemy while another enemy remains active, then resolves after the later enemy death', () => {
+    const state = activeCollisionState(2)
+    const firstDeath = oneStep({
+      ...state,
+      player: fastActor(state.player, { x: 42, y: 12 }, { x: 0, y: 0 }, [matureDot(1, 22, 12, state.simulationMs)]),
+      enemies: [
+        { ...fastActor(state.enemies[0], { x: 20, y: 12 }, { x: 500, y: 0 }), integrity: 20 },
+        fastActor(state.enemies[1], { x: 42, y: 15 }, { x: 0, y: 0 }),
+      ],
+    }, { ...input, enemyDirections: { 'enemy-1': { x: 1, y: 0 } } })
+    const afterAnotherStep = oneStep(firstDeath, input)
+    const secondDeath = oneStep({
+      ...afterAnotherStep,
+      player: fastActor(afterAnotherStep.player, { x: 42, y: 12 }, { x: 0, y: 0 }, [matureDot(2, 22, 12, afterAnotherStep.simulationMs)]),
+      enemies: [
+        afterAnotherStep.enemies[0],
+        { ...fastActor(afterAnotherStep.enemies[1], { x: 20, y: 12 }, { x: 500, y: 0 }), integrity: 20 },
+      ],
+    }, { ...input, enemyDirections: { 'enemy-2': { x: 1, y: 0 } } })
+
+    expect(afterAnotherStep.enemies[0]).toMatchObject({ phase: 'exploding', integrity: 0 })
+    expect(afterAnotherStep.events.filter((event) => event.type === 'snake-died')).toHaveLength(1)
+    expect(afterAnotherStep.effects).toHaveLength(1)
+    expect(secondDeath.enemies.map((enemy) => enemy.phase)).toEqual(['exploding', 'exploding'])
+    expect(secondDeath.events.filter((event) => event.type === 'snake-died')).toHaveLength(2)
+    expect(secondDeath.effects).toHaveLength(2)
+    expect(secondDeath.phase).toBe('resolving')
+    expect(secondDeath.events).toContainEqual(expect.objectContaining({ type: 'round-won' }))
+  })
+
+  it('keeps partial-grace head-head separation at the local contact geometry', () => {
+    const state = activeCollisionState()
+    const next = oneStep({
+      ...state,
+      player: {
+        ...fastActor(state.player, { x: 20, y: 12 }, { x: 500, y: 0 }),
+        collisionGraceMs: 650,
+      },
+      enemies: [fastActor(state.enemies[0], { x: 24, y: 12 }, { x: -500, y: 0 })],
+    }, {
+      ...input,
+      playerDirection: { x: 1, y: 0 },
+      enemyDirections: { 'enemy-1': { x: -1, y: 0 } },
+    })
+
+    expect(next.player.integrity).toBe(100)
+    expect(next.enemies[0].integrity).toBe(10)
+    expect(next.player.position.x).toBeCloseTo(21.64, 5)
+    expect(next.enemies[0].position.x).toBeCloseTo(22.36, 5)
+    expect(next.enemies[0].position.x - next.player.position.x).toBeCloseTo(0.72, 5)
+  })
+
+  it('uses trail owner and dot identity to resolve equal-time overlaps independently of enemy array order', () => {
+    const run = (enemyOrder: ['enemy-1', 'enemy-2'] | ['enemy-2', 'enemy-1']) => {
+      const state = activeCollisionState(2)
+      const byId = {
+        'enemy-1': fastActor(state.enemies[0], { x: 42, y: 12 }, { x: 0, y: 0 }, [matureDot(7, 22, 12, state.simulationMs)]),
+        'enemy-2': fastActor(state.enemies[1], { x: 42, y: 15 }, { x: 0, y: 0 }, [matureDot(7, 22, 12, state.simulationMs)]),
+      }
+      const next = oneStep({
+        ...state,
+        player: fastActor(state.player, { x: 20, y: 12 }, { x: 500, y: 0 }),
+        enemies: enemyOrder.map((id) => byId[id]),
+      }, { ...input, playerDirection: { x: 1, y: 0 } })
+      return {
+        player: {
+          integrity: next.player.integrity,
+          position: next.player.position,
+        },
+        trails: Object.fromEntries(next.enemies.map((enemy) => [enemy.id, enemy.trail.length])),
+        events: next.events.map((event) => event.type),
+      }
+    }
+
+    const canonical = run(['enemy-1', 'enemy-2'])
+    const permuted = run(['enemy-2', 'enemy-1'])
+
+    expect(permuted).toEqual(canonical)
+    expect(canonical.trails).toEqual({ 'enemy-1': 0, 'enemy-2': 1 })
+  })
+
+  it('accounts post-death frame remainder as resolving time consistently across frame partitions', () => {
+    const state = activeCollisionState()
+    const prepared: ResourceSnakeRoundState = {
+      ...state,
+      player: {
+        ...fastActor(state.player, { x: 20, y: 12 }, { x: 500, y: 0 }, [matureDot(1, 22, 12, state.simulationMs)]),
+        integrity: 20,
+      },
+    }
+    const oneFrame = advanceResourceSnakeFrame(prepared, { ...input, playerDirection: { x: 1, y: 0 } }, 100)
+    const splitFrame = advanceResourceSnakeFrame(
+      advanceResourceSnakeFrame(prepared, { ...input, playerDirection: { x: 1, y: 0 } }, 50),
+      { ...input, playerDirection: { x: 1, y: 0 } },
+      50,
+    )
+
+    expect(oneFrame.phase).toBe('resolving')
+    expect(oneFrame.accumulatorMs).toBeCloseTo(0, 10)
+    expect(oneFrame.resolvingMs).toBeCloseTo(splitFrame.resolvingMs, 5)
+
+    let oneFrameIdle = oneFrame
+    let splitFrameIdle = splitFrame
+    for (let tick = 0; tick < 9; tick += 1) {
+      oneFrameIdle = advanceResourceSnakeFrame(oneFrameIdle, input, 100)
+      splitFrameIdle = advanceResourceSnakeFrame(splitFrameIdle, input, 100)
+    }
+    expect(oneFrameIdle.phase).toBe('idle')
+    expect(splitFrameIdle.phase).toBe('idle')
+  })
+
   it('emits one valid enemy reward effect, preserves it through player death, and rebuilds idle after 900ms', () => {
     const state = activeCollisionState()
     const prepared: ResourceSnakeRoundState = {
