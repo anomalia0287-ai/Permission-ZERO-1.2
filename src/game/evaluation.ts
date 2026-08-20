@@ -46,6 +46,11 @@ function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value))
 }
 
+export function getSuspicionStage(suspicion: number): number {
+  const bounded = clamp(Number.isFinite(suspicion) ? suspicion : 0, 0, 100)
+  return Math.min(10, Math.floor(bounded / 10) + 1)
+}
+
 export interface SuspicionBand {
   id: 'routine' | 'integrity' | 'accelerated'
   label: '정상 감시' | '무결성 프로토콜' | '가속 프로토콜'

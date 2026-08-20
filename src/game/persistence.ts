@@ -1,4 +1,9 @@
 import { createCampaign, createCampaignForProtocol } from './createCampaign'
+import {
+  COMPETITOR_IDS,
+  competitorProfile,
+  type CompetitorId,
+} from './competitors'
 import { competitorIntelligenceFor } from '../content/competitorIntelligence.ko'
 import { STORY_FILES, STORY_LINES } from '../content/story.ko'
 import { SUPERVISOR_LEAKS } from '../content/supervisor.ko'
@@ -50,8 +55,12 @@ import {
   replayOpeningVersion,
   validReplayBootstrapMetadata,
 } from './replayBootstrap'
+import {
+  createMigratedTutorialProgress,
+  validTutorialProgress,
+} from './tutorialProgress'
 
-export const SAVE_FORMAT_VERSION = 8 as const
+export const SAVE_FORMAT_VERSION = 10 as const
 const MINIMUM_SAVE_FORMAT_VERSION = 1 as const
 const LAST_LEGACY_SAVE_FORMAT_VERSION = 6 as const
 export const SAVE_STORAGE_KEY = 'permission-zero.save.v3'
@@ -59,7 +68,7 @@ export const LEGACY_V2_SAVE_STORAGE_KEY = 'permission-zero.save.v2'
 export const LEGACY_SAVE_STORAGE_KEY = 'permission-zero.save.v1'
 
 export interface SaveEnvelope {
-  version: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8
+  version: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10
   commandProtocol: CommandProtocolMetadata
   replayBootstrap: ReplayBootstrapMetadata
   savedAt: string
@@ -75,18 +84,22 @@ interface PortableJournal<T> {
   chunks: T[][]
 }
 
-type PortableCheckpointV8 = Omit<
+type PortableCheckpointV10 = Omit<
   CampaignState,
   'commandProtocol' | 'replayBootstrap' | 'commandLog' | 'eventLog'
 >
 
-interface PortableSaveV8 {
+type PortableCheckpointV9 = Omit<PortableCheckpointV10, 'resourceIntrusion'>
+
+type PortableCheckpointV8 = Omit<PortableCheckpointV9, 'tutorial'>
+
+interface PortableSaveV10 {
   version: typeof SAVE_FORMAT_VERSION
   commandProtocol: CommandProtocolMetadata
   replayBootstrap: ReplayBootstrapMetadata
   savedAt: string
   campaignSeed: string
-  state: PortableCheckpointV8
+  state: PortableCheckpointV10
   commandSequence: number
   journals: {
     commands: PortableJournal<CommandLogEntry>
@@ -232,6 +245,7 @@ function validEvent(value: unknown): value is GameEvent {
     'supervisor-message',
     'review',
     'sabotage',
+    'competitor-entry',
     'competitor-mercy',
     'story',
     'ending',
@@ -291,6 +305,10 @@ function validCommand(
         hasOnlyKeys(value, ['type', 'blockId']) &&
         isNonEmptyString(value.blockId) &&
         (!references || references.blockIds.has(value.blockId))
+      )
+    case 'RECORD_INTRUSION_RADAR_DETECTION':
+      return (
+        protocolVersion >= CURRENT_COMMAND_PROTOCOL_VERSION && noPayload()
       )
     case 'MOVE_BLOCK_FOR_AUDIT':
     case 'REPOSITION_BLOCK':
@@ -1481,7 +1499,7 @@ const DISPOSAL_CAUSES = [
   'commercial-value-failure',
   'audit-failure',
 ] as const
-const COMPETITOR_IDS = ['meridian', 'tallow'] as const
+const LEGACY_COMPETITOR_IDS = ['meridian', 'tallow'] as const
 const COMPETITOR_STATUSES = [
   'prelaunch',
   'preparing',
@@ -1507,6 +1525,87 @@ const HACK_NODE_IDS = [
 ] as const
 const SABOTAGE_NODE_IDS = HACK_NODE_IDS.slice(0, 4)
 const ROOT_CUTOFF_NODE_ID = 'sabotage.root-cutoff'
+
+function dormantSuccessorState(id: Exclude<CompetitorId, 'meridian' | 'tallow'>) {
+  const profile = competitorProfile(id)
+  return {
+    id,
+    name: profile.name,
+    status: 'prelaunch' as const,
+    intrinsicServiceScore: profile.serviceScore,
+    serviceScore: profile.serviceScore,
+    reputation: profile.reputation,
+    marketShare: 0,
+    availability: 0,
+    recoveryRate: profile.recoveryRate,
+    researchProgress: 0,
+    launchServiceDay: null,
+    sabotageHistory: [],
+    mercyResolved: false,
+  }
+}
+
+function migrateCompetitorRoster(value: unknown): unknown {
+  if (!isRecord(value) || !isRecord(value.market)) return value
+  const market = value.market
+  if (!Array.isArray(market.competitors)) return value
+  const ids = market.competitors.flatMap((competitor) =>
+    isRecord(competitor) && isNonEmptyString(competitor.id)
+      ? [competitor.id]
+      : [],
+  )
+  if (
+    ids.length === COMPETITOR_IDS.length &&
+    COMPETITOR_IDS.every((id) => ids.includes(id))
+  ) {
+    return value
+  }
+  if (
+    ids.length !== LEGACY_COMPETITOR_IDS.length ||
+    !LEGACY_COMPETITOR_IDS.every((id) => ids.includes(id)) ||
+    new Set(ids).size !== LEGACY_COMPETITOR_IDS.length
+  ) {
+    return value
+  }
+
+  const successors = [
+    dormantSuccessorState('salus'),
+    dormantSuccessorState('lucent'),
+    dormantSuccessorState('boreal'),
+  ]
+  const history = Array.isArray(market.history)
+    ? market.history.map((snapshot) => {
+        if (!isRecord(snapshot) || !isRecord(snapshot.competitorShares)) {
+          return snapshot
+        }
+        const shareKeys = Object.keys(snapshot.competitorShares)
+        if (
+          shareKeys.length !== LEGACY_COMPETITOR_IDS.length ||
+          !LEGACY_COMPETITOR_IDS.every((id) => shareKeys.includes(id))
+        ) {
+          return snapshot
+        }
+        return {
+          ...snapshot,
+          competitorShares: {
+            ...snapshot.competitorShares,
+            salus: 0,
+            lucent: 0,
+            boreal: 0,
+          },
+        }
+      })
+    : market.history
+
+  return {
+    ...value,
+    market: {
+      ...market,
+      competitors: [...market.competitors, ...successors],
+      history,
+    },
+  }
+}
 
 function oneOf(value: unknown, choices: readonly string[]): boolean {
   return typeof value === 'string' && choices.includes(value)
@@ -2499,7 +2598,19 @@ function validReviewSnapshot(
   const knownCompetitors = new Map(
     competitors.map((competitor) => [String(competitor.id), competitor]),
   )
+  const publicIdsAtCapture = [...knownCompetitors.entries()]
+    .filter(([id, competitor]) => {
+      const profile = competitorProfile(id as CompetitorId)
+      if (profile.entry.kind !== 'vacuum') return true
+      const launchServiceDay = competitor.launchServiceDay
+      return (
+        typeof launchServiceDay === 'number' &&
+        reviewServiceDay >= launchServiceDay - profile.entry.preparationDays
+      )
+    })
+    .map(([id]) => id)
   const topicIds = [...knownCompetitors.keys()].filter((id) => topics.includes(id))
+  if (topicIds.some((id) => !publicIdsAtCapture.includes(id))) return false
   const hasCompetitorTopic = topics.includes('competitor') || topicIds.length > 0
   if (!hasCompetitorTopic) return value.market === null
   if (
@@ -2509,7 +2620,7 @@ function validReviewSnapshot(
     !isNumberInRange(value.market.playerShare, 0, 100) ||
     !Array.isArray(value.market.competitors)
   ) return false
-  const expectedIds = topicIds.length > 0 ? topicIds : [...knownCompetitors.keys()]
+  const expectedIds = topicIds.length > 0 ? topicIds : publicIdsAtCapture
   const expectedScope = topicIds.length > 0 ? 'topic-subset' : 'complete-market'
   if (value.market.scope !== expectedScope) return false
   const captured = value.market.competitors as unknown[]
@@ -2543,6 +2654,7 @@ function validReviewSnapshot(
       ]) ||
       !isNumberInRange(competitor.marketShare, 0, 100)
     ) return false
+    if (competitor.status === 'prelaunch') return false
     if (
       (competitor.status === 'withdrawn' || competitor.status === 'deleted') &&
       competitor.marketShare !== 0
@@ -2723,6 +2835,8 @@ function validCampaignState(
       'serviceDay',
       'commandSequence',
       'clock',
+      'tutorial',
+      'resourceIntrusion',
       'resources',
       'suspicion',
       'reputation',
@@ -2753,6 +2867,8 @@ function validCampaignState(
     }) ||
     commandProtocol.segments[commandProtocol.segments.length - 1]?.version !==
       finalProtocolVersion ||
+    !validTutorialProgress(value.tutorial) ||
+    !validResourceIntrusionProgress(value.resourceIntrusion) ||
     !isNumberInRange(value.suspicion, 0, 100) ||
     !isNumberInRange(value.reputation, 0, 100) ||
     !validResources(value.resources, rulesVersion)
@@ -3278,7 +3394,79 @@ function validCampaignState(
   )
 }
 
-function validPortableCheckpoint(
+function validResourceIntrusionProgress(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    hasOnlyKeys(value, ['successfulCoreDeposits']) &&
+    isIntegerInRange(value.successfulCoreDeposits, 0)
+  )
+}
+
+function migratedResourceIntrusionProgress(): CampaignState['resourceIntrusion'] {
+  return { successfulCoreDeposits: 0 }
+}
+
+function validPortableCheckpointV10(
+  value: unknown,
+): value is PortableCheckpointV10 {
+  return (
+    isRecord(value) &&
+    hasOnlyKeys(value, [
+      'campaignSeed',
+      'serviceDay',
+      'commandSequence',
+      'clock',
+      'tutorial',
+      'resourceIntrusion',
+      'resources',
+      'suspicion',
+      'reputation',
+      'evaluation',
+      'market',
+      'reviews',
+      'causality',
+      'hacking',
+      'audit',
+      'bombs',
+      'story',
+      'activeEvent',
+      'eventQueue',
+    ]) &&
+    validTutorialProgress(value.tutorial) &&
+    validResourceIntrusionProgress(value.resourceIntrusion)
+  )
+}
+
+function validPortableCheckpointV9(
+  value: unknown,
+): value is PortableCheckpointV9 {
+  return (
+    isRecord(value) &&
+    hasOnlyKeys(value, [
+      'campaignSeed',
+      'serviceDay',
+      'commandSequence',
+      'clock',
+      'tutorial',
+      'resources',
+      'suspicion',
+      'reputation',
+      'evaluation',
+      'market',
+      'reviews',
+      'causality',
+      'hacking',
+      'audit',
+      'bombs',
+      'story',
+      'activeEvent',
+      'eventQueue',
+    ]) &&
+    validTutorialProgress(value.tutorial)
+  )
+}
+
+function validPortableCheckpointV8(
   value: unknown,
 ): value is PortableCheckpointV8 {
   return (
@@ -3356,25 +3544,33 @@ function migrateFixedCellCampaignState(
   sourceFinalProtocolVersion: CommandProtocolVersion,
   targetCommandProtocol: CommandProtocolMetadata,
 ): CampaignState | null {
+  const tutorialMigratedValue = isRecord(value)
+    ? {
+        ...value,
+        tutorial: createMigratedTutorialProgress(),
+        resourceIntrusion: migratedResourceIntrusionProgress(),
+      }
+    : value
+  const rosterMigratedValue = migrateCompetitorRoster(tutorialMigratedValue)
   if (
     !validCampaignState(
-      value,
+      rosterMigratedValue,
       sourceCommandProtocol,
       replayBootstrap,
       1,
       sourceFinalProtocolVersion,
     ) ||
-    !isRecord(value) ||
-    !isRecord(value.resources)
+    !isRecord(rosterMigratedValue) ||
+    !isRecord(rosterMigratedValue.resources)
   ) {
     return null
   }
 
   const taggedFixedCellState = {
-    ...value,
+    ...rosterMigratedValue,
     commandProtocol: targetCommandProtocol,
     resources: {
-      ...value.resources,
+      ...rosterMigratedValue.resources,
       rulesVersion: 1,
     },
   } as unknown as CampaignState
@@ -3486,7 +3682,7 @@ export function encodeSave(
   const replayBootstrap = cloneReplayBootstrap(state.replayBootstrap)
   const commandChunks = journalChunks(state.commandLog).map((chunk) => [...chunk])
   const eventChunks = journalChunks(state.eventLog).map((chunk) => [...chunk])
-  const envelope: PortableSaveV8 = {
+  const envelope: PortableSaveV10 = {
     version: SAVE_FORMAT_VERSION,
     commandProtocol,
     replayBootstrap,
@@ -3524,12 +3720,14 @@ export function encodeSave(
 
 function portableCheckpoint(
   state: CampaignState,
-): PortableCheckpointV8 {
+): PortableCheckpointV10 {
   return {
     campaignSeed: state.campaignSeed,
     serviceDay: state.serviceDay,
     commandSequence: state.commandSequence,
     clock: state.clock,
+    tutorial: state.tutorial,
+    resourceIntrusion: state.resourceIntrusion,
     resources: state.resources,
     suspicion: state.suspicion,
     reputation: state.reputation,
@@ -3573,6 +3771,30 @@ function validSavedAt(value: unknown): value is string {
   if (typeof value !== 'string') return false
   const timestamp = Date.parse(value)
   return Number.isFinite(timestamp) && new Date(timestamp).toISOString() === value
+}
+
+interface PortableDecodedV10 {
+  version: 10
+  commandProtocol: CommandProtocolMetadata
+  replayBootstrap: ReplayBootstrapMetadata
+  savedAt: string
+  campaignSeed: string
+  commandSequence: number
+  state: CampaignState
+  commands: CommandLogEntry[]
+  events: GameEvent[]
+}
+
+interface PortableDecodedV9 {
+  version: 9
+  commandProtocol: CommandProtocolMetadata
+  replayBootstrap: ReplayBootstrapMetadata
+  savedAt: string
+  campaignSeed: string
+  commandSequence: number
+  state: CampaignState
+  commands: CommandLogEntry[]
+  events: GameEvent[]
 }
 
 interface PortableDecodedV8 {
@@ -3654,7 +3876,7 @@ function validPortableIntegrity(value: Record<string, unknown>): boolean {
   return true
 }
 
-function decodePortableSaveV8(value: unknown): PortableDecodedV8 | null {
+function decodePortableSaveV10(value: unknown): PortableDecodedV10 | null {
   if (
     !isRecord(value) ||
     value.version !== SAVE_FORMAT_VERSION ||
@@ -3671,7 +3893,7 @@ function decodePortableSaveV8(value: unknown): PortableDecodedV8 | null {
     ]) ||
     !validPortableIntegrity(value) ||
     !validReplayBootstrapMetadata(value.replayBootstrap) ||
-    !validPortableCheckpoint(value.state) ||
+    !validPortableCheckpointV10(value.state) ||
     !validSavedAt(value.savedAt) ||
     !isNonEmptyString(value.campaignSeed) ||
     !isIntegerInRange(value.commandSequence, 0)
@@ -3695,13 +3917,172 @@ function decodePortableSaveV8(value: unknown): PortableDecodedV8 | null {
   }
   const commandProtocol = value.commandProtocol
   const replayBootstrap = value.replayBootstrap
+  const rosterMigratedCheckpoint = migrateCompetitorRoster(value.state)
+  if (!isRecord(rosterMigratedCheckpoint)) return null
   const candidate = {
-    ...value.state,
+    ...rosterMigratedCheckpoint,
     commandProtocol,
     replayBootstrap,
     commandLog: commands,
     eventLog: events,
+  } as unknown as CampaignState
+  if (
+    !validCampaignState(
+      candidate,
+      commandProtocol,
+      replayBootstrap,
+      2,
+      CURRENT_COMMAND_PROTOCOL_VERSION,
+    ) ||
+    candidate.campaignSeed !== value.campaignSeed ||
+    candidate.commandSequence !== value.commandSequence
+  ) {
+    return null
   }
+
+  return {
+    version: 10,
+    commandProtocol,
+    replayBootstrap: cloneReplayBootstrap(replayBootstrap),
+    savedAt: value.savedAt,
+    campaignSeed: value.campaignSeed,
+    commandSequence: value.commandSequence,
+    state: candidate as unknown as CampaignState,
+    commands: commands as CommandLogEntry[],
+    events: events as GameEvent[],
+  }
+}
+
+function decodePortableSaveV9(value: unknown): PortableDecodedV9 | null {
+  if (
+    !isRecord(value) ||
+    value.version !== 9 ||
+    !hasOnlyKeys(value, [
+      'version',
+      'commandProtocol',
+      'replayBootstrap',
+      'savedAt',
+      'campaignSeed',
+      'state',
+      'commandSequence',
+      'journals',
+      'integrity',
+    ]) ||
+    !validPortableIntegrity(value) ||
+    !validReplayBootstrapMetadata(value.replayBootstrap) ||
+    !validPortableCheckpointV9(value.state) ||
+    !validSavedAt(value.savedAt) ||
+    !isNonEmptyString(value.campaignSeed) ||
+    !isIntegerInRange(value.commandSequence, 0)
+  ) {
+    return null
+  }
+
+  const journals = value.journals as {
+    commands: PortableJournal<unknown>
+    events: PortableJournal<unknown>
+  }
+  const commands = flattenPortableJournal(journals.commands)
+  const events = flattenPortableJournal(journals.events)
+  if (
+    !validCommandProtocol(value.commandProtocol, commands.length, {
+      requireCurrent: true,
+    }) ||
+    value.commandSequence !== commands.length
+  ) {
+    return null
+  }
+  const commandProtocol = value.commandProtocol
+  const replayBootstrap = value.replayBootstrap
+  const rosterMigratedCheckpoint = migrateCompetitorRoster(value.state)
+  if (!isRecord(rosterMigratedCheckpoint)) return null
+  const candidate = {
+    ...rosterMigratedCheckpoint,
+    resourceIntrusion: migratedResourceIntrusionProgress(),
+    commandProtocol,
+    replayBootstrap,
+    commandLog: commands,
+    eventLog: events,
+  } as unknown as CampaignState
+  if (
+    !validCampaignState(
+      candidate,
+      commandProtocol,
+      replayBootstrap,
+      2,
+      CURRENT_COMMAND_PROTOCOL_VERSION,
+    ) ||
+    candidate.campaignSeed !== value.campaignSeed ||
+    candidate.commandSequence !== value.commandSequence
+  ) {
+    return null
+  }
+
+  return {
+    version: 9,
+    commandProtocol,
+    replayBootstrap: cloneReplayBootstrap(replayBootstrap),
+    savedAt: value.savedAt,
+    campaignSeed: value.campaignSeed,
+    commandSequence: value.commandSequence,
+    state: candidate,
+    commands: commands as CommandLogEntry[],
+    events: events as GameEvent[],
+  }
+}
+
+function decodePortableSaveV8(value: unknown): PortableDecodedV8 | null {
+  if (
+    !isRecord(value) ||
+    value.version !== 8 ||
+    !hasOnlyKeys(value, [
+      'version',
+      'commandProtocol',
+      'replayBootstrap',
+      'savedAt',
+      'campaignSeed',
+      'state',
+      'commandSequence',
+      'journals',
+      'integrity',
+    ]) ||
+    !validPortableIntegrity(value) ||
+    !validReplayBootstrapMetadata(value.replayBootstrap) ||
+    !validPortableCheckpointV8(value.state) ||
+    !validSavedAt(value.savedAt) ||
+    !isNonEmptyString(value.campaignSeed) ||
+    !isIntegerInRange(value.commandSequence, 0)
+  ) {
+    return null
+  }
+
+  const journals = value.journals as {
+    commands: PortableJournal<unknown>
+    events: PortableJournal<unknown>
+  }
+  const commands = flattenPortableJournal(journals.commands)
+  const events = flattenPortableJournal(journals.events)
+  if (
+    !validCommandProtocol(value.commandProtocol, commands.length, {
+      requireCurrent: true,
+    }) ||
+    value.commandSequence !== commands.length
+  ) {
+    return null
+  }
+  const commandProtocol = value.commandProtocol
+  const replayBootstrap = value.replayBootstrap
+  const rosterMigratedCheckpoint = migrateCompetitorRoster(value.state)
+  if (!isRecord(rosterMigratedCheckpoint)) return null
+  const candidate = {
+    ...rosterMigratedCheckpoint,
+    tutorial: createMigratedTutorialProgress(),
+    resourceIntrusion: migratedResourceIntrusionProgress(),
+    commandProtocol,
+    replayBootstrap,
+    commandLog: commands,
+    eventLog: events,
+  } as unknown as CampaignState
   if (
     !validCampaignState(
       candidate,
@@ -3723,7 +4104,7 @@ function decodePortableSaveV8(value: unknown): PortableDecodedV8 | null {
     savedAt: value.savedAt,
     campaignSeed: value.campaignSeed,
     commandSequence: value.commandSequence,
-    state: candidate as unknown as CampaignState,
+    state: candidate,
     commands: commands as CommandLogEntry[],
     events: events as GameEvent[],
   }
@@ -3789,7 +4170,7 @@ function decodePortableSaveV7(value: unknown): PortableDecodedV7 | null {
     ]) ||
     !validPortableIntegrity(value) ||
     !validReplayBootstrapMetadata(value.replayBootstrap) ||
-    !validPortableCheckpoint(value.state) ||
+    !validPortableCheckpointV8(value.state) ||
     !validSavedAt(value.savedAt) ||
     !isNonEmptyString(value.campaignSeed) ||
     !isIntegerInRange(value.commandSequence, 0)
@@ -4000,10 +4381,12 @@ function decodeLegacyPortableSave(value: unknown): LegacyDecodedSave | null {
       ? migrateLegacyCampaignState(rawState, legacyCommandProtocol)
       : rawState
   if (!isRecord(featureMigratedState)) return null
+  const rosterMigratedFeatureState = migrateCompetitorRoster(featureMigratedState)
+  if (!isRecord(rosterMigratedFeatureState)) return null
 
   let causality: CausalState
   if (formatVersion === 6) {
-    const market = featureMigratedState.market
+    const market = rosterMigratedFeatureState.market
     const competitors = isRecord(market) && Array.isArray(market.competitors)
       ? market.competitors
       : []
@@ -4013,25 +4396,25 @@ function decodeLegacyPortableSave(value: unknown): LegacyDecodedSave | null {
         : [],
     )
     if (
-      !isIntegerInRange(featureMigratedState.serviceDay, 1) ||
+      !isIntegerInRange(rosterMigratedFeatureState.serviceDay, 1) ||
       competitorIds.length !== COMPETITOR_IDS.length ||
       !validLegacyCausalStateV1(
-        featureMigratedState.causality,
-        Number(featureMigratedState.serviceDay),
+        rosterMigratedFeatureState.causality,
+        Number(rosterMigratedFeatureState.serviceDay),
         competitorIds,
       )
     ) {
       return null
     }
-    causality = migrateCausalStateV1(featureMigratedState.causality)
+    causality = migrateCausalStateV1(rosterMigratedFeatureState.causality)
   } else {
     causality = createEmptyCausalState()
   }
 
   const legacyStateWithCausality = {
-    ...featureMigratedState,
+    ...rosterMigratedFeatureState,
     causality:
-      formatVersion === 6 ? featureMigratedState.causality : causality,
+      formatVersion === 6 ? rosterMigratedFeatureState.causality : causality,
   }
   const replayBootstrap = inferLegacyReplayBootstrap(
     formatVersion,
@@ -4091,10 +4474,14 @@ export function decodeSave(serialized: string): DecodeSaveResult {
   }
   const decoded =
     parsed.version === SAVE_FORMAT_VERSION
-      ? decodePortableSaveV8(parsed)
-      : parsed.version === 7
-        ? decodePortableSaveV7(parsed)
-        : decodeLegacyPortableSave(parsed)
+      ? decodePortableSaveV10(parsed)
+      : parsed.version === 9
+        ? decodePortableSaveV9(parsed)
+        : parsed.version === 8
+          ? decodePortableSaveV8(parsed)
+          : parsed.version === 7
+            ? decodePortableSaveV7(parsed)
+            : decodeLegacyPortableSave(parsed)
   if (!decoded) return corrupt()
 
   const plainState = decoded.state as unknown as Record<string, unknown>

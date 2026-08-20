@@ -10,6 +10,8 @@ const styleModules = [
   'statistics.css',
   'settings.css',
   'overlays.css',
+  'retrofuture.css',
+  'retro-modern-remodel.css',
 ] as const
 
 describe('style module boundaries', () => {
@@ -47,5 +49,24 @@ describe('style module boundaries', () => {
     expect(globalSource).not.toContain('/* Statistics')
     expect(globalSource).not.toContain('/* Settings and guide')
     expect(globalSource).not.toContain('/* Blocking events and save recovery')
+  })
+
+  it('finishes with the approved white operations palette and dark game islands', () => {
+    const remodelSource = readFileSync(
+      resolve(process.cwd(), 'src/styles/retro-modern-remodel.css'),
+      'utf8',
+    )
+    const marker = '/* Approved white operations pass */'
+    const approvedPass = remodelSource.slice(remodelSource.indexOf(marker))
+
+    expect(approvedPass).toContain(marker)
+    expect(approvedPass).toContain('--rm-panel: #ffffff;')
+    expect(approvedPass).toContain('--operations-header: #ff6b3d;')
+    expect(approvedPass).toContain('--compact-market: #eceef0;')
+    expect(approvedPass).toContain('width: 148px;')
+    expect(approvedPass).toContain('background: #f3ead7;')
+    expect(approvedPass).toContain('.game-shell .resource-panel')
+    expect(approvedPass).toContain('.hacking-panel')
+    expect(approvedPass).toContain('background: #08090e;')
   })
 })

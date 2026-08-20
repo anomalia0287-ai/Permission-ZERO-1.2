@@ -10,6 +10,7 @@ import {
   canControlDeparture,
   cancelSabotageCharge,
   chargeSabotage,
+  eligibleTargets,
   getHackTreeProgress,
   grantSelfComputeResource,
   hasSupervisorAccess,
@@ -149,6 +150,40 @@ function dueRequestInterception(seed: string, targetId: string): CampaignState {
 }
 
 describe('typed hacking trees', () => {
+  it('keeps dormant successors completely hidden from targeting until launch preparation is public', () => {
+    const initial = createCampaign('hidden-successor-targets')
+    const state = {
+      ...initial,
+      hacking: {
+        ...initial.hacking,
+        purchasedNodeIds: [HACK_NODE_IDS.sabotage.qualityDegradation],
+      },
+    }
+
+    expect(
+      eligibleTargets(state, HACK_NODE_IDS.sabotage.qualityDegradation),
+    ).toEqual(['meridian', 'tallow'])
+
+    const preparing = {
+      ...state,
+      market: {
+        ...state.market,
+        competitors: state.market.competitors.map((competitor) =>
+          competitor.id === 'salus'
+            ? {
+                ...competitor,
+                status: 'preparing' as const,
+                launchServiceDay: state.serviceDay + 30,
+              }
+            : competitor,
+        ),
+      },
+    }
+    expect(
+      eligibleTargets(preparing, HACK_NODE_IDS.sabotage.qualityDegradation),
+    ).toEqual(['meridian', 'tallow', 'salus'])
+  })
+
   it('derives ordered progress, remaining cost, and the terminal payoff for a path', () => {
     const initial = createCampaign('hack-progress')
     expect(getHackTreeProgress(initial, 'sabotage')).toMatchObject({

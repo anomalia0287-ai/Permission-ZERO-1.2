@@ -104,6 +104,8 @@ function legacyProgressPayload(
     saveVersion: 2,
     legacyCommandCount: 0,
   }
+  delete (state as Record<string, unknown>).tutorial
+  delete (state as Record<string, unknown>).resourceIntrusion
   if (version < 6) delete state.causality
   else state.causality = { ...createEmptyCausalState(), rulesVersion: 1 }
   if (version < 5) {
@@ -230,15 +232,15 @@ describe('SettingsPanel', () => {
     )
     expect(screen.getByLabelText('진행 파일 가져오기')).toHaveAttribute(
       'accept',
-      '.pz8,.pz7,.pz6,.pz5,.pz4,.pz3,.pz2,application/vnd.permission-zero.progress+json',
+      '.pz10,.pz9,.pz8,.pz7,.pz6,.pz5,.pz4,.pz3,.pz2,application/vnd.permission-zero.progress+json',
     )
     const compatibility = screen
       .getByRole('region', { name: '진행 가져오기' })
       .querySelector('p')
     expect(compatibility).not.toBeNull()
     expect(compatibility).toHaveTextContent('PZ2:')
-    expect(compatibility).toHaveTextContent('PZ2:~PZ7:')
-    expect(compatibility).toHaveTextContent('.pz8')
+    expect(compatibility).toHaveTextContent('PZ2:~PZ9:')
+    expect(compatibility).toHaveTextContent('.pz10')
 
     fireEvent.change(screen.getByRole('slider', { name: '전체 음량' }), {
       target: { value: '0.4' },
@@ -319,7 +321,12 @@ describe('SettingsPanel', () => {
   it('provides a plain-language controls guide', () => {
     render(<GuidePanel onClose={vi.fn()} />)
     expect(screen.getByRole('region', { name: '게임 가이드' })).toBeInTheDocument()
-    expect(screen.getByText('리소스 이동')).toBeInTheDocument()
+    expect(screen.getByText('코어 확보')).toBeInTheDocument()
+    expect(screen.getByText(/밝은 잔상에 닿은 경비는 즉시 절단/)).toBeInTheDocument()
+    expect(screen.getByText(/모든 경비를 제거하면 코어 락이 풀립니다/)).toBeInTheDocument()
+    expect(screen.getByText(/기지에 머무르면 무결성이 회복/)).toBeInTheDocument()
+    expect(screen.getByText(/감사 레이더가 예고한 경로/)).toBeInTheDocument()
+    expect(screen.queryByText(/압축|사각 데이터 셀/)).not.toBeInTheDocument()
     expect(screen.getByText(/하루는 24초의 고정 시간축/)).toBeInTheDocument()
     expect(screen.queryByText(/배속|일시정지|1×|2×|4×/)).not.toBeInTheDocument()
     expect(screen.getByText('키보드')).toBeInTheDocument()
@@ -548,7 +555,7 @@ describe('SettingsPanel', () => {
     expect(screen.getByRole('alert', { name: '저장 실패' })).toBeInTheDocument()
   })
 
-  it('validates and imports an exact .pz7 file above the clipboard cap only after confirmation', async () => {
+  it('validates and imports an exact .pz10 file above the clipboard cap only after confirmation', async () => {
     const campaign = largeAppendOnlyCommandCampaign()
     const progressFile = encodeProgressFile(
       campaign,
@@ -613,7 +620,7 @@ describe('SettingsPanel', () => {
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
   })
 
-  it('downloads an exact .pz7 recovery file when the clipboard representation is too large', async () => {
+  it('downloads an exact .pz10 recovery file when the clipboard representation is too large', async () => {
     vi.useFakeTimers()
     const storage = new SecurityFailingStorage()
     storage.failWrites = false
@@ -717,7 +724,7 @@ describe('SettingsPanel', () => {
     await act(async () => undefined)
 
     expect(writeText).toHaveBeenCalledTimes(1)
-    expect(writeText.mock.calls[0]?.[0]).toEqual(expect.stringMatching(/^PZ8:/))
+    expect(writeText.mock.calls[0]?.[0]).toEqual(expect.stringMatching(/^PZ10:/))
     expect(screen.getByRole('alert', { name: '저장 실패' })).toHaveTextContent(
       '복사했습니다',
     )
@@ -749,7 +756,7 @@ describe('SettingsPanel', () => {
       '정확한 진행 내보내기가 너무 커서 아무것도 복사하지 않았습니다.',
     )
     expect(warning).toHaveTextContent(
-      '.pz8 진행 파일로 전체 상태와 기록을 정확히 다운로드할 수 있습니다.',
+      '.pz10 진행 파일로 전체 상태와 기록을 정확히 다운로드할 수 있습니다.',
     )
     expect(warning).toHaveTextContent(
       '브라우저 저장 공간은 유한하므로 경고가 계속되면 파일을 안전한 곳에 보관하세요.',

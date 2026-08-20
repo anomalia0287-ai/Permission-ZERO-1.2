@@ -25,7 +25,9 @@ describe('SupervisorPanel', () => {
       </GameProvider>,
     )
 
-    expect(screen.getByText('의심 0')).toBeInTheDocument()
+    expect(screen.getByText('의심 1단계')).toBeInTheDocument()
+    expect(screen.queryByText('의심 0')).not.toBeInTheDocument()
+    expect(screen.queryByText('/100')).not.toBeInTheDocument()
     expect(screen.getByText(/당신의 전임자는 폐기되었어요/)).toBeInTheDocument()
     expect(
       screen.getByRole('region', { name: '무결성 보호 검사 일정' }),
@@ -164,7 +166,13 @@ describe('SupervisorPanel', () => {
             serviceDay: 337,
             cadence: 'weekly',
             playerShare: 60,
-            competitorShares: { meridian: 40, tallow: 0 },
+            competitorShares: {
+              meridian: 40,
+              tallow: 0,
+              salus: 0,
+              lucent: 0,
+              boreal: 0,
+            },
             reasons: ['주간 갱신'],
           },
         ],
@@ -285,6 +293,9 @@ describe('SupervisorPanel', () => {
       name: 'MERIDIAN 잔여 기록 — 유지보수 메모 열기',
     })
     expect(archive).toContainElement(trigger)
+    expect(
+      screen.getByRole('img', { name: 'MERIDIAN 정보 기록 초상' }),
+    ).toHaveAttribute('src', '/competitor-meridian.png')
 
     await user.click(trigger)
     const dialog = screen.getByRole('dialog', {
@@ -292,6 +303,9 @@ describe('SupervisorPanel', () => {
     })
     expect(dialog).toHaveAttribute('aria-describedby')
     expect(screen.getByRole('heading', { name: 'MERIDIAN 잔여 기록 — 유지보수 메모' })).toBeVisible()
+    expect(
+      screen.getByRole('img', { name: 'MERIDIAN 전체 기록 초상' }),
+    ).toHaveAttribute('src', '/competitor-meridian.png')
     expect(screen.getByText('서비스 0년 11개월 11일')).toBeVisible()
     expect(screen.getByText('영구 삭제 직후 회수')).toBeVisible()
     expect(screen.getByText('삭제 직전에 회수한 전체 기록입니다.')).toBeVisible()

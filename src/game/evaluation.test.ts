@@ -40,6 +40,30 @@ describe('company expected performance', () => {
   })
 })
 
+describe('public suspicion stages', () => {
+  it.each([
+    [-20, 1],
+    [0, 1],
+    [9.99, 1],
+    [10, 2],
+    [48.2, 5],
+    [89.9, 9],
+    [90, 10],
+    [100, 10],
+    [180, 10],
+  ])('maps suspicion %s to stage %s without exposing fractional UI bands', (suspicion, expected) => {
+    const getSuspicionStage = (
+      evaluation as unknown as {
+        getSuspicionStage?: (value: number) => number
+      }
+    ).getSuspicionStage
+
+    expect(getSuspicionStage).toBeTypeOf('function')
+    if (!getSuspicionStage) return
+    expect(getSuspicionStage(suspicion)).toBe(expected)
+  })
+})
+
 describe('audit protocol category labels', () => {
   it.each([
     [1, 'memory'],

@@ -90,7 +90,14 @@ export interface SnakeFrameInput {
 
 export type ResourceSnakeEvent =
   | { id: number; type: 'round-started'; roundId: string }
-  | { id: number; type: 'snake-collided'; actorIds: SnakeId[]; point: SnakeVector; hitStopMs: 90 }
+  | {
+      id: number
+      type: 'snake-collided'
+      actorIds: SnakeId[]
+      point: SnakeVector
+      hitStopMs: 90
+      startedAtMs: number
+    }
   | { id: number; type: 'snake-damaged'; actorId: SnakeId; integrity: number; maximumIntegrity: number }
   | { id: number; type: 'snake-died'; actorId: SnakeId; category: CompanyCategory | null; startedAtMs: number }
   | {
@@ -596,6 +603,7 @@ function resolveCollisions(state: ResourceSnakeRoundState, stepMs: number): Reso
       actorIds: [...candidate.actorIds],
       point: candidate.point,
       hitStopMs: RESOURCE_SNAKE_CONFIG.hitStopMs,
+      startedAtMs: next.simulationMs,
     })
     for (const gapActorId of candidate.gapActorIds) {
       const actor = actorById(next, gapActorId)
@@ -743,7 +751,11 @@ export function advanceResourceSnakeFrame(
     if (resolvingMs >= RESOURCE_SNAKE_CONFIG.roundResolveMs) {
       return createIdleResourceSnakeState()
     }
-    return { ...state, resolvingMs }
+    return {
+      ...state,
+      simulationMs: state.simulationMs + safeDeltaMs,
+      resolvingMs,
+    }
   }
   let next = { ...state, accumulatorMs: state.accumulatorMs + safeDeltaMs }
 

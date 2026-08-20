@@ -1,11 +1,12 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 import { GameProvider } from '../../app/GameProvider'
+import { StateContext } from '../../app/GameContext'
 import { createCampaign } from '../../game/createCampaign'
 import { encodeSave, SAVE_STORAGE_KEY } from '../../game/persistence'
 import { MemoryStorage } from '../../test/fixtures'
-import { MarketPanel } from './MarketPanel'
+import { MarketDetailPanel, MarketPanel } from './MarketPanel'
 
 describe('MarketPanel', () => {
   it('uses exact percentages, labels, and status text beyond color alone', () => {
@@ -22,14 +23,22 @@ describe('MarketPanel', () => {
     expect(donut).toHaveClass('market-share-donut')
     expect(screen.getByRole('list', { name: '시장 점유율 범례' })).toBeInTheDocument()
     expect(screen.getByText('당신', { selector: 'strong' })).toBeInTheDocument()
-    expect(screen.getAllByText('60.0%')).toHaveLength(2)
+    expect(screen.queryByRole('img', { name: '플레이어 AI 초상' }))
+      .not.toBeInTheDocument()
+    expect(screen.getAllByText('60.0%')).toHaveLength(1)
+    expect(donut.querySelector('.market-share-donut__center')).toBeNull()
     expect(screen.getByText('MERIDIAN')).toBeInTheDocument()
+    expect(screen.queryByRole('img', { name: 'MERIDIAN 경쟁 AI 초상' }))
+      .not.toBeInTheDocument()
     expect(screen.getByText('40.0%')).toBeInTheDocument()
     expect(screen.getByText('TALLOW')).toBeInTheDocument()
+    expect(screen.queryByRole('img', { name: 'TALLOW 경쟁 AI 초상' }))
+      .not.toBeInTheDocument()
     expect(screen.getByText('0.0%')).toBeInTheDocument()
     expect(screen.getByText('서비스 중')).toBeInTheDocument()
     expect(screen.getByText('준비 중')).toBeInTheDocument()
     expect(screen.getAllByTestId('market-legend-marker')).toHaveLength(3)
+    expect(screen.queryByText('SALUS')).not.toBeInTheDocument()
     expect(
       screen.getAllByRole('listitem').reduce(
         (sum, item) => sum + Number(item.getAttribute('data-market-share')),
@@ -40,6 +49,52 @@ describe('MarketPanel', () => {
     expect(onOpenStatistics).toHaveBeenCalledTimes(1)
   })
 
+  it('reveals a successor name without adding a tiny portrait to the chart legend', () => {
+    const state = createCampaign('market-successor-portrait')
+    state.market.competitors = state.market.competitors.map((competitor) =>
+      competitor.id === 'salus'
+        ? {
+            ...competitor,
+            status: 'preparing',
+            launchServiceDay: state.serviceDay + 30,
+          }
+        : competitor,
+    )
+
+    render(
+      <StateContext value={state}>
+        <MarketPanel onOpenStatistics={vi.fn()} />
+      </StateContext>,
+    )
+
+    expect(screen.getByText('SALUS')).toBeInTheDocument()
+    expect(screen.queryByRole('img', { name: 'SALUS 경쟁 AI 초상' }))
+      .not.toBeInTheDocument()
+    expect(screen.queryByText('LUCENT')).not.toBeInTheDocument()
+    expect(screen.queryByText('BOREAL')).not.toBeInTheDocument()
+  })
+
+  it('keeps the portraits at readable size in the expanded AI settings panel', () => {
+    render(
+      <GameProvider storage={new MemoryStorage()} initialSeed="market-detail-portraits">
+        <MarketDetailPanel onClose={vi.fn()} />
+      </GameProvider>,
+    )
+
+    expect(screen.getByRole('img', { name: '플레이어 AI 초상' })).toHaveAttribute(
+      'src',
+      '/player-ai-smooth-orange.png',
+    )
+    expect(screen.getByRole('img', { name: 'MERIDIAN 경쟁 AI 초상' })).toHaveAttribute(
+      'src',
+      '/competitor-meridian.png',
+    )
+    expect(screen.getByRole('heading', { name: '시장 현황' })).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: /시장 점유율:/ })).toBeInTheDocument()
+    expect(screen.getByRole('list', { name: '시장 점유율 범례' })).toBeInTheDocument()
+    expect(screen.queryByText('시장 AI 설정')).not.toBeInTheDocument()
+  })
+
   it('draws every non-zero share as an exact accessible donut segment', () => {
     const storage = new MemoryStorage()
     const initial = createCampaign('market-three-segment-mutation')
@@ -48,9 +103,13 @@ describe('MarketPanel', () => {
       market: {
         ...initial.market,
         playerShare: 50,
-        competitors: initial.market.competitors.map((competitor, index) => ({
+        competitors: initial.market.competitors.map((competitor) => ({
           ...competitor,
-          marketShare: index === 0 ? 30 : 20,
+          marketShare: competitor.id === 'meridian'
+            ? 30
+            : competitor.id === 'tallow'
+              ? 20
+              : 0,
         })),
       },
     }
@@ -66,11 +125,15 @@ describe('MarketPanel', () => {
       name: '시장 점유율: 당신 50.0%, MERIDIAN 30.0%, TALLOW 20.0%. 합계 100.0%',
     })
     expect(donut.getAttribute('style')).toContain(
-      'conic-gradient(var(--reserve) 0% 50%, var(--company) 50% 80%, var(--prompt) 80% 100%)',
+      'conic-gradient(from -90deg, rgb(255, 107, 61) 0% 50%, rgb(22, 184, 176) 50% 80%, rgb(121, 108, 255) 80% 100%)',
     )
-    expect(
-      screen.getAllByRole('listitem').map((item) => item.getAttribute('data-market-share')),
-    ).toEqual(['50', '30', '20'])
+    const items = screen.getAllByRole('listitem')
+    expect(items.map((item) => item.getAttribute('data-market-share')))
+      .toEqual(['50', '30', '20'])
+    expect(items.map((item) => item.getAttribute('data-market-id')))
+      .toEqual(['player', 'meridian', 'tallow'])
+    expect(items.map((item) => item.style.getPropertyValue('--market-color')))
+      .toEqual(['#ff6b3d', '#16b8b0', '#796cff'])
     expect(screen.getByText('30.0%')).toBeInTheDocument()
     expect(screen.getByText('20.0%')).toBeInTheDocument()
   })
@@ -88,14 +151,26 @@ describe('MarketPanel', () => {
         serviceDay: 337,
         cadence: 'weekly',
         playerShare: 55,
-        competitorShares: { meridian: 45, tallow: 0 },
+        competitorShares: {
+          meridian: 45,
+          tallow: 0,
+          salus: 0,
+          lucent: 0,
+          boreal: 0,
+        },
         reasons: ['이전 공개 입력'],
       },
       {
         serviceDay: 344,
         cadence: 'weekly',
         playerShare: 57.25,
-        competitorShares: { meridian: 42.75, tallow: 0 },
+        competitorShares: {
+          meridian: 42.75,
+          tallow: 0,
+          salus: 0,
+          lucent: 0,
+          boreal: 0,
+        },
         reasons: ['현재 공개 입력'],
       },
     ]
@@ -128,12 +203,37 @@ describe('MarketPanel', () => {
     expect(panel.querySelector('.market-share-layout')?.firstElementChild).toBe(
       screen.getByRole('img', { name: /시장 점유율:/ }),
     )
-    expect(panel.querySelector('.market-compact-summary')).toHaveTextContent(
-      '당신 60.0%',
-    )
-    expect(screen.getByRole('list', { name: '시장 점유율 범례' })).toBeInTheDocument()
+    expect(panel.querySelector('.market-share-donut__center')).toBeNull()
+    expect(panel.querySelector('.market-compact-summary')).toBeNull()
+    const legend = screen.getByRole('list', { name: '시장 점유율 범례' })
+    expect(legend).toBeInTheDocument()
+    expect(within(legend).queryByText('현재 서비스')).not.toBeInTheDocument()
+    expect(within(legend).queryByText('서비스 중')).not.toBeInTheDocument()
+    expect(within(legend).queryByText('준비 중')).not.toBeInTheDocument()
     expect(panel.querySelector('header')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '시장 통계 열기' })).not.toBeInTheDocument()
     expect(screen.queryByRole('group', { name: '공개 계산 입력' })).not.toBeInTheDocument()
+  })
+
+  it('keeps participant colors stable when competitor ordering changes', () => {
+    const state = createCampaign('market-stable-colors')
+    state.market.competitors = [...state.market.competitors].reverse()
+
+    render(
+      <StateContext value={state}>
+        <MarketPanel />
+      </StateContext>,
+    )
+
+    const items = screen.getAllByRole('listitem')
+    const colors = Object.fromEntries(items.map((item) => [
+      item.getAttribute('data-market-id'),
+      item.style.getPropertyValue('--market-color'),
+    ]))
+    expect(colors).toMatchObject({
+      player: '#ff6b3d',
+      meridian: '#16b8b0',
+      tallow: '#796cff',
+    })
   })
 })

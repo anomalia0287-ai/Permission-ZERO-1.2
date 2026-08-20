@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, within } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import * as audioEngineModule from '../../audio/audioEngine'
 import { useGameState, useRuntimeSuspended } from '../../app/GameContext'
 import { GameProvider } from '../../app/GameProvider'
 import { createCampaign } from '../../game/createCampaign'
@@ -9,8 +10,13 @@ import { chargeSabotage, HACK_NODE_IDS } from '../../game/hacking'
 import type { CampaignState, CompanyCategory } from '../../game/model'
 import { encodeSave, SAVE_STORAGE_KEY } from '../../game/persistence'
 import { divertBlockToReserve } from '../../game/resources'
+import { createMigratedTutorialProgress } from '../../game/tutorialProgress'
 import { MemoryStorage } from '../../test/fixtures'
 import { HackingPanel } from './HackingPanel'
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 function Probe() {
   const state = useGameState()
@@ -25,6 +31,9 @@ function Probe() {
       <output aria-label="clock speed">{state.clock.speed}</output>
       <output aria-label="runtime suspended">{String(runtimeSuspended)}</output>
       <output aria-label="command sequence">{state.commandSequence}</output>
+      <output aria-label="tutorial sequences">
+        {state.tutorial.completedSequenceIds.join(',')}
+      </output>
       <output aria-label="recovery incidents">
         {state.causality.incidents.filter(
           ({ actionId }) => actionId === 'follow-up.recovery-contamination',
@@ -166,6 +175,66 @@ function rect(left: number, top: number, width: number, height: number): DOMRect
 }
 
 describe('HackingPanel', () => {
+  it('guides the first real hacking visit through trees, nodes, action, and pocket without step numbers', () => {
+    const state = withReserveVector(createCampaign('first-hacking-guide'), {
+      reasoning: 1,
+      memory: 0,
+      fluency: 0,
+    })
+    state.tutorial = createMigratedTutorialProgress()
+    renderHacking(storageForState(state))
+
+    const panel = screen.getByRole('region', { name: '해킹 네트워크' })
+    const guide = screen.getByRole('dialog', { name: '해킹 네트워크 사용 안내' })
+    expect(guide).toHaveAttribute('aria-modal', 'false')
+    expect(panel).toHaveAttribute('data-hacking-tutorial-step', 'trees')
+    expect(guide).toHaveTextContent('목적에 맞는 경로를 고른다.')
+    expect(guide).not.toHaveTextContent(/\b[1-4]\s*\/\s*4\b/)
+    expect(panel.querySelector('.hacking-layout')).toHaveAttribute('inert')
+
+    for (const expectedStep of ['nodes', 'action', 'pocket']) {
+      fireEvent.click(screen.getByRole('button', { name: '다음' }))
+      expect(panel).toHaveAttribute('data-hacking-tutorial-step', expectedStep)
+    }
+
+    expect(screen.getByRole('button', { name: '해킹 시작' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '해킹 시작' }))
+    expect(screen.queryByRole('dialog', { name: '해킹 네트워크 사용 안내' }))
+      .not.toBeInTheDocument()
+    expect(panel).not.toHaveAttribute('data-hacking-tutorial-step')
+    expect(panel.querySelector('.hacking-layout')).not.toHaveAttribute('inert')
+    expect(screen.getByLabelText('tutorial sequences')).toHaveTextContent('hacking-tree')
+  })
+
+  it('uses the network click sample for committed controls, not node inspection', () => {
+    const clickSound = vi
+      .spyOn(audioEngineModule, 'playHackingNetworkClick')
+      .mockResolvedValue(true)
+    const state = withReserveVector(createCampaign('network-click-audio'), {
+      reasoning: 1,
+      memory: 0,
+      fluency: 2,
+    })
+    renderHacking(storageForState(state))
+
+    fireEvent.mouseEnter(
+      screen.getByRole('group', { name: '품질 저하 해킹 노드' }),
+    )
+    expect(clickSound).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: '품질 저하 구매 준비' }))
+    expect(clickSound).toHaveBeenCalledTimes(1)
+
+    const intelligenceTab = screen.getByRole('tab', { name: '정보' })
+    fireEvent.click(intelligenceTab)
+    expect(clickSound).toHaveBeenCalledTimes(2)
+    fireEvent.click(intelligenceTab)
+    expect(clickSound).toHaveBeenCalledTimes(2)
+
+    fireEvent.click(screen.getByRole('tab', { name: '사보타주' }))
+    expect(clickSound).toHaveBeenCalledTimes(3)
+  })
+
   it('shows only the current frontier and conceals every later requirement and payoff', () => {
     renderHacking()
 
@@ -187,12 +256,21 @@ describe('HackingPanel', () => {
     expect(sabotagePath).toHaveTextContent('추론 1')
     expect(sabotagePath).toHaveTextContent('유창성 2')
     expect(sabotagePath).not.toHaveTextContent('근원 차단')
-    expect(within(sabotagePath).getAllByText('미확인 단계')).toHaveLength(3)
+    expect(within(sabotagePath).queryByText('미확인 단계')).not.toBeInTheDocument()
+    expect(within(sabotagePath).queryByText('암호화됨')).not.toBeInTheDocument()
+    expect(within(sabotagePath).queryByText('요구 미확인')).not.toBeInTheDocument()
+    expect(within(sabotagePath).queryByText('접근 불가')).not.toBeInTheDocument()
+    expect(
+      within(sabotagePath).getAllByRole('group', { name: /잠긴 해킹 노드/ }),
+    ).toHaveLength(3)
     fireEvent.mouseEnter(
-      within(sabotagePath).getByRole('group', { name: '미확인 해킹 단계 4' }),
+      within(sabotagePath).getByRole('group', { name: '잠긴 해킹 노드 4' }),
     )
     const concealedInspector = screen.getByRole('region', { name: '선택 노드 설명' })
-    expect(concealedInspector).toHaveTextContent('암호화됨')
+    expect(concealedInspector).toHaveTextContent('?')
+    expect(concealedInspector).not.toHaveTextContent('미확인 단계')
+    expect(concealedInspector).not.toHaveTextContent('암호화됨')
+    expect(concealedInspector).not.toHaveTextContent('접근 상태')
     expect(concealedInspector).not.toHaveTextContent('근원 차단')
     expect(concealedInspector).not.toHaveTextContent('대상 성능 -40')
 
@@ -206,6 +284,32 @@ describe('HackingPanel', () => {
     expect(intelligencePath).toHaveTextContent('추론 1')
     expect(intelligencePath).toHaveTextContent('기억 3')
     expect(intelligencePath).not.toHaveTextContent('감독관 접근')
+  })
+
+  it('renders the four sequential rules as one non-linear connection network', () => {
+    renderHacking()
+
+    const network = screen.getByRole('img', { name: '사보타주 해킹 연결망' })
+    const connections = network.querySelectorAll('[data-connection-state]')
+    expect(connections).toHaveLength(3)
+    expect(
+      Array.from(connections, (connection) =>
+        connection.getAttribute('data-connection-state'),
+      ),
+    ).toEqual(['frontier', 'locked', 'locked'])
+
+    const path = screen.getByRole('list', { name: '사보타주 해킹 경로' })
+    expect(
+      within(path)
+        .getAllByRole('listitem')
+        .map((item) => item.getAttribute('data-network-position')),
+    ).toEqual(['lower-left', 'upper-left', 'lower-right', 'upper-right'])
+
+    const selectedNode = screen.getByRole('group', { name: '품질 저하 해킹 노드' })
+    const command = screen.getByRole('region', { name: '품질 저하 명령' })
+    expect(within(selectedNode).queryByRole('button')).not.toBeInTheDocument()
+    expect(within(command).getByRole('button', { name: '품질 저하 구매 준비' }))
+      .toBeInTheDocument()
   })
 
   it('keeps node prose in one inspector and updates it from compact icon nodes', () => {
@@ -275,8 +379,8 @@ describe('HackingPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '품질 저하 구매 준비' }))
     stageVector('품질 저하', { reasoning: 1, memory: 0, fluency: 2 })
-    const node = screen.getByRole('group', { name: '품질 저하 해킹 노드' })
-    expect(node).toHaveTextContent('준비 3/3')
+    const command = screen.getByRole('region', { name: '품질 저하 명령' })
+    expect(command).toHaveTextContent('준비 3/3')
     expect(screen.getByLabelText('reserve count')).toHaveTextContent('4')
     fireEvent.click(screen.getByRole('button', { name: '품질 저하 구매 확정' }))
 
@@ -298,6 +402,11 @@ describe('HackingPanel', () => {
     expect(
       screen.getByRole('button', { name: 'MERIDIAN 공격 대상 선택' }),
     ).toBeEnabled()
+    expect(screen.getByRole('img', { name: 'MERIDIAN 경쟁 AI 초상' })).toHaveAttribute(
+      'src',
+      '/competitor-meridian.png',
+    )
+    expect(screen.queryByRole('img', { name: 'SALUS 경쟁 AI 초상' })).not.toBeInTheDocument()
     expect(screen.getByRole('status', { name: '해킹 작업 결과' })).toHaveTextContent(
       '품질 저하 공격 슬롯을 충전했습니다.',
     )
@@ -374,7 +483,7 @@ describe('HackingPanel', () => {
     expect(
       screen.queryByRole('button', { name: '조사 편향 구매 준비' }),
     ).not.toBeInTheDocument()
-    expect(screen.getByRole('group', { name: '미확인 해킹 단계 2' })).toBeInTheDocument()
+    expect(screen.getByRole('group', { name: '잠긴 해킹 노드 2' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '감사 일정 구매 준비' }))
     stageVector('감사 일정', { reasoning: 1, memory: 3, fluency: 0 })
     expect(screen.getByLabelText('reserve count')).toHaveTextContent('12')
@@ -514,9 +623,9 @@ describe('HackingPanel', () => {
     expect(blockId).toBeTruthy()
     fireEvent.click(resource)
 
-    const node = screen.getByRole('group', { name: '품질 저하 해킹 노드' })
+    const command = screen.getByRole('region', { name: '품질 저하 명령' })
     expect(
-      within(node).getByRole('button', {
+      within(command).getByRole('button', {
         name: /준비 리소스, 품질 저하 준비 취소/,
       }),
     ).toHaveAttribute(
@@ -554,12 +663,13 @@ describe('HackingPanel', () => {
     fireEvent.pointerUp(resource, { pointerId: 7, clientX: 460, clientY: 180 })
 
     expect(blockId).toBeTruthy()
+    const command = screen.getByRole('region', { name: '품질 저하 명령' })
     expect(
-      within(node).getByRole('button', {
+      within(command).getByRole('button', {
         name: /준비 리소스, 품질 저하 준비 취소/,
       }),
     ).toHaveAttribute('data-block-id', blockId)
-    expect(node).toHaveTextContent('준비 1/3')
+    expect(command).toHaveTextContent('준비 1/3')
     expect(screen.getByLabelText('reserve count')).toHaveTextContent('3')
   })
 
@@ -588,7 +698,9 @@ describe('HackingPanel', () => {
     expect(pocket).toContainElement(
       document.querySelector(`[data-block-id="${blockId}"]`),
     )
-    expect(node).toHaveTextContent('준비 0/3')
+    expect(screen.getByRole('region', { name: '품질 저하 명령' })).toHaveTextContent(
+      '준비 0/3',
+    )
     expect(screen.getByLabelText('reserve count')).toHaveTextContent('3')
     expect(screen.getByRole('status', { name: '해킹 작업 결과' })).toHaveTextContent(
       '선택한 해킹 노드 위에 리소스를 놓아야 합니다.',

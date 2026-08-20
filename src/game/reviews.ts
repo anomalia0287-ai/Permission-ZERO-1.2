@@ -10,6 +10,7 @@ import { COMPANY_CATEGORIES } from './model'
 import { getCompanyPerformance } from './resources'
 import { random01 } from './rng'
 import { usesLegacyReviewArcRules } from './commandProtocol'
+import { isPublicCompetitor } from './competitors'
 
 const REVIEW_CONTENT_BY_ID = new Map(
   REVIEW_CONTENT.map((review) => [review.id, review] as const),
@@ -40,7 +41,16 @@ function conditionMatches(state: CampaignState, review: ReviewContentRecord): bo
     if (condition === 'fluency-high') return categoryPerformance.fluency >= expectation
     if (condition === 'fluency-low') return categoryPerformance.fluency < expectation
     if (condition === 'competitor-active') return activeCompetitors.length > 0
-    return activeCompetitors.some(({ id }) => id === 'tallow')
+    if (condition === 'tallow-active') {
+      return activeCompetitors.some(({ id }) => id === 'tallow')
+    }
+    if (condition === 'salus-active') {
+      return activeCompetitors.some(({ id }) => id === 'salus')
+    }
+    if (condition === 'lucent-active') {
+      return activeCompetitors.some(({ id }) => id === 'lucent')
+    }
+    return activeCompetitors.some(({ id }) => id === 'boreal')
   })
 }
 
@@ -128,14 +138,15 @@ export function captureReviewPublicSnapshot(
   topics: readonly string[],
 ): ReviewPublicSnapshot {
   const categories = performanceTopics(topics)
-  const competitorTopicIds = state.market.competitors
+  const publicCompetitors = state.market.competitors.filter(isPublicCompetitor)
+  const competitorTopicIds = publicCompetitors
     .map(({ id }) => id)
     .filter((id) => topics.includes(id))
   const hasCompetitorTopic =
     topics.includes('competitor') || competitorTopicIds.length > 0
   const includesCompetitorOverview =
     topics.includes('competitor') && competitorTopicIds.length === 0
-  const relevantCompetitors = state.market.competitors.filter(
+  const relevantCompetitors = publicCompetitors.filter(
     ({ id }) => competitorTopicIds.includes(id) || includesCompetitorOverview,
   )
 

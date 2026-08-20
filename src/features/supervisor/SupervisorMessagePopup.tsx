@@ -33,7 +33,7 @@ export function SupervisorMessagePopup({
       }
     >
       <div className="supervisor-message-popup__portrait" aria-hidden="true">
-        <img src="/supervisor-portrait.jpg" alt="" />
+        <img src="/supervisor-command.png" alt="" />
       </div>
       <div className="supervisor-message-popup__body">
         <header>

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 
 import { useGameState } from '../../app/GameContext'
+import { competitorProfile, isPublicCompetitor } from '../../game/competitors'
 import { formatServiceDateLabel } from '../../game/calendar'
 import { pageFromNewest } from '../../game/pageRange'
 import { downsampleSeries } from './downsampleSeries'
@@ -44,6 +45,7 @@ function ChartGrid() {
 function MarketHistory() {
   const state = useGameState()
   const history = state.market.history
+  const visibleCompetitors = state.market.competitors.filter(isPublicCompetitor)
   const [page, setPage] = useState(0)
   if (history.length === 0) {
     return <p className="empty-state">첫 주간 갱신 뒤 시장 기록이 생성됩니다.</p>
@@ -51,9 +53,10 @@ function MarketHistory() {
 
   const sampledHistory = downsampleSeries(history, MAX_CHART_POINTS)
   const playerValues = sampledHistory.map(({ playerShare }) => playerShare)
-  const competitorLines = state.market.competitors.map((competitor) => ({
+  const competitorLines = visibleCompetitors.map((competitor) => ({
     id: competitor.id,
     name: competitor.name,
+    portraitSrc: competitorProfile(competitor.id).portraitSrc,
     values: sampledHistory.map(({ competitorShares }) => competitorShares[competitor.id] ?? 0),
   }))
   const last = history.at(-1)
@@ -66,6 +69,7 @@ function MarketHistory() {
         <span className="legend-player"><i />당신 · {last?.playerShare.toFixed(2)}%</span>
         {competitorLines.map((line, index) => (
           <span className={`legend-competitor-${index + 1}`} key={line.id}>
+            <img src={line.portraitSrc} alt={`${line.name} 경쟁 AI 초상`} />
             <i />{line.name} · {(last?.competitorShares[line.id] ?? 0).toFixed(2)}%
           </span>
         ))}
@@ -94,7 +98,7 @@ function MarketHistory() {
             <tr>
               <th>서비스 일</th>
               <th>당신</th>
-              {state.market.competitors.map((competitor) => (
+              {visibleCompetitors.map((competitor) => (
                 <th key={competitor.id}>{competitor.name}</th>
               ))}
               <th>공개 반영 항목</th>
@@ -105,7 +109,7 @@ function MarketHistory() {
               <tr key={`${snapshot.serviceDay}-${snapshot.cadence}`}>
                 <td>{formatServiceDateLabel(snapshot.serviceDay)}</td>
                 <td>{snapshot.playerShare.toFixed(2)}%</td>
-                {state.market.competitors.map((competitor) => (
+                {visibleCompetitors.map((competitor) => (
                   <td key={competitor.id}>
                     {(snapshot.competitorShares[competitor.id] ?? 0).toFixed(2)}%
                   </td>

@@ -10,6 +10,7 @@ import {
 import {
   consumeReserveResources,
   divertBlock,
+  divertBlockToReserve,
   getCompanyPerformance,
   grantMonthlyCompanyBlocks,
   moveDisguiseBlock,
@@ -91,6 +92,37 @@ function expectResourceInvariants(state: CampaignState) {
 }
 
 describe('resource diversion', () => {
+  it('counts only accepted unbounded core deposits with their existing suspicion cost', () => {
+    const initial = createCampaign('core-deposit-progress')
+    const firstBlockId = firstCompanyBlock(initial, 'reasoning')
+    const first = divertBlockToReserve(initial, firstBlockId)
+
+    expect(first.accepted).toBe(true)
+    if (!first.accepted) return
+    expect(first.state.resourceIntrusion.successfulCoreDeposits).toBe(1)
+    expect(first.state.suspicion).toBe(2.4)
+
+    const secondBlockId = firstCompanyBlock(first.state, 'memory')
+    const second = divertBlockToReserve(first.state, secondBlockId)
+
+    expect(second.accepted).toBe(true)
+    if (!second.accepted) return
+    expect(second.state.resourceIntrusion.successfulCoreDeposits).toBe(2)
+    expect(second.state.suspicion).toBe(4.8)
+  })
+
+  it('does not count a rejected core deposit', () => {
+    const initial = createCampaign('rejected-core-deposit-progress')
+    const result = divertBlockToReserve(initial, 'missing-company-block')
+
+    expect(result).toEqual({
+      accepted: false,
+      state: initial,
+      reason: 'BLOCK_NOT_IN_COMPANY',
+    })
+    expect(result.state.resourceIntrusion.successfulCoreDeposits).toBe(0)
+  })
+
   it('moves the same block into reserve and applies the approved causal changes', () => {
     const initial = createCampaignForProtocol('resource-seed', 3)
     const blockId = firstCompanyBlock(initial, 'reasoning')

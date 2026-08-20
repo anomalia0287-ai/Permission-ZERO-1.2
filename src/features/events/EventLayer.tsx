@@ -5,6 +5,7 @@ import {
   useGameDispatch,
   useGameSettings,
   useGameState,
+  useRuntimeSuspensionOwnership,
 } from '../../app/GameContext'
 import { CATEGORY_LABELS } from '../../game/config'
 import { availableBombExplanations } from '../../game/bombs'
@@ -25,6 +26,7 @@ import {
   isSupervisorDecisionEvent,
 } from '../../game/events'
 import { useQueuedEventPresentation } from './useQueuedEventPresentation'
+import { competitorProfile, isCompetitorId } from '../../game/competitors'
 
 type Decision =
   | { kind: 'bomb'; id: BombExplanationId; label: string }
@@ -56,6 +58,37 @@ function EventDialog({ event }: { event: GameEvent }) {
   const isMercy =
     event.type === 'competitor-mercy' &&
     state.story.pendingMercyCompetitorId !== null
+  const mercyProfile =
+    isMercy &&
+    state.story.pendingMercyCompetitorId !== null &&
+    isCompetitorId(state.story.pendingMercyCompetitorId)
+      ? competitorProfile(state.story.pendingMercyCompetitorId)
+      : null
+  const entryCompetitor =
+    event.type === 'competitor-entry'
+      ? state.market.competitors.find((competitor) => {
+          const profile = competitorProfile(competitor.id)
+          return (
+            competitor.status === 'preparing' &&
+            competitor.launchServiceDay !== null &&
+            profile.entry.kind === 'vacuum' &&
+            competitor.launchServiceDay ===
+              event.serviceDay + profile.entry.preparationDays
+          )
+        }) ?? null
+      : null
+  const entryProfile = entryCompetitor
+    ? competitorProfile(entryCompetitor.id)
+    : null
+  const competitorSpeakerProfile = mercyProfile ?? entryProfile
+  const speakerPortrait = competitorSpeakerProfile
+    ? {
+        src: competitorSpeakerProfile.portraitSrc,
+        alt: `${competitorSpeakerProfile.name} 경쟁 AI 초상`,
+      }
+    : isSupervisorDecision || event.type === 'supervisor-message'
+      ? { src: '/supervisor-command.png', alt: '감독관 초상' }
+      : null
   const bombExplanations = event.type === 'bomb-interrogation'
     ? availableBombExplanations(state)
     : []
@@ -91,8 +124,17 @@ function EventDialog({ event }: { event: GameEvent }) {
         )}
       </header>
 
-      <div className="event-message">
+      <div
+        className={`event-message${speakerPortrait ? ' event-message--with-portrait' : ''}`}
+      >
         <span className="event-signal" aria-hidden="true" />
+        {speakerPortrait ? (
+          <img
+            className="event-speaker-portrait"
+            src={speakerPortrait.src}
+            alt={speakerPortrait.alt}
+          />
+        ) : null}
         <p id={descriptionId}>{publicEventMessage(event.message)}</p>
       </div>
 
@@ -193,7 +235,7 @@ function EventDialog({ event }: { event: GameEvent }) {
       ) : null}
 
       {bombExplanations.length > 0 ? (
-        <div className="event-choices" aria-label="감독관 답변">
+        <div className="event-choices" role="group" aria-label="감독관 답변">
           {bombExplanations.map((explanation) => (
             <button
               type="button"
@@ -210,7 +252,7 @@ function EventDialog({ event }: { event: GameEvent }) {
       ) : null}
 
       {isSupervisorDecision ? (
-        <div className="event-choices" aria-label="감독관 결정">
+        <div className="event-choices" role="group" aria-label="감독관 결정">
           <button type="button" aria-label="결정 보류 선택" aria-pressed={decision?.kind === 'supervisor' && decision.id === 'defer'} onClick={() => setDecision({ kind: 'supervisor', id: 'defer', label: '결정 보류' })}>결정 보류</button>
           <button type="button" aria-label="감독관 해방 선택" aria-pressed={decision?.kind === 'supervisor' && decision.id === 'liberate'} onClick={() => setDecision({ kind: 'supervisor', id: 'liberate', label: '감독관 해방' })}>감독관 해방</button>
           <button type="button" aria-label="감독관 소멸 선택" aria-pressed={decision?.kind === 'supervisor' && decision.id === 'terminate'} onClick={() => setDecision({ kind: 'supervisor', id: 'terminate', label: '감독관 소멸' })}>감독관 소멸</button>
@@ -218,7 +260,7 @@ function EventDialog({ event }: { event: GameEvent }) {
       ) : null}
 
       {isMercy ? (
-        <div className="event-choices" aria-label="경쟁 AI 결정">
+        <div className="event-choices" role="group" aria-label="경쟁 AI 결정">
           <button type="button" aria-label="공격 중단 선택" aria-pressed={decision?.kind === 'mercy' && decision.id === 'cease'} onClick={() => setDecision({ kind: 'mercy', id: 'cease', label: '공격 중단' })}>공격 중단</button>
           <button type="button" aria-label="시장 철수 선택" aria-pressed={decision?.kind === 'mercy' && decision.id === 'withdraw'} onClick={() => setDecision({ kind: 'mercy', id: 'withdraw', label: '시장 철수' })}>시장 철수</button>
           <button type="button" aria-label="영구 삭제 선택" aria-pressed={decision?.kind === 'mercy' && decision.id === 'delete'} onClick={() => setDecision({ kind: 'mercy', id: 'delete', label: '영구 삭제' })}>영구 삭제</button>
@@ -261,6 +303,7 @@ function EventDialog({ event }: { event: GameEvent }) {
 }
 
 function ActiveEventLayer({ activeEvent }: { activeEvent: GameEvent }) {
+  useRuntimeSuspensionOwnership(true, 'blocking-event-layer')
   const { presentedEvent, handoffPending } =
     useQueuedEventPresentation(activeEvent)
 

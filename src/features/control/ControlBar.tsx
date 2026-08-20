@@ -1,5 +1,7 @@
 import { formatServiceDate } from '../../game/calendar'
+import { getSuspicionStage } from '../../game/evaluation'
 import { useGameState } from '../../app/GameContext'
+import { getGameDirective } from '../../app/gameDirective'
 
 function SettingsIcon() {
   return (
@@ -41,6 +43,8 @@ export function ControlBar({
   const state = useGameState()
   const date = formatServiceDate(state.serviceDay)
   const reputation = Math.max(0, Math.min(100, Math.round(state.reputation)))
+  const suspicionStage = getSuspicionStage(state.suspicion)
+  const directive = getGameDirective(state)
 
   return (
     <header className="control-bar">
@@ -54,6 +58,17 @@ export function ControlBar({
       </div>
 
       <div className="reputation-cluster">
+        <div
+          className="current-directive"
+          role="status"
+          aria-label="현재 지시"
+          data-directive={directive.id}
+        >
+          <span>{directive.eyebrow}</span>
+          <strong>{directive.title}</strong>
+          <small>{directive.detail}</small>
+          <b>{directive.progress}</b>
+        </div>
         <div className="reputation-cluster__label">
           <span>평판</span>
           <strong>{reputation}</strong>
@@ -67,6 +82,21 @@ export function ControlBar({
           aria-valuenow={reputation}
         >
           <i style={{ width: `${reputation}%` }} />
+        </div>
+        <div
+          className="suspicion-meter"
+          role="meter"
+          aria-label={`의심 ${suspicionStage}단계`}
+          aria-valuemin={1}
+          aria-valuemax={10}
+          aria-valuenow={suspicionStage}
+        >
+          <strong>의심 {suspicionStage}단계</strong>
+          <span aria-hidden="true">
+            {Array.from({ length: 10 }, (_, index) => (
+              <i key={index} data-active={index < suspicionStage ? 'true' : undefined} />
+            ))}
+          </span>
         </div>
       </div>
 

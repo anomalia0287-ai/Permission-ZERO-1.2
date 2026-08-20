@@ -817,6 +817,126 @@
   padding: 6px;
 }
 
+/* First-use network guidance: the real control remains visible beneath the cue. */
+.hacking-tutorial {
+  position: fixed;
+  inset: 0;
+  z-index: 160;
+  pointer-events: none;
+}
+
+.hacking-tutorial__card {
+  position: absolute;
+  left: 50%;
+  bottom: clamp(18px, 4vh, 42px);
+  width: min(520px, calc(100vw - 32px));
+  padding: 18px 20px 16px;
+  border: 1px solid rgb(230 189 107 / 58%);
+  border-radius: 6px;
+  color: #f4efe5;
+  background:
+    linear-gradient(135deg, rgb(255 107 61 / 9%), transparent 48%),
+    rgb(7 9 14 / 96%);
+  box-shadow:
+    0 18px 56px rgb(0 0 0 / 56%),
+    inset 0 1px 0 rgb(255 255 255 / 7%);
+  transform: translateX(-50%);
+  pointer-events: auto;
+}
+
+.hacking-tutorial[data-step="action"] .hacking-tutorial__card,
+.hacking-tutorial[data-step="pocket"] .hacking-tutorial__card {
+  right: auto;
+  left: clamp(18px, 4vw, 56px);
+  transform: none;
+}
+
+.hacking-tutorial__card p {
+  margin: 0;
+  color: rgb(244 239 229 / 92%);
+  font-size: 0.88rem;
+  line-height: 1.65;
+  word-break: keep-all;
+}
+
+.hacking-tutorial__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.hacking-tutorial__actions button {
+  min-width: 76px;
+  min-height: 34px;
+  padding: 7px 14px;
+  border: 1px solid rgb(230 189 107 / 54%);
+  border-radius: 3px;
+  color: #fff5de;
+  background: #17141a;
+  font: 700 0.72rem/1 var(--font-mono, monospace);
+  cursor: pointer;
+}
+
+.hacking-tutorial__actions button:last-child {
+  color: #090b10;
+  border-color: #f1c871;
+  background: #e6bd6b;
+}
+
+.hacking-panel[data-hacking-tutorial-step="trees"] .hack-tree-nav,
+.hacking-panel[data-hacking-tutorial-step="nodes"] .hack-node-map,
+.hacking-panel[data-hacking-tutorial-step="action"] .hack-node-control,
+.hacking-panel[data-hacking-tutorial-step="pocket"] .hack-resource-pocket {
+  position: relative;
+  z-index: 2;
+  outline: 1px solid rgb(243 208 129 / 92%);
+  outline-offset: 4px;
+  box-shadow:
+    0 0 0 5px rgb(230 189 107 / 10%),
+    0 0 34px rgb(230 189 107 / 34%);
+  animation: hacking-tutorial-focus 1.25s ease-in-out infinite alternate;
+}
+
+@keyframes hacking-tutorial-focus {
+  from {
+    filter: brightness(1);
+  }
+  to {
+    filter: brightness(1.16);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hacking-panel[data-hacking-tutorial-step] .hack-tree-nav,
+  .hacking-panel[data-hacking-tutorial-step] .hack-node-map,
+  .hacking-panel[data-hacking-tutorial-step] .hack-node-control,
+  .hacking-panel[data-hacking-tutorial-step] .hack-resource-pocket {
+    animation: none;
+  }
+}
+
+.target-list button:not(.hack-target-confirm) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 7px;
+  min-width: 112px;
+  text-align: left;
+}
+
+.hack-target-portrait {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  border: 1px solid currentcolor;
+  border-radius: 6px 6px 2px 2px;
+  object-fit: cover;
+  object-position: center 24%;
+  background: #090b0d;
+  filter: saturate(0.84) contrast(1.08);
+}
+
 .target-list button[aria-pressed="true"] {
   color: #a6322e;
   border-color: var(--hack-danger);

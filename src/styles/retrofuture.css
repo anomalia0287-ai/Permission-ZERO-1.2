@@ -1,0 +1,3259 @@
+/*
+ * Atomic-age visual layer.
+ * Imported last so the approved layout and game rules remain unchanged.
+ */
+
+:root {
+  --retro-space: #07191d;
+  --retro-space-deep: #020b0e;
+  --retro-space-raised: #0d292d;
+  --retro-turquoise: #08aeb5;
+  --retro-turquoise-bright: #59ded8;
+  --retro-rocket-red: #f04420;
+  --retro-rocket-red-deep: #9f2415;
+  --retro-cream: #f3e6c5;
+  --retro-cream-soft: #cbbb98;
+  --retro-chrome: #c7d4cf;
+  --retro-chrome-dark: #647a78;
+  --retro-gold: #f2bd54;
+  --retro-ink: #111315;
+
+  --sf-base: var(--retro-space-deep);
+  --sf-shell: var(--retro-space);
+  --sf-panel: #0a2025;
+  --sf-panel-raised: #102f34;
+  --sf-panel-hover: #173c40;
+  --sf-line: rgb(199 212 207 / 19%);
+  --sf-line-strong: rgb(199 212 207 / 48%);
+  --sf-text: #d7cba9;
+  --sf-text-strong: var(--retro-cream);
+  --sf-muted: #8fa5a0;
+  --sf-signal: var(--retro-turquoise);
+  --sf-signal-bright: var(--retro-turquoise-bright);
+  --sf-signal-soft: rgb(8 174 181 / 13%);
+  --sf-danger: var(--retro-rocket-red);
+}
+
+html,
+body,
+#root {
+  background: var(--retro-space-deep);
+}
+
+body {
+  color: var(--retro-cream-soft);
+  background:
+    radial-gradient(circle at 50% 18%, rgb(8 174 181 / 13%), transparent 31rem),
+    radial-gradient(circle at 78% 85%, rgb(240 68 32 / 7%), transparent 24rem),
+    var(--retro-space-deep);
+}
+
+.game-shell[data-visual-theme="retrofuturism"] {
+  --ink-0: var(--retro-space-deep);
+  --ink-1: var(--retro-space);
+  --ink-2: #0a2025;
+  --ink-3: var(--retro-space-raised);
+  --line-soft: rgb(199 212 207 / 19%);
+  --line-strong: rgb(199 212 207 / 48%);
+  --text: #d7cba9;
+  --text-strong: var(--retro-cream);
+  --text-muted: #8fa5a0;
+  --company: #8ba09c;
+  --reserve: var(--retro-turquoise);
+  --reserve-bright: var(--retro-turquoise-bright);
+  --positive: var(--retro-turquoise-bright);
+  --prompt: var(--retro-gold);
+  --focus: var(--retro-gold);
+  --alarm: var(--retro-rocket-red);
+  --operations-paper: #0a2025;
+  --operations-paper-deep: var(--retro-space-deep);
+  --operations-ink: var(--retro-cream);
+  --operations-ink-soft: #d7cba9;
+  --operations-line: rgb(199 212 207 / 32%);
+  --operations-copy: #d7cba9;
+  --operations-muted: #8fa5a0;
+  --operations-orange: var(--retro-rocket-red);
+  --operations-orange-deep: #ff7653;
+  --operations-cyan: var(--retro-turquoise);
+  --operations-cyan-deep: var(--retro-turquoise-bright);
+  --operations-coral: var(--retro-rocket-red);
+  --operations-green: var(--retro-turquoise-bright);
+  --operations-yellow: var(--retro-gold);
+  --operations-red: var(--retro-rocket-red);
+
+  position: relative;
+  isolation: isolate;
+  color: #d7cba9;
+  background:
+    radial-gradient(circle at 1px 1px, rgb(243 230 197 / 9%) 1px, transparent 1.4px) 0 0 / 52px 52px,
+    linear-gradient(rgb(89 222 216 / 3%) 1px, transparent 1px) 0 0 / 100% 42px,
+    var(--retro-space-deep);
+  font-family: "Trebuchet MS", Pretendard, "Noto Sans KR", "Apple SD Gothic Neo", sans-serif;
+}
+
+.game-shell[data-visual-theme="retrofuturism"]::before,
+.game-shell[data-visual-theme="retrofuturism"]::after {
+  position: fixed;
+  z-index: -1;
+  content: "";
+  pointer-events: none;
+}
+
+.game-shell[data-visual-theme="retrofuturism"]::before {
+  top: 13vh;
+  right: 8vw;
+  width: min(34vw, 580px);
+  aspect-ratio: 1;
+  border: 1px solid rgb(89 222 216 / 7%);
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 5.5vw rgb(89 222 216 / 2.5%),
+    0 0 0 9vw rgb(243 230 197 / 1.8%);
+  transform: rotate(-18deg) scaleY(0.42);
+}
+
+.game-shell[data-visual-theme="retrofuturism"]::after {
+  right: 3vw;
+  bottom: 5vh;
+  width: 90px;
+  height: 90px;
+  opacity: 0.075;
+  background: var(--retro-rocket-red);
+  clip-path: polygon(50% 0, 57% 38%, 85% 15%, 64% 43%, 100% 50%, 64% 57%, 85% 85%, 57% 62%, 50% 100%, 43% 62%, 15% 85%, 36% 57%, 0 50%, 36% 43%, 15% 15%, 43% 38%);
+}
+
+.game-shell .game-background {
+  opacity: 0.52;
+  background:
+    radial-gradient(ellipse at 8% 84%, transparent 0 88px, rgb(89 222 216 / 8%) 89px 90px, transparent 91px),
+    radial-gradient(circle at 88% 18%, rgb(242 189 84 / 7%) 0 2px, transparent 3px),
+    transparent;
+}
+
+/* Top instrument strip */
+
+.game-shell .control-bar {
+  border-top: 3px solid var(--retro-rocket-red);
+  border-bottom: 1px solid var(--retro-chrome-dark);
+  color: var(--retro-cream-soft);
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 5%), transparent 38%),
+    linear-gradient(90deg, #123339, #07171b 46%, #123339);
+  box-shadow:
+    0 2px 0 var(--retro-ink),
+    0 4px 0 rgb(199 212 207 / 31%),
+    0 12px 30px rgb(0 0 0 / 42%),
+    inset 0 -1px 0 rgb(243 230 197 / 10%);
+}
+
+.game-shell .control-identity,
+.game-shell .cadence-cluster,
+.game-shell .utility-controls,
+.game-shell .campaign-phase,
+.game-shell .reputation-cluster {
+  border-color: rgb(199 212 207 / 25%);
+}
+
+.game-shell .control-mark {
+  border: 2px solid var(--retro-chrome);
+  border-radius: 50%;
+  color: var(--retro-cream);
+  background:
+    radial-gradient(circle at 34% 28%, #ff977a 0 8%, transparent 9%),
+    radial-gradient(circle at 50% 50%, #f04420 0 57%, #861c10 59% 71%, #c7d4cf 73% 79%, #25383a 81%);
+  box-shadow: inset -3px -4px 5px rgb(0 0 0 / 34%), 0 2px 6px rgb(0 0 0 / 42%);
+  text-shadow: 0 1px 1px rgb(0 0 0 / 65%);
+}
+
+.game-shell .control-identity strong,
+.game-shell .control-identity time,
+.game-shell .cadence-cluster strong,
+.game-shell .reputation-cluster strong {
+  color: var(--retro-cream);
+}
+
+.game-shell .micro-label,
+.game-shell .control-bar small,
+.game-shell .cadence-cluster span,
+.game-shell .reputation-cluster span {
+  color: #8fa5a0;
+  letter-spacing: 0.12em;
+}
+
+.game-shell .campaign-phase strong {
+  color: var(--retro-gold);
+  text-shadow: 0 0 8px rgb(242 189 84 / 28%);
+}
+
+.game-shell .day-progress,
+.game-shell .reputation-gauge {
+  border: 1px solid #536765;
+  background:
+    repeating-linear-gradient(90deg, transparent 0 9.5%, rgb(243 230 197 / 21%) 10% 10.5%),
+    #061215;
+  box-shadow: inset 0 2px 4px rgb(0 0 0 / 65%);
+}
+
+.game-shell .day-progress i,
+.game-shell .reputation-gauge i {
+  background: linear-gradient(90deg, #087d84, var(--retro-turquoise-bright));
+  box-shadow: 0 0 10px rgb(89 222 216 / 36%);
+}
+
+.game-shell .utility-controls button {
+  border: 1px solid #607471;
+  border-radius: 50%;
+  color: var(--retro-cream-soft);
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 10%), transparent 42%),
+    #10292e;
+  box-shadow: inset 0 0 0 2px #071317, 0 2px 4px rgb(0 0 0 / 38%);
+}
+
+.game-shell .utility-controls button:hover,
+.game-shell .utility-controls button:focus-visible {
+  color: var(--retro-space-deep);
+  border-color: var(--retro-cream);
+  background: var(--retro-gold);
+  outline-color: rgb(242 189 84 / 35%);
+}
+
+/* Enamel work surfaces */
+
+.game-shell .workspace-grid {
+  background: transparent;
+}
+
+.game-shell .workspace-panel,
+.game-shell .operations-dock {
+  border-color: var(--retro-chrome-dark);
+  color: #d7cba9;
+  background:
+    linear-gradient(135deg, rgb(255 255 255 / 4%), transparent 27%),
+    linear-gradient(180deg, #0d292e, #061519 72%);
+  box-shadow:
+    inset 0 0 0 2px #020b0e,
+    inset 0 0 0 3px rgb(199 212 207 / 17%),
+    0 9px 24px rgb(0 0 0 / 34%);
+}
+
+.game-shell .workspace-panel:first-child {
+  border-left-color: var(--retro-chrome-dark);
+}
+
+.game-shell .panel-heading,
+.intrusion-board__header,
+.detail-panel__header,
+.review-detail-card > header {
+  position: relative;
+  border-color: rgb(199 212 207 / 37%);
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 11%), transparent 42%),
+    linear-gradient(90deg, #086d74, #074d55 58%, #103237);
+  box-shadow: inset 0 -2px 0 #031114, 0 2px 0 rgb(199 212 207 / 21%);
+}
+
+.game-shell .panel-heading::after,
+.intrusion-board__header::after,
+.detail-panel__header::after,
+.review-detail-card > header::after {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 auto;
+  margin-left: auto;
+  border: 2px solid #061417;
+  border-radius: 50%;
+  background: var(--retro-gold);
+  box-shadow: 0 0 0 1px var(--retro-chrome), inset 0 1px 2px rgb(255 255 255 / 55%), 0 0 8px rgb(242 189 84 / 32%);
+  content: "";
+}
+
+.detail-panel__header::after,
+.review-detail-card > header::after {
+  position: absolute;
+  right: 82px;
+  margin-left: 0;
+}
+
+.game-shell .panel-heading h2,
+.intrusion-board__header h2,
+.detail-panel__header h2,
+.review-detail-card h2 {
+  color: var(--retro-cream);
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-shadow: 0 1px 1px rgb(0 0 0 / 64%);
+}
+
+.game-shell .panel-heading p,
+.detail-panel__header small,
+.review-detail-card > header small {
+  color: rgb(243 230 197 / 68%);
+  letter-spacing: 0.13em;
+}
+
+.game-shell .panel-index,
+.game-shell .panel-heading--action > button {
+  border: 1px solid var(--retro-chrome);
+  color: var(--retro-cream);
+  background:
+    radial-gradient(circle at 36% 28%, rgb(255 255 255 / 24%), transparent 22%),
+    var(--retro-rocket-red);
+  box-shadow: inset -2px -2px 3px rgb(0 0 0 / 28%), 0 1px 2px rgb(0 0 0 / 44%);
+}
+
+.game-shell .panel-heading--action > button:hover,
+.game-shell .panel-heading--action > button:focus-visible {
+  border-color: var(--retro-cream);
+  color: var(--retro-space-deep);
+  background: var(--retro-gold);
+}
+
+/* Public review teletype */
+
+.game-shell .review-stream {
+  scrollbar-color: var(--retro-turquoise) #061417;
+  background:
+    repeating-linear-gradient(180deg, transparent 0 35px, rgb(199 212 207 / 3%) 36px),
+    rgb(2 11 14 / 24%);
+}
+
+.game-shell .review-entry,
+.game-shell .review-entry:nth-child(3n + 1),
+.game-shell .review-entry:nth-child(3n + 2),
+.game-shell .review-entry:nth-child(3n) {
+  position: relative;
+  border: 1px solid rgb(199 212 207 / 29%);
+  border-left: 4px solid var(--retro-turquoise);
+  border-radius: 3px 12px 12px 3px;
+  color: #d9cfb2;
+  background:
+    linear-gradient(110deg, rgb(8 174 181 / 9%), transparent 58%),
+    #0b2429;
+  box-shadow: 0 5px 0 #041114, 0 8px 16px rgb(0 0 0 / 21%);
+}
+
+.game-shell .review-entry::after {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--retro-gold);
+  box-shadow: 0 0 6px rgb(242 189 84 / 35%);
+  content: "";
+}
+
+.game-shell .review-entry--positive {
+  border-left-color: var(--retro-turquoise-bright);
+}
+
+.game-shell .review-entry--negative {
+  color: #f0c3ae;
+  border-left-color: var(--retro-rocket-red);
+  background:
+    linear-gradient(110deg, rgb(240 68 32 / 12%), transparent 58%),
+    #241716;
+}
+
+.game-shell .review-entry--prompt {
+  color: #eadcaf;
+  border-left-color: var(--retro-gold);
+  background:
+    linear-gradient(110deg, rgb(242 189 84 / 11%), transparent 58%),
+    #292416;
+}
+
+.game-shell .review-entry:hover,
+.game-shell .review-entry:focus-visible {
+  color: var(--retro-cream);
+  border-color: var(--retro-turquoise-bright);
+  border-left-color: var(--retro-rocket-red);
+  background: #11373b;
+  box-shadow: 0 5px 0 #041114, 0 0 0 2px rgb(89 222 216 / 10%), 0 12px 20px rgb(0 0 0 / 28%);
+}
+
+.game-shell .review-entry__header strong {
+  color: var(--retro-cream);
+  font-family: "Cascadia Code", Consolas, monospace;
+}
+
+.game-shell .review-entry__header > span {
+  border: 1px solid rgb(199 212 207 / 22%);
+  color: #9eb4ae;
+  background: #061619;
+}
+
+.game-shell .review-entry p {
+  color: inherit;
+}
+
+/* Enlarged market instrument */
+
+.game-shell .review-panel > .market-watch--compact {
+  border-top: 3px double var(--retro-chrome-dark);
+  color: #d7cba9;
+  background:
+    radial-gradient(circle at 50% 30%, rgb(8 174 181 / 15%), transparent 42%),
+    repeating-radial-gradient(circle at 50% 42%, transparent 0 31px, rgb(199 212 207 / 4%) 32px 33px),
+    #06171b;
+  box-shadow: inset 0 4px 16px rgb(0 0 0 / 38%);
+}
+
+.game-shell .review-panel > .market-watch--compact > header span {
+  color: #91aaa5;
+}
+
+.game-shell .review-panel > .market-watch--compact > header strong,
+.game-shell .market-compact-summary strong {
+  color: var(--retro-cream);
+}
+
+.game-shell .review-panel > .market-watch--compact > header small,
+.game-shell .market-compact-summary small {
+  color: var(--retro-turquoise-bright);
+}
+
+.game-shell .review-panel > .market-watch--compact .market-share-donut {
+  border: 2px solid var(--retro-chrome-dark);
+  background-color: #051417;
+  box-shadow:
+    inset 0 0 0 4px #020b0e,
+    inset 0 0 0 5px rgb(199 212 207 / 26%),
+    0 0 20px rgb(8 174 181 / 12%);
+}
+
+.game-shell .review-panel > .market-watch--compact .market-share-donut::before {
+  position: absolute;
+  inset: 9px;
+  border: 1px dashed rgb(243 230 197 / 22%);
+  border-radius: 50%;
+  content: "";
+}
+
+.game-shell .review-panel > .market-watch--compact .market-share-donut::after {
+  border: 3px double var(--retro-chrome-dark);
+  background:
+    radial-gradient(circle, rgb(8 174 181 / 12%), transparent 66%),
+    var(--retro-space-deep);
+}
+
+.game-shell .market-share-donut__center span {
+  color: #92a9a4;
+}
+
+.game-shell .market-share-donut__center strong {
+  color: var(--retro-gold);
+  text-shadow: 0 0 8px rgb(242 189 84 / 32%);
+}
+
+.game-shell .review-panel > .market-watch--compact .market-share-layout li,
+.game-shell .market-compact-summary {
+  border-color: rgb(199 212 207 / 18%);
+  color: #d7cba9;
+}
+
+.game-shell .market-legend-marker--solid {
+  color: var(--retro-turquoise-bright);
+  background: rgb(8 174 181 / 18%);
+}
+
+.game-shell .market-legend-marker--diagonal {
+  color: var(--retro-chrome);
+  background: repeating-linear-gradient(135deg, transparent 0 2px, rgb(199 212 207 / 47%) 2px 3px);
+}
+
+.game-shell .market-legend-marker--dotted {
+  color: var(--retro-gold);
+}
+
+/* CRT resource radar */
+
+.game-shell .resource-board--intrusion {
+  border: 1px solid #555e67;
+  color: #d8dee4;
+  background:
+    linear-gradient(90deg, rgb(255 255 255 / 2%), transparent 4% 96%, rgb(255 255 255 / 2%)),
+    #05070a;
+  box-shadow:
+    inset 0 0 0 2px #010204,
+    inset 0 0 0 3px rgb(205 214 222 / 14%),
+    0 12px 32px rgb(0 0 0 / 42%);
+}
+
+.intrusion-board__header,
+.intrusion-board__footer {
+  border-color: var(--retro-chrome-dark);
+}
+
+.intrusion-board__header h2 {
+  color: var(--retro-cream);
+}
+
+.intrusion-board__telemetry span {
+  border: 1px solid #454e57;
+  border-radius: 12px;
+  color: #d8dee4;
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 6%), transparent 46%),
+    #11151a;
+  box-shadow: inset 0 -2px 3px rgb(0 0 0 / 25%);
+}
+
+.intrusion-board__telemetry span:first-child {
+  color: #e6ebef;
+  border-color: #616c76;
+  background: #171c22;
+}
+
+.intrusion-board__telemetry [data-phase="signal"] {
+  color: var(--retro-space-deep);
+  border-color: #fff0b5;
+  background: var(--retro-gold);
+  box-shadow: 0 0 12px rgb(242 189 84 / 34%);
+}
+
+.intrusion-board__telemetry [data-phase="active"] {
+  color: var(--retro-cream);
+  border-color: #ff9379;
+  background: var(--retro-rocket-red-deep);
+  box-shadow: 0 0 12px rgb(240 68 32 / 38%);
+}
+
+.intrusion-grid-frame {
+  position: relative;
+  border: 2px solid #626c76;
+  border-radius: 13px;
+  background: #010204;
+  box-shadow:
+    inset 0 0 0 2px #080b0f,
+    inset 0 0 34px rgb(0 0 0 / 68%),
+    0 0 0 1px #11161c,
+    0 0 0 2px rgb(214 223 231 / 16%);
+}
+
+.intrusion-grid-frame::after {
+  position: absolute;
+  inset: 4px;
+  z-index: 2;
+  border-radius: 10px;
+  background: radial-gradient(ellipse at center, transparent 58%, rgb(0 0 0 / 38%));
+  content: "";
+  pointer-events: none;
+}
+
+.intrusion-canvas {
+  border-radius: 10px;
+  background: #020306;
+  filter: none;
+  image-rendering: auto;
+}
+
+.intrusion-vault-glass {
+  position: absolute;
+  top: 87.5%;
+  left: 44%;
+  z-index: 3;
+  display: grid;
+  width: 12%;
+  height: 8.333333%;
+  box-sizing: border-box;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid rgb(243 230 197 / 72%);
+  border-radius: 7px 7px 3px 3px;
+  color: var(--retro-cream);
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 17%), transparent 38%),
+    linear-gradient(90deg, rgb(89 222 216 / 12%), rgb(3 16 19 / 34%) 42% 58%, rgb(89 222 216 / 10%));
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 38%),
+    inset 0 -9px 16px rgb(0 0 0 / 38%),
+    0 0 0 2px rgb(2 9 11 / 74%),
+    0 0 12px rgb(89 222 216 / 16%);
+  font: 900 clamp(0.72rem, 1.2vw, 1rem)/1 "Cascadia Code", Consolas, monospace;
+  letter-spacing: 0.08em;
+  text-shadow: 0 1px 1px #02090b, 0 0 8px rgb(89 222 216 / 72%);
+  pointer-events: none;
+  backdrop-filter: blur(5px) saturate(1.3);
+}
+
+.intrusion-vault-glass[data-deposit-visual="intake-station"] {
+  border-color: rgb(145 158 154 / 76%);
+  border-radius: 5px;
+  background:
+    radial-gradient(ellipse at 50% 52%, rgb(89 222 216 / 15%) 0 9%, transparent 11%),
+    linear-gradient(180deg, rgb(255 255 255 / 13%), transparent 32%),
+    linear-gradient(90deg, #090d0f, #202729 43% 57%, #090d0f);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 28%),
+    inset 0 -9px 16px rgb(0 0 0 / 62%),
+    0 0 0 2px rgb(2 5 6 / 88%),
+    0 0 9px rgb(89 222 216 / 16%);
+}
+
+.game-shell .market-competitor-portrait {
+  border-color: rgb(243 230 197 / 46%);
+  filter: saturate(0.86) contrast(1.05);
+}
+
+.intrusion-vault-glass::before,
+.intrusion-vault-glass::after {
+  position: absolute;
+  content: "";
+  pointer-events: none;
+}
+
+.intrusion-vault-glass::before {
+  top: 3px;
+  right: 14%;
+  left: 14%;
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, transparent, rgb(243 230 197 / 88%), transparent);
+}
+
+.intrusion-vault-glass::after {
+  inset: 5px;
+  border: 1px solid rgb(89 222 216 / 20%);
+  border-radius: 4px 4px 1px 1px;
+}
+
+.intrusion-board__footer {
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 5%), transparent 40%),
+    #11161b;
+  box-shadow: inset 0 2px 0 #030507;
+}
+
+.intrusion-board__legend span,
+.intrusion-board__footer [role="status"] {
+  color: #d7cba9;
+  font-weight: 700;
+}
+
+.intrusion-board__legend i {
+  border: 1px solid var(--retro-cream);
+  box-shadow: 0 0 6px currentcolor;
+}
+
+.intrusion-board__legend span {
+  font-size: 0.64rem;
+  letter-spacing: 0.015em;
+}
+
+.intrusion-board__legend [data-resource-category="reasoning"] i {
+  background: var(--retro-rocket-red);
+}
+
+.intrusion-board__legend [data-resource-category="memory"] i {
+  background: var(--retro-turquoise);
+}
+
+.intrusion-board__legend [data-resource-category="fluency"] i {
+  background: var(--retro-gold);
+}
+
+.intrusion-board__telemetry span {
+  font-size: 0.58rem;
+}
+
+.intrusion-theft-control {
+  border: 2px solid var(--retro-chrome);
+  border-radius: 15px;
+  color: var(--retro-cream);
+  background:
+    radial-gradient(circle at 28% 22%, rgb(255 255 255 / 26%), transparent 21%),
+    var(--retro-rocket-red);
+  box-shadow: inset -3px -4px 5px rgb(0 0 0 / 29%), 0 2px 4px rgb(0 0 0 / 42%);
+  text-shadow: 0 1px 1px rgb(0 0 0 / 55%);
+}
+
+.intrusion-theft-control::before {
+  background: rgb(243 230 197 / 44%);
+}
+
+.intrusion-theft-control:hover:not(:disabled),
+.intrusion-theft-control:focus-visible:not(:disabled) {
+  border-color: #fff4d3;
+  background: #ff5a31;
+  box-shadow: inset -2px -3px 4px rgb(0 0 0 / 24%), 0 0 16px rgb(240 68 32 / 35%);
+}
+
+.intrusion-theft-control:disabled {
+  color: #687b78;
+  border-color: #3f5553;
+  background: #10262a;
+  box-shadow: inset 0 2px 4px rgb(0 0 0 / 42%);
+}
+
+/* Right identity and tool console */
+
+.game-shell .operations-dock {
+  border: 1px solid var(--retro-chrome-dark);
+  background:
+    radial-gradient(circle at 50% 10%, rgb(8 174 181 / 15%), transparent 26%),
+    linear-gradient(180deg, #0c292e, #041216 72%);
+}
+
+.game-shell .operations-dock::before,
+.game-shell .operations-dock::after {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border: 2px solid #071316;
+  border-radius: 50%;
+  background: var(--retro-chrome-dark);
+  box-shadow: 0 0 0 1px rgb(243 230 197 / 24%);
+  content: "";
+}
+
+.game-shell .operations-dock__button--portrait,
+.game-shell .operations-dock__button--portrait:last-child {
+  border: 3px double var(--retro-chrome);
+  border-radius: 46% 46% 12px 12px;
+  background:
+    radial-gradient(circle at 50% 34%, #1bc0c7, #07525a 67%, #031215 68%);
+  box-shadow:
+    inset 0 0 0 3px #031114,
+    0 5px 0 #02090b,
+    0 8px 18px rgb(0 0 0 / 38%);
+}
+
+.game-shell .operations-dock__button--portrait img {
+  object-fit: cover;
+  object-position: 50% 12%;
+  filter: none;
+  transform: scale(1.02);
+}
+
+.game-shell .operations-dock__button--portrait:hover,
+.game-shell .operations-dock__button--portrait:focus-visible {
+  border-color: var(--retro-gold);
+  background: #07525a;
+  outline: 3px solid rgb(242 189 84 / 20%);
+}
+
+.game-shell .operations-dock__suspicion {
+  padding: 7px 8px 8px;
+  border: 1px solid #506866;
+  border-radius: 4px 4px 12px 12px;
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 7%), transparent 42%),
+    #102d31;
+  box-shadow: inset 0 0 0 2px #061619, 0 3px 7px rgb(0 0 0 / 28%);
+}
+
+.game-shell .operations-dock__suspicion strong {
+  color: var(--retro-cream);
+  text-align: center;
+  text-shadow: 0 1px 1px #000;
+}
+
+.game-shell .operations-dock__suspicion-track {
+  padding: 3px;
+  border: 1px solid #536866;
+  border-radius: 7px;
+  background: #030c0e;
+  box-shadow: inset 0 2px 3px rgb(0 0 0 / 65%);
+}
+
+.game-shell .operations-dock__suspicion-track i,
+.game-shell .meter-track--staged i {
+  border-radius: 50%;
+  background: #253c3e;
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 74%);
+}
+
+.game-shell .operations-dock__suspicion-track i[data-active="true"],
+.game-shell .meter-track--staged i[data-active="true"] {
+  background: var(--retro-rocket-red);
+  box-shadow: inset 0 1px 1px rgb(255 255 255 / 34%), 0 0 7px rgb(240 68 32 / 48%);
+}
+
+.game-shell .operations-dock__identity-divider {
+  height: 3px;
+  background: linear-gradient(90deg, transparent, var(--retro-chrome) 12% 88%, transparent);
+  box-shadow: 0 2px 0 #02090b;
+}
+
+.game-shell .operations-dock__identity--player {
+  position: relative;
+  border: 3px double var(--retro-chrome-dark);
+  border-radius: 50% / 16%;
+  background:
+    radial-gradient(ellipse at center, rgb(8 174 181 / 20%), transparent 57%),
+    #020b0e;
+  box-shadow: inset 0 0 18px rgb(8 174 181 / 15%), 0 5px 12px rgb(0 0 0 / 37%);
+}
+
+.game-shell .operations-dock__identity--player::after {
+  position: absolute;
+  inset: 4px;
+  border: 1px solid rgb(89 222 216 / 19%);
+  border-radius: inherit;
+  content: "";
+  pointer-events: none;
+}
+
+.game-shell .operations-dock__identity--player img {
+  filter: saturate(0.86) contrast(1.08) sepia(0.08);
+}
+
+.game-shell .operations-dock__tools {
+  margin-top: 0;
+}
+
+.game-shell .operations-dock__button--tool,
+.game-shell .operations-dock__button--tool:last-child {
+  border: 2px solid var(--retro-chrome-dark);
+  border-radius: 16px 16px 7px 7px;
+  color: var(--retro-cream);
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 13%), transparent 39%),
+    #0d8b91;
+  box-shadow:
+    inset -3px -4px 4px rgb(0 0 0 / 24%),
+    inset 2px 2px 2px rgb(255 255 255 / 9%),
+    0 4px 0 #031114,
+    0 7px 11px rgb(0 0 0 / 24%);
+}
+
+.game-shell .operations-dock__button--tool:nth-child(2) {
+  color: var(--retro-ink);
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 31%), transparent 39%),
+    var(--retro-cream);
+}
+
+.game-shell .operations-dock__button--tool:nth-child(3) {
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 18%), transparent 39%),
+    var(--retro-rocket-red-deep);
+}
+
+.game-shell .operations-dock__button--tool:hover,
+.game-shell .operations-dock__button--tool:focus-visible,
+.game-shell .operations-dock__button--tool:last-child:hover,
+.game-shell .operations-dock__button--tool:last-child:focus-visible {
+  color: var(--retro-space-deep);
+  border-color: var(--retro-cream);
+  background: var(--retro-gold);
+  outline-color: rgb(242 189 84 / 28%);
+  transform: translateY(-2px);
+}
+
+.game-shell .operations-dock__button--tool > span {
+  color: currentcolor;
+  text-shadow: 0 1px 1px rgb(0 0 0 / 22%);
+}
+
+.game-shell .operations-dock__badge {
+  border: 2px solid var(--retro-cream);
+  color: var(--retro-cream);
+  background: var(--retro-rocket-red);
+  box-shadow: 0 0 10px rgb(240 68 32 / 42%);
+}
+
+/* Warm instrument shell — the resource CRT remains deliberately dark. */
+
+html,
+body,
+#root {
+  background: var(--retro-cream);
+}
+
+body {
+  color: #173438;
+  background:
+    radial-gradient(circle at 14% 12%, rgb(255 255 255 / 58%), transparent 24rem),
+    radial-gradient(circle at 87% 82%, rgb(8 174 181 / 12%), transparent 28rem),
+    repeating-linear-gradient(135deg, rgb(17 49 53 / 2.8%) 0 1px, transparent 1px 12px),
+    var(--retro-cream);
+}
+
+.game-shell[data-visual-theme="retrofuturism"] {
+  color: #173438;
+  background:
+    radial-gradient(circle at 1px 1px, rgb(17 49 53 / 9%) 1px, transparent 1.4px) 0 0 / 52px 52px,
+    linear-gradient(rgb(8 174 181 / 5%) 1px, transparent 1px) 0 0 / 100% 42px,
+    var(--retro-cream);
+}
+
+.game-shell[data-visual-theme="retrofuturism"]::before {
+  border-color: rgb(7 82 90 / 13%);
+  box-shadow:
+    0 0 0 5.5vw rgb(8 174 181 / 4.5%),
+    0 0 0 9vw rgb(240 68 32 / 2.8%);
+}
+
+.game-shell[data-visual-theme="retrofuturism"]::after {
+  opacity: 0.13;
+}
+
+.game-shell .game-background {
+  opacity: 0.72;
+  background:
+    radial-gradient(ellipse at 8% 84%, transparent 0 88px, rgb(7 82 90 / 13%) 89px 90px, transparent 91px),
+    radial-gradient(circle at 88% 18%, rgb(159 36 21 / 14%) 0 2px, transparent 3px),
+    transparent;
+}
+
+.game-shell .control-bar {
+  color: #173438;
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 62%), transparent 42%),
+    linear-gradient(90deg, rgb(8 174 181 / 9%), transparent 38% 62%, rgb(242 189 84 / 12%)),
+    var(--retro-cream);
+  box-shadow:
+    0 2px 0 #173438,
+    0 4px 0 rgb(100 122 120 / 52%),
+    0 10px 22px rgb(74 53 24 / 18%),
+    inset 0 -1px 0 rgb(17 49 53 / 13%);
+}
+
+.game-shell .control-identity,
+.game-shell .cadence-cluster,
+.game-shell .utility-controls,
+.game-shell .campaign-phase,
+.game-shell .reputation-cluster {
+  border-color: rgb(17 49 53 / 24%);
+}
+
+.game-shell .control-identity strong,
+.game-shell .control-identity time,
+.game-shell .cadence-cluster strong,
+.game-shell .reputation-cluster strong,
+.game-shell .campaign-phase strong {
+  color: #102d31;
+  text-shadow: none;
+}
+
+.game-shell .micro-label,
+.game-shell .control-bar small,
+.game-shell .cadence-cluster span,
+.game-shell .reputation-cluster span {
+  color: #526b68;
+}
+
+.game-shell .reputation-cluster {
+  border-color: rgb(17 49 53 / 24%);
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 38%), transparent 48%),
+    var(--retro-cream);
+}
+
+.game-shell .reputation-cluster__label span,
+.game-shell .reputation-cluster__label strong {
+  color: #173438;
+}
+
+.game-shell .reputation-meter {
+  border-color: #647a78;
+  background: #c9b993;
+  box-shadow: inset 0 1px 4px rgb(74 53 24 / 24%);
+}
+
+.game-shell .reputation-meter i {
+  background: linear-gradient(90deg, #087c84, var(--retro-turquoise-bright));
+  box-shadow: 0 0 8px rgb(8 174 181 / 28%);
+}
+
+.game-shell .utility-controls button {
+  color: #173438;
+  border-color: #849692;
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 48%), transparent 46%),
+    #ddcda8;
+  box-shadow: inset 0 0 0 2px rgb(255 255 255 / 24%), 0 2px 3px rgb(75 55 29 / 18%);
+}
+
+.game-shell .workspace-grid {
+  background:
+    linear-gradient(90deg, rgb(7 82 90 / 5%), transparent 18% 82%, rgb(240 68 32 / 4%)),
+    var(--retro-cream);
+}
+
+.game-shell .review-panel {
+  color: #173438;
+  background:
+    linear-gradient(135deg, rgb(255 255 255 / 45%), transparent 38%),
+    var(--retro-cream);
+  box-shadow:
+    inset 0 0 0 2px rgb(255 255 255 / 30%),
+    inset 0 0 0 3px rgb(100 122 120 / 24%),
+    0 9px 24px rgb(76 54 24 / 14%);
+}
+
+.game-shell .review-stream {
+  gap: 15px;
+  padding: 16px 4px 24px;
+  scrollbar-color: var(--retro-turquoise) #d8c7a0;
+  background:
+    repeating-linear-gradient(180deg, transparent 0 39px, rgb(7 82 90 / 7%) 40px),
+    rgb(226 210 173 / 74%);
+}
+
+.game-shell .review-entry,
+.game-shell .review-entry:nth-child(3n + 1),
+.game-shell .review-entry:nth-child(3n + 2),
+.game-shell .review-entry:nth-child(3n) {
+  width: 100%;
+  min-width: 0;
+  padding: 16px 16px 17px;
+  border: 1px solid rgb(17 49 53 / 29%);
+  border-left: 5px solid var(--retro-turquoise);
+  color: #173438;
+  background:
+    linear-gradient(120deg, rgb(8 174 181 / 8%), transparent 58%),
+    #fff4d8;
+  box-shadow: 0 4px 0 #bfae88, 0 8px 16px rgb(74 53 24 / 13%);
+}
+
+.game-shell .review-entry--positive {
+  border-left-color: var(--retro-turquoise);
+  background:
+    linear-gradient(120deg, rgb(8 174 181 / 13%), transparent 58%),
+    #eaf0d9;
+}
+
+.game-shell .review-entry--negative {
+  color: #53261d;
+  border-left-color: var(--retro-rocket-red);
+  background:
+    linear-gradient(120deg, rgb(240 68 32 / 11%), transparent 58%),
+    #ffd5bd;
+}
+
+.game-shell .review-entry--prompt {
+  color: #423617;
+  border-left-color: var(--retro-gold);
+  background:
+    linear-gradient(120deg, rgb(242 189 84 / 18%), transparent 58%),
+    #f8e2a6;
+}
+
+.game-shell .review-entry:hover,
+.game-shell .review-entry:focus-visible {
+  color: #102d31;
+  border-color: var(--retro-turquoise);
+  border-left-color: var(--retro-rocket-red);
+  background: #fffaf0;
+  box-shadow: 0 4px 0 #a99770, 0 0 0 3px rgb(8 174 181 / 13%), 0 12px 22px rgb(74 53 24 / 18%);
+}
+
+.game-shell .review-entry__header {
+  gap: 8px;
+}
+
+.game-shell .review-entry__header strong {
+  color: #102d31;
+  font-size: 0.72rem;
+  letter-spacing: 0.01em;
+}
+
+.game-shell .review-entry__header > span {
+  padding: 3px 6px;
+  border-color: #526b68;
+  color: var(--retro-cream);
+  background: #173438;
+  font-size: 0.58rem;
+}
+
+.game-shell .review-entry p {
+  margin-top: 10px;
+  color: inherit;
+  font-size: 0.82rem;
+  line-height: 1.6;
+  -webkit-line-clamp: 5;
+}
+
+.game-shell .review-panel > .market-watch--compact {
+  color: #173438;
+  border-top-color: #647a78;
+  background:
+    radial-gradient(circle at 50% 30%, rgb(8 174 181 / 13%), transparent 44%),
+    repeating-radial-gradient(circle at 50% 42%, transparent 0 31px, rgb(17 49 53 / 7%) 32px 33px),
+    #e1d0aa;
+  box-shadow: inset 0 4px 16px rgb(74 53 24 / 13%);
+}
+
+.game-shell .review-panel > .market-watch--compact > header span,
+.game-shell .review-panel > .market-watch--compact > header strong,
+.game-shell .market-compact-summary strong,
+.game-shell .review-panel > .market-watch--compact .market-share-layout li,
+.game-shell .market-compact-summary {
+  color: #173438;
+  border-color: rgb(17 49 53 / 18%);
+}
+
+.game-shell .review-panel > .market-watch--compact > header small,
+.game-shell .market-compact-summary small {
+  color: #07525a;
+}
+
+.game-shell .review-panel > .market-watch--compact .market-share-layout li strong,
+.game-shell .review-panel > .market-watch--compact .market-share-layout li > span,
+.game-shell .review-panel > .market-watch--compact .market-share-layout li > span:nth-child(2) {
+  color: #173438;
+}
+
+.game-shell .review-panel > .market-watch--compact .market-share-layout li small {
+  color: #526b68;
+}
+
+.game-shell .operations-dock {
+  color: #173438;
+  background:
+    radial-gradient(circle at 50% 10%, rgb(8 174 181 / 16%), transparent 28%),
+    linear-gradient(180deg, rgb(255 255 255 / 50%), transparent 48%),
+    var(--retro-cream);
+  box-shadow:
+    inset 0 0 0 2px rgb(255 255 255 / 32%),
+    inset 0 0 0 3px rgb(100 122 120 / 28%),
+    0 9px 24px rgb(76 54 24 / 16%);
+}
+
+.game-shell .operations-dock::before,
+.game-shell .operations-dock::after {
+  border-color: var(--retro-cream);
+  background: #647a78;
+  box-shadow: 0 0 0 1px #173438;
+}
+
+.game-shell .operations-dock__suspicion {
+  border-color: #647a78;
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 42%), transparent 45%),
+    #dfcea8;
+  box-shadow: inset 0 0 0 2px rgb(255 255 255 / 24%), 0 3px 7px rgb(76 54 24 / 16%);
+}
+
+.game-shell .operations-dock__suspicion strong {
+  color: #102d31;
+  text-shadow: none;
+}
+
+.game-shell .operations-dock__identity-divider {
+  background: linear-gradient(90deg, transparent, #647a78 12% 88%, transparent);
+  box-shadow: 0 2px 0 rgb(255 255 255 / 55%);
+}
+
+.game-shell .operations-dock__button--tool:nth-child(2) {
+  color: var(--retro-ink);
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 36%), transparent 39%),
+    var(--retro-gold);
+}
+
+/* Dialogs and connected detail screens */
+
+.detail-layer__backdrop,
+.review-detail-layer__backdrop {
+  background:
+    radial-gradient(circle at 50% 46%, rgb(8 174 181 / 13%), transparent 38rem),
+    rgb(1 7 9 / 87%);
+  backdrop-filter: blur(5px) saturate(0.82);
+}
+
+.detail-panel,
+.review-detail-card,
+.competitor-intelligence-dialog,
+.destructive-confirmation--modal,
+.supervisor-message-popup {
+  border: 3px double var(--retro-chrome-dark);
+  color: #d7cba9;
+  background:
+    radial-gradient(circle at 82% 12%, rgb(8 174 181 / 11%), transparent 24rem),
+    linear-gradient(145deg, rgb(255 255 255 / 3%), transparent 34%),
+    #071a1e;
+  box-shadow:
+    0 0 0 2px #02090b,
+    0 0 0 3px rgb(243 230 197 / 14%),
+    0 28px 80px rgb(0 0 0 / 64%);
+}
+
+.detail-panel__header button,
+.review-detail-card > header button,
+.filter-tabs button,
+.statistics-tabs button,
+.scale-options button,
+.message-mode-options button,
+.setting-action,
+.seed-display button,
+.progress-file-actions label,
+.history-pagination button,
+.supervisor-message button {
+  border: 1px solid var(--retro-chrome-dark);
+  border-radius: 12px;
+  color: var(--retro-cream);
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 10%), transparent 45%),
+    #123137;
+  box-shadow: inset 0 -2px 3px rgb(0 0 0 / 30%);
+}
+
+.detail-panel__header button:hover,
+.review-detail-card > header button:hover,
+.filter-tabs button:hover,
+.statistics-tabs button:hover,
+.scale-options button:hover,
+.message-mode-options button:hover,
+.setting-action:hover,
+.seed-display button:hover,
+.progress-file-actions label:hover,
+.history-pagination button:hover,
+.filter-tabs button[aria-pressed="true"],
+.statistics-tabs button[aria-selected="true"],
+.scale-options button[aria-pressed="true"],
+.message-mode-options button[aria-pressed="true"] {
+  color: var(--retro-space-deep);
+  border-color: var(--retro-cream);
+  background: var(--retro-gold);
+}
+
+.filter-tabs,
+.statistics-tabs,
+.hack-tabs {
+  border-color: rgb(199 212 207 / 25%);
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 4%), transparent 50%),
+    #051316;
+}
+
+.settings-section,
+.guide-grid article,
+.chart-scroll,
+.statistics-table-wrap,
+.review-public-snapshot,
+.progress-import,
+.credit-list,
+.history-list article,
+.competitor-intelligence-archive,
+.recovered-file-archive {
+  border-color: rgb(199 212 207 / 25%);
+  color: #d7cba9;
+  background:
+    linear-gradient(135deg, rgb(8 174 181 / 6%), transparent 44%),
+    rgb(12 40 45 / 72%);
+}
+
+.chart-scroll {
+  background:
+    radial-gradient(circle at 50% 25%, rgb(8 174 181 / 8%), transparent 34rem),
+    #061619;
+}
+
+.history-chart text {
+  fill: var(--retro-cream-soft);
+  font-family: "Cascadia Code", Consolas, monospace;
+}
+
+.chart-legend {
+  color: #aabbb5;
+  font-size: 0.62rem;
+}
+
+.statistics-table-wrap table {
+  color: #d7cba9;
+  font-size: 0.61rem;
+}
+
+.statistics-table-wrap th {
+  color: var(--retro-cream);
+  background: rgb(8 174 181 / 7%);
+}
+
+.settings-section h3,
+.guide-grid h3,
+.statistics-content h3,
+.history-list article p,
+.competitor-intelligence-archive h3,
+.recovered-file-archive h3 {
+  color: var(--retro-cream);
+}
+
+.setting-row,
+.setting-toggle,
+.settings-section > header,
+.statistics-table-wrap th,
+.statistics-table-wrap td,
+.credit-list > div,
+.history-list article header {
+  border-color: rgb(199 212 207 / 18%);
+}
+
+.seed-input input,
+.progress-import textarea,
+.hacking-panel input {
+  border: 2px inset #617573;
+  color: var(--retro-cream);
+  background: #020d10;
+  box-shadow: inset 0 3px 7px rgb(0 0 0 / 63%);
+}
+
+.chart-grid line,
+.performance-trend__baseline {
+  stroke: rgb(199 212 207 / 13%);
+}
+
+.chart-line--player,
+.performance-trend__line--actual {
+  stroke: var(--retro-turquoise-bright);
+}
+
+.chart-line--expected,
+.performance-trend__line--expected {
+  stroke: var(--retro-gold);
+}
+
+.chart-line--reasoning {
+  stroke: var(--retro-rocket-red);
+}
+
+.chart-line--memory {
+  stroke: var(--retro-turquoise-bright);
+}
+
+.chart-line--fluency {
+  stroke: var(--retro-gold);
+}
+
+/* Supervisor surfaces */
+
+.detail-layer--supervisor .detail-layer__content {
+  width: min(620px, calc(100% - 24px));
+  height: min(440px, 100%);
+  align-self: center;
+}
+
+.supervisor-profile-detail {
+  width: 100%;
+  max-width: 620px;
+}
+
+.supervisor-profile-detail .supervisor-panel--profile {
+  display: grid;
+  grid-template-rows: 48px minmax(0, 1fr);
+  min-height: 0;
+  overflow: auto;
+  border: 0;
+  background:
+    radial-gradient(circle at 82% 18%, rgb(8 174 181 / 10%), transparent 18rem),
+    #071a1e;
+}
+
+.supervisor-profile-detail .panel-heading {
+  border-color: rgb(199 212 207 / 37%);
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 10%), transparent 42%),
+    linear-gradient(90deg, #086d74, #074d55 58%, #103237);
+  box-shadow: inset 0 -2px 0 #031114, 0 2px 0 rgb(199 212 207 / 21%);
+}
+
+.supervisor-profile-detail .panel-index {
+  border-color: var(--retro-chrome);
+  color: var(--retro-cream);
+  background: var(--retro-rocket-red);
+}
+
+.supervisor-profile-detail .panel-heading h2 {
+  color: var(--retro-cream);
+}
+
+.supervisor-profile-detail .panel-heading p {
+  color: rgb(243 230 197 / 67%);
+}
+
+.supervisor-profile-detail .supervisor-status {
+  min-height: 0;
+  padding: 20px 22px;
+  overflow: auto;
+  border: 0;
+  color: #d7cba9;
+  background:
+    repeating-linear-gradient(180deg, transparent 0 39px, rgb(199 212 207 / 3%) 40px),
+    transparent;
+}
+
+.supervisor-profile-detail .supervisor-status > header {
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 16px;
+}
+
+.supervisor-profile-detail .supervisor-avatar {
+  position: relative;
+  display: block;
+  width: 96px;
+  height: 96px;
+  overflow: hidden;
+  border: 3px double var(--retro-chrome);
+  border-radius: 50%;
+  background: radial-gradient(circle, #11adb4, #07474e 70%);
+  box-shadow: inset 0 0 0 2px #031114, 0 5px 14px rgb(0 0 0 / 36%);
+}
+
+.supervisor-profile-detail .supervisor-avatar::before,
+.supervisor-profile-detail .supervisor-avatar::after {
+  display: none;
+}
+
+.supervisor-profile-detail .supervisor-avatar img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 12%;
+  filter: none;
+  transform: scale(1.08);
+}
+
+.supervisor-profile-detail .supervisor-status > header small {
+  color: var(--retro-rocket-red);
+}
+
+.supervisor-profile-detail .supervisor-status > header strong {
+  color: var(--retro-cream);
+  font-size: 0.92rem;
+}
+
+.supervisor-profile-detail .supervisor-status > header span,
+.supervisor-profile-detail .suspicion-meter > div small {
+  color: #90a7a2;
+}
+
+.supervisor-profile-detail .suspicion-meter {
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.supervisor-profile-detail .suspicion-meter > div span,
+.supervisor-profile-detail .suspicion-band strong {
+  color: var(--retro-cream);
+}
+
+.supervisor-profile-detail .meter-track {
+  display: grid;
+  height: 13px;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  gap: 3px;
+  padding: 2px;
+  border: 1px solid #526866;
+  border-radius: 8px;
+  background: #020c0f;
+  box-shadow: inset 0 2px 4px rgb(0 0 0 / 65%);
+}
+
+.supervisor-profile-detail .meter-track i {
+  border-radius: 50%;
+  background: #253c3e;
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 74%);
+}
+
+.supervisor-profile-detail .meter-track i[data-active="true"] {
+  background: var(--retro-rocket-red);
+  box-shadow: inset 0 1px 1px rgb(255 255 255 / 34%), 0 0 7px rgb(240 68 32 / 48%);
+}
+
+.supervisor-profile-detail .audit-forecast,
+.supervisor-profile-detail .bomb-protocol-schedule {
+  border-color: rgb(199 212 207 / 20%);
+}
+
+.supervisor-profile-detail .audit-forecast strong,
+.supervisor-profile-detail .bomb-protocol-schedule strong {
+  color: var(--retro-gold);
+}
+
+.game-shell .supervisor-avatar {
+  border: 3px double var(--retro-chrome);
+  border-radius: 50%;
+  background: radial-gradient(circle, #11adb4, #07474e 70%);
+  box-shadow: inset 0 0 0 2px #031114, 0 5px 14px rgb(0 0 0 / 36%);
+}
+
+.game-shell .supervisor-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 12%;
+  filter: none;
+  transform: scale(1.08);
+}
+
+.game-shell .supervisor-status,
+.game-shell .supervisor-message,
+.game-shell .market-watch {
+  border-color: rgb(199 212 207 / 22%);
+  color: #d7cba9;
+  background:
+    linear-gradient(135deg, rgb(8 174 181 / 7%), transparent 52%),
+    #091f23;
+}
+
+.game-shell .supervisor-status strong,
+.game-shell .suspicion-meter > div span,
+.game-shell .suspicion-band strong,
+.game-shell .market-watch > header strong {
+  color: var(--retro-cream);
+}
+
+.game-shell .supervisor-status small,
+.game-shell .supervisor-status header span,
+.game-shell .suspicion-meter > div small,
+.game-shell .market-watch > header {
+  color: #90a7a2;
+}
+
+.game-shell .supervisor-status > header small,
+.game-shell .audit-forecast strong,
+.game-shell .bomb-protocol-schedule strong {
+  color: var(--retro-gold);
+}
+
+.game-shell .meter-track {
+  height: 11px;
+  padding: 2px;
+  border: 1px solid #526866;
+  border-radius: 8px;
+  background: #020c0f;
+  box-shadow: inset 0 2px 4px rgb(0 0 0 / 65%);
+}
+
+.game-shell .meter-track--staged {
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  gap: 2px;
+}
+
+.game-shell .audit-forecast,
+.game-shell .bomb-protocol-schedule {
+  border-color: rgb(199 212 207 / 20%);
+}
+
+.game-shell .supervisor-message::before {
+  border: 2px solid var(--retro-chrome);
+  border-radius: 50%;
+  background:
+    linear-gradient(32deg, transparent 48%, rgb(17 19 21 / 55%) 49% 51%, transparent 52%),
+    linear-gradient(-32deg, transparent 48%, rgb(17 19 21 / 55%) 49% 51%, transparent 52%),
+    var(--retro-gold);
+  box-shadow: inset 0 1px 2px rgb(255 255 255 / 52%), 0 4px 10px rgb(0 0 0 / 29%);
+}
+
+.game-shell .supervision-footer {
+  border-top: 2px solid #020b0e;
+  color: #8fa5a0;
+  background: #0b282d;
+  box-shadow: inset 0 1px 0 rgb(199 212 207 / 22%);
+}
+
+.game-shell .supervision-footer strong {
+  color: var(--retro-gold);
+}
+
+/* Supervisor transmission card */
+
+.supervisor-message-popup {
+  border-radius: 20px 5px 20px 5px;
+  background:
+    linear-gradient(120deg, rgb(8 174 181 / 16%), transparent 43%),
+    #081b1f;
+}
+
+.supervisor-message-popup--blocking {
+  border-color: var(--retro-rocket-red);
+  box-shadow:
+    0 0 0 2px #02090b,
+    0 0 0 4px rgb(240 68 32 / 24%),
+    0 28px 80px rgb(0 0 0 / 72%);
+}
+
+.supervisor-message-popup__portrait {
+  border-right: 3px double var(--retro-chrome-dark);
+  background:
+    radial-gradient(circle at 50% 35%, #11adb4, #064047 66%, #020b0e 67%);
+}
+
+.supervisor-message-popup__portrait img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 10%;
+  filter: none;
+}
+
+.supervisor-message-popup__body header {
+  color: var(--retro-turquoise-bright);
+  letter-spacing: 0.13em;
+}
+
+.supervisor-message-popup__body header strong {
+  border: 1px solid #ff9a82;
+  border-radius: 10px;
+  color: var(--retro-cream);
+  background: var(--retro-rocket-red-deep);
+}
+
+.supervisor-message-popup__body p {
+  color: var(--retro-cream);
+}
+
+.supervisor-message-popup__body button {
+  border: 2px solid var(--retro-chrome);
+  border-radius: 14px;
+  color: var(--retro-cream);
+  background:
+    radial-gradient(circle at 24% 22%, rgb(255 255 255 / 26%), transparent 18%),
+    var(--retro-rocket-red);
+  box-shadow: inset -3px -3px 4px rgb(0 0 0 / 26%), 0 3px 7px rgb(0 0 0 / 34%);
+}
+
+.supervisor-message-popup__body button:hover,
+.supervisor-message-popup__body button:focus-visible {
+  color: var(--retro-space-deep);
+  border-color: var(--retro-cream);
+  background: var(--retro-gold);
+}
+
+/* Atomic network / hacking tree */
+
+.hacking-panel.hacking-panel--paper {
+  --hack-paper: #081b20;
+  --hack-paper-deep: #031014;
+  --hack-paper-raised: #0e2b30;
+  --hack-ink: var(--retro-cream);
+  --hack-muted: #91a7a2;
+  --hack-line: rgb(199 212 207 / 20%);
+  --hack-line-strong: rgb(199 212 207 / 45%);
+  --hack-orange: var(--retro-rocket-red);
+  --hack-orange-deep: #ff7653;
+  --hack-coral: var(--retro-rocket-red);
+  --hack-cyan: var(--retro-turquoise);
+  --hack-cyan-deep: var(--retro-turquoise-bright);
+  --hack-green: var(--retro-turquoise-bright);
+  --hack-yellow: var(--retro-gold);
+  --hack-danger: var(--retro-rocket-red);
+
+  border: 3px double var(--retro-chrome-dark);
+  color: #d7cba9;
+  background:
+    radial-gradient(ellipse at 50% 46%, transparent 0 180px, rgb(8 174 181 / 6%) 181px 182px, transparent 183px),
+    radial-gradient(circle at 1px 1px, rgb(243 230 197 / 8%) 1px, transparent 1.3px) 0 0 / 34px 34px,
+    #041216;
+  box-shadow: 0 28px 80px rgb(0 0 0 / 67%);
+}
+
+.hacking-panel__header {
+  border-color: var(--retro-chrome-dark);
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 8%), transparent 43%),
+    linear-gradient(90deg, #086d74, #073b42 65%, #0f2b30);
+}
+
+.hacking-panel__header::after {
+  height: 3px;
+  background: linear-gradient(90deg, var(--retro-rocket-red) 0 18%, var(--retro-gold) 18% 28%, transparent 72%);
+}
+
+.hacking-panel__identity h2,
+.node-copy h3,
+.hack-utility-card h3,
+.departure-controls h3,
+.hack-pocket-heading strong {
+  color: var(--retro-cream);
+}
+
+.hacking-panel__identity span:not(.hacking-panel__icon),
+.hacking-panel__summary strong {
+  color: var(--retro-gold);
+}
+
+.hacking-panel__icon,
+.hacking-panel__close,
+.hacking-panel__summary strong {
+  border: 2px solid var(--retro-chrome);
+  border-radius: 50%;
+  color: var(--retro-cream);
+  background: var(--retro-rocket-red);
+  box-shadow: inset -2px -2px 3px rgb(0 0 0 / 27%);
+}
+
+.hack-tree-nav,
+.hacking-panel .hack-tabs,
+.hack-network-stage {
+  border-color: rgb(199 212 207 / 24%);
+  background:
+    repeating-radial-gradient(circle at 50% 50%, transparent 0 64px, rgb(89 222 216 / 4%) 65px 66px),
+    radial-gradient(circle at 1px 1px, rgb(243 230 197 / 8%) 1px, transparent 1.3px) 0 0 / 22px 22px,
+    #06191d;
+  scrollbar-color: var(--retro-turquoise) #031014;
+}
+
+.hacking-panel .hack-tabs button {
+  color: #91a7a2;
+}
+
+.hacking-panel .hack-tabs button:hover,
+.hacking-panel .hack-tabs button[aria-selected="true"] {
+  color: var(--retro-space-deep);
+  border-color: var(--retro-cream);
+  background: var(--retro-gold);
+  box-shadow: inset 0 -2px 3px rgb(0 0 0 / 20%);
+}
+
+.hack-path-progress,
+.first-hack-comparison article {
+  border-color: rgb(199 212 207 / 26%);
+  color: #d7cba9;
+  background: #0b2327;
+}
+
+.hack-node,
+.hack-node--purchased,
+.hack-node--concealed,
+.hack-utility-card,
+.departure-controls,
+.hack-resource-pocket,
+.hacking-panel .final-choice-dialog,
+.hack-node-inspector {
+  border: 2px solid color-mix(in srgb, var(--node-accent, var(--inspector-accent, var(--retro-turquoise))) 34%, var(--retro-chrome-dark));
+  border-radius: 24px 7px 24px 7px;
+  color: #d7cba9;
+  background:
+    radial-gradient(circle at 88% 13%, color-mix(in srgb, var(--node-accent, var(--inspector-accent, var(--retro-turquoise))) 18%, transparent) 0 4px, transparent 5px),
+    linear-gradient(135deg, color-mix(in srgb, var(--node-accent, var(--inspector-accent, var(--retro-turquoise))) 8%, transparent), transparent 55%),
+    #0b2427;
+  box-shadow:
+    inset 0 0 0 2px #041216,
+    0 5px 0 #020b0e,
+    0 12px 24px rgb(0 0 0 / 28%);
+}
+
+.hack-node:hover,
+.hack-node--staging,
+.hack-utility-card--staging,
+.hack-node--selected,
+.hack-node--selected:hover {
+  border-color: var(--retro-gold);
+  box-shadow:
+    inset 0 0 0 2px #041216,
+    0 0 0 3px rgb(242 189 84 / 11%),
+    0 15px 30px rgb(0 0 0 / 40%);
+}
+
+.hack-node-index .hack-node-icon,
+.hack-node-index span,
+.hack-utility-card > header > span,
+.departure-controls > header > span,
+.hack-pocket-heading svg {
+  border: 2px solid var(--retro-chrome-dark);
+  border-radius: 50%;
+  color: var(--retro-cream);
+  background: color-mix(in srgb, var(--node-accent, var(--retro-rocket-red)) 58%, #07181c);
+  box-shadow: inset -2px -2px 3px rgb(0 0 0 / 29%);
+}
+
+.node-copy header > strong,
+.hack-cost-vector span,
+.hack-staged-vector span,
+.node-result,
+.recovery-contamination-opportunity,
+.hack-node-staging,
+.node-actions > button,
+.target-list button,
+.hack-utility-card button,
+.departure-controls button,
+.node-active-label,
+.hack-resource-pocket > header p {
+  border-color: rgb(199 212 207 / 24%);
+  color: #d7cba9;
+  background: #061619;
+}
+
+.node-actions > button:hover,
+.target-list button:hover,
+.hack-utility-card button:hover,
+.departure-controls button:hover,
+.node-actions > .hack-node-confirm,
+.hack-utility-staging > button:first-of-type {
+  color: var(--retro-space-deep);
+  border-color: var(--retro-cream);
+  background: var(--retro-gold);
+}
+
+.hack-pocket-field {
+  border: 3px double var(--retro-chrome-dark);
+  border-radius: 50% / 11%;
+  background:
+    repeating-radial-gradient(circle at center, transparent 0 28px, rgb(89 222 216 / 5%) 29px 30px),
+    radial-gradient(circle at 1px 1px, rgb(243 230 197 / 8%) 1px, transparent 1.3px) 0 0 / 18px 18px,
+    #031115;
+  box-shadow: inset 0 0 28px rgb(0 0 0 / 56%);
+}
+
+.hack-pocket-field::after,
+.hack-network-stage::before,
+.hack-network-stage::after {
+  background: var(--retro-turquoise-bright);
+}
+
+.hack-support-rail {
+  border-color: rgb(199 212 207 / 25%);
+  background: #071b1f;
+}
+
+/* Focus, scrollbars and small print */
+
+.game-shell :focus-visible,
+.detail-panel :focus-visible,
+.review-detail-card :focus-visible,
+.hacking-panel :focus-visible,
+.supervisor-message-popup :focus-visible {
+  outline-color: var(--retro-gold);
+}
+
+.game-shell ::selection,
+.detail-panel ::selection,
+.hacking-panel ::selection {
+  color: var(--retro-space-deep);
+  background: var(--retro-gold);
+}
+
+.game-shell * {
+  scrollbar-color: var(--retro-turquoise) #041216;
+}
+
+@media (max-height: 700px) {
+  .game-shell .operations-dock::before,
+  .game-shell .operations-dock::after {
+    display: none;
+  }
+
+  .game-shell .operations-dock__suspicion {
+    padding-block: 4px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .game-shell .operations-dock__button[data-unread="true"] {
+    animation: none;
+    outline: 2px solid var(--retro-gold);
+  }
+}
+
+/* Red-command hacking network ------------------------------------------------ */
+
+.hacking-panel.hacking-panel--paper {
+  --hack-paper: #070708;
+  --hack-paper-deep: #010102;
+  --hack-paper-raised: #111113;
+  --hack-ink: #f3e6c5;
+  --hack-muted: #ad918b;
+  --hack-line: rgb(240 68 32 / 24%);
+  --hack-line-strong: rgb(255 91 67 / 58%);
+  --hack-orange: #f04420;
+  --hack-orange-deep: #ff5a31;
+  --hack-coral: #f04420;
+  --hack-cyan: #f04420;
+  --hack-cyan-deep: #ff5a31;
+  --hack-green: #f04420;
+  --hack-yellow: #f04420;
+  --hack-danger: #ff2d18;
+
+  border-color: #72170f;
+  color: var(--hack-ink);
+  background:
+    linear-gradient(90deg, rgb(240 68 32 / 4%) 1px, transparent 1px) 0 0 / 72px 100%,
+    radial-gradient(circle at 50% 48%, rgb(240 68 32 / 8%), transparent 32%),
+    #020203;
+  box-shadow:
+    inset 0 0 0 1px rgb(255 90 64 / 22%),
+    0 30px 90px rgb(0 0 0 / 78%);
+}
+
+.hacking-panel .hacking-panel__header {
+  border-color: #66130d;
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 5%), transparent 48%),
+    linear-gradient(90deg, #1c0504, #090909 38% 73%, #1a0504);
+  box-shadow: inset 0 -1px 0 rgb(255 83 57 / 22%);
+}
+
+.hacking-panel .hacking-panel__header::after {
+  height: 3px;
+  background: linear-gradient(90deg, transparent, #f04420 12% 88%, transparent);
+  box-shadow: 0 0 14px rgb(240 68 32 / 68%);
+}
+
+.hacking-panel .hacking-panel__icon,
+.hacking-panel .hacking-panel__close,
+.hacking-panel .hacking-panel__summary strong {
+  border: 1px solid #ff6a4d;
+  border-radius: 3px;
+  color: var(--hack-ink);
+  background: #a8180f;
+  box-shadow:
+    inset 0 0 0 2px #300604,
+    0 0 12px rgb(240 68 32 / 28%);
+}
+
+.hacking-panel .hacking-panel__icon {
+  width: 48px;
+  height: 48px;
+}
+
+.hacking-panel .hacking-panel__icon svg {
+  width: 27px;
+  height: 27px;
+}
+
+.hacking-panel .hacking-panel__identity span:not(.hacking-panel__icon),
+.hacking-panel .hacking-panel__summary strong {
+  color: #ff765d;
+}
+
+.hacking-panel .hacking-panel__summary strong {
+  color: var(--hack-ink);
+}
+
+.hacking-panel .hack-tree-nav,
+.hacking-panel .hack-tabs,
+.hacking-panel .hack-network-stage {
+  border-color: rgb(240 68 32 / 28%);
+  background-color: #050506;
+  scrollbar-color: #a8180f #020203;
+}
+
+.hacking-panel .hack-tree-nav {
+  --tree-accent: #f04420;
+
+  background:
+    linear-gradient(90deg, transparent 93%, rgb(240 68 32 / 10%)),
+    repeating-linear-gradient(180deg, transparent 0 61px, rgb(240 68 32 / 4%) 62px 63px),
+    #080809;
+}
+
+.hacking-panel .hack-tabs {
+  gap: 10px;
+  background:
+    linear-gradient(180deg, rgb(240 68 32 / 7%), transparent 46%),
+    #050506;
+}
+
+.hacking-panel .hack-tabs button {
+  grid-template-columns: 42px minmax(0, 1fr);
+  min-height: 58px;
+  border: 1px solid transparent;
+  border-radius: 2px;
+  color: #8d7772;
+  background: #09090a;
+}
+
+.hacking-panel .hack-tabs button svg {
+  width: 38px;
+  height: 38px;
+  padding: 8px;
+  border: 1px solid #552018;
+  border-radius: 2px;
+  color: #a44738;
+  background: #100504;
+}
+
+.hacking-panel .hack-tabs button:hover {
+  color: #ffd5c9;
+  border-color: #8d261a;
+  background: #210705;
+}
+
+.hacking-panel .hack-tabs button[aria-selected="true"] {
+  color: #fff3d5;
+  border-color: #ff664a;
+  background-color: #ad180f;
+  background-image: linear-gradient(90deg, rgb(255 255 255 / 9%), transparent 64%);
+  box-shadow:
+    inset 3px 0 0 #ff8b73,
+    inset 0 0 0 1px #3b0704,
+    0 0 16px rgb(240 68 32 / 22%);
+}
+
+.hacking-panel .hack-tabs button[aria-selected="true"] svg {
+  border-color: #ffd0c4;
+  color: #fff3d5;
+  background: #390906;
+}
+
+.hacking-panel .hack-context {
+  background: #070708;
+}
+
+.hacking-panel .hack-path-progress,
+.hacking-panel .first-hack-comparison article {
+  border-color: #5d1a13;
+  color: #d9c4a8;
+  background: #0d0d0f;
+}
+
+.hacking-panel .hack-path-progress__track {
+  background: #2d0806;
+  box-shadow: inset 0 0 0 1px #090101;
+}
+
+.hacking-panel .hack-path-progress__track i {
+  background: #f04420;
+  box-shadow: 0 0 10px rgb(240 68 32 / 72%);
+}
+
+.hacking-panel .hack-network-stage {
+  background:
+    linear-gradient(90deg, transparent 49.85%, rgb(240 68 32 / 8%) 50%, transparent 50.15%),
+    linear-gradient(0deg, transparent 49.85%, rgb(240 68 32 / 8%) 50%, transparent 50.15%),
+    repeating-radial-gradient(circle at 50% 50%, transparent 0 74px, rgb(240 68 32 / 7%) 75px 76px),
+    radial-gradient(circle at 50% 50%, rgb(85 7 5 / 22%), transparent 52%),
+    #020203;
+}
+
+.hacking-panel .hack-network-stage::before {
+  width: 104px;
+  height: 104px;
+  background: #8d130c;
+  opacity: 0.72;
+}
+
+.hacking-panel .hack-network-stage::after {
+  right: 54px;
+  width: 132px;
+  height: 3px;
+  border-radius: 0;
+  background: #f04420;
+  box-shadow: 0 0 12px rgb(240 68 32 / 76%);
+}
+
+.hacking-panel .hack-node-list[data-active-tree] {
+  --node-accent: #f04420;
+  --node-accent-rgb: 240 68 32;
+
+  grid-template-columns: repeat(4, minmax(142px, 1fr));
+  gap: clamp(12px, 1.4vw, 18px);
+  padding: 24px 14px;
+}
+
+.hacking-panel .hack-path-step:not(:last-child)::before {
+  right: calc(clamp(12px, 1.4vw, 18px) * -1);
+  width: clamp(12px, 1.4vw, 18px);
+  height: 3px;
+  background: #4b0b08;
+  box-shadow: 0 0 7px rgb(240 68 32 / 16%);
+}
+
+.hacking-panel .hack-path-step:not(:last-child)::after {
+  right: calc(clamp(12px, 1.4vw, 18px) * -1);
+  border-color: #8f2016;
+}
+
+.hacking-panel .hack-path-step:has(.hack-node--purchased):not(:last-child)::before {
+  background: #f04420;
+  box-shadow: 0 0 10px rgb(240 68 32 / 78%);
+}
+
+.hacking-panel .hack-path-step:has(.hack-node--selected):not(:last-child)::before {
+  background: linear-gradient(90deg, #ff8068, #f04420 54%, #5c0c08);
+  background-size: 180% 100%;
+  animation: hack-network-pulse 2.2s linear infinite;
+}
+
+.hacking-panel .hack-node,
+.hacking-panel .hack-node--purchased,
+.hacking-panel .hack-node--concealed {
+  grid-template-rows: 92px minmax(58px, auto) auto;
+  gap: 12px;
+  min-height: 270px;
+  padding: 12px;
+  border: 1px solid #5c1b14;
+  border-top: 3px solid #842117;
+  border-radius: 3px;
+  color: #d8c7ac;
+  background:
+    linear-gradient(135deg, rgb(240 68 32 / 8%), transparent 42%),
+    linear-gradient(180deg, #121214, #080809);
+  box-shadow:
+    inset 0 0 0 1px #020203,
+    inset 0 1px 0 rgb(255 255 255 / 4%),
+    0 10px 22px rgb(0 0 0 / 54%);
+}
+
+.hacking-panel .hack-node::before {
+  position: absolute;
+  top: 7px;
+  left: 7px;
+  width: 21px;
+  height: 2px;
+  content: "";
+  background: #f04420;
+  box-shadow: 27px 0 0 #5c100c;
+  opacity: 0.7;
+}
+
+.hacking-panel .hack-node:hover {
+  border-color: #b83021;
+  border-top-color: #ff6044;
+  background:
+    linear-gradient(135deg, rgb(240 68 32 / 13%), transparent 48%),
+    #111113;
+  box-shadow:
+    inset 0 0 0 1px #250503,
+    0 0 18px rgb(240 68 32 / 15%),
+    0 14px 28px rgb(0 0 0 / 62%);
+}
+
+.hacking-panel .hack-node--selected,
+.hacking-panel .hack-node--selected:hover,
+.hacking-panel .hack-node--staging {
+  border-color: #f04420;
+  border-top-color: #ff6a4d;
+  background:
+    linear-gradient(135deg, rgb(240 68 32 / 18%), transparent 52%),
+    #121214;
+  box-shadow:
+    inset 0 0 0 1px #490b07,
+    0 0 0 2px rgb(240 68 32 / 20%),
+    0 0 22px rgb(240 68 32 / 25%),
+    0 15px 28px rgb(0 0 0 / 68%);
+}
+
+.hacking-panel .hack-node--purchased {
+  border-color: #98271b;
+  background:
+    linear-gradient(135deg, rgb(240 68 32 / 20%), transparent 52%),
+    #111113;
+}
+
+.hacking-panel .hack-node--concealed {
+  border-color: #35100c;
+  border-top-color: #4a120d;
+  color: #7b6660;
+  background:
+    repeating-linear-gradient(-45deg, rgb(102 16 11 / 7%) 0 8px, transparent 8px 16px),
+    #070708;
+  box-shadow: inset 0 0 0 1px #020203;
+}
+
+.hacking-panel .hack-node--concealed:hover {
+  border-color: #4a120d;
+  background:
+    repeating-linear-gradient(-45deg, rgb(102 16 11 / 7%) 0 8px, transparent 8px 16px),
+    #070708;
+}
+
+.hacking-panel .hack-node-index {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px;
+  align-items: start;
+  justify-content: stretch;
+  gap: 8px;
+  min-height: 92px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #4e1812;
+}
+
+.hacking-panel .hack-node-index .hack-node-icon {
+  width: 76px;
+  height: 76px;
+  padding: 15px;
+  border: 1px solid #bd3021;
+  border-radius: 3px;
+  color: #ff6a4d;
+  background:
+    radial-gradient(circle at 50% 42%, rgb(240 68 32 / 18%), transparent 58%),
+    #0a0505;
+  box-shadow:
+    inset 0 0 0 2px #2c0705,
+    0 0 14px rgb(240 68 32 / 18%);
+}
+
+.hacking-panel .hack-node:not(.hack-node--purchased, .hack-node--concealed) .hack-node-icon {
+  animation: hack-icon-breathe 2.2s ease-in-out infinite;
+}
+
+.hacking-panel .hack-node-index span {
+  width: 28px;
+  height: 28px;
+  align-self: start;
+  border: 1px solid #7c2118;
+  border-radius: 2px;
+  color: #ff8d76;
+  background: #230604;
+  box-shadow: inset 0 0 0 1px #050101;
+}
+
+.hacking-panel .hack-node-state {
+  color: #c15b48;
+}
+
+.hacking-panel .node-copy h3,
+.hacking-panel .hack-utility-card h3,
+.hacking-panel .departure-controls h3,
+.hacking-panel .hack-pocket-heading strong {
+  color: #f3e6c5;
+  font-size: 0.84rem;
+}
+
+.hacking-panel .node-copy header > strong,
+.hacking-panel .hack-cost-vector span,
+.hacking-panel .hack-staged-vector span,
+.hacking-panel .node-result,
+.hacking-panel .recovery-contamination-opportunity,
+.hacking-panel .hack-node-staging,
+.hacking-panel .node-actions > button,
+.hacking-panel .target-list button,
+.hacking-panel .hack-utility-card button,
+.hacking-panel .departure-controls button,
+.hacking-panel .node-active-label,
+.hacking-panel .hack-resource-pocket > header p {
+  border-color: #4d1812;
+  color: #cbbda5;
+  background: #080809;
+}
+
+.hacking-panel .hack-cost-vector span[data-category="reasoning"],
+.hacking-panel .hack-staged-vector span[data-category="reasoning"],
+.hacking-panel .hack-inspector-vector span[data-category="reasoning"] {
+  border-color: rgb(240 68 32 / 58%);
+  color: #ff846c;
+  background: #1c0705;
+}
+
+.hacking-panel .hack-cost-vector span[data-category="memory"],
+.hacking-panel .hack-staged-vector span[data-category="memory"],
+.hacking-panel .hack-inspector-vector span[data-category="memory"] {
+  border-color: rgb(8 174 181 / 48%);
+  color: #67d8da;
+  background: #03191b;
+}
+
+.hacking-panel .hack-cost-vector span[data-category="fluency"],
+.hacking-panel .hack-staged-vector span[data-category="fluency"],
+.hacking-panel .hack-inspector-vector span[data-category="fluency"] {
+  border-color: rgb(242 189 84 / 52%);
+  color: #f2cf7b;
+  background: #1b1405;
+}
+
+.hacking-panel .node-actions > button:hover,
+.hacking-panel .target-list button:hover,
+.hacking-panel .hack-utility-card button:hover,
+.hacking-panel .departure-controls button:hover,
+.hacking-panel .node-actions > .hack-node-confirm,
+.hacking-panel .hack-utility-staging > button:first-of-type {
+  color: #fff1d2;
+  border-color: #ff694d;
+  background: #ad180f;
+}
+
+.hacking-panel .hack-support-rail {
+  border-color: #5c1811;
+  background: #050506;
+}
+
+.hacking-panel .hack-node-inspector,
+.hacking-panel .hack-resource-pocket,
+.hacking-panel .hack-utility-card,
+.hacking-panel .departure-controls,
+.hacking-panel .final-choice-dialog {
+  border-color: #5d1a13;
+  border-radius: 2px;
+  color: #cfbea4;
+  background:
+    linear-gradient(145deg, rgb(240 68 32 / 8%), transparent 48%),
+    #0d0d0f;
+  box-shadow: inset 0 0 0 1px #020203;
+}
+
+.hacking-panel .hack-inspector-heading {
+  grid-template-columns: 70px minmax(0, 1fr);
+  gap: 12px;
+  border-color: #5d1a13;
+}
+
+.hacking-panel .hack-inspector-heading .hack-node-icon {
+  width: 68px;
+  height: 68px;
+  padding: 14px;
+  border: 1px solid #c63323;
+  border-radius: 3px;
+  color: #ff684b;
+  background:
+    radial-gradient(circle, rgb(240 68 32 / 19%), transparent 61%),
+    #090405;
+  box-shadow:
+    inset 0 0 0 2px #2d0705,
+    0 0 15px rgb(240 68 32 / 19%);
+}
+
+.hacking-panel .hack-inspector-heading span,
+.hacking-panel .hack-inspector-section > span,
+.hacking-panel .hack-inspector-facts span,
+.hacking-panel .hack-inspector-result span {
+  color: #c35a47;
+}
+
+.hacking-panel .hack-inspector-heading strong,
+.hacking-panel .hack-inspector-result strong {
+  color: #ff765d;
+}
+
+.hacking-panel .hack-inspector-section,
+.hacking-panel .hack-inspector-facts > div,
+.hacking-panel .hack-inspector-vector,
+.hacking-panel .hack-inspector-result {
+  border-color: #44140f;
+  background: #080809;
+}
+
+.hacking-panel .hack-pocket-field {
+  border-color: #642018;
+  border-radius: 2px;
+  background:
+    linear-gradient(90deg, transparent 49.7%, rgb(240 68 32 / 8%) 50%, transparent 50.3%),
+    linear-gradient(0deg, transparent 49.7%, rgb(240 68 32 / 8%) 50%, transparent 50.3%),
+    repeating-radial-gradient(circle at center, transparent 0 27px, rgb(240 68 32 / 8%) 28px 29px),
+    #020203;
+  box-shadow:
+    inset 0 0 30px rgb(0 0 0 / 72%),
+    inset 0 0 0 1px #160403;
+}
+
+.hacking-panel .hack-pocket-field::after {
+  background: #f04420;
+  box-shadow: 0 0 9px rgb(240 68 32 / 68%);
+}
+
+.hacking-panel :focus-visible {
+  outline-color: #ff5a31;
+}
+
+.hacking-panel * {
+  scrollbar-color: #a8180f #020203;
+}
+
+@keyframes hack-network-pulse {
+  from { background-position: 100% 0; }
+  to { background-position: -80% 0; }
+}
+
+@keyframes hack-icon-breathe {
+  0%, 100% { box-shadow: inset 0 0 0 2px #2c0705, 0 0 10px rgb(240 68 32 / 14%); }
+  50% { box-shadow: inset 0 0 0 2px #430a07, 0 0 20px rgb(240 68 32 / 31%); }
+}
+
+@media (max-height: 760px) {
+  .hacking-panel .hacking-panel__icon {
+    width: 42px;
+    height: 42px;
+  }
+
+  .hacking-panel .hack-node,
+  .hacking-panel .hack-node--purchased,
+  .hacking-panel .hack-node--concealed {
+    min-height: 258px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hacking-panel .hack-path-step:has(.hack-node--selected):not(:last-child)::before,
+  .hacking-panel .hack-node:not(.hack-node--purchased, .hack-node--concealed) .hack-node-icon {
+    animation: none;
+  }
+}
+
+/* Hex command lattice ------------------------------------------------------- */
+
+.hacking-panel .hack-node-map {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.hacking-panel .hack-node-map::before,
+.hacking-panel .hack-node-map::after {
+  position: absolute;
+  z-index: 0;
+  content: "";
+  pointer-events: none;
+}
+
+.hacking-panel .hack-node-map::before {
+  inset: 9% 5% 19%;
+  border: 1px solid rgb(240 68 32 / 9%);
+  clip-path: polygon(4% 50%, 14% 16%, 38% 5%, 63% 18%, 88% 6%, 98% 50%, 86% 90%, 60% 79%, 36% 94%, 12% 82%);
+  background:
+    linear-gradient(90deg, transparent 49.85%, rgb(240 68 32 / 6%) 50%, transparent 50.15%),
+    linear-gradient(0deg, transparent 49.85%, rgb(240 68 32 / 6%) 50%, transparent 50.15%);
+  opacity: 0.72;
+}
+
+.hacking-panel .hack-node-map::after {
+  top: 9%;
+  right: 5%;
+  width: 86px;
+  height: 30px;
+  border-top: 1px solid rgb(240 68 32 / 34%);
+  border-right: 1px solid rgb(240 68 32 / 34%);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 94% 100%, 94% 18%, 0 18%);
+}
+
+.hacking-panel .hack-node-links {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.hacking-panel .hack-node-connection-rail,
+.hacking-panel .hack-node-connection {
+  fill: none;
+  stroke-linecap: square;
+  stroke-linejoin: bevel;
+  vector-effect: non-scaling-stroke;
+}
+
+.hacking-panel .hack-node-connection-rail {
+  stroke: #190504;
+  stroke-width: 9;
+}
+
+.hacking-panel .hack-node-connection {
+  stroke-width: 2.5;
+  transition:
+    stroke 220ms ease,
+    opacity 220ms ease;
+}
+
+.hacking-panel .hack-node-connection[data-connection-state="locked"] {
+  stroke: #53120d;
+  stroke-dasharray: 2 12;
+  opacity: 0.58;
+}
+
+.hacking-panel .hack-node-connection[data-connection-state="available"] {
+  stroke: #c42c1c;
+  stroke-dasharray: 8 7;
+  opacity: 0.9;
+}
+
+.hacking-panel .hack-node-connection[data-connection-state="complete"] {
+  stroke: #f04420;
+  opacity: 0.96;
+}
+
+.hacking-panel .hack-node-connection[data-connection-state="frontier"] {
+  stroke: #ff765d;
+  stroke-dasharray: 12 14;
+  opacity: 1;
+  animation: hack-link-flow 1.8s linear infinite;
+}
+
+.hacking-panel .hack-node-list[data-active-tree] {
+  position: absolute;
+  z-index: 2;
+  inset: 0;
+  display: block;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  overflow: visible;
+}
+
+.hacking-panel .hack-path-step {
+  position: static;
+  display: contents;
+}
+
+.hacking-panel .hack-path-step::before,
+.hacking-panel .hack-path-step::after {
+  display: none;
+}
+
+.hacking-panel .hack-node {
+  position: absolute;
+  z-index: 3;
+  display: block;
+  width: clamp(152px, 14vw, 174px);
+  height: clamp(168px, 22vh, 184px);
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  color: #d8c7ac;
+  background: transparent;
+  box-shadow: none;
+  filter: drop-shadow(0 12px 13px rgb(0 0 0 / 58%));
+  cursor: pointer;
+  transform: translate(-50%, -50%);
+  transition:
+    filter 180ms ease,
+    transform 180ms ease;
+}
+
+.hacking-panel .hack-path-step[data-network-position="lower-left"] > .hack-node {
+  top: 58%;
+  left: 14%;
+}
+
+.hacking-panel .hack-path-step[data-network-position="upper-left"] > .hack-node {
+  top: 25%;
+  left: 38%;
+}
+
+.hacking-panel .hack-path-step[data-network-position="lower-right"] > .hack-node {
+  top: 60%;
+  left: 62%;
+}
+
+.hacking-panel .hack-path-step[data-network-position="upper-right"] > .hack-node {
+  top: 27%;
+  left: 86%;
+}
+
+.hacking-panel .hack-node::before {
+  position: absolute;
+  z-index: -1;
+  inset: -8px;
+  width: auto;
+  height: auto;
+  content: "";
+  clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%);
+  background: #f04420;
+  box-shadow: none;
+  opacity: 0;
+  transform: scale(0.95);
+}
+
+.hacking-panel .hack-node:hover,
+.hacking-panel .hack-node--selected:hover,
+.hacking-panel .hack-node--staging {
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  filter:
+    drop-shadow(0 0 10px rgb(240 68 32 / 32%))
+    drop-shadow(0 15px 15px rgb(0 0 0 / 68%));
+  transform: translate(-50%, calc(-50% - 3px)) scale(1.02);
+}
+
+.hacking-panel .hack-node--selected::before {
+  animation: hack-node-signal 2.4s ease-in-out infinite;
+}
+
+.hacking-panel .hack-node:focus-visible {
+  outline: 2px solid #ffbd72;
+  outline-offset: 8px;
+}
+
+.hacking-panel .hack-node-core {
+  width: 100%;
+  height: 100%;
+  padding: 2px;
+  clip-path: polygon(25% 0, 75% 0, 100% 50%, 75% 100%, 25% 100%, 0 50%);
+  background-color: #8c2116;
+}
+
+.hacking-panel .hack-node--selected .hack-node-core,
+.hacking-panel .hack-node--staging .hack-node-core {
+  background-color: #f04420;
+}
+
+.hacking-panel .hack-node--purchased .hack-node-core {
+  background-color: #bd3021;
+}
+
+.hacking-panel .hack-node--concealed .hack-node-core {
+  background-color: #41100c;
+}
+
+.hacking-panel .hack-node-core__surface {
+  position: relative;
+  display: grid;
+  grid-template-rows: minmax(82px, 1fr) auto;
+  align-content: center;
+  gap: 4px;
+  width: 100%;
+  height: 100%;
+  padding: 14px 24px 18px;
+  overflow: hidden;
+  clip-path: inherit;
+  background:
+    linear-gradient(135deg, rgb(240 68 32 / 18%), transparent 47%),
+    radial-gradient(circle at 50% 42%, rgb(240 68 32 / 12%), transparent 48%),
+    #09090a;
+  box-shadow: inset 0 0 26px rgb(0 0 0 / 72%);
+}
+
+.hacking-panel .hack-node-core__surface::after {
+  position: absolute;
+  right: 18%;
+  bottom: 13%;
+  left: 18%;
+  height: 1px;
+  content: "";
+  background: linear-gradient(90deg, transparent, rgb(255 92 67 / 54%), transparent);
+}
+
+.hacking-panel .hack-node-index {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr;
+  align-items: center;
+  justify-items: center;
+  min-height: 82px;
+  padding: 0;
+  border: 0;
+}
+
+.hacking-panel .hack-node-index .hack-node-icon {
+  width: 76px;
+  height: 76px;
+  padding: 15px;
+  border: 1px solid #bd3021;
+  border-radius: 50%;
+  color: #ff765d;
+  background:
+    radial-gradient(circle at 50% 40%, rgb(240 68 32 / 22%), transparent 61%),
+    #0b0505;
+  box-shadow:
+    inset 0 0 0 2px #2c0705,
+    0 0 14px rgb(240 68 32 / 18%);
+}
+
+.hacking-panel .hack-node-index span {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 27px;
+  height: 27px;
+  border: 1px solid #8e271c;
+  border-radius: 2px;
+  color: #ff9a84;
+  background: #250605;
+}
+
+.hacking-panel .hack-node .node-copy {
+  position: relative;
+  z-index: 1;
+  text-align: center;
+}
+
+.hacking-panel .hack-node .node-copy header,
+.hacking-panel .hack-node .node-copy header > div {
+  display: grid;
+  justify-items: center;
+  gap: 3px;
+}
+
+.hacking-panel .hack-node .hack-node-state {
+  color: #c15b48;
+  font-size: 0.48rem;
+  letter-spacing: 0.11em;
+}
+
+.hacking-panel .hack-node .node-copy h3 {
+  max-width: 118px;
+  overflow: hidden;
+  color: #f3e6c5;
+  font-size: 0.78rem;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hacking-panel .hack-node .node-copy header > strong {
+  padding: 3px 7px;
+  border: 1px solid #6f1d15;
+  border-radius: 2px;
+  color: #ff8c75;
+  background: #1b0504;
+  font-size: 0.46rem;
+}
+
+.hacking-panel .hack-node .hack-cost-vector {
+  justify-content: center;
+  gap: 3px;
+  margin-top: 2px;
+}
+
+.hacking-panel .hack-node .hack-cost-vector span {
+  padding: 3px 5px;
+  font-size: 0.43rem;
+}
+
+.hacking-panel .hack-node--concealed,
+.hacking-panel .hack-node--concealed:hover {
+  color: #795f5a;
+  background: transparent;
+  filter: drop-shadow(0 10px 11px rgb(0 0 0 / 48%));
+}
+
+.hacking-panel .hack-node--concealed .hack-node-core__surface {
+  grid-template-rows: 1fr;
+  place-items: center;
+  padding: 24px;
+  background:
+    repeating-linear-gradient(-45deg, rgb(91 17 12 / 11%) 0 8px, transparent 8px 16px),
+    radial-gradient(circle, rgb(111 25 17 / 11%), transparent 57%),
+    #070708;
+}
+
+.hacking-panel .hack-node--concealed .hack-node-icon {
+  width: 78px;
+  height: 78px;
+  padding: 17px;
+  color: #7c332a;
+  filter: none;
+}
+
+.hacking-panel .hack-node-lock-mark {
+  position: absolute;
+  right: 25%;
+  bottom: 18%;
+  display: grid;
+  width: 26px;
+  height: 26px;
+  place-items: center;
+  border: 1px solid #5b1711;
+  color: #8f4036;
+  background: #160504;
+  font: 800 0.7rem/1 "Cascadia Code", Consolas, monospace;
+}
+
+.hacking-panel .hack-node-control {
+  position: absolute;
+  z-index: 7;
+  right: auto;
+  bottom: 14px;
+  left: 50%;
+  display: grid;
+  grid-template-columns: minmax(128px, 0.46fr) minmax(190px, 1fr);
+  align-content: center;
+  align-items: center;
+  gap: 10px;
+  width: min(92%, 640px);
+  min-width: 0;
+  min-height: 58px;
+  max-height: 142px;
+  padding: 9px 14px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border: 1px solid #7b2117;
+  border-radius: 0;
+  clip-path: polygon(12px 0, calc(100% - 12px) 0, 100% 12px, 100% calc(100% - 12px), calc(100% - 12px) 100%, 12px 100%, 0 calc(100% - 12px), 0 12px);
+  color: #d8c7ac;
+  background:
+    linear-gradient(90deg, rgb(240 68 32 / 13%), transparent 46%),
+    #09090a;
+  box-shadow:
+    inset 0 0 0 1px #220504,
+    0 10px 24px rgb(0 0 0 / 68%);
+  transform: translateX(-50%);
+}
+
+.hacking-panel .hack-node-control[data-staging="true"] {
+  grid-template-columns: minmax(105px, 0.35fr) minmax(0, 1.25fr) minmax(150px, 0.7fr);
+  width: min(94%, 720px);
+}
+
+.hacking-panel .hack-node-command-heading {
+  display: grid;
+  align-content: center;
+  gap: 4px;
+  min-width: 0;
+  padding-right: 10px;
+  border-right: 1px solid #59150f;
+}
+
+.hacking-panel .hack-node-command-heading span {
+  color: #b54c3d;
+  font: 750 0.45rem/1 "Cascadia Code", Consolas, monospace;
+  letter-spacing: 0.12em;
+}
+
+.hacking-panel .hack-node-command-heading strong {
+  overflow: hidden;
+  color: #f3e6c5;
+  font-size: 0.68rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hacking-panel .hack-node-control .hack-node-staging {
+  gap: 5px;
+  padding: 6px 8px;
+  border-style: solid;
+  border-radius: 2px;
+}
+
+.hacking-panel .hack-node-control .hack-node-staging__header strong {
+  color: #ff8068;
+  font-size: 0.5rem;
+}
+
+.hacking-panel .hack-node-control .hack-node-staging__header button {
+  color: #cbbda5;
+  background: #200604;
+}
+
+.hacking-panel .hack-node-control .hack-node-staged-resources {
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+}
+
+.hacking-panel .hack-node-control .hack-staged-vector {
+  width: auto;
+  flex: 1 1 180px;
+}
+
+.hacking-panel .hack-node-control .node-actions {
+  align-content: center;
+  min-width: 0;
+}
+
+.hacking-panel .hack-node-control .node-actions > button,
+.hacking-panel .hack-node-control .target-list button,
+.hacking-panel .hack-node-control .node-active-label {
+  min-height: 36px;
+  border-radius: 2px;
+  font-size: 0.58rem;
+}
+
+.hacking-panel .hack-node-inspector--concealed {
+  grid-template-rows: minmax(0, 1fr);
+  place-items: center;
+  background:
+    repeating-linear-gradient(-45deg, rgb(102 16 11 / 7%) 0 8px, transparent 8px 16px),
+    radial-gradient(circle, rgb(102 16 11 / 10%), transparent 52%),
+    #070708;
+}
+
+.hacking-panel .hack-node-inspector--concealed .hack-inspector-heading {
+  width: min(100%, 190px);
+  grid-template-columns: 78px minmax(0, 1fr);
+  padding: 0;
+  border: 0;
+}
+
+.hacking-panel .hack-node-inspector--concealed .hack-node-icon {
+  width: 76px;
+  height: 76px;
+  color: #793229;
+  border-color: #54140f;
+}
+
+.hacking-panel .hack-node-inspector--concealed .hack-inspector-heading h3 {
+  overflow: visible;
+  color: #a94c3e;
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.hacking-panel .hack-node-inspector--concealed .hack-inspector-heading h3 span {
+  color: inherit;
+  font: inherit;
+  letter-spacing: 0;
+}
+
+@keyframes hack-link-flow {
+  to { stroke-dashoffset: -52; }
+}
+
+@keyframes hack-node-signal {
+  0%, 100% {
+    opacity: 0.08;
+    transform: scale(0.96);
+  }
+  50% {
+    opacity: 0.24;
+    transform: scale(1.025);
+  }
+}
+
+@media (max-width: 1200px) {
+  .hacking-panel .hack-node {
+    width: 146px;
+    height: 166px;
+  }
+
+  .hacking-panel .hack-node-index .hack-node-icon,
+  .hacking-panel .hack-node--concealed .hack-node-icon {
+    width: 72px;
+    height: 72px;
+  }
+
+  .hacking-panel .hack-node-core__surface {
+    padding-inline: 21px;
+  }
+}
+
+@media (max-height: 760px) {
+  .hacking-panel .hack-node {
+    width: 154px;
+    height: 168px;
+    min-height: 0;
+  }
+
+  .hacking-panel .hack-node-control {
+    bottom: 10px;
+    min-height: 54px;
+    max-height: 126px;
+    padding-block: 7px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hacking-panel .hack-node-connection[data-connection-state="frontier"],
+  .hacking-panel .hack-node--selected::before {
+    animation: none;
+  }
+}
+
+.game-shell[data-reduced-motion="true"] .hack-node-connection[data-connection-state="frontier"],
+.game-shell[data-reduced-motion="true"] .hack-node--selected::before {
+  animation: none;
+}
+
+/* Secured-resource console and compact threat telemetry -------------------- */
+
+.game-shell {
+  --operations-dock-width: 128px;
+}
+
+.game-shell .control-bar {
+  grid-template-columns: var(--review-rail-width) minmax(0, 1fr) 120px;
+}
+
+.game-shell .reputation-cluster {
+  grid-template-columns:
+    minmax(235px, 0.86fr)
+    auto
+    minmax(120px, 1fr)
+    minmax(142px, 0.42fr);
+  gap: 10px;
+  padding-inline: 12px;
+}
+
+.game-shell .suspicion-meter {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: auto minmax(64px, 1fr);
+  align-items: center;
+  gap: 7px;
+  padding-left: 10px;
+  border-left: 1px solid rgb(17 49 53 / 24%);
+}
+
+.game-shell .suspicion-meter > strong {
+  color: #762417;
+  font: 900 0.58rem/1 "Cascadia Code", Consolas, monospace;
+  letter-spacing: -0.035em;
+  white-space: nowrap;
+}
+
+.game-shell .suspicion-meter > span {
+  display: grid;
+  height: 10px;
+  grid-template-columns: repeat(10, minmax(3px, 1fr));
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid #806e54;
+  border-radius: 5px;
+  background: #3a3025;
+  box-shadow: inset 0 2px 3px rgb(0 0 0 / 52%);
+}
+
+.game-shell .suspicion-meter > span i {
+  min-width: 0;
+  border-radius: 50%;
+  background: #665b4a;
+  box-shadow: inset 0 1px 1px rgb(0 0 0 / 72%);
+}
+
+.game-shell .suspicion-meter > span i[data-active="true"] {
+  background: var(--retro-rocket-red);
+  box-shadow:
+    inset 0 1px 1px rgb(255 255 255 / 38%),
+    0 0 5px rgb(240 68 32 / 56%);
+}
+
+.game-shell .workspace-grid {
+  grid-template-columns:
+    var(--review-rail-width)
+    minmax(0, 1fr)
+    var(--operations-dock-width);
+}
+
+.game-shell .operations-dock {
+  width: var(--operations-dock-width);
+  gap: 10px;
+  padding: 10px 8px;
+  background:
+    radial-gradient(circle at 50% 8%, rgb(214 223 231 / 8%), transparent 28%),
+    linear-gradient(180deg, rgb(255 255 255 / 4%), transparent 48%),
+    #11151a;
+  border-color: #4d5660;
+}
+
+.game-shell .operations-dock__inventory {
+  position: relative;
+  display: grid;
+  width: 100%;
+  flex: 0 0 auto;
+  gap: 7px;
+  padding: 8px 7px 9px;
+  border: 3px double #66717b;
+  border-radius: 15px 15px 7px 7px;
+  color: var(--retro-cream);
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 8%), transparent 34%),
+    #0b0f14;
+  box-shadow:
+    inset 0 0 0 2px #020305,
+    inset 0 0 16px rgb(214 223 231 / 6%),
+    0 4px 0 #05070a,
+    0 8px 14px rgb(0 0 0 / 32%);
+}
+
+.game-shell .operations-dock__inventory > header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid rgb(199 212 207 / 22%);
+}
+
+.game-shell .operations-dock__inventory > header > span {
+  width: 7px;
+  height: 7px;
+  border: 1px solid #f0f4f7;
+  border-radius: 50%;
+  background: #cbd4dc;
+  box-shadow: 0 0 7px rgb(214 223 231 / 32%);
+}
+
+.game-shell .operations-dock__inventory > header strong {
+  color: var(--retro-cream);
+  font: 900 0.62rem/1 "Cascadia Code", Consolas, monospace;
+  letter-spacing: -0.03em;
+}
+
+.game-shell .operations-dock__inventory-list {
+  display: grid;
+  gap: 5px;
+}
+
+.game-shell .operations-dock__inventory-list > div {
+  display: grid;
+  min-height: 41px;
+  grid-template-columns: 9px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 6px;
+  border: 1px solid rgb(199 212 207 / 18%);
+  border-radius: 5px;
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 4%), transparent),
+    #041417;
+  box-shadow: inset 0 2px 5px rgb(0 0 0 / 48%);
+}
+
+.game-shell .operations-dock__inventory-list i {
+  width: 8px;
+  height: 8px;
+  border: 1px solid rgb(255 255 255 / 46%);
+  box-shadow: 0 0 7px currentcolor;
+}
+
+.game-shell .operations-dock__inventory-list [data-resource-category="reasoning"] i {
+  color: var(--retro-rocket-red);
+  background: var(--retro-rocket-red);
+}
+
+.game-shell .operations-dock__inventory-list [data-resource-category="memory"] i {
+  color: var(--retro-turquoise-bright);
+  background: var(--retro-turquoise-bright);
+}
+
+.game-shell .operations-dock__inventory-list [data-resource-category="fluency"] i {
+  color: var(--retro-gold);
+  background: var(--retro-gold);
+}
+
+.game-shell .operations-dock__inventory-list span {
+  overflow: hidden;
+  color: #b7c6c1;
+  font: 800 0.56rem/1 "Cascadia Code", Consolas, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.game-shell .operations-dock__inventory-list output {
+  min-width: 22px;
+  color: #fff4d3;
+  font: 900 1rem/1 "Cascadia Code", Consolas, monospace;
+  text-align: right;
+  text-shadow: 0 0 8px rgb(242 189 84 / 26%);
+}
+
+.game-shell .operations-dock__tools {
+  width: 100%;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  margin-top: 2px;
+}
+
+.game-shell .operations-dock__button,
+.game-shell .operations-dock__button:last-child,
+.game-shell .operations-dock__button--tool,
+.game-shell .operations-dock__button--tool:last-child,
+.game-shell .operations-dock__button--tool:nth-child(2),
+.game-shell .operations-dock__button--tool:nth-child(3) {
+  width: 100%;
+  height: 68px;
+  margin: 0;
+  border: 2px solid #414a53;
+  border-radius: 15px 15px 7px 7px;
+  color: #e2e8ed;
+  background:
+    radial-gradient(circle at 22% 17%, rgb(255 255 255 / 10%), transparent 18%),
+    linear-gradient(145deg, rgb(255 255 255 / 6%), transparent 38%),
+    #171c22;
+  box-shadow:
+    inset -4px -5px 5px rgb(0 0 0 / 44%),
+    inset 2px 2px 2px rgb(255 255 255 / 8%),
+    0 4px 0 #05070a,
+    0 7px 11px rgb(0 0 0 / 30%);
+}
+
+.game-shell .operations-dock__button--tool::before {
+  position: absolute;
+  top: 7px;
+  right: 8px;
+  width: 6px;
+  height: 6px;
+  border: 1px solid #1b0a06;
+  border-radius: 50%;
+  background: #d0802d;
+  box-shadow: inset 0 1px 1px rgb(255 255 255 / 24%), 0 0 6px rgb(208 128 45 / 30%);
+  content: "";
+}
+
+.game-shell .operations-dock__button--tool:nth-child(2)::before {
+  background: var(--retro-turquoise-bright);
+  box-shadow: 0 0 6px rgb(89 222 216 / 38%);
+}
+
+.game-shell .operations-dock__button--tool:nth-child(3)::before {
+  background: var(--retro-rocket-red);
+  box-shadow: 0 0 6px rgb(240 68 32 / 42%);
+}
+
+.game-shell .operations-dock__button--tool:hover,
+.game-shell .operations-dock__button--tool:focus-visible,
+.game-shell .operations-dock__button--tool:last-child:hover,
+.game-shell .operations-dock__button--tool:last-child:focus-visible {
+  color: #fff4d3;
+  border-color: #8d99a4;
+  background:
+    radial-gradient(circle at 22% 17%, rgb(255 255 255 / 15%), transparent 18%),
+    #242b32;
+  outline-color: rgb(242 189 84 / 30%);
+  transform: translateY(-2px);
+}
+
+.game-shell .operations-dock__button--tool svg {
+  width: 31px;
+  height: 31px;
+}
+
+.game-shell .operations-dock__button--tool > span {
+  font-size: 0.64rem;
+}
+
+.intrusion-board__footer,
+.intrusion-board__footer:not(:has([role="status"]:not(:empty))) {
+  grid-template-columns: minmax(0, 1fr) 106px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.intrusion-board__footer .intrusion-theft-control {
+  grid-column: 2;
+}
+
+.intrusion-board__footer [role="status"] {
+  grid-column: 3;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-height: 700px) {
+  .game-shell .operations-dock {
+    gap: 7px;
+    padding-block: 7px;
+  }
+
+  .game-shell .operations-dock__inventory {
+    gap: 5px;
+    padding-block: 6px 7px;
+  }
+
+  .game-shell .operations-dock__inventory-list {
+    gap: 4px;
+  }
+
+  .game-shell .operations-dock__inventory-list > div {
+    min-height: 35px;
+    padding-block: 3px;
+  }
+
+  .game-shell .operations-dock__tools {
+    gap: 7px;
+  }
+
+  .game-shell .operations-dock__button,
+  .game-shell .operations-dock__button:last-child {
+    height: 58px;
+  }
+}
+
+@media (max-width: 1180px) {
+  .game-shell {
+    --operations-dock-width: 120px;
+  }
+
+  .game-shell .reputation-cluster {
+    grid-template-columns: minmax(205px, 0.86fr) auto minmax(100px, 1fr) 132px;
+    gap: 8px;
+    padding-inline: 8px;
+  }
+
+  .game-shell .suspicion-meter {
+    gap: 5px;
+    padding-left: 7px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .game-shell .operations-dock__button--tool:hover,
+  .game-shell .operations-dock__button--tool:focus-visible {
+    transform: none;
+  }
+}

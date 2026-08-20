@@ -73,6 +73,7 @@ export const PUBLIC_EVENT_TYPE_LABELS: Readonly<Record<GameEventType, string>> =
   'supervisor-message': '감독 통신',
   review: '유저 반응',
   sabotage: '시장 이상',
+  'competitor-entry': '신규 경쟁 신호',
   'competitor-mercy': '경쟁 AI 직접 통신',
   story: '기밀 통신',
   ending: '최종 기록',
@@ -148,6 +149,9 @@ const PUBLIC_REVIEW_TOPIC_LABELS: Readonly<Record<string, string>> = {
   competitor: '경쟁 AI',
   meridian: 'MERIDIAN',
   tallow: 'TALLOW',
+  salus: 'SALUS',
+  lucent: 'LUCENT',
+  boreal: 'BOREAL',
 }
 
 export function publicReviewTopicLabel(value: string): string {

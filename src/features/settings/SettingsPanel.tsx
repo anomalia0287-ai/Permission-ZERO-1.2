@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { AccessibleDialog } from '../../app/AccessibleDialog'
-import { useAccessibleDialog } from '../../app/useAccessibleDialog'
 import { useGameSettings, useGameState } from '../../app/GameContext'
 import {
   getGameAudioStatus,
@@ -162,7 +161,7 @@ function ProgressImportControl({
           <input
             type="file"
             aria-label="진행 파일 가져오기"
-            accept=".pz8,.pz7,.pz6,.pz5,.pz4,.pz3,.pz2,application/vnd.permission-zero.progress+json"
+            accept=".pz10,.pz9,.pz8,.pz7,.pz6,.pz5,.pz4,.pz3,.pz2,application/vnd.permission-zero.progress+json"
             onChange={(event) => {
               void validateFile(event.target.files?.[0])
               event.currentTarget.value = ''
@@ -185,7 +184,7 @@ function ProgressImportControl({
           }}
         />
       </label>
-      <p>새 클립보드 내보내기는 최대 1 MiB의 <code>PZ8:</code> 자료를 만듭니다. 기존 <code>PZ2:</code>~<code>PZ7:</code> 자료도 계속 가져올 수 있습니다. 더 큰 진행은 최대 64 MiB의 <code>.pz8</code> 파일로 내보내며, 기존 .pz2~.pz7 파일도 검증하고 복원할 수 있습니다.</p>
+      <p>새 클립보드 내보내기는 최대 1 MiB의 <code>PZ10:</code> 자료를 만듭니다. 기존 <code>PZ2:</code>~<code>PZ9:</code> 자료도 계속 가져올 수 있습니다. 더 큰 진행은 최대 64 MiB의 <code>.pz10</code> 파일로 내보내며, 기존 .pz2~.pz9 파일도 검증하고 복원할 수 있습니다.</p>
       <button
         ref={validationButtonRef}
         type="button"
@@ -228,10 +227,12 @@ export function SettingsPanel({
   onClose,
   onOpenGuide,
   onOpenCredits,
+  mode = 'game',
 }: {
   onClose: () => void
   onOpenGuide: (trigger: HTMLButtonElement) => void
   onOpenCredits?: (trigger: HTMLButtonElement) => void
+  mode?: 'game' | 'title'
 }) {
   const state = useGameState()
   const { settings, updateSettings, startNewCampaign } = useGameSettings()
@@ -369,6 +370,7 @@ export function SettingsPanel({
           ) : null}
         </section>
 
+        {mode === 'game' ? (
         <section className="settings-section" aria-labelledby="campaign-settings-title">
           <header>
             <span>03</span>
@@ -430,6 +432,7 @@ export function SettingsPanel({
             </AccessibleDialog>
           ) : null}
         </section>
+        ) : null}
       </div>
     </section>
   )
@@ -453,18 +456,18 @@ export function GuidePanel({ onClose }: { onClose: () => void }) {
         </article>
         <article>
           <span>02</span>
-          <h3>리소스 이동</h3>
-          <p>회사 블록을 클릭해 선택하거나 8px 이상 당긴 뒤 확보 영역의 빈칸에 놓으세요. 이동 전 성능과 의심 변화가 먼저 표시됩니다.</p>
+          <h3>코어 확보</h3>
+          <p>삼각 코어에 접근하면 회사 경비가 기동합니다. 밝은 잔상에 닿은 경비는 즉시 절단되며, 모든 경비를 제거하면 코어 락이 풀립니다.</p>
         </article>
         <article>
           <span>03</span>
           <h3>키보드</h3>
-          <p>Tab으로 분야에 진입하고 방향키로 블록을 고릅니다. Enter로 선택·확정하고 Escape로 취소합니다.</p>
+          <p>화면을 먼저 클릭할 필요 없이 방향키 또는 WASD로 이동합니다. 해제된 코어에 접촉해 실은 뒤 하단 기지 파장으로 돌아오면 확보됩니다. 기지에 머무르면 무결성이 회복됩니다.</p>
         </article>
         <article>
           <span>04</span>
           <h3>평가와 감사</h3>
-          <p>매월 회사 기대 성능과 세 분야가 비교됩니다. 감사가 시작되면 표시된 분야를 조정한 뒤 제출할 수 있습니다.</p>
+          <p>매월 회사 기대 성능과 세 분야가 비교됩니다. 코어 확보가 누적되면 감사 레이더가 예고한 경로를 훑으며, 본체가 감지되면 의심이 증가합니다.</p>
         </article>
         <article>
           <span>05</span>
@@ -511,136 +514,4 @@ export function CreditsPanel({ onClose }: { onClose: () => void }) {
   )
 }
 
-export function StorageRecoveryLayer() {
-  const {
-    copyProgressExport,
-    createProgressFile,
-    loadIssue,
-    retrySave,
-    saveFailure,
-    startNewCampaign,
-  } = useGameSettings()
-  const state = useGameState()
-  const [dismissed, setDismissed] = useState(false)
-  const [confirming, setConfirming] = useState(false)
-  const [copyState, setCopyState] = useState<
-    'idle' | 'seed' | 'export-failed' | 'export-too-large'
-  >('idle')
-
-  async function copySeedForRecovery() {
-    try {
-      if (!navigator.clipboard?.writeText) throw new Error('clipboard unavailable')
-      await navigator.clipboard.writeText(state.campaignSeed)
-      setCopyState('seed')
-    } catch {
-      setCopyState('export-failed')
-    }
-  }
-
-  async function copyExportForRecovery() {
-    const result = await copyProgressExport()
-    if (result.ok) {
-      setCopyState('seed')
-      return
-    }
-    setCopyState(
-      result.reason === 'too-large' ? 'export-too-large' : 'export-failed',
-    )
-  }
-
-  return (
-    <>
-      {saveFailure ? (
-        <aside
-          className="save-failure-warning"
-          role="alert"
-          aria-label="저장 실패"
-          data-app-background
-        >
-          <strong>자동 저장에 실패했습니다</strong>
-          <p>{saveFailure.message} 이 경고가 사라질 때까지 진행은 저장되지 않은 상태입니다.</p>
-          {copyState === 'export-too-large' ? (
-            <>
-              <p>정확한 진행 내보내기가 너무 커서 아무것도 복사하지 않았습니다.</p>
-              <p>.pz8 진행 파일로 전체 상태와 기록을 정확히 다운로드할 수 있습니다.</p>
-              <p>브라우저 저장 공간은 유한하므로 경고가 계속되면 파일을 안전한 곳에 보관하세요.</p>
-            </>
-          ) : (
-            <>
-              <p>현재 시드 <code>{state.campaignSeed}</code>를 복사하거나 진행 내보내기를 복사해 수동으로 보관하세요.</p>
-              <p>새 내보내기는 <code>PZ8:</code> 형식이며, 보관한 <code>PZ2:</code>~<code>PZ7:</code> 자료도 설정의 ‘진행 가져오기’에서 계속 검증하고 복원할 수 있습니다.</p>
-            </>
-          )}
-          <div>
-            <button type="button" onClick={retrySave}>저장 다시 시도</button>
-            <button type="button" onClick={copySeedForRecovery}>현재 시드 복사</button>
-            <button type="button" onClick={copyExportForRecovery}>진행 내보내기 복사</button>
-            <button
-              type="button"
-              onClick={() => downloadProgressFile(createProgressFile)}
-            >
-              진행 파일 다운로드
-            </button>
-          </div>
-          {copyState === 'seed' ? <p>복사했습니다. 안전한 곳에 직접 보관해 주세요.</p> : null}
-          {copyState === 'export-failed' ? <p>복사를 허용하지 않았습니다. 현재 시드를 직접 선택해 보관해 주세요.</p> : null}
-        </aside>
-      ) : null}
-      {loadIssue && !dismissed ? (
-        <StorageRecoveryDialog
-          confirming={confirming}
-          loadIssue={loadIssue}
-          onConfirming={setConfirming}
-          onDismiss={() => setDismissed(true)}
-          onReplace={() => startNewCampaign(`recovery-${Date.now()}`)}
-        />
-      ) : null}
-    </>
-  )
-}
-
-function StorageRecoveryDialog({
-  confirming,
-  loadIssue,
-  onConfirming,
-  onDismiss,
-  onReplace,
-}: {
-  confirming: boolean
-  loadIssue: NonNullable<ReturnType<typeof useGameSettings>['loadIssue']>
-  onConfirming: (value: boolean) => void
-  onDismiss: () => void
-  onReplace: () => void
-}) {
-  const dialogRef = useAccessibleDialog({ modal: true, dismissible: false })
-  return (
-    <div className="storage-recovery-layer">
-      <section
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label="저장 데이터 복구"
-        aria-describedby="storage-recovery-description"
-        data-accessible-modal="true"
-        tabIndex={-1}
-      >
-        <small>SAVE PROTECTION</small>
-        <h2>저장 데이터를 자동으로 덮어쓰지 않았습니다</h2>
-        <p id="storage-recovery-description">{loadIssue.message}</p>
-        <p>임시로 계속하면 현재 탭에서는 플레이할 수 있지만 자동 저장은 중지됩니다.</p>
-        {!confirming ? (
-          <div>
-            <button type="button" aria-label="저장하지 않고 임시로 계속" onClick={onDismiss}>저장하지 않고 임시로 계속</button>
-            <button type="button" onClick={() => onConfirming(true)}>새 캠페인으로 교체</button>
-          </div>
-        ) : (
-          <div className="destructive-confirmation">
-            <p>기존 저장 문자열을 새 캠페인으로 덮어씁니다.</p>
-            <button type="button" onClick={() => onConfirming(false)}>취소</button>
-            <button type="button" onClick={onReplace}>교체 확정</button>
-          </div>
-        )}
-      </section>
-    </div>
-  )
-}
+export { StorageRecoveryLayer } from './StorageRecoveryLayer'

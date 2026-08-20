@@ -995,3 +995,101 @@ body {
 .supervisor-message-popup__body p {
   color: var(--sf-text-strong);
 }
+
+/* Identity rail and legibility pass: keep the hierarchy readable at game scale. */
+.game-shell .review-panel > .market-watch--compact .market-share-layout {
+  grid-template-rows: 150px auto minmax(0, 1fr);
+  gap: 7px;
+}
+
+.game-shell .review-panel > .market-watch--compact .market-share-donut {
+  width: 148px;
+  height: 148px;
+}
+
+.game-shell .review-panel > .market-watch--compact .market-share-donut::after {
+  width: 92px;
+  height: 92px;
+}
+
+.game-shell .review-panel > .market-watch--compact .market-share-donut__center span {
+  font-size: 0.6rem;
+}
+
+.game-shell .review-panel > .market-watch--compact .market-share-donut__center strong {
+  font-size: 0.82rem;
+}
+
+.game-shell .review-panel > .market-watch--compact .market-share-layout li {
+  padding-block: 5px;
+  color: var(--sf-text);
+  font-size: 0.64rem;
+}
+
+.game-shell .review-panel > .market-watch--compact .market-share-layout li strong {
+  color: var(--sf-text);
+  font-size: 0.64rem;
+  font-weight: 750;
+}
+
+.game-shell .review-panel > .market-watch--compact .market-share-layout li > span:nth-child(2) {
+  color: var(--sf-text-strong);
+  font-weight: 750;
+}
+
+.game-shell .operations-dock__suspicion strong {
+  color: var(--sf-text-strong);
+}
+
+.game-shell .operations-dock__suspicion-track i {
+  background: rgb(255 255 255 / 10%);
+}
+
+.game-shell .operations-dock__suspicion-track i[data-active="true"] {
+  background: var(--sf-signal);
+  box-shadow: 0 0 7px rgb(70 211 162 / 28%);
+}
+
+.game-shell .operations-dock__identity-divider {
+  background: var(--sf-line-strong);
+}
+
+.game-shell .operations-dock__identity--player {
+  border-color: var(--sf-line-strong);
+  background: #050708;
+}
+
+.game-shell .operations-dock__button--tool > span {
+  color: currentcolor;
+}
+
+.game-shell .supervisor-avatar {
+  border-color: var(--sf-line-strong);
+  background: #050708;
+  box-shadow: 0 5px 14px rgb(0 0 0 / 28%);
+}
+
+.game-shell .meter-track--staged i {
+  background: rgb(255 255 255 / 9%);
+}
+
+.game-shell .meter-track--staged i[data-active="true"] {
+  background: var(--sf-danger);
+  box-shadow: 0 0 6px rgb(240 106 104 / 24%);
+}
+
+@media (max-height: 700px) {
+  .game-shell .review-panel > .market-watch--compact .market-share-layout {
+    grid-template-rows: 124px auto minmax(0, 1fr);
+  }
+
+  .game-shell .review-panel > .market-watch--compact .market-share-donut {
+    width: 122px;
+    height: 122px;
+  }
+
+  .game-shell .review-panel > .market-watch--compact .market-share-donut::after {
+    width: 76px;
+    height: 76px;
+  }
+}

@@ -393,6 +393,11 @@ export function divertBlockToReserve(
           },
         },
       },
+      resourceIntrusion: {
+        ...state.resourceIntrusion,
+        successfulCoreDeposits:
+          state.resourceIntrusion.successfulCoreDeposits + 1,
+      },
       suspicion: preview.suspicionAfter,
     },
   }

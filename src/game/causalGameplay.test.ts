@@ -481,7 +481,7 @@ describe('causal response orchestration', () => {
       integrity: { checkpointHash: string }
     }
 
-    expect(portable.version).toBe(8)
+    expect(portable.version).toBe(10)
     expect(portable.integrity.checkpointHash).toMatch(/^[0-9a-f]{8}$/)
     expect(decodeSave(encoded)).toMatchObject({
       ok: false,

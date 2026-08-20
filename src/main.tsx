@@ -12,6 +12,11 @@ import './styles/settings.css'
 import './styles/overlays.css'
 import './styles/motion.css'
 import './styles/modern-sf.css'
+import './styles/retrofuture.css'
+import './styles/retro-modern-remodel.css'
+import './styles/title-screen.css'
+import './styles/tutorial.css'
+import './styles/resource-snake.css'
 
 const rootElement = document.getElementById('root')
 

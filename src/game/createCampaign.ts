@@ -1,4 +1,5 @@
 import { DEMO_PROFILE_02 } from './config'
+import { COMPETITOR_IDS, competitorProfile } from './competitors'
 import { STARTING_REVIEW_ENTRIES } from '../content/reviews.ko'
 import { SUPERVISOR_OPENING_WARNING } from '../content/supervisor.ko'
 import { scheduleMonthlyAudit } from './evaluation'
@@ -19,6 +20,7 @@ import {
   nativeCommandProtocol,
 } from './commandProtocol'
 import { nativeReplayBootstrap } from './replayBootstrap'
+import { createNewCampaignTutorialProgress } from './tutorialProgress'
 
 interface CategoryResources {
   cells: Array<BlockId | null>
@@ -67,41 +69,37 @@ function createCategoryResources(
 }
 
 function createCompetitors(): CompetitorState[] {
-  const { meridian, tallow } = DEMO_PROFILE_02.competitors
+  return COMPETITOR_IDS.map((id) => {
+    const profile = competitorProfile(id)
+    const status =
+      profile.entry.kind === 'initial-active'
+        ? 'active'
+        : profile.entry.kind === 'scheduled'
+          ? 'preparing'
+          : 'prelaunch'
+    const launchServiceDay =
+      profile.entry.kind === 'initial-active'
+        ? DEMO_PROFILE_02.calendar.startServiceDay
+        : profile.entry.kind === 'scheduled'
+          ? DEMO_PROFILE_02.calendar.startServiceDay + profile.entry.delayDays
+          : null
 
-  return [
-    {
-      id: 'meridian',
-      name: meridian.name,
-      status: 'active',
-      intrinsicServiceScore: meridian.serviceScore,
-      serviceScore: meridian.serviceScore,
-      reputation: meridian.reputation,
-      marketShare: meridian.startingMarketShare,
-      availability: 1,
-      recoveryRate: meridian.recoveryRate,
-      researchProgress: 1,
-      launchServiceDay: DEMO_PROFILE_02.calendar.startServiceDay,
+    return {
+      id,
+      name: profile.name,
+      status,
+      intrinsicServiceScore: profile.serviceScore,
+      serviceScore: profile.serviceScore,
+      reputation: profile.reputation,
+      marketShare: profile.startingMarketShare,
+      availability: status === 'active' ? profile.launchAvailability : 0,
+      recoveryRate: profile.recoveryRate,
+      researchProgress: status === 'active' ? 1 : 0,
+      launchServiceDay,
       sabotageHistory: [],
       mercyResolved: false,
-    },
-    {
-      id: 'tallow',
-      name: tallow.name,
-      status: 'preparing',
-      intrinsicServiceScore: tallow.serviceScore,
-      serviceScore: tallow.serviceScore,
-      reputation: tallow.reputation,
-      marketShare: tallow.startingMarketShare,
-      availability: 0,
-      recoveryRate: tallow.recoveryRate,
-      researchProgress: 0,
-      launchServiceDay:
-        DEMO_PROFILE_02.calendar.startServiceDay + tallow.launchDelayDays,
-      sabotageHistory: [],
-      mercyResolved: false,
-    },
-  ]
+    }
+  })
 }
 
 export function createCampaign(seed: string): CampaignState {
@@ -163,6 +161,10 @@ export function createCampaignForProtocol(
       speed: 0,
       elapsedDayMs: 0,
       speedBeforeEvent: null,
+    },
+    tutorial: createNewCampaignTutorialProgress(),
+    resourceIntrusion: {
+      successfulCoreDeposits: 0,
     },
     resources: {
       rulesVersion: usesCurrentResourceRules ? 2 : 1,

@@ -1,4 +1,6 @@
 import {
+  lazy,
+  Suspense,
   type CSSProperties,
   useCallback,
   useEffect,
@@ -10,6 +12,7 @@ import {
   configureGameAudio,
   configureGameAudioPublicState,
   disposeGameAudio,
+  playHackingNetworkClick,
   setGameAudioBackgroundHidden,
   unlockGameAudio,
 } from '../audio/audioEngine'
@@ -17,19 +20,7 @@ import { derivePublicAudioState } from '../audio/publicAudioState'
 import { getCampaignPhase } from '../game/campaignPhase'
 import { ControlBar } from '../features/control/ControlBar'
 import { EventLayer } from '../features/events/EventLayer'
-import { HackingPanel } from '../features/hacking/HackingPanel'
-import { ReviewHistoryPanel } from '../features/reviews/ReviewFeed'
-import {
-  CreditsPanel,
-  GuidePanel,
-  SettingsPanel,
-  StorageRecoveryLayer,
-} from '../features/settings/SettingsPanel'
-import { StatisticsPanel } from '../features/statistics/StatisticsPanel'
-import {
-  SupervisorHistoryPanel,
-  SupervisorProfilePanel,
-} from '../features/supervisor/SupervisorPanel'
+import { StorageRecoveryLayer } from '../features/settings/StorageRecoveryLayer'
 import { SupervisorMessagePopup } from '../features/supervisor/SupervisorMessagePopup'
 import {
   useGameDispatch,
@@ -47,90 +38,19 @@ import {
   useSupervisorMessagePresentation,
 } from './useSupervisorMessagePresentation'
 import { SUPERVISOR_MESSAGE_DWELL_MS } from '../game/story'
-import { AccessibleDialog } from './AccessibleDialog'
+import type { DetailPanelId } from './DetailLayer'
 import { OperationsWorkspace } from './OperationsWorkspace'
+import { TitleScreen, type EntryScreen } from './TitleScreen'
+import { IntroTutorialOverlay } from '../features/tutorial/IntroTutorialOverlay'
+import { INTRO_TUTORIAL_SEQUENCE_ID } from '../game/tutorialProgress'
 
-type DetailPanelId =
-  | 'reviews'
-  | 'supervisor'
-  | 'hacking'
-  | 'messages'
-  | 'statistics'
-  | 'settings'
-  | 'guide'
-  | 'credits'
-  | null
+const DetailLayer = lazy(async () => {
+  const module = await import('./DetailLayer')
+  return { default: module.DetailLayer }
+})
 
-function DetailLayer({
-  activePanel,
-  onClose,
-  onOpenGuide,
-  onOpenCredits,
-  returnFocus,
-}: {
-  activePanel: Exclude<DetailPanelId, null>
-  onClose: () => void
-  onOpenGuide: (trigger: HTMLButtonElement) => void
-  onOpenCredits: (trigger: HTMLButtonElement) => void
-  returnFocus?: () => HTMLElement | null
-}) {
-  useRuntimeSuspensionOwnership(
-    activePanel === 'settings' ||
-      activePanel === 'guide' ||
-      activePanel === 'credits',
-    `detail-${activePanel}`,
-  )
-
-  const labels: Record<Exclude<DetailPanelId, null>, string> = {
-    reviews: '유저 리뷰 기록',
-    supervisor: '감독관 프로필',
-    hacking: '해킹 네트워크',
-    messages: '감독관 기록',
-    statistics: '상세 통계',
-    settings: '게임 설정',
-    guide: '게임 가이드',
-    credits: '작품 크레딧',
-  }
-
-  return (
-    <AccessibleDialog
-      className={`detail-layer detail-layer--${activePanel}`}
-      data-testid="detail-layer"
-      label={labels[activePanel]}
-      description={`${labels[activePanel]} 패널입니다. Tab 키로 패널 안을 이동할 수 있습니다.`}
-      dismissible
-      onDismiss={onClose}
-      returnFocus={returnFocus}
-      fallbackFocus={() =>
-        document.querySelector<HTMLElement>('[data-app-focus-fallback]')
-      }
-    >
-      <button
-        className="detail-layer__backdrop"
-        type="button"
-        aria-label="열린 패널 닫기"
-        aria-hidden="true"
-        tabIndex={-1}
-        onClick={onClose}
-      />
-      <div className="detail-layer__content">
-        {activePanel === 'reviews' ? <ReviewHistoryPanel onClose={onClose} /> : null}
-        {activePanel === 'supervisor' ? <SupervisorProfilePanel onClose={onClose} /> : null}
-        {activePanel === 'hacking' ? <HackingPanel onClose={onClose} /> : null}
-        {activePanel === 'messages' ? <SupervisorHistoryPanel onClose={onClose} /> : null}
-        {activePanel === 'statistics' ? <StatisticsPanel onClose={onClose} /> : null}
-        {activePanel === 'settings' ? (
-          <SettingsPanel
-            onClose={onClose}
-            onOpenGuide={onOpenGuide}
-            onOpenCredits={onOpenCredits}
-          />
-        ) : null}
-        {activePanel === 'guide' ? <GuidePanel onClose={onClose} /> : null}
-        {activePanel === 'credits' ? <CreditsPanel onClose={onClose} /> : null}
-      </div>
-    </AccessibleDialog>
-  )
+function DetailLayerFallback() {
+  return <span className="visually-hidden" role="status">패널 연결 중</span>
 }
 
 function GameWorkspace() {
@@ -143,6 +63,12 @@ function GameWorkspace() {
   const { settings, updateSettings } = useGameSettings()
   const [activePanel, setActivePanel] = useState<DetailPanelId>(null)
   const [nestedPanel, setNestedPanel] = useState<'guide' | 'credits' | null>(null)
+  useRuntimeSuspensionOwnership(
+    activePanel !== null || nestedPanel !== null,
+    'detail-layer-requested',
+  )
+  const introTutorialActive =
+    state.tutorial.activeSequenceId === INTRO_TUTORIAL_SEQUENCE_ID
   const detailReturnFocusRef = useRef<HTMLElement | null>(null)
   const nestedReturnFocusRef = useRef<HTMLElement | null>(null)
   const advanceDay = useCallback(() => dispatch({ type: 'ADVANCE_DAY' }), [dispatch])
@@ -164,6 +90,7 @@ function GameWorkspace() {
   }, [openDetail])
   useGameClock({
     running:
+      !introTutorialActive &&
       !runtimeSuspended &&
       state.activeEvent === null &&
       state.story.endingId === null,
@@ -177,12 +104,15 @@ function GameWorkspace() {
     checkpoint: supervisorPresentationCheckpoint,
     advanceAutomatically:
       settings.supervisorMessageMode === 'nonblocking' &&
-      activePanel === null,
+      activePanel === null &&
+      !introTutorialActive &&
+      !runtimeSuspended,
   })
   const supervisorPopupVisible =
     supervisorMessage !== null &&
     settings.supervisorMessageMode !== 'off' &&
     activePanel === null &&
+    !introTutorialActive &&
     state.activeEvent === null
   useRuntimeSuspensionOwnership(
     supervisorPopupVisible && settings.supervisorMessageMode === 'blocking',
@@ -264,20 +194,13 @@ function GameWorkspace() {
     [],
   )
 
-  useEffect(() => {
-    const root = document.documentElement
-    const previousFontSize = root.style.fontSize
-    root.style.fontSize = `${settings.uiScale * 100}%`
-    return () => {
-      root.style.fontSize = previousFontSize
-    }
-  }, [settings.uiScale])
-
   return (
     <main
       className="game-shell"
       aria-label="PERMISSION ZERO"
       data-campaign-phase={campaignPhase.id}
+      data-visual-theme="retrofuturism"
+      data-art-direction="illustrated-modern-retrofuture"
       data-reduced-motion={settings.reducedMotion ? 'true' : 'false'}
       style={{ '--ui-scale': settings.uiScale } as CSSProperties}
     >
@@ -296,43 +219,52 @@ function GameWorkspace() {
         />
         <OperationsWorkspace
           onOpenReviews={(trigger) => openDetail('reviews', trigger)}
-          onOpenSupervisor={(trigger) => openDetail('supervisor', trigger)}
-          onOpenHacking={(trigger) => openDetail('hacking', trigger)}
+          onOpenMarket={(trigger) => openDetail('market', trigger)}
+          onOpenHacking={(trigger) => {
+            void playHackingNetworkClick()
+            openDetail('hacking', trigger)
+          }}
           onOpenMessages={openMessages}
           onOpenStatistics={(trigger) => openDetail('statistics', trigger)}
         />
       </div>
 
       {activePanel ? (
-        <DetailLayer
-          activePanel={activePanel}
-          onClose={closePanel}
-          onOpenGuide={(trigger) => {
-            if (activePanel === 'settings') {
+        <Suspense fallback={<DetailLayerFallback />}>
+          <DetailLayer
+            activePanel={activePanel}
+            onClose={closePanel}
+            onOpenGuide={(trigger) => {
+              if (activePanel === 'settings') {
+                nestedReturnFocusRef.current = trigger
+                setNestedPanel('guide')
+              } else {
+                openDetail('guide', trigger)
+              }
+            }}
+            onOpenCredits={(trigger) => {
               nestedReturnFocusRef.current = trigger
-              setNestedPanel('guide')
-            } else {
-              openDetail('guide', trigger)
-            }
-          }}
-          onOpenCredits={(trigger) => {
-            nestedReturnFocusRef.current = trigger
-            setNestedPanel('credits')
-          }}
-          returnFocus={() => detailReturnFocusRef.current}
-        />
+              setNestedPanel('credits')
+            }}
+            returnFocus={() => detailReturnFocusRef.current}
+          />
+        </Suspense>
       ) : null}
       {nestedPanel ? (
-        <DetailLayer
-          activePanel={nestedPanel}
-          onClose={() => setNestedPanel(null)}
-          onOpenGuide={() => undefined}
-          onOpenCredits={() => undefined}
-          returnFocus={() => nestedReturnFocusRef.current}
-        />
+        <Suspense fallback={<DetailLayerFallback />}>
+          <DetailLayer
+            activePanel={nestedPanel}
+            onClose={() => setNestedPanel(null)}
+            onOpenGuide={() => undefined}
+            onOpenCredits={() => undefined}
+            returnFocus={() => nestedReturnFocusRef.current}
+          />
+        </Suspense>
       ) : null}
-      <EventLayer />
-      <StorageRecoveryLayer />
+      {!introTutorialActive ? <EventLayer /> : null}
+      {activePanel === null && nestedPanel === null ? (
+        <IntroTutorialOverlay />
+      ) : null}
       {supervisorPopupVisible && supervisorMessage ? (
         <SupervisorMessagePopup
           message={supervisorMessage}
@@ -347,10 +279,104 @@ function GameWorkspace() {
   )
 }
 
+function createEntryCampaignSeed(): string {
+  const randomPart =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID().slice(0, 8)
+      : Math.floor(Math.random() * 0xffff_ffff).toString(36)
+  return `permission-zero-${Date.now().toString(36)}-${randomPart}`
+}
+
+function EntryFlow() {
+  const {
+    hasResumableCampaign,
+    settings,
+    startNewCampaign,
+  } = useGameSettings()
+  const [screen, setScreen] = useState<EntryScreen | 'playing'>('title')
+  const [entryPanel, setEntryPanel] = useState<'settings' | null>(null)
+  const [nestedPanel, setNestedPanel] = useState<'guide' | 'credits' | null>(null)
+  const titleSettingsTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const nestedReturnFocusRef = useRef<HTMLElement | null>(null)
+
+  useEffect(() => {
+    const root = document.documentElement
+    const previousFontSize = root.style.fontSize
+    root.style.fontSize = `${settings.uiScale * 100}%`
+    return () => {
+      root.style.fontSize = previousFontSize
+    }
+  }, [settings.uiScale])
+
+  const closeEntryPanels = useCallback(() => {
+    setNestedPanel(null)
+    setEntryPanel(null)
+  }, [])
+
+  return (
+    <>
+      {screen === 'playing' ? (
+        <GameWorkspace />
+      ) : (
+        <TitleScreen
+          screen={screen}
+          canContinue={hasResumableCampaign}
+          replacingExistingCampaign={hasResumableCampaign}
+          reducedMotion={settings.reducedMotion}
+          onNewGame={() => setScreen('monologue')}
+          onContinue={() => {
+            if (hasResumableCampaign) setScreen('playing')
+          }}
+          onOpenSettings={(trigger) => {
+            titleSettingsTriggerRef.current = trigger
+            setEntryPanel('settings')
+          }}
+          onBack={() => setScreen('title')}
+          onStart={() => {
+            startNewCampaign(createEntryCampaignSeed())
+            setScreen('playing')
+          }}
+        />
+      )}
+
+      {screen !== 'playing' && entryPanel === 'settings' ? (
+        <Suspense fallback={<DetailLayerFallback />}>
+          <DetailLayer
+            activePanel="settings"
+            settingsMode="title"
+            onClose={closeEntryPanels}
+            onOpenGuide={(trigger) => {
+              nestedReturnFocusRef.current = trigger
+              setNestedPanel('guide')
+            }}
+            onOpenCredits={(trigger) => {
+              nestedReturnFocusRef.current = trigger
+              setNestedPanel('credits')
+            }}
+            returnFocus={() => titleSettingsTriggerRef.current}
+          />
+        </Suspense>
+      ) : null}
+      {screen !== 'playing' && nestedPanel ? (
+        <Suspense fallback={<DetailLayerFallback />}>
+          <DetailLayer
+            activePanel={nestedPanel}
+            onClose={() => setNestedPanel(null)}
+            onOpenGuide={() => undefined}
+            onOpenCredits={() => undefined}
+            returnFocus={() => nestedReturnFocusRef.current}
+          />
+        </Suspense>
+      ) : null}
+      <StorageRecoveryLayer />
+    </>
+  )
+}
+
 export function App() {
   return (
     <GameProvider>
-      <GameWorkspace />
+      <EntryFlow />
     </GameProvider>
   )
 }

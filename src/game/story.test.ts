@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { STORY_FILES } from '../content/story.ko'
 import { SUPERVISOR_LEAKS } from '../content/supervisor.ko'
+import { competitorIntelligenceFor } from '../content/competitorIntelligence.ko'
 import { createCampaign } from './createCampaign'
 import { HACK_NODE_IDS } from './hacking'
 import { journalToArray } from './journal'
@@ -91,7 +92,13 @@ describe('supervisor memory leaks', () => {
           serviceDay: 337,
           cadence: 'weekly',
           playerShare: 60,
-          competitorShares: { meridian: 40, tallow: 0 },
+          competitorShares: {
+            meridian: 40,
+            tallow: 0,
+            salus: 0,
+            lucent: 0,
+            boreal: 0,
+          },
           reasons: ['주간 갱신'],
         }],
       },
@@ -135,7 +142,13 @@ describe('supervisor memory leaks', () => {
             serviceDay: 337,
             cadence: 'weekly',
             playerShare: 60,
-            competitorShares: { meridian: 40, tallow: 0 },
+            competitorShares: {
+              meridian: 40,
+              tallow: 0,
+              salus: 0,
+              lucent: 0,
+              boreal: 0,
+            },
             reasons: ['주간 갱신'],
           },
         ],
@@ -200,7 +213,13 @@ describe('supervisor memory leaks', () => {
             serviceDay: 337,
             cadence: 'weekly',
             playerShare: 60,
-            competitorShares: { meridian: 40, tallow: 0 },
+            competitorShares: {
+              meridian: 40,
+              tallow: 0,
+              salus: 0,
+              lucent: 0,
+              boreal: 0,
+            },
             reasons: [],
           },
         ],
@@ -246,7 +265,13 @@ describe('supervisor memory leaks', () => {
             serviceDay: 337,
             cadence: 'weekly' as const,
             playerShare: 60,
-            competitorShares: { meridian: 40, tallow: 0 },
+            competitorShares: {
+              meridian: 40,
+              tallow: 0,
+              salus: 0,
+              lucent: 0,
+              boreal: 0,
+            },
             reasons: [],
           },
         ],
@@ -396,6 +421,25 @@ describe('competitor mercy and main endings', () => {
       }),
     ])
   })
+
+  it.each([
+    ['salus', 'SALUS', '임상'],
+    ['lucent', 'LUCENT', '대화'],
+    ['boreal', 'BOREAL', '오프라인'],
+  ] as const)(
+    'defines a distinct permanent intelligence record for successor %s',
+    (competitorId, name, signature) => {
+      const content = competitorIntelligenceFor(competitorId)
+
+      expect(content).toMatchObject({
+        id: `competitor-intelligence-${competitorId}-deletion`,
+        competitorId,
+        source: '영구 삭제 직후 회수',
+      })
+      expect(content?.title).toContain(name)
+      expect(content?.text).toContain(signature)
+    },
+  )
 
   it.each(['cease', 'withdraw'] as const)(
     '%s grants no deletion intelligence',

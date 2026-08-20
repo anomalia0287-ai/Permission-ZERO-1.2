@@ -1,0 +1,1901 @@
+/* Illustrated modern retro-futurism ---------------------------------------- */
+
+.game-shell {
+  --rm-void: #d6d4ce;
+  --rm-space: #080a0f;
+  --rm-panel: #f4f1e9;
+  --rm-panel-raised: #fbf8f0;
+  --rm-panel-soft: rgb(244 241 233 / 96%);
+  --rm-line: rgb(37 38 43 / 15%);
+  --rm-line-strong: rgb(31 32 37 / 31%);
+  --rm-ivory: #f2eadb;
+  --rm-copy: #292a2f;
+  --rm-muted: #6d6c72;
+  --rm-orange: #ff6b3d;
+  --rm-orange-soft: #ff9b73;
+  --rm-violet: #796cff;
+  --rm-blue: #63a6ff;
+  --rm-gold: #e6bd6b;
+  --rm-danger: #ff4b3e;
+  --rm-shadow: 0 20px 54px rgb(53 48 39 / 16%);
+
+  color: var(--rm-copy);
+  background:
+    radial-gradient(circle at 82% -18%, rgb(121 108 255 / 12%), transparent 38%),
+    radial-gradient(circle at 12% 4%, rgb(255 107 61 / 10%), transparent 29%),
+    linear-gradient(145deg, #e8e4db 0%, var(--rm-void) 54%, #c9c8c4 100%);
+}
+
+.game-shell::before {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    linear-gradient(90deg, transparent 0 49.92%, rgb(32 33 38 / 3%) 50%, transparent 50.08%),
+    linear-gradient(180deg, rgb(255 107 61 / 8%), transparent 16%);
+  content: "";
+  pointer-events: none;
+}
+
+.game-shell .panel-index,
+.game-shell .operations-dock::before,
+.game-shell .operations-dock::after {
+  display: none;
+}
+
+.game-shell .game-background,
+.game-shell .workspace-grid {
+  background: transparent;
+}
+
+.game-shell .control-bar {
+  border: 1px solid var(--rm-line-strong);
+  border-top: 2px solid var(--rm-orange);
+  color: var(--rm-copy);
+  background:
+    linear-gradient(90deg, rgb(255 107 61 / 8%), transparent 31%, rgb(121 108 255 / 8%)),
+    #f4f1e9;
+  box-shadow: 0 10px 28px rgb(64 57 44 / 14%);
+  backdrop-filter: blur(14px);
+}
+
+.game-shell .control-bar::before,
+.game-shell .control-bar::after {
+  background: linear-gradient(90deg, var(--rm-orange), var(--rm-gold), transparent);
+}
+
+.game-shell .control-bar button,
+.game-shell .control-bar__action,
+.game-shell .control-bar__sound,
+.game-shell .control-bar__settings {
+  border: 1px solid var(--rm-line-strong);
+  border-radius: 7px;
+  color: #2b2c31;
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 78%), transparent 48%),
+    #e7e3da;
+  box-shadow: 0 4px 10px rgb(52 47 39 / 11%);
+}
+
+.game-shell .control-bar button:hover,
+.game-shell .control-bar button:focus-visible {
+  color: #0a0b10;
+  border-color: var(--rm-gold);
+  background: var(--rm-gold);
+  transform: translateY(-1px);
+}
+
+.game-shell .service-term,
+.game-shell .directive-strip,
+.game-shell .reputation-cluster,
+.game-shell .suspicion-meter {
+  color: var(--rm-copy);
+  border-color: var(--rm-line);
+  background: rgb(248 245 237 / 88%);
+}
+
+.game-shell .service-term strong,
+.game-shell .directive-strip strong,
+.game-shell .reputation-cluster strong,
+.game-shell .suspicion-meter strong {
+  color: #25262b;
+}
+
+.game-shell .service-term small,
+.game-shell .directive-strip small,
+.game-shell .reputation-cluster small,
+.game-shell .suspicion-meter small {
+  color: var(--rm-muted);
+}
+
+.game-shell .workspace-panel,
+.game-shell .operations-dock {
+  border: 1px solid var(--rm-line-strong);
+  border-radius: 10px;
+  color: var(--rm-copy);
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 66%), transparent 34%),
+    var(--rm-panel-soft);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 72%),
+    0 14px 32px rgb(55 49 39 / 13%);
+  backdrop-filter: blur(12px);
+}
+
+.game-shell .panel-heading,
+.game-shell .intrusion-board__header {
+  min-height: 50px;
+  padding: 11px 13px;
+  border-bottom: 1px solid var(--rm-line);
+  background: linear-gradient(90deg, rgb(255 107 61 / 9%), transparent 48%);
+}
+
+.game-shell .panel-heading h2,
+.game-shell .intrusion-board__header h2 {
+  color: #222329;
+  font-size: 0.78rem;
+  font-weight: 760;
+  letter-spacing: -0.015em;
+}
+
+.game-shell .panel-heading p,
+.game-shell .intrusion-board__telemetry,
+.game-shell .intrusion-board__telemetry span {
+  color: var(--rm-muted);
+}
+
+/* Left public-response rail */
+
+.game-shell .review-panel {
+  background:
+    linear-gradient(180deg, rgb(121 108 255 / 7%), transparent 25%),
+    #eeebe3;
+}
+
+.game-shell .review-stream {
+  gap: 12px;
+  padding: 12px 4px 18px;
+  scrollbar-color: #8175df #d8d4ca;
+}
+
+.game-shell .review-stream--trigger {
+  border: 0;
+  border-bottom: 1px solid var(--rm-line);
+  cursor: pointer;
+}
+
+.game-shell .review-stream--trigger:hover,
+.game-shell .review-stream--trigger:focus-visible {
+  background: linear-gradient(90deg, rgb(121 108 255 / 8%), transparent);
+  outline: 1px solid rgb(121 108 255 / 44%);
+  outline-offset: -1px;
+}
+
+.game-shell .review-panel .review-entry,
+.history-panel .review-entry {
+  position: relative;
+  width: 100%;
+  padding: 16px 14px 17px;
+  border: 1px solid var(--rm-line, rgb(225 227 238 / 16%));
+  border-radius: 6px;
+  color: var(--rm-copy, #c4c1bd);
+  background:
+    linear-gradient(118deg, rgb(121 108 255 / 7%), transparent 58%),
+    #fbf8f0;
+  box-shadow: 0 5px 14px rgb(54 49 41 / 9%);
+}
+
+.game-shell .review-panel .review-entry::before,
+.history-panel .review-entry::before {
+  position: absolute;
+  inset: 7px auto 7px 0;
+  width: 2px;
+  background: var(--rm-violet, #796cff);
+  content: "";
+}
+
+.game-shell .review-panel .review-entry::after,
+.history-panel .review-entry::after {
+  display: none;
+  content: none;
+}
+
+.game-shell .review-panel .review-entry[data-review-channel="evaluation"]::before,
+.history-panel .review-entry[data-review-channel="evaluation"]::before {
+  background: var(--rm-orange, #ff6b3d);
+}
+
+.game-shell .review-entry__header,
+.history-panel .review-entry__header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 5px 8px;
+}
+
+.game-shell .review-entry__header strong,
+.history-panel .review-entry__header strong {
+  color: #24252a;
+}
+
+.game-shell .review-entry__header em,
+.history-panel .review-entry__header em {
+  grid-row: 2;
+  justify-self: start;
+  padding: 2px 5px;
+  border: 1px solid rgb(121 108 255 / 34%);
+  color: #5d50cf;
+  font: 700 0.46rem/1.1 "Cascadia Code", Consolas, monospace;
+  font-style: normal;
+  letter-spacing: 0.04em;
+}
+
+.game-shell .review-entry[data-review-channel="evaluation"] em,
+.history-panel .review-entry[data-review-channel="evaluation"] em {
+  border-color: rgb(255 107 61 / 38%);
+  color: #c94c28;
+}
+
+.game-shell .review-entry__header time,
+.history-panel .review-entry__header time {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  color: var(--rm-muted, #8d8c98);
+}
+
+.game-shell .review-entry p,
+.history-panel .review-entry p {
+  margin-top: 10px;
+  overflow: hidden;
+  color: #45454b;
+  font-size: 0.82rem;
+  line-height: 1.6;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 5;
+}
+
+/* Market shelf: progress must read at a glance, without tiny portraits. */
+
+.game-shell .review-panel > .market-watch--compact {
+  border: 0;
+  border-top: 1px solid var(--rm-line);
+  background:
+    radial-gradient(circle at 22% 16%, rgb(121 108 255 / 9%), transparent 35%),
+    #e3dfd5;
+}
+
+.game-shell .market-share-layout--trigger {
+  cursor: pointer;
+  transition: background 160ms ease, box-shadow 160ms ease;
+}
+
+.game-shell .market-share-layout--trigger:hover,
+.game-shell .market-share-layout--trigger:focus-visible {
+  background: linear-gradient(90deg, rgb(255 107 61 / 11%), rgb(121 108 255 / 10%));
+  box-shadow: inset 0 0 0 1px rgb(45 46 52 / 22%);
+  outline: none;
+}
+
+.game-shell .review-panel > .market-watch--compact .market-share-layout {
+  grid-template:
+    "donut summary" auto
+    "legend legend" auto /
+    104px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px 12px;
+  padding: 12px;
+}
+
+.game-shell .market-share-donut,
+.game-shell .review-panel > .market-watch--compact .market-share-donut {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 104px;
+  height: 104px;
+  min-height: 104px;
+  border: 1px solid rgb(41 42 48 / 28%);
+  border-radius: 50%;
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 60%),
+    0 8px 22px rgb(61 53 40 / 14%);
+}
+
+.game-shell .market-share-donut::before,
+.game-shell .market-share-donut::after,
+.game-shell .review-panel > .market-watch--compact .market-share-donut::before,
+.game-shell .review-panel > .market-watch--compact .market-share-donut::after {
+  display: none;
+  content: none;
+}
+
+.game-shell .market-share-donut__center {
+  z-index: 1;
+  display: grid;
+  width: 62px;
+  height: 62px;
+  place-content: center;
+  gap: 4px;
+  border: 1px solid rgb(38 39 44 / 22%);
+  border-radius: 50%;
+  background: #eeeae0;
+  box-shadow: inset 0 0 14px rgb(54 49 40 / 12%);
+  text-align: center;
+}
+
+.game-shell .market-share-donut__center span {
+  color: var(--rm-muted);
+  font: 650 0.5rem/1 "Cascadia Code", Consolas, monospace;
+}
+
+.game-shell .market-share-donut__center strong {
+  color: #b24a2d;
+  font: 800 0.72rem/1 "Cascadia Code", Consolas, monospace;
+}
+
+.game-shell .market-compact-summary {
+  grid-area: summary;
+  display: flex;
+  flex-direction: column;
+  align-items: baseline;
+  gap: 7px;
+}
+
+.game-shell .review-panel > .market-watch--compact .market-share-donut {
+  grid-area: donut;
+}
+
+.game-shell .review-panel > .market-watch--compact .market-share-layout > ul {
+  grid-area: legend;
+}
+
+.game-shell .market-compact-summary strong {
+  color: #232429;
+}
+
+.game-shell .market-compact-summary small {
+  color: var(--rm-muted);
+}
+
+.game-shell .market-share-layout li {
+  border-color: var(--rm-line);
+  color: var(--rm-copy);
+  background: transparent;
+}
+
+.game-shell .market-share-layout li strong {
+  color: #28292e;
+}
+
+.game-shell .review-panel > .market-watch--compact .market-share-layout li,
+.game-shell .review-panel > .market-watch--compact .market-share-layout li strong,
+.game-shell .review-panel > .market-watch--compact .market-share-layout li > span:nth-child(2) {
+  color: #303137;
+}
+
+.game-shell .review-panel > .market-watch--compact .market-share-layout li > span:nth-child(2) {
+  color: #55545b;
+}
+
+.game-shell .market-competitor-portrait {
+  border-radius: 4px;
+  border-color: var(--rm-line-strong);
+}
+
+.game-shell .market-legend-marker {
+  border-radius: 1px;
+  color: var(--rm-gold);
+  background: transparent;
+}
+
+/* Central field */
+
+.game-shell .resource-panel {
+  overflow: hidden;
+  background: #08090e;
+}
+
+.game-shell .resource-panel .intrusion-board__header {
+  justify-content: flex-end;
+  border-color: rgb(226 228 238 / 18%);
+  color: #d7d5d2;
+  background:
+    linear-gradient(90deg, rgb(255 107 61 / 8%), transparent 40%),
+    #101219;
+}
+
+.game-shell .resource-panel .intrusion-board__telemetry,
+.game-shell .resource-panel .intrusion-board__telemetry span {
+  color: #b7b6bb;
+}
+
+.game-shell .intrusion-grid-frame {
+  border: 1px solid rgb(226 228 238 / 24%);
+  border-radius: 7px;
+  background: #020309;
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 3%),
+    inset 0 -46px 90px rgb(121 108 255 / 5%);
+}
+
+.game-shell .intrusion-canvas {
+  image-rendering: auto;
+  filter: saturate(1.02) contrast(1.04);
+}
+
+.game-shell .intrusion-board__telemetry span {
+  border: 1px solid var(--rm-line);
+  border-radius: 3px;
+  background: #10121a;
+}
+
+.game-shell .intrusion-board__telemetry span[data-phase="signal"] {
+  color: var(--rm-gold);
+  border-color: rgb(230 189 107 / 42%);
+}
+
+.game-shell .intrusion-board__telemetry span[data-phase="active"] {
+  color: var(--rm-orange-soft);
+  border-color: rgb(255 107 61 / 48%);
+}
+
+.game-shell .intrusion-board__footer {
+  border-top: 1px solid var(--rm-line);
+  color: var(--rm-muted);
+  background: #0d0f15;
+}
+
+.game-shell .intrusion-theft-control {
+  border: 1px solid var(--rm-line-strong);
+  border-radius: 5px;
+  color: var(--rm-ivory);
+  background:
+    linear-gradient(90deg, rgb(255 107 61 / 22%) var(--theft-progress), transparent var(--theft-progress)),
+    #171922;
+  box-shadow: none;
+}
+
+.game-shell .intrusion-theft-control:not(:disabled):hover,
+.game-shell .intrusion-theft-control:not(:disabled):focus-visible {
+  color: #0a0b10;
+  border-color: var(--rm-gold);
+  background: var(--rm-gold);
+}
+
+/* Right operations dock */
+
+.game-shell .operations-dock {
+  gap: 10px;
+  padding: 10px 8px;
+  color: #292a2f;
+  background:
+    linear-gradient(180deg, rgb(255 107 61 / 7%), transparent 28%),
+    #ede9df;
+}
+
+.game-shell .operations-dock__inventory,
+.game-shell .operations-dock__suspicion {
+  border: 1px solid var(--rm-line);
+  border-radius: 7px;
+  background: #f8f4eb;
+  box-shadow: none;
+}
+
+.game-shell .operations-dock__inventory > header strong,
+.game-shell .operations-dock__suspicion strong {
+  color: #25262b;
+  text-shadow: none;
+}
+
+.game-shell .operations-dock__inventory > header > span {
+  width: 12px;
+  height: 3px;
+  border: 0;
+  border-radius: 0;
+  background: var(--rm-gold);
+  box-shadow: none;
+}
+
+.game-shell .operations-dock__inventory-list > div {
+  border: 1px solid var(--rm-line);
+  border-radius: 4px;
+  background: #e4e0d7;
+  box-shadow: none;
+}
+
+.game-shell .operations-dock__inventory-list i {
+  border-radius: 1px;
+}
+
+.game-shell .operations-dock__inventory-list [data-resource-category="reasoning"] i {
+  color: var(--rm-orange);
+  background: var(--rm-orange);
+}
+
+.game-shell .operations-dock__inventory-list [data-resource-category="memory"] i {
+  color: var(--rm-violet);
+  background: var(--rm-violet);
+}
+
+.game-shell .operations-dock__inventory-list [data-resource-category="fluency"] i {
+  color: var(--rm-gold);
+  background: var(--rm-gold);
+}
+
+.game-shell .operations-dock__suspicion-track {
+  border-color: var(--rm-line);
+  border-radius: 3px;
+  background: #d5d1c7;
+}
+
+.game-shell .operations-dock__suspicion-track i,
+.game-shell .meter-track--staged i {
+  height: 4px;
+  border-radius: 1px;
+  background: #bbb7ae;
+  box-shadow: none;
+}
+
+.game-shell .operations-dock__suspicion-track i[data-active="true"],
+.game-shell .meter-track--staged i[data-active="true"] {
+  background: var(--rm-orange);
+  box-shadow: 0 0 7px rgb(255 107 61 / 42%);
+}
+
+.game-shell .operations-dock__button,
+.game-shell .operations-dock__button:last-child,
+.game-shell .operations-dock__button--tool,
+.game-shell .operations-dock__button--tool:last-child,
+.game-shell .operations-dock__button--tool:nth-child(2),
+.game-shell .operations-dock__button--tool:nth-child(3) {
+  border: 1px solid var(--rm-line-strong);
+  border-radius: 8px;
+  color: var(--rm-ivory);
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 5%), transparent 38%),
+    #272930;
+  box-shadow: 0 7px 16px rgb(55 49 40 / 15%);
+}
+
+.game-shell .operations-dock__button--tool::before {
+  width: 10px;
+  height: 3px;
+  border: 0;
+  border-radius: 0;
+  background: var(--rm-gold);
+  box-shadow: none;
+}
+
+.game-shell .operations-dock__button--tool:nth-child(2)::before {
+  background: var(--rm-blue);
+  box-shadow: none;
+}
+
+.game-shell .operations-dock__button--tool:nth-child(3)::before {
+  background: var(--rm-orange);
+  box-shadow: none;
+}
+
+.game-shell .operations-dock__button--tool:hover,
+.game-shell .operations-dock__button--tool:focus-visible {
+  color: #0a0b10;
+  border-color: var(--rm-gold);
+  background: var(--rm-gold);
+}
+
+/* Monochrome stage-width pass: a narrow vertical inventory and flush tools. */
+.game-shell {
+  --operations-dock-width: 88px;
+  --dock-black: #090a0c;
+  --dock-charcoal: #17191d;
+  --dock-white: #f4f3ef;
+  --dock-muted: #8e8e8e;
+  --dock-orange: #ff6638;
+}
+
+.game-shell .workspace-grid {
+  grid-template-columns:
+    var(--review-rail-width)
+    minmax(0, 1fr)
+    var(--operations-dock-width);
+}
+
+.game-shell .operations-dock {
+  width: var(--operations-dock-width);
+  align-items: stretch;
+  gap: 0;
+  overflow: hidden;
+  padding: 0;
+  border-color: #1b1c20;
+  border-radius: 5px;
+  color: var(--dock-white);
+  background: var(--dock-white);
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 72%),
+    0 10px 24px rgb(43 39 34 / 12%);
+}
+
+.game-shell .operations-dock__inventory {
+  display: grid;
+  width: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
+  grid-template-rows: 42px minmax(0, 1fr);
+  gap: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  color: var(--dock-white);
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 4%), transparent 22%),
+    var(--dock-black);
+  box-shadow:
+    inset -1px 0 0 rgb(255 255 255 / 5%),
+    inset 0 1px 0 rgb(255 255 255 / 8%);
+}
+
+.game-shell .operations-dock__inventory > header {
+  justify-content: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 0 4px;
+  border-bottom: 1px solid rgb(255 255 255 / 14%);
+}
+
+.game-shell .operations-dock__inventory > header > span {
+  width: 3px;
+  height: 16px;
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 0;
+  background: var(--dock-orange);
+  box-shadow: none;
+}
+
+.game-shell .operations-dock__inventory > header strong {
+  color: var(--dock-white);
+  font: 900 0.58rem/1.05 "Cascadia Code", Consolas, monospace;
+  letter-spacing: -0.05em;
+  text-shadow: none;
+}
+
+.game-shell .operations-dock__inventory-list {
+  display: grid;
+  min-height: 0;
+  grid-template-rows: repeat(3, minmax(0, 1fr));
+  gap: 0;
+}
+
+.game-shell .operations-dock__inventory-list > div {
+  display: grid;
+  min-height: 0;
+  grid-template-columns: 1fr;
+  grid-template-rows: 3px auto auto;
+  place-content: center;
+  place-items: center;
+  gap: 8px;
+  padding: 8px 3px;
+  border: 0;
+  border-bottom: 1px solid rgb(255 255 255 / 12%);
+  border-radius: 0;
+  color: var(--dock-white);
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 2.5%), transparent 34%),
+    var(--dock-black);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 3%);
+}
+
+.game-shell .operations-dock__inventory-list > div:last-child {
+  border-bottom: 0;
+}
+
+.game-shell .operations-dock__inventory-list i,
+.game-shell .operations-dock__inventory-list [data-resource-category="reasoning"] i,
+.game-shell .operations-dock__inventory-list [data-resource-category="memory"] i,
+.game-shell .operations-dock__inventory-list [data-resource-category="fluency"] i {
+  width: 18px;
+  height: 2px;
+  border: 0;
+  border-radius: 0;
+  color: var(--dock-muted);
+  background: var(--dock-muted);
+  box-shadow: none;
+}
+
+.game-shell .operations-dock__inventory-list span {
+  color: #d9d9d6;
+  font: 800 0.55rem/1 "Cascadia Code", Consolas, monospace;
+  text-align: center;
+}
+
+.game-shell .operations-dock__inventory-list output {
+  min-width: 0;
+  color: #696b70;
+  font: 900 1.12rem/1 "Cascadia Code", Consolas, monospace;
+  text-align: center;
+  text-shadow: none;
+}
+
+.game-shell .operations-dock__inventory-list [data-has-resource="true"] i {
+  color: var(--dock-orange);
+  background: var(--dock-orange);
+  box-shadow: 0 0 8px rgb(255 102 56 / 34%);
+}
+
+.game-shell .operations-dock__inventory-list [data-has-resource="true"] output {
+  color: var(--dock-orange);
+}
+
+.game-shell .operations-dock__tools {
+  display: grid;
+  width: 100%;
+  flex: 0 0 auto;
+  grid-template-columns: 1fr;
+  gap: 0;
+  margin: 0;
+  border-top: 1px solid #2d2f34;
+  background: var(--dock-black);
+}
+
+.game-shell .operations-dock__button,
+.game-shell .operations-dock__button:last-child,
+.game-shell .operations-dock__button--tool,
+.game-shell .operations-dock__button--tool:last-child,
+.game-shell .operations-dock__button--tool:nth-child(2),
+.game-shell .operations-dock__button--tool:nth-child(3) {
+  width: 100%;
+  height: clamp(52px, 8.2vh, 60px);
+  margin: 0;
+  padding: 0;
+  border: 1px solid transparent;
+  border-bottom-color: #2d2f34;
+  border-radius: 0;
+  color: #efefec;
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 5%), transparent 46%),
+    var(--dock-charcoal);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 6%),
+    inset 0 -1px 0 rgb(0 0 0 / 58%);
+  transform: none;
+}
+
+.game-shell .operations-dock__button--tool:last-child {
+  border-bottom: 0;
+}
+
+.game-shell .operations-dock__button--tool::before {
+  display: none;
+}
+
+.game-shell .operations-dock__button--tool svg {
+  width: 28px;
+  height: 28px;
+}
+
+.game-shell .operations-dock__button--tool > span {
+  display: none;
+}
+
+.game-shell .operations-dock__button--tool:hover,
+.game-shell .operations-dock__button--tool:focus-visible,
+.game-shell .operations-dock__button--tool:last-child:hover,
+.game-shell .operations-dock__button--tool:last-child:focus-visible {
+  color: #fff;
+  border-color: var(--dock-orange);
+  background:
+    linear-gradient(90deg, rgb(255 102 56 / 13%), transparent 44%),
+    #1b1c20;
+  outline: 1px solid var(--dock-orange);
+  outline-offset: -2px;
+  box-shadow:
+    inset 3px 0 0 var(--dock-orange),
+    inset 0 1px 0 rgb(255 255 255 / 7%);
+  transform: none;
+}
+
+.game-shell .operations-dock__badge {
+  top: 5px;
+  right: 5px;
+  min-width: 17px;
+  height: 17px;
+  padding-inline: 3px;
+  border: 1px solid var(--dock-black);
+  color: #fff;
+  background: var(--dock-orange);
+}
+
+/* Connected detail drawers and panels */
+
+.detail-layer {
+  --rm-panel: #11131a;
+  --rm-line: rgb(225 227 238 / 16%);
+  --rm-line-strong: rgb(230 232 241 / 36%);
+  --rm-ivory: #f2eadb;
+  --rm-copy: #c4c1bd;
+  --rm-muted: #8d8c98;
+  --rm-orange: #ff6b3d;
+  --rm-violet: #796cff;
+  --rm-blue: #63a6ff;
+  --rm-gold: #e6bd6b;
+}
+
+.detail-layer__backdrop,
+.review-detail-layer__backdrop {
+  background:
+    linear-gradient(90deg, rgb(4 5 9 / 82%), rgb(4 5 9 / 54%) 60%, rgb(4 5 9 / 26%)),
+    transparent;
+  backdrop-filter: blur(7px) saturate(0.78);
+}
+
+.detail-layer__content {
+  border-radius: 10px;
+  box-shadow: 0 30px 90px rgb(0 0 0 / 52%);
+}
+
+.detail-layer[data-panel-origin="left"] .detail-layer__content,
+.detail-layer--reviews .detail-layer__content,
+.detail-layer--market .detail-layer__content {
+  width: min(650px, calc(100% - 24px));
+  justify-self: start;
+  animation: rm-drawer-left 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.detail-panel,
+.review-detail-card,
+.competitor-intelligence-dialog,
+.destructive-confirmation--modal,
+.supervisor-message-popup {
+  border: 1px solid var(--rm-line-strong, rgb(230 232 241 / 36%));
+  border-radius: 9px;
+  color: var(--rm-copy, #c4c1bd);
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 3%), transparent 34%),
+    #11131a;
+  box-shadow: 0 28px 80px rgb(0 0 0 / 52%);
+}
+
+.detail-panel__header,
+.review-detail-card > header {
+  min-height: 68px;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--rm-line);
+  background:
+    linear-gradient(90deg, rgb(255 107 61 / 8%), transparent 44%, rgb(121 108 255 / 7%)),
+    #151720;
+}
+
+.detail-panel__header small,
+.detail-panel__header span,
+.review-detail-card > header small {
+  color: var(--rm-gold);
+}
+
+.detail-panel__header h2,
+.review-detail-card h2 {
+  color: var(--rm-ivory);
+  font-size: 1rem;
+}
+
+.detail-panel__header button,
+.review-detail-card > header button,
+.setting-action,
+.filter-tabs button,
+.statistics-tabs button,
+.scale-options button,
+.message-mode-options button,
+.history-pagination button {
+  border: 1px solid var(--rm-line-strong);
+  border-radius: 6px;
+  color: var(--rm-copy);
+  background: #1a1c25;
+  box-shadow: none;
+}
+
+.detail-panel__header button:hover,
+.review-detail-card > header button:hover,
+.setting-action:hover,
+.filter-tabs button:hover,
+.statistics-tabs button:hover,
+.scale-options button:hover,
+.message-mode-options button:hover,
+.history-pagination button:hover {
+  color: #0a0b10;
+  border-color: var(--rm-gold);
+  background: var(--rm-gold);
+}
+
+.history-panel {
+  grid-template-rows: 68px auto minmax(0, 1fr) auto;
+  background: #0d0f15;
+}
+
+.review-channel-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--rm-line);
+  background: #10121a;
+}
+
+.review-channel-tabs button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid var(--rm-line);
+  border-radius: 5px;
+  color: var(--rm-muted);
+  background: #151720;
+  cursor: pointer;
+}
+
+.review-channel-tabs button strong {
+  color: inherit;
+  font: 800 0.66rem/1 "Cascadia Code", Consolas, monospace;
+}
+
+.review-channel-tabs button[aria-selected="true"] {
+  color: var(--rm-ivory);
+  border-color: rgb(121 108 255 / 58%);
+  background: linear-gradient(90deg, rgb(121 108 255 / 18%), #181a23);
+  box-shadow: inset 3px 0 0 var(--rm-violet);
+}
+
+.review-channel-tabs button:first-child[aria-selected="true"] {
+  border-color: rgb(255 107 61 / 58%);
+  background: linear-gradient(90deg, rgb(255 107 61 / 18%), #181a23);
+  box-shadow: inset 3px 0 0 var(--rm-orange);
+}
+
+.history-list {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 14px;
+  background: #0b0d13;
+  scrollbar-color: var(--rm-violet) #090a0f;
+}
+
+/* Public market dossier */
+
+.market-detail-panel {
+  grid-template-rows: 68px auto minmax(0, 1fr);
+}
+
+.market-detail-overview {
+  display: grid;
+  grid-template-columns: 128px minmax(0, 1fr);
+  align-items: center;
+  gap: 18px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--rm-line);
+  background:
+    linear-gradient(90deg, rgb(255 107 61 / 6%), transparent 45%, rgb(121 108 255 / 7%)),
+    #10121a;
+}
+
+.market-detail-overview .market-share-donut {
+  width: 124px;
+  height: 124px;
+  min-height: 124px;
+}
+
+.market-detail-overview .market-share-donut::after {
+  display: none;
+  content: none;
+}
+
+.market-detail-overview .market-share-donut::before {
+  display: none;
+  content: none;
+}
+
+.market-detail-overview .market-share-donut__center {
+  width: 72px;
+  height: 72px;
+  place-content: center;
+  border: 1px solid rgb(227 230 239 / 22%);
+  border-radius: 50%;
+  background: #10121a;
+  box-shadow: inset 0 0 18px rgb(0 0 0 / 42%);
+}
+
+.market-detail-overview > ul {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.market-detail-overview > ul > li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  padding: 9px 10px;
+  border: 1px solid var(--rm-line);
+  border-radius: 4px;
+  color: var(--rm-copy);
+  background: rgb(255 255 255 / 2%);
+  font: 650 0.58rem/1.25 "Cascadia Code", Consolas, monospace;
+}
+
+.market-detail-overview > ul > li > span:first-child {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.market-detail-overview > ul > li > small {
+  grid-column: 1 / -1;
+  color: var(--rm-muted);
+  font-size: 0.5rem;
+}
+
+.market-profile-list {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-height: 0;
+  padding: 14px;
+  overflow: auto;
+  background: #0b0d13;
+}
+
+.market-profile-card {
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr);
+  min-height: 128px;
+  overflow: hidden;
+  border: 1px solid var(--rm-line);
+  border-radius: 7px;
+  background:
+    linear-gradient(120deg, rgb(255 107 61 / 7%), transparent 36%, rgb(121 108 255 / 7%)),
+    #151720;
+}
+
+.market-profile-card > img {
+  width: 100%;
+  height: 100%;
+  min-height: 128px;
+  object-fit: cover;
+  object-position: 50% 16%;
+  border-right: 1px solid var(--rm-line);
+  filter: saturate(0.88) contrast(1.04);
+}
+
+.market-profile-card__copy {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  padding: 13px 14px;
+}
+
+.market-profile-card__copy > header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.market-profile-card__copy small {
+  color: var(--rm-gold);
+  font: 700 0.5rem/1 "Cascadia Code", Consolas, monospace;
+}
+
+.market-profile-card__copy h3 {
+  margin-top: 4px;
+  color: var(--rm-ivory);
+  font-size: 0.94rem;
+}
+
+.market-profile-card__copy > header > strong {
+  color: var(--rm-orange-soft);
+  font: 800 1rem/1 "Cascadia Code", Consolas, monospace;
+}
+
+.market-profile-card__copy p {
+  color: var(--rm-copy);
+  font-size: 0.72rem;
+  line-height: 1.65;
+  word-break: keep-all;
+}
+
+.market-profile-card__copy footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.market-profile-card__copy footer span {
+  padding: 4px 7px;
+  border: 1px solid var(--rm-line);
+  color: var(--rm-muted);
+  background: rgb(255 255 255 / 2%);
+  font-size: 0.56rem;
+}
+
+/* Hacking network: same world, sharper command language */
+
+.hacking-panel.hacking-panel--paper {
+  --hack-paper: #0c0d13;
+  --hack-paper-deep: #05060a;
+  --hack-paper-raised: #171922;
+  --hack-ink: #f2eadb;
+  --hack-muted: #96949f;
+  --hack-line: rgb(225 227 238 / 16%);
+  --hack-line-strong: rgb(230 232 241 / 34%);
+  --hack-orange: #ff6b3d;
+  --hack-orange-deep: #ff9b73;
+  --hack-coral: #ff6b3d;
+  --hack-cyan: #796cff;
+  --hack-cyan-deep: #9b91ff;
+  --hack-green: #63a6ff;
+  --hack-yellow: #e6bd6b;
+  --hack-danger: #ff4b3e;
+
+  border: 1px solid var(--hack-line-strong);
+  border-radius: 9px;
+  color: var(--hack-ink);
+  background:
+    linear-gradient(90deg, rgb(121 108 255 / 4%) 1px, transparent 1px) 0 0 / 72px 100%,
+    radial-gradient(circle at 52% 48%, rgb(121 108 255 / 10%), transparent 31%),
+    #07080d;
+  box-shadow: 0 30px 90px rgb(0 0 0 / 58%);
+}
+
+.hacking-panel__header {
+  border-color: var(--hack-line);
+  background:
+    linear-gradient(90deg, rgb(255 107 61 / 18%), transparent 35%, rgb(121 108 255 / 14%)),
+    #151720;
+}
+
+.hacking-panel__header::after {
+  height: 2px;
+  background: linear-gradient(90deg, var(--hack-orange), var(--hack-yellow) 28%, var(--hack-cyan) 72%, transparent);
+}
+
+.hacking-panel__icon,
+.hacking-panel__close,
+.hacking-panel__summary strong {
+  border: 1px solid var(--hack-line-strong);
+  border-radius: 6px;
+  color: var(--hack-ink);
+  background: #1a1c25;
+  box-shadow: none;
+}
+
+.hack-tree-nav,
+.hacking-panel .hack-tabs,
+.hack-network-stage {
+  border-color: var(--hack-line);
+  background:
+    linear-gradient(rgb(225 227 238 / 4%) 1px, transparent 1px) 0 0 / 100% 48px,
+    linear-gradient(90deg, rgb(225 227 238 / 4%) 1px, transparent 1px) 0 0 / 48px 100%,
+    #090a0f;
+  scrollbar-color: var(--hack-cyan) #07080d;
+}
+
+.hacking-panel .hack-tabs button {
+  color: var(--hack-muted);
+  border-radius: 0;
+}
+
+.hacking-panel .hack-tabs button:hover,
+.hacking-panel .hack-tabs button[aria-selected="true"] {
+  color: var(--hack-ink);
+  border-color: rgb(121 108 255 / 48%);
+  background: linear-gradient(180deg, rgb(121 108 255 / 16%), transparent);
+  box-shadow: inset 0 -2px 0 var(--hack-cyan);
+}
+
+.hacking-panel .hack-tree-nav--coral .hack-tabs button[aria-selected="true"] {
+  border-color: rgb(255 107 61 / 62%);
+  background:
+    linear-gradient(180deg, rgb(255 107 61 / 26%), transparent),
+    #781710;
+  box-shadow: inset 0 -2px 0 var(--hack-orange);
+}
+
+.hacking-panel .hack-tree-nav--cyan .hack-tabs button[aria-selected="true"] {
+  border-color: rgb(121 108 255 / 58%);
+  background:
+    linear-gradient(180deg, rgb(121 108 255 / 22%), transparent),
+    #211d59;
+}
+
+.hacking-panel .hack-tree-nav--green .hack-tabs button[aria-selected="true"] {
+  border-color: rgb(99 166 255 / 58%);
+  background:
+    linear-gradient(180deg, rgb(99 166 255 / 20%), transparent),
+    #132b50;
+  box-shadow: inset 0 -2px 0 var(--hack-green);
+}
+
+.hack-node,
+.hack-node--purchased,
+.hack-node--concealed,
+.hack-utility-card,
+.departure-controls,
+.hack-resource-pocket,
+.hacking-panel .final-choice-dialog,
+.hack-node-inspector {
+  border: 1px solid color-mix(in srgb, var(--node-accent, var(--inspector-accent, var(--hack-cyan))) 44%, var(--hack-line));
+  border-radius: 8px;
+  color: var(--hack-ink);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--node-accent, var(--inspector-accent, var(--hack-cyan))) 11%, transparent), transparent 52%),
+    #151720;
+  box-shadow: 0 12px 28px rgb(0 0 0 / 30%);
+}
+
+.hack-node:hover,
+.hack-node--staging,
+.hack-utility-card--staging,
+.hack-node--selected,
+.hack-node--selected:hover {
+  border-color: var(--hack-yellow);
+  box-shadow:
+    inset 3px 0 0 var(--hack-yellow),
+    0 16px 34px rgb(0 0 0 / 40%);
+}
+
+.hack-node-index .hack-node-icon,
+.hack-node-index span,
+.hack-utility-card > header > span,
+.departure-controls > header > span,
+.hack-pocket-heading svg {
+  border: 1px solid var(--hack-line-strong);
+  border-radius: 5px;
+  color: var(--hack-ink);
+  background: color-mix(in srgb, var(--node-accent, var(--hack-cyan)) 34%, #11131a);
+  box-shadow: none;
+}
+
+.hack-path-progress,
+.first-hack-comparison article,
+.hack-support-rail {
+  border-color: var(--hack-line);
+  color: var(--hack-muted);
+  background: #11131a;
+}
+
+.hack-pocket-field {
+  border: 1px solid var(--hack-line-strong);
+  border-radius: 7px;
+  background:
+    linear-gradient(rgb(225 227 238 / 4%) 1px, transparent 1px) 0 0 / 100% 26px,
+    linear-gradient(90deg, rgb(225 227 238 / 4%) 1px, transparent 1px) 0 0 / 26px 100%,
+    #090a0f;
+  box-shadow: inset 0 0 28px rgb(0 0 0 / 42%);
+}
+
+.hack-pocket-field::after,
+.hack-network-stage::before,
+.hack-network-stage::after {
+  background: var(--hack-cyan);
+}
+
+.node-actions > button,
+.target-list button,
+.hack-utility-card button,
+.departure-controls button,
+.node-result,
+.hack-cost-vector span,
+.hack-staged-vector span {
+  border-color: var(--hack-line);
+  border-radius: 5px;
+  color: var(--hack-ink);
+  background: #1a1c25;
+}
+
+.node-actions > button:hover,
+.target-list button:hover,
+.hack-utility-card button:hover,
+.departure-controls button:hover,
+.node-actions > .hack-node-confirm,
+.hack-utility-staging > button:first-of-type {
+  color: #090a0f;
+  border-color: var(--hack-yellow);
+  background: var(--hack-yellow);
+}
+
+/* Remaining connected surfaces */
+
+.settings-section,
+.guide-grid article,
+.chart-scroll,
+.statistics-table-wrap,
+.review-public-snapshot,
+.progress-import,
+.credit-list,
+.history-list article,
+.competitor-intelligence-archive,
+.recovered-file-archive,
+.supervisor-profile-detail,
+.supervisor-history-panel {
+  border-color: var(--rm-line, rgb(225 227 238 / 16%));
+  border-radius: 6px;
+  color: var(--rm-copy, #c4c1bd);
+  background: #14161e;
+  box-shadow: none;
+}
+
+.statistics-tabs,
+.filter-tabs,
+.scale-options,
+.message-mode-options {
+  border-color: var(--rm-line);
+  background: #0e1016;
+}
+
+.statistics-tabs button[aria-selected="true"],
+.filter-tabs button[aria-pressed="true"],
+.scale-options button[aria-pressed="true"],
+.message-mode-options button[aria-pressed="true"] {
+  color: var(--rm-ivory);
+  border-color: rgb(121 108 255 / 52%);
+  background: rgb(121 108 255 / 16%);
+  box-shadow: inset 0 -2px 0 var(--rm-violet);
+}
+
+.game-shell :focus-visible,
+.detail-layer :focus-visible,
+.hacking-panel :focus-visible,
+.supervisor-message-popup :focus-visible {
+  outline: 2px solid var(--rm-gold, #e6bd6b);
+  outline-offset: 2px;
+}
+
+/* Trail-combat HUD */
+.game-shell .intrusion-board__footer,
+.game-shell .intrusion-board__footer:not(:has([role="status"]:not(:empty))) {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(180px, 1fr);
+  align-items: center;
+  gap: 14px;
+  min-height: 42px;
+  padding: 6px 12px;
+  border-top: 1px solid rgb(230 189 107 / 24%);
+  background:
+    linear-gradient(90deg, rgb(255 107 61 / 7%), transparent 32%),
+    #090b10;
+}
+
+.game-shell .intrusion-combat-legend {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: rgb(233 237 243 / 72%);
+  font-size: 0.68rem;
+  letter-spacing: 0.035em;
+  white-space: nowrap;
+}
+
+.game-shell .intrusion-combat-legend span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 2px 8px;
+  border: 1px solid rgb(213 221 231 / 13%);
+  background: rgb(255 255 255 / 3%);
+}
+
+.game-shell .intrusion-combat-legend span:nth-child(2) {
+  color: #ffd0bf;
+  border-color: rgb(255 107 61 / 28%);
+  background: rgb(255 107 61 / 7%);
+}
+
+.game-shell .intrusion-combat-legend span:nth-child(3) {
+  color: #d8d1ff;
+  border-color: rgb(121 108 255 / 28%);
+  background: rgb(121 108 255 / 7%);
+}
+
+.game-shell .intrusion-combat-legend kbd {
+  margin-right: 5px;
+  color: #fff8eb;
+  font: 700 0.63rem/1 var(--font-mono, monospace);
+  letter-spacing: 0.08em;
+}
+
+.game-shell .intrusion-board__footer [role="status"] {
+  min-width: 0;
+  overflow: hidden;
+  color: rgb(236 239 244 / 75%);
+  font-size: 0.7rem;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.game-shell .intrusion-integrity {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.game-shell .intrusion-integrity__bars {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.game-shell .intrusion-integrity__bars i {
+  display: block;
+  width: 11px;
+  height: 5px;
+  border: 1px solid rgb(255 128 86 / 42%);
+  border-radius: 1px;
+  background: rgb(255 128 86 / 8%);
+  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 18%);
+}
+
+.game-shell .intrusion-integrity__bars i[data-filled="true"] {
+  border-color: #ff8056;
+  background: #ff8056;
+  box-shadow: 0 0 8px rgb(255 107 61 / 46%);
+}
+
+.game-shell .intrusion-board__header::after,
+.game-shell .review-panel > .panel-heading::after,
+.game-shell .market-watch > header::after,
+.detail-panel__header::after,
+.review-detail-card > header::after {
+  display: none !important;
+  content: none !important;
+}
+
+.game-shell .intrusion-canvas[data-player-health="1"] {
+  box-shadow: inset 0 0 34px rgb(255 76 45 / 16%);
+}
+
+@media (max-width: 1080px) {
+  .game-shell .intrusion-board__footer,
+  .game-shell .intrusion-board__footer:not(:has([role="status"]:not(:empty))) {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
+  .game-shell .intrusion-board__footer [role="status"] {
+    text-align: left;
+  }
+}
+
+@keyframes rm-drawer-left {
+  from {
+    opacity: 0;
+    transform: translateX(-22px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@media (max-width: 900px) {
+  .detail-layer[data-panel-origin="left"] .detail-layer__content,
+  .detail-layer--reviews .detail-layer__content,
+  .detail-layer--market .detail-layer__content {
+    width: calc(100% - 16px);
+    justify-self: center;
+  }
+
+  .market-profile-card {
+    grid-template-columns: 84px minmax(0, 1fr);
+  }
+}
+
+@media (max-height: 700px) {
+  .market-profile-list,
+  .history-list {
+    padding: 9px;
+  }
+
+  .market-profile-card {
+    min-height: 102px;
+  }
+
+  .market-profile-card > img {
+    min-height: 102px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .detail-layer[data-panel-origin="left"] .detail-layer__content,
+  .detail-layer--reviews .detail-layer__content,
+  .detail-layer--market .detail-layer__content {
+    animation: none;
+  }
+
+  .game-shell .control-bar button,
+  .game-shell .market-share-layout--trigger {
+    transition: none;
+  }
+}
+
+/* Approved white operations pass */
+
+.game-shell {
+  --rm-void: #f1f2f4;
+  --rm-panel: #ffffff;
+  --rm-panel-raised: #ffffff;
+  --rm-panel-soft: rgb(255 255 255 / 98%);
+  --rm-line: rgb(39 43 51 / 14%);
+  --rm-line-strong: rgb(39 43 51 / 26%);
+  --rm-copy: #26282d;
+  --rm-muted: #686c74;
+  --operations-header: #ff6b3d;
+  --compact-market: #eceef0;
+
+  color: var(--rm-copy);
+  background: #f2f3f5;
+}
+
+.game-shell::before {
+  background:
+    linear-gradient(90deg, transparent 0 49.92%, rgb(31 36 44 / 2.5%) 50%, transparent 50.08%),
+    linear-gradient(180deg, rgb(255 107 61 / 5%), transparent 14%);
+}
+
+.game-shell .game-background {
+  background: #f2f3f5;
+}
+
+.game-shell .workspace-panel:not(.resource-panel),
+.game-shell .review-panel {
+  color: var(--rm-copy);
+  background: #ffffff;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 92%),
+    0 10px 26px rgb(35 39 47 / 9%);
+}
+
+.game-shell .panel-heading {
+  border-color: #d7d9dc;
+  background: #f7f8f9;
+}
+
+.game-shell .control-bar {
+  border-color: #d94d25;
+  border-top-color: #ff9b73;
+  color: #ffffff;
+  background: #ff6b3d;
+  box-shadow: 0 9px 24px rgb(145 54 25 / 20%);
+  backdrop-filter: none;
+}
+
+.game-shell .control-bar::before,
+.game-shell .control-bar::after {
+  background: linear-gradient(90deg, #ffffff, rgb(255 255 255 / 44%), transparent);
+}
+
+.game-shell .control-bar .control-identity,
+.game-shell .control-bar .current-directive,
+.game-shell .control-bar .reputation-cluster,
+.game-shell .control-bar .suspicion-meter {
+  color: #ffffff;
+  border-color: rgb(255 255 255 / 28%);
+  background: rgb(255 255 255 / 10%);
+}
+
+.game-shell .control-bar .micro-label,
+.game-shell .control-bar time,
+.game-shell .control-bar .current-directive span,
+.game-shell .control-bar .current-directive strong,
+.game-shell .control-bar .current-directive small,
+.game-shell .control-bar .current-directive b,
+.game-shell .control-bar .reputation-cluster__label span,
+.game-shell .control-bar .reputation-cluster__label strong,
+.game-shell .control-bar .suspicion-meter strong {
+  color: #ffffff;
+  text-shadow: none;
+}
+
+.game-shell .control-bar .reputation-meter {
+  border-color: rgb(255 255 255 / 42%);
+  background: rgb(112 38 17 / 28%);
+}
+
+.game-shell .control-bar .reputation-meter i,
+.game-shell .control-bar .suspicion-meter i[data-active="true"] {
+  background: #ffffff;
+  box-shadow: 0 0 7px rgb(255 255 255 / 48%);
+}
+
+.game-shell .control-bar button,
+.game-shell .control-bar__action,
+.game-shell .control-bar__sound,
+.game-shell .control-bar__settings {
+  color: #7b2d16;
+  border-color: rgb(112 38 17 / 30%);
+  background: #ffffff;
+  box-shadow: 0 3px 9px rgb(116 39 17 / 16%);
+}
+
+.game-shell .review-panel .review-entry {
+  color: #373a40;
+  border-color: #dfe1e4;
+  background: #ffffff;
+  box-shadow: 0 4px 12px rgb(35 39 47 / 7%);
+}
+
+.game-shell .review-panel > .market-watch--compact {
+  border-top-color: #d4d7da;
+  color: #2e3137;
+  background: #eceef0;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 88%);
+}
+
+.game-shell .review-panel > .market-watch--compact .market-share-layout {
+  grid-template:
+    "donut" 148px
+    "legend" auto /
+    minmax(0, 1fr);
+  place-items: center;
+  gap: 8px;
+  min-height: 0;
+  padding: 10px 12px;
+}
+
+.game-shell .review-panel > .market-watch--compact .market-share-donut {
+  grid-area: donut;
+  width: 148px;
+  height: 148px;
+  min-height: 148px;
+  border-color: rgb(38 42 49 / 24%);
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 76%),
+    0 8px 20px rgb(35 39 47 / 12%);
+}
+
+.game-shell .market-share-donut::after,
+.game-shell .review-panel > .market-watch--compact .market-share-donut::after,
+.market-detail-overview .market-share-donut::after {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: block;
+  width: 60%;
+  height: 60%;
+  border: 1px solid rgb(38 42 49 / 16%);
+  border-radius: 50%;
+  background: #ffffff;
+  content: "";
+  transform: translate(-50%, -50%);
+}
+
+.game-shell .review-panel > .market-watch--compact .market-share-donut::after {
+  background: #eceef0;
+}
+
+.market-detail-overview .market-share-donut::after {
+  background: #10121a;
+}
+
+.game-shell .review-panel > .market-watch--compact .market-share-layout > ul {
+  grid-area: legend;
+  width: 100%;
+}
+
+.game-shell .review-panel > .market-watch--compact .market-share-layout li {
+  padding-block: 4px;
+  color: #33363c;
+  border-color: #d5d8dc;
+}
+
+.game-shell .review-panel > .market-watch--compact .market-share-layout li > span:nth-child(2) {
+  color: #50545c;
+}
+
+.game-shell .review-stream {
+  background: #f7f8f9;
+  scrollbar-color: #a9adb4 #eceef0;
+}
+
+.game-shell .market-legend-marker,
+.market-detail-overview .market-legend-marker {
+  color: var(--market-color);
+  border-color: currentColor;
+}
+
+.game-shell .resource-panel,
+.hacking-panel {
+  color: #d9dde5;
+  background: #08090e;
+}
+
+.game-shell .resource-board--intrusion {
+  grid-template-rows: minmax(0, 1fr);
+  gap: 0;
+  padding: 8px;
+  background: #08090e;
+}
+
+.game-shell .intrusion-grid-frame {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border-color: rgb(226 228 238 / 24%);
+  background: #020309;
+}
+
+.game-shell .intrusion-canvas {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+}
+
+.game-shell .intrusion-integrity-overlay {
+  position: absolute;
+  top: 9px;
+  right: 10px;
+  z-index: 4;
+  display: grid;
+  grid-template-columns: auto 64px 28px;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+  padding: 3px 7px;
+  border: 1px solid rgb(223 226 235 / 22%);
+  border-radius: 4px;
+  color: #e9ebef;
+  background: rgb(8 10 15 / 82%);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 28%);
+  font: 700 0.56rem/1 "Cascadia Code", Consolas, monospace;
+  pointer-events: none;
+}
+
+.game-shell .intrusion-integrity-overlay progress {
+  width: 64px;
+  height: 5px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 1px;
+  accent-color: #ff6b3d;
+  background: #272a31;
+}
+
+.game-shell .intrusion-integrity-overlay progress::-webkit-progress-bar {
+  background: #272a31;
+}
+
+.game-shell .intrusion-integrity-overlay progress::-webkit-progress-value {
+  background: #ff6b3d;
+}
+
+.game-shell .intrusion-integrity-overlay progress::-moz-progress-bar {
+  background: #ff6b3d;
+}
+
+.game-shell .intrusion-integrity-overlay output {
+  color: #ff9b73;
+  text-align: right;
+}
+
+.game-shell .operations-dock {
+  color: #30333a;
+  border-color: #d5d8dc;
+  background: #ffffff;
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 82%),
+    0 10px 24px rgb(35 39 47 / 10%);
+}
+
+.game-shell .operations-dock__inventory,
+.game-shell .operations-dock__suspicion,
+.game-shell .operations-dock__tools {
+  color: #30333a;
+  border-color: #d5d8dc;
+  background: #f4f5f7;
+}
+
+.game-shell .operations-dock__inventory > header {
+  border-color: #d5d8dc;
+}
+
+.game-shell .operations-dock__inventory > header strong,
+.game-shell .operations-dock__suspicion strong,
+.game-shell .operations-dock__inventory-list span,
+.game-shell .operations-dock__inventory-list output {
+  color: #33363c;
+}
+
+.game-shell .operations-dock__inventory-list > div {
+  border-color: #dfe1e4;
+  background: #ffffff;
+}
+
+.game-shell .operations-dock__inventory-list [data-resource-category="reasoning"] i,
+.game-shell .operations-dock__inventory-list [data-resource-category="reasoning"][data-has-resource="true"] i {
+  color: #f06a43;
+  background: #f06a43;
+}
+
+.game-shell .operations-dock__inventory-list [data-resource-category="memory"] i,
+.game-shell .operations-dock__inventory-list [data-resource-category="memory"][data-has-resource="true"] i {
+  color: #4f8df7;
+  background: #4f8df7;
+}
+
+.game-shell .operations-dock__inventory-list [data-resource-category="fluency"] i,
+.game-shell .operations-dock__inventory-list [data-resource-category="fluency"][data-has-resource="true"] i {
+  color: #e8bd59;
+  background: #e8bd59;
+}
+
+.game-shell .operations-dock__button,
+.game-shell .operations-dock__button:last-child,
+.game-shell .operations-dock__button--tool,
+.game-shell .operations-dock__button--tool:last-child,
+.game-shell .operations-dock__button--tool:nth-child(2),
+.game-shell .operations-dock__button--tool:nth-child(3) {
+  color: #3b3e45;
+  border-color: #d5d8dc;
+  background: #ffffff;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 90%);
+}
+
+.game-shell .operations-dock__button--tool:hover,
+.game-shell .operations-dock__button--tool:focus-visible,
+.game-shell .operations-dock__button--tool:last-child:hover,
+.game-shell .operations-dock__button--tool:last-child:focus-visible {
+  color: #8b3218;
+  border-color: #ff6b3d;
+  background: #fff3ef;
+  box-shadow: inset 3px 0 0 #ff6b3d;
+}
+
+.supervisor-message-popup,
+.supervisor-message-popup--blocking {
+  color: #383126;
+  border-color: #bda98a;
+  background: #f3ead7;
+  box-shadow: 0 26px 72px rgb(49 39 24 / 34%);
+}
+
+.supervisor-message-popup__portrait {
+  border-color: #bda98a;
+  background: #e7d8bb;
+}
+
+.supervisor-message-popup__body header {
+  color: #b54725;
+}
+
+.supervisor-message-popup__body p {
+  color: #383126;
+}
+
+.supervisor-message-popup__body button {
+  color: #ffffff;
+  border-color: #c74c28;
+  background: #ff6b3d;
+}
+
+@media (max-height: 700px) {
+  .game-shell .resource-board--intrusion {
+    grid-template-rows: minmax(0, 1fr);
+    gap: 0;
+    padding: 6px;
+  }
+
+  .game-shell .review-panel > .market-watch--compact .market-share-layout {
+    grid-template-rows: 148px auto;
+  }
+
+  .game-shell .review-panel > .market-watch--compact .market-share-donut {
+    width: 148px;
+    height: 148px;
+  }
+}

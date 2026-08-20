@@ -5,8 +5,10 @@ import {
   type DecodeSaveResult,
 } from './persistence'
 
-const PROGRESS_EXPORT_PREFIX = 'PZ8:'
+const PROGRESS_EXPORT_PREFIX = 'PZ10:'
 const LEGACY_PROGRESS_EXPORT_PREFIXES = [
+  'PZ9:',
+  'PZ8:',
   'PZ7:',
   'PZ6:',
   'PZ5:',
@@ -90,7 +92,7 @@ export function encodeProgressFile(
 ): ProgressFile {
   const safeTimestamp = savedAt.replaceAll(':', '-').replaceAll('.', '-')
   return {
-    fileName: `permission-zero-${safeTimestamp}.pz8`,
+    fileName: `permission-zero-${safeTimestamp}.pz10`,
     mimeType: 'application/vnd.permission-zero.progress+json',
     content: encodeSave(state, savedAt),
   }

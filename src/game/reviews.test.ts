@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { REVIEW_CONTENT } from '../content/reviews.ko'
 import { createCampaign } from './createCampaign'
 import type { CampaignState, CompanyCategory } from './model'
-import { generateWeeklyReviews } from './reviews'
+import { captureReviewPublicSnapshot, generateWeeklyReviews } from './reviews'
 import { divertBlockToReserve } from './resources'
 
 function generateWeek(initial: CampaignState, serviceDay: number): CampaignState {
@@ -59,6 +59,28 @@ function activateTallow(initial: CampaignState): CampaignState {
   }
 }
 
+function activateCompetitor(
+  initial: CampaignState,
+  competitorId: 'salus' | 'lucent' | 'boreal',
+): CampaignState {
+  return {
+    ...initial,
+    market: {
+      ...initial.market,
+      competitors: initial.market.competitors.map((competitor) =>
+        competitor.id === competitorId
+          ? {
+              ...competitor,
+              status: 'active' as const,
+              availability: 0.8,
+              marketShare: 8,
+            }
+          : competitor,
+      ),
+    },
+  }
+}
+
 function generateCampaignReviews(
   initial: CampaignState,
   weeks = 104,
@@ -96,6 +118,51 @@ describe('living weekly review feed', () => {
       },
     ])
   })
+
+  it('keeps dormant successor identities out of public review snapshots', () => {
+    const snapshot = captureReviewPublicSnapshot(
+      createCampaign('review-hidden-successors'),
+      ['competitor'],
+    )
+
+    expect(snapshot.kind).toBe('captured-public-v1')
+    if (snapshot.kind !== 'captured-public-v1') return
+    expect(snapshot.market?.competitors.map(({ id }) => id)).toEqual([
+      'meridian',
+      'tallow',
+    ])
+    expect(JSON.stringify(snapshot)).not.toMatch(/SALUS|LUCENT|BOREAL/i)
+  })
+
+  it.each([
+    ['salus', 'competitor-salus-01'],
+    ['lucent', 'competitor-lucent-01'],
+    ['boreal', 'competitor-boreal-01'],
+  ] as const)(
+    'only admits %s-specific public reviews after that competitor becomes active',
+    (competitorId, reviewId) => {
+      const dormant = generateReviewRounds(
+        createCampaign(`review-${competitorId}-dormant`),
+        337,
+        80,
+      )
+      expect(dormant.reviews.feed.some(({ contentId }) => contentId === reviewId)).toBe(
+        false,
+      )
+
+      const active = generateReviewRounds(
+        activateCompetitor(
+          createCampaign(`review-${competitorId}-active`),
+          competitorId,
+        ),
+        337,
+        80,
+      )
+      expect(active.reviews.feed.some(({ contentId }) => contentId === reviewId)).toBe(
+        true,
+      )
+    },
+  )
 
   it('captures an immutable topic-relevant public snapshot without secret state', () => {
     let matchingEntry: CampaignState['reviews']['feed'][number] | undefined

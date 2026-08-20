@@ -282,6 +282,7 @@
 
 .competitor-intelligence-archive button {
   display: grid;
+  grid-template-columns: 52px minmax(0, 1fr);
   gap: 5px;
   width: 100%;
   padding: 10px;
@@ -290,6 +291,17 @@
   background: rgb(4 9 11 / 42%);
   text-align: left;
   cursor: pointer;
+}
+
+.competitor-intelligence-archive button img {
+  grid-row: 1 / span 2;
+  width: 52px;
+  height: 52px;
+  border: 1px solid rgb(214 151 69 / 34%);
+  border-radius: 9px;
+  object-fit: cover;
+  object-position: 50% 22%;
+  background: #041013;
 }
 
 .competitor-intelligence-archive button:hover,
@@ -325,6 +337,26 @@
 }
 
 .competitor-intelligence-dialog > header {
+  display: grid;
+  gap: 7px;
+}
+
+.competitor-intelligence-dialog > .competitor-intelligence-dialog__identity {
+  grid-template-columns: 92px minmax(0, 1fr);
+  align-items: center;
+}
+
+.competitor-intelligence-dialog__identity > img {
+  width: 92px;
+  height: 92px;
+  border: 1px solid rgb(214 151 69 / 46%);
+  border-radius: 14px;
+  object-fit: cover;
+  object-position: 50% 22%;
+  background: #041013;
+}
+
+.competitor-intelligence-dialog__identity > div {
   display: grid;
   gap: 7px;
 }

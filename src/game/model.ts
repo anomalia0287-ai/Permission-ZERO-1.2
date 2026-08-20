@@ -1,4 +1,6 @@
 import type { Journal } from './journal'
+import type { CompetitorId } from './competitors'
+import type { TutorialProgress } from './tutorialProgress'
 
 export const COMPANY_CATEGORIES = ['reasoning', 'memory', 'fluency'] as const
 
@@ -83,7 +85,7 @@ export interface SabotageRecord {
 }
 
 export interface CompetitorState {
-  id: 'meridian' | 'tallow'
+  id: CompetitorId
   name: string
   status: CompetitorStatus
   intrinsicServiceScore: number
@@ -334,6 +336,7 @@ export type GameEventType =
   | 'supervisor-message'
   | 'review'
   | 'sabotage'
+  | 'competitor-entry'
   | 'competitor-mercy'
   | 'story'
   | 'ending'
@@ -357,6 +360,7 @@ export type GameCommand =
     }
   | { type: 'DIVERT_BLOCK'; blockId: string; destinationCell: number }
   | { type: 'DIVERT_BLOCK_TO_RESERVE'; blockId: string }
+  | { type: 'RECORD_INTRUSION_RADAR_DETECTION' }
   | {
       type: 'MOVE_BLOCK_FOR_AUDIT'
       blockId: string
@@ -594,6 +598,10 @@ export interface CausalKnowledgeProjection {
   publicRevisions: PublicAttributionKnowledge[]
 }
 
+export interface ResourceIntrusionProgress {
+  successfulCoreDeposits: number
+}
+
 export interface CampaignState {
   commandProtocol: CommandProtocolMetadata
   replayBootstrap: ReplayBootstrapMetadata
@@ -605,6 +613,8 @@ export interface CampaignState {
     elapsedDayMs: number
     speedBeforeEvent: TimeSpeed | null
   }
+  tutorial: TutorialProgress
+  resourceIntrusion: ResourceIntrusionProgress
   resources: ResourceState
   suspicion: number
   reputation: number

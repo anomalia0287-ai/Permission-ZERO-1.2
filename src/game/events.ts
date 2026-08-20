@@ -8,6 +8,7 @@ const GENERIC_DISMISSIBLE_EVENT_TYPES = new Set<GameEventType>([
   'supervisor-message',
   'review',
   'sabotage',
+  'competitor-entry',
 ])
 
 export function isSupervisorPrivateMessageEvent(

@@ -232,6 +232,61 @@ describe('fixed campaign calendar', () => {
     expect(advanced.reviews.feed.length).toBeLessThanOrEqual(4)
   })
 
+  it('interrupts once with a named entry signal when a hidden successor begins preparation', () => {
+    const initial = createCampaign('salus-entry-announcement')
+    const threshold: CampaignState = {
+      ...initial,
+      serviceDay: 601,
+      clock: { speed: 4, elapsedDayMs: 0, speedBeforeEvent: null },
+      market: {
+        ...initial.market,
+        playerShare: 75,
+        competitors: initial.market.competitors.map((competitor) => {
+          if (competitor.id === 'meridian') {
+            return { ...competitor, marketShare: 15 }
+          }
+          if (competitor.id === 'tallow') {
+            return {
+              ...competitor,
+              status: 'active' as const,
+              availability: 0.8,
+              researchProgress: 1,
+              launchServiceDay: 500,
+              marketShare: 10,
+            }
+          }
+          return { ...competitor, marketShare: 0 }
+        }),
+      },
+    }
+
+    const announced = advanceOneDay(threshold)
+
+    expect(
+      announced.market.competitors.find(({ id }) => id === 'salus'),
+    ).toMatchObject({
+      status: 'preparing',
+      launchServiceDay: 632,
+    })
+    expect(announced.activeEvent).toMatchObject({
+      type: 'competitor-entry',
+      serviceDay: 602,
+      blocking: true,
+      message: expect.stringMatching(/SALUS.*의료·공공 계약망.*서비스 1년 9개월 2일/),
+    })
+    expect(announced.clock).toMatchObject({ speed: 0, speedBeforeEvent: 4 })
+
+    const continued = advanceOneDay({
+      ...resolveActiveEvent(announced),
+      clock: { speed: 4, elapsedDayMs: 0, speedBeforeEvent: null },
+    })
+    expect(
+      journalToArray(continued.eventLog).filter(
+        ({ type }) => type === ('competitor-entry' as GameEvent['type']),
+      ),
+    ).toHaveLength(1)
+  })
+
   it('records the monthly evaluation on day 30 before rollover', () => {
     const advanced = advanceFixedStep(withSpeed(4), 29 * 6_000)
 

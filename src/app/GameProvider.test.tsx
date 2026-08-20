@@ -11,6 +11,11 @@ import { MemoryStorage } from '../test/fixtures'
 import { applyCommand } from '../game/reducer'
 import { enqueueMemoryLeak } from '../game/story'
 import {
+  INTRO_TUTORIAL_SEQUENCE_ID,
+  advanceIntroTutorial,
+  completeTutorialSequence,
+} from '../game/tutorialProgress'
+import {
   useGameDispatch,
   useGameSelector,
   useGameSettings,
@@ -18,6 +23,7 @@ import {
   useClockCheckpoint,
   useRuntimeSuspended,
   useRuntimeSuspensionOwnership,
+  useTutorialProgressActions,
 } from './GameContext'
 import { GameProvider } from './GameProvider'
 import {
@@ -50,6 +56,7 @@ function Probe() {
   const speed = useGameSelector((campaign) => campaign.clock.speed)
   const dispatch = useGameDispatch()
   const {
+    hasResumableCampaign,
     loadIssue,
     retrySave,
     saveFailure,
@@ -74,6 +81,9 @@ function Probe() {
       <output aria-label="save dirty">{String(saveFailure !== null)}</output>
       <output aria-label="save warning">{saveFailure?.message ?? ''}</output>
       <output aria-label="load issue">{loadIssue?.reason ?? 'none'}</output>
+      <output aria-label="resumable campaign">
+        {String(hasResumableCampaign)}
+      </output>
       <output aria-label="supervisor presentation remaining">
         {state.story.supervisorPresentationRuntime?.remainingDwellMs ?? 'none'}
       </output>
@@ -147,6 +157,44 @@ function ClockCheckpointProbe() {
   )
 }
 
+function TutorialProgressProbe() {
+  const state = useGameState()
+  const { saveFailure } = useGameSettings()
+  const { updateTutorialProgress } = useTutorialProgressActions()
+
+  return (
+    <>
+      <output aria-label="tutorial checkpoint">
+        {state.tutorial.activeStepId ?? 'complete'}
+      </output>
+      <output aria-label="tutorial save failure">
+        {String(saveFailure !== null)}
+      </output>
+      <button
+        type="button"
+        onClick={() => updateTutorialProgress(
+          advanceIntroTutorial(state.tutorial),
+          true,
+        )}
+      >
+        advance tutorial
+      </button>
+      <button
+        type="button"
+        onClick={() => updateTutorialProgress(
+          completeTutorialSequence(
+            state.tutorial,
+            INTRO_TUTORIAL_SEQUENCE_ID,
+          ),
+          true,
+        )}
+      >
+        complete tutorial
+      </button>
+    </>
+  )
+}
+
 const FIXED_SETTINGS_SAVE_TIME = '2026-08-15T00:00:00.000Z'
 
 function LocaleCampaignProbe() {
@@ -205,7 +253,13 @@ function presentationState(seed: string): CampaignState {
         serviceDay: 337,
         cadence: 'weekly',
         playerShare: 60,
-        competitorShares: { meridian: 40, tallow: 0 },
+        competitorShares: {
+          meridian: 40,
+          tallow: 0,
+          salus: 0,
+          lucent: 0,
+          boreal: 0,
+        },
         reasons: ['주간 갱신'],
       }],
     },
@@ -226,6 +280,59 @@ async function advanceAndFlush(milliseconds: number): Promise<void> {
 }
 
 describe('GameProvider', () => {
+  it('checkpoints tutorial navigation and completion to campaign storage', async () => {
+    const storage = new MemoryStorage()
+    render(
+      <GameProvider storage={storage} initialSeed="tutorial-checkpoint">
+        <TutorialProgressProbe />
+      </GameProvider>,
+    )
+
+    expect(screen.getByLabelText('tutorial checkpoint')).toHaveTextContent('base')
+    fireEvent.click(screen.getByRole('button', { name: 'advance tutorial' }))
+    await flushSaveWork()
+    expect(screen.getByLabelText('tutorial checkpoint')).toHaveTextContent(
+      'movement',
+    )
+    let loaded = loadCampaign(storage)
+    expect(loaded.status).toBe('loaded')
+    if (loaded.status !== 'loaded') return
+    expect(loaded.state.tutorial.activeStepId).toBe('movement')
+
+    fireEvent.click(screen.getByRole('button', { name: 'complete tutorial' }))
+    await flushSaveWork()
+    expect(screen.getByLabelText('tutorial checkpoint')).toHaveTextContent(
+      'complete',
+    )
+    loaded = loadCampaign(storage)
+    expect(loaded.status).toBe('loaded')
+    if (loaded.status !== 'loaded') return
+    expect(loaded.state.tutorial).toEqual({
+      activeSequenceId: null,
+      activeStepId: null,
+      completedSequenceIds: [INTRO_TUTORIAL_SEQUENCE_ID],
+    })
+  })
+
+  it('keeps tutorial completion in memory when a flushed checkpoint cannot save', async () => {
+    const storage = new RecoverableFailingStorage()
+    render(
+      <GameProvider storage={storage} initialSeed="tutorial-save-failure">
+        <TutorialProgressProbe />
+      </GameProvider>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'complete tutorial' }))
+    await flushSaveWork()
+
+    expect(screen.getByLabelText('tutorial checkpoint')).toHaveTextContent(
+      'complete',
+    )
+    expect(screen.getByLabelText('tutorial save failure')).toHaveTextContent(
+      'true',
+    )
+  })
+
   it('reports the active protocol for native v8 clipboard and file imports', () => {
     const campaign = createCampaign('provider-v8-validation')
     const clipboard = encodeProgressExport(campaign)
@@ -285,7 +392,18 @@ describe('GameProvider', () => {
     )
 
     expect(screen.getByLabelText('seed')).toHaveTextContent('loaded-campaign')
+    expect(screen.getByLabelText('resumable campaign')).toHaveTextContent('true')
     expect(storage.writes).toBe(0)
+  })
+
+  it('does not advertise an unsaved placeholder campaign as resumable', () => {
+    render(
+      <GameProvider storage={new MemoryStorage()} initialSeed="placeholder">
+        <Probe />
+      </GameProvider>,
+    )
+
+    expect(screen.getByLabelText('resumable campaign')).toHaveTextContent('false')
   })
 
   it('falls back with a recovery issue before rendering a corrupt resource graph', () => {
@@ -304,6 +422,7 @@ describe('GameProvider', () => {
 
     expect(screen.getByLabelText('seed')).toHaveTextContent('safe-render-fallback')
     expect(screen.getByLabelText('load issue')).toHaveTextContent('CORRUPT_SAVE')
+    expect(screen.getByLabelText('resumable campaign')).toHaveTextContent('false')
   })
 
   it('replaces an unchanged corrupt save after the player confirms a new campaign', async () => {
@@ -319,6 +438,7 @@ describe('GameProvider', () => {
 
     expect(screen.getByLabelText('load issue')).toHaveTextContent('CORRUPT_SAVE')
     fireEvent.click(screen.getByRole('button', { name: 'new campaign' }))
+    expect(screen.getByLabelText('resumable campaign')).toHaveTextContent('true')
     await advanceAndFlush(25)
 
     expect(screen.getByLabelText('save dirty')).toHaveTextContent('false')

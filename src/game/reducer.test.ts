@@ -505,6 +505,7 @@ describe('applyCommand', () => {
     expect(moved.accepted).toBe(true)
     if (!moved.accepted) return
     expect(moved.state.resources.reserve).toEqual([blockId])
+    expect(moved.state.resourceIntrusion.successfulCoreDeposits).toBe(1)
     expect(
       journalToArray(moved.state.commandLog).filter(
         ({ command }) => command.type === 'DIVERT_BLOCK_TO_RESERVE',
@@ -515,6 +516,32 @@ describe('applyCommand', () => {
       'DIVERT_BLOCK_TO_RESERVE',
     ])
   })
+
+  it.each([
+    [17.25, 18.25],
+    [99.4, 100],
+  ])(
+    'records a radar head detection as exactly one suspicion point from %s',
+    (suspicion, expected) => {
+      const initial = {
+        ...createCampaign(`radar-detection-${suspicion}`),
+        suspicion,
+      }
+      const result = applyCommand(
+        initial,
+        { type: 'RECORD_INTRUSION_RADAR_DETECTION' },
+      )
+
+      expect(result.accepted).toBe(true)
+      if (!result.accepted) return
+      expect(result.state.suspicion).toBe(expected)
+      expect(result.state.resources).toBe(initial.resources)
+      expect(result.state.resourceIntrusion).toBe(initial.resourceIntrusion)
+      expect(journalAt(result.state.commandLog, -1)?.command).toEqual({
+        type: 'RECORD_INTRUSION_RADAR_DETECTION',
+      })
+    },
+  )
 
   it('replays a legacy v1 diversion as one historical command without synthetic intent', () => {
     const initial = createCampaignForProtocol('legacy-command-diversion', 1)

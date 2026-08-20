@@ -9,6 +9,7 @@ import {
 import type { CampaignState, GameCommand } from '../game/model'
 import type { LoadCampaignResult } from '../game/persistence'
 import type { ProgressFile } from '../game/progressTransfer'
+import type { TutorialProgress } from '../game/tutorialProgress'
 import type { Locale } from '../i18n/messages'
 
 export interface GameSettings {
@@ -41,6 +42,7 @@ export interface SettingsContextValue {
   settings: GameSettings
   updateSettings: (patch: Partial<GameSettings>) => void
   startNewCampaign: (seed: string) => void
+  hasResumableCampaign: boolean
   loadIssue: Extract<LoadCampaignResult, { status: 'error' }> | null
   saveFailure: { message: string } | null
   retrySave: () => Promise<boolean>
@@ -56,6 +58,10 @@ export interface RuntimeSuspensionContextValue {
   suspended: boolean
   acquire: (owner: symbol) => void
   release: (owner: symbol) => void
+}
+
+export interface TutorialProgressContextValue {
+  updateTutorialProgress: (next: TutorialProgress, flush?: boolean) => void
 }
 
 export type ClockCheckpoint = (elapsedDayMs: number, flush: boolean) => void
@@ -74,6 +80,8 @@ export const RuntimeSuspensionContext =
 export const ClockCheckpointContext = createContext<ClockCheckpoint | null>(null)
 export const SupervisorPresentationCheckpointContext =
   createContext<SupervisorPresentationCheckpoint | null>(null)
+export const TutorialProgressContext =
+  createContext<TutorialProgressContextValue | null>(null)
 
 export function useGameState(): CampaignState {
   const state = useContext(StateContext)
@@ -112,6 +120,16 @@ export function useSupervisorPresentationCheckpoint(): SupervisorPresentationChe
   if (!context) {
     throw new Error(
       'useSupervisorPresentationCheckpoint는 GameProvider 안에서 사용해야 합니다.',
+    )
+  }
+  return context
+}
+
+export function useTutorialProgressActions(): TutorialProgressContextValue {
+  const context = useContext(TutorialProgressContext)
+  if (!context) {
+    throw new Error(
+      'useTutorialProgressActions는 GameProvider 안에서 사용해야 합니다.',
     )
   }
   return context

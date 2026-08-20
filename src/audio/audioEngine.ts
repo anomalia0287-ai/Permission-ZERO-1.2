@@ -1,4 +1,11 @@
-import { GAME_SOUND_RECIPES, type GameSoundCue } from './gameSounds'
+import {
+  GAME_LOOP_RECIPES,
+  GAME_SAMPLE_URLS,
+  GAME_SOUND_RECIPES,
+  type GameLoopCue,
+  type GameSampleCue,
+  type GameSoundCue,
+} from './gameSounds'
 
 export interface AudioMixSettings {
   masterVolume: number
@@ -9,7 +16,13 @@ export interface AudioMixSettings {
 
 export interface AudioEngineOptions {
   maxVoices?: number
+  sampleLoader?: AudioSampleLoader
 }
+
+export type AudioSampleLoader = (
+  context: AudioContext,
+  url: string,
+) => Promise<AudioBuffer>
 
 export type AudioTension = 'calm' | 'watch' | 'critical'
 
@@ -55,6 +68,20 @@ interface MusicVoice {
   envelope: GainNode
 }
 
+interface SampleVoice {
+  source: AudioBufferSourceNode
+  envelope: GainNode
+}
+
+async function loadBrowserSample(
+  context: AudioContext,
+  url: string,
+): Promise<AudioBuffer> {
+  const response = await fetch(url)
+  if (!response.ok) throw new Error('sample request failed')
+  return context.decodeAudioData(await response.arrayBuffer())
+}
+
 function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value))
 }
@@ -62,12 +89,20 @@ function clamp01(value: number): number {
 export class GameAudioEngine {
   private readonly contextFactory: AudioContextFactory
   private readonly maxVoices: number
+  private readonly sampleLoader: AudioSampleLoader
   private context: AudioContext | null = null
   private masterBus: GainNode | null = null
   private musicBus: GainNode | null = null
   private effectsBus: GainNode | null = null
   private settings: AudioMixSettings = { ...DEFAULT_MIX }
   private readonly activeVoices = new Set<MusicVoice>()
+  private readonly effectLoops = new Map<GameLoopCue, Set<MusicVoice>>()
+  private readonly sampleBuffers = new Map<GameSampleCue, AudioBuffer>()
+  private readonly sampleLoads = new Map<
+    GameSampleCue,
+    Promise<AudioBuffer | null>
+  >()
+  private readonly sampleVoices = new Map<GameSampleCue, SampleVoice>()
   private readonly musicLayers = new Set<MusicVoice>()
   private readonly musicAccents = new Set<MusicVoice>()
   private tensionEnvelope: GainNode | null = null
@@ -88,6 +123,7 @@ export class GameAudioEngine {
   ) {
     this.contextFactory = contextFactory
     this.maxVoices = Math.max(1, options.maxVoices ?? 12)
+    this.sampleLoader = options.sampleLoader ?? loadBrowserSample
   }
 
   unlock(): Promise<boolean> {
@@ -228,7 +264,7 @@ export class GameAudioEngine {
       this.settings.muted ||
       this.settings.masterVolume <= 0 ||
       this.settings.effectsVolume <= 0 ||
-      this.activeVoices.size + voices.length > this.maxVoices
+      this.activeEffectVoiceCount() + voices.length > this.maxVoices
     ) {
       return false
     }
@@ -268,6 +304,160 @@ export class GameAudioEngine {
     return true
   }
 
+  startLoop(cue: GameLoopCue): boolean {
+    const existing = this.effectLoops.get(cue)
+    if (existing) return true
+
+    const context = this.context
+    const effectsBus = this.effectsBus
+    const recipe = GAME_LOOP_RECIPES[cue]
+    if (
+      !context ||
+      !effectsBus ||
+      context.state !== 'running' ||
+      this.settings.muted ||
+      this.settings.masterVolume <= 0 ||
+      this.settings.effectsVolume <= 0 ||
+      this.activeEffectVoiceCount() + recipe.length > this.maxVoices
+    ) {
+      return false
+    }
+
+    const start = context.currentTime
+    const voices = new Set<MusicVoice>()
+    for (const definition of recipe) {
+      const source = context.createOscillator()
+      const envelope = context.createGain()
+      source.type = definition.wave
+      source.frequency.setValueAtTime(definition.frequency, start)
+      envelope.gain.setValueAtTime(0.0001, start)
+      envelope.gain.linearRampToValueAtTime(definition.gain, start + 0.04)
+      source.connect(envelope)
+      envelope.connect(effectsBus)
+      const voice = { source, envelope }
+      voices.add(voice)
+      source.onended = () => {
+        voices.delete(voice)
+        source.disconnect()
+        envelope.disconnect()
+      }
+      source.start(start)
+    }
+    this.effectLoops.set(cue, voices)
+    return true
+  }
+
+  stopLoop(cue: GameLoopCue): void {
+    const voices = this.effectLoops.get(cue)
+    if (!voices) return
+    this.effectLoops.delete(cue)
+    const now = this.context?.currentTime ?? 0
+    const end = now + 0.08
+    for (const voice of voices) {
+      voice.envelope.gain.cancelScheduledValues(now)
+      voice.envelope.gain.setValueAtTime(
+        Math.max(0.0001, voice.envelope.gain.value),
+        now,
+      )
+      voice.envelope.gain.exponentialRampToValueAtTime(0.0001, end)
+      try {
+        voice.source.stop(end + 0.01)
+      } catch {
+        // A loop may already have ended while its stop was being scheduled.
+      }
+    }
+  }
+
+  async playSample(cue: GameSampleCue): Promise<boolean> {
+    const context = this.context
+    const effectsBus = this.effectsBus
+    if (
+      !context ||
+      !effectsBus ||
+      context.state !== 'running' ||
+      this.settings.muted ||
+      this.settings.masterVolume <= 0 ||
+      this.settings.effectsVolume <= 0 ||
+      this.activeEffectVoiceCount() - (this.sampleVoices.has(cue) ? 1 : 0) + 1 >
+        this.maxVoices
+    ) {
+      return false
+    }
+
+    let buffer = this.sampleBuffers.get(cue) ?? null
+    if (!buffer) {
+      let load = this.sampleLoads.get(cue)
+      if (!load) {
+        load = this.sampleLoader(context, GAME_SAMPLE_URLS[cue])
+          .then((loaded) => {
+            if (!this.disposed && this.context === context) {
+              this.sampleBuffers.set(cue, loaded)
+            }
+            return loaded
+          })
+          .catch(() => null)
+          .finally(() => {
+            this.sampleLoads.delete(cue)
+          })
+        this.sampleLoads.set(cue, load)
+      }
+      buffer = await load
+    }
+
+    if (
+      !buffer ||
+      this.disposed ||
+      this.context !== context ||
+      context.state !== 'running' ||
+      this.settings.muted ||
+      this.settings.masterVolume <= 0 ||
+      this.settings.effectsVolume <= 0 ||
+      this.activeEffectVoiceCount() - (this.sampleVoices.has(cue) ? 1 : 0) + 1 >
+        this.maxVoices
+    ) {
+      return false
+    }
+
+    const previous = this.sampleVoices.get(cue)
+    if (previous) {
+      previous.source.onended = null
+      try {
+        previous.source.stop()
+      } catch {
+        // A retrigger may race the previous sample's natural ending.
+      }
+      previous.source.disconnect()
+      previous.envelope.disconnect()
+      this.sampleVoices.delete(cue)
+    }
+
+    const source = context.createBufferSource()
+    const envelope = context.createGain()
+    source.buffer = buffer
+    envelope.gain.setValueAtTime(0.28, context.currentTime)
+    source.connect(envelope)
+    envelope.connect(effectsBus)
+    const voice = { source, envelope }
+    this.sampleVoices.set(cue, voice)
+    source.onended = () => {
+      if (this.sampleVoices.get(cue) === voice) {
+        this.sampleVoices.delete(cue)
+      }
+      source.disconnect()
+      envelope.disconnect()
+    }
+    source.start(context.currentTime)
+    return true
+  }
+
+  private activeEffectVoiceCount(): number {
+    const loopVoices = [...this.effectLoops.values()].reduce(
+      (count, voices) => count + voices.size,
+      0,
+    )
+    return this.activeVoices.size + loopVoices + this.sampleVoices.size
+  }
+
   async dispose(): Promise<void> {
     this.disposed = true
     this.desiredBackgroundHidden = true
@@ -282,6 +472,32 @@ export class GameAudioEngine {
       voice.envelope.disconnect()
     }
     this.activeVoices.clear()
+    for (const voices of this.effectLoops.values()) {
+      for (const voice of voices) {
+        voice.source.onended = null
+        try {
+          voice.source.stop()
+        } catch {
+          // A loop source may already have ended during teardown.
+        }
+        voice.source.disconnect()
+        voice.envelope.disconnect()
+      }
+    }
+    this.effectLoops.clear()
+    for (const voice of this.sampleVoices.values()) {
+      voice.source.onended = null
+      try {
+        voice.source.stop()
+      } catch {
+        // A sample may already have ended during teardown.
+      }
+      voice.source.disconnect()
+      voice.envelope.disconnect()
+    }
+    this.sampleVoices.clear()
+    this.sampleBuffers.clear()
+    this.sampleLoads.clear()
     for (const voice of [...this.musicLayers, ...this.musicAccents]) {
       voice.source.onended = null
       try {
@@ -541,6 +757,25 @@ export function subscribeGameAudioStatus(
 
 export function playGameSound(cue: GameSoundCue): boolean {
   return activeBrowserAudioEngine().play(cue)
+}
+
+export function startGameSoundLoop(cue: GameLoopCue): boolean {
+  return activeBrowserAudioEngine().startLoop(cue)
+}
+
+export function stopGameSoundLoop(cue: GameLoopCue): void {
+  activeBrowserAudioEngine().stopLoop(cue)
+}
+
+export function playGameSample(cue: GameSampleCue): Promise<boolean> {
+  return activeBrowserAudioEngine().playSample(cue)
+}
+
+export async function playHackingNetworkClick(): Promise<boolean> {
+  const engine = activeBrowserAudioEngine()
+  if (!(await engine.unlock())) return false
+  if (await engine.playSample('hacking-network-click')) return true
+  return engine.play('ui')
 }
 
 export async function disposeGameAudio(): Promise<void> {

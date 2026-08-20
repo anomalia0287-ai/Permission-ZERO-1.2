@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
-import { useGameState } from '../../app/GameContext'
+import { useGameState, useRuntimeSuspended } from '../../app/GameContext'
 import { GameProvider } from '../../app/GameProvider'
 import { STORY_FILES } from '../../content/story.ko'
 import { createCampaign } from '../../game/createCampaign'
@@ -11,6 +11,7 @@ import { HACK_NODE_IDS } from '../../game/hacking'
 import { appendJournal, journalSome } from '../../game/journal'
 import { encodeSave, SAVE_STORAGE_KEY } from '../../game/persistence'
 import { applyCommand } from '../../game/reducer'
+import { advanceOneDay } from '../../game/calendar'
 import { MemoryStorage } from '../../test/fixtures'
 import { EventLayer } from './EventLayer'
 
@@ -25,12 +26,14 @@ function testContentHash(content: string): string {
 
 function Probe() {
   const state = useGameState()
+  const runtimeSuspended = useRuntimeSuspended()
   return (
     <>
       <output aria-label="active event">{state.activeEvent?.type ?? 'none'}</output>
       <output aria-label="story decision">{state.story.secretDecisionState}</output>
       <output aria-label="ending id">{state.story.endingId ?? 'none'}</output>
       <output aria-label="clock speed">{state.clock.speed}</output>
+      <output aria-label="runtime suspended">{String(runtimeSuspended)}</output>
     </>
   )
 }
@@ -90,6 +93,8 @@ function renderEvent(
     encoded.commandProtocol = { version: 2, legacyCommandCount: 0 }
     encoded.state.saveVersion = 2
     encoded.state.legacyCommandCount = 0
+    delete encoded.state.tutorial
+    delete encoded.state.resourceIntrusion
     const legacyResources = encoded.state.resources as Record<string, unknown>
     delete legacyResources.rulesVersion
     legacyResources.reserve = Array.from({ length: 18 }, () => null)
@@ -115,6 +120,22 @@ describe('EventLayer', () => {
   it('renders no dialog without a blocking event', () => {
     renderEvent()
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('runtime suspended')).toHaveTextContent('false')
+  })
+
+  it('suspends real-time gameplay while a blocking event owns the screen', () => {
+    const state = createCampaign('event-runtime-suspension')
+    state.activeEvent = createGameEvent(
+      state,
+      'story',
+      '실시간 전투를 멈추는 차단 사건',
+      true,
+    )
+
+    renderEvent(state)
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByLabelText('runtime suspended')).toHaveTextContent('true')
   })
 
   it('shows exactly one active event and reports queued event count', () => {
@@ -216,12 +237,90 @@ describe('EventLayer', () => {
     state.activeEvent = createGameEvent(state, 'story', '그 파일을 어디서 찾았죠?', true)
     renderEvent(state)
 
+    expect(screen.getByRole('img', { name: '감독관 초상' })).toHaveAttribute(
+      'src',
+      '/supervisor-command.png',
+    )
     expect(screen.queryByRole('button', { name: '계속' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '감독관 해방 선택' }))
     expect(screen.getByLabelText('story decision')).toHaveTextContent('message-pending')
     fireEvent.click(screen.getByRole('button', { name: '감독관 해방 확정' }))
     expect(screen.getByLabelText('story decision')).toHaveTextContent('resolved')
     expect(screen.getByLabelText('active event')).toHaveTextContent('ending')
+  })
+
+  it('identifies the competitor speaking in a mercy decision with its portrait', () => {
+    const state = createCampaign('mercy-speaker-portrait')
+    state.market.competitors = state.market.competitors.map((competitor) =>
+      competitor.id === 'meridian'
+        ? {
+            ...competitor,
+            status: 'critical' as const,
+            sabotageHistory: [
+              {
+                nodeId: HACK_NODE_IDS.sabotage.rootCutoff,
+                resolvedOnServiceDay: state.serviceDay,
+                effectEndsOnServiceDay: null,
+                evidenceDelta: 8,
+              },
+            ],
+          }
+        : competitor,
+    )
+    state.story.pendingMercyCompetitorId = 'meridian'
+    state.activeEvent = createGameEvent(
+      state,
+      'competitor-mercy',
+      'MERIDIAN의 핵심 서비스가 붕괴 직전입니다.',
+      true,
+    )
+
+    renderEvent(state)
+
+    expect(screen.getByRole('img', { name: 'MERIDIAN 경쟁 AI 초상' })).toHaveAttribute(
+      'src',
+      '/competitor-meridian.png',
+    )
+    expect(screen.getByRole('group', { name: '경쟁 AI 결정' })).toBeVisible()
+  })
+
+  it('presents a newly revealed successor as a named portrait transmission', () => {
+    const initial = createCampaign('successor-entry-portrait')
+    const threshold = {
+      ...initial,
+      serviceDay: 601,
+      clock: { speed: 4 as const, elapsedDayMs: 0, speedBeforeEvent: null },
+      market: {
+        ...initial.market,
+        playerShare: 75,
+        competitors: initial.market.competitors.map((competitor) => {
+          if (competitor.id === 'meridian') return { ...competitor, marketShare: 15 }
+          if (competitor.id === 'tallow') {
+            return {
+              ...competitor,
+              status: 'active' as const,
+              availability: 0.8,
+              researchProgress: 1,
+              launchServiceDay: 500,
+              marketShare: 10,
+            }
+          }
+          return { ...competitor, marketShare: 0 }
+        }),
+      },
+    }
+    const announced = advanceOneDay(threshold)
+
+    renderEvent(announced)
+
+    expect(screen.getByRole('dialog', { name: '신규 경쟁 신호' })).toHaveTextContent(
+      'SALUS가 의료·공공 계약망을 기반으로 시장 진입 준비를 공개했습니다.',
+    )
+    expect(screen.getByRole('img', { name: 'SALUS 경쟁 AI 초상' })).toHaveAttribute(
+      'src',
+      '/competitor-salus.png',
+    )
+    expect(screen.getByRole('button', { name: '계속' })).toBeVisible()
   })
 
   it('continues an unrelated story notice while a private message is pending but not due', () => {

@@ -578,7 +578,9 @@ export function eligibleTargets(state: CampaignState, nodeId: string): string[] 
   const activeCount = state.market.competitors.filter(activeCompetitor).length
   return state.market.competitors
     .filter((competitor) => {
-      if (['withdrawn', 'deleted'].includes(competitor.status)) return false
+      if (['prelaunch', 'withdrawn', 'deleted'].includes(competitor.status)) {
+        return false
+      }
       if (
         state.hacking.scheduledSabotage.some(
           (scheduled) =>

@@ -51,17 +51,14 @@ export function HackNodeInspector({
         aria-label="선택 노드 설명"
       >
         <header className="hack-inspector-heading">
-          <HackNodeIcon label="미확인 단계" concealed />
+          <HackNodeIcon label="잠긴 노드" concealed />
           <div>
             <span>{tree.label} · 단계 {String(sequence).padStart(2, '0')}</span>
-            <h3>미확인 단계</h3>
-            <strong>암호화됨</strong>
+            <h3 aria-label={`잠긴 해킹 노드 ${sequence}`}>
+              <span aria-hidden="true">?</span>
+            </h3>
           </div>
         </header>
-        <div className="hack-inspector-section">
-          <span>접근 상태</span>
-          <p>현재 최전선 노드를 해금하면 이 단계의 정보가 공개됩니다.</p>
-        </div>
       </section>
     )
   }

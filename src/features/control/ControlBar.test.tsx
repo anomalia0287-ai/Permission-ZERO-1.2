@@ -54,4 +54,17 @@ describe('ControlBar', () => {
     expect(screen.queryByText(/공식 평가/)).not.toBeInTheDocument()
     expect(screen.queryByRole('region', { name: '캠페인 단계' })).not.toBeInTheDocument()
   })
+
+  it('moves the ten-stage suspicion readout into the top status bar', () => {
+    const state = createCampaign('control-suspicion')
+    state.suspicion = 47
+    renderControlBarState(state)
+
+    const suspicion = screen.getByRole('meter', { name: '의심 5단계' })
+    expect(suspicion).toHaveAttribute('aria-valuemin', '1')
+    expect(suspicion).toHaveAttribute('aria-valuemax', '10')
+    expect(suspicion).toHaveAttribute('aria-valuenow', '5')
+    expect(suspicion.querySelectorAll('i')).toHaveLength(10)
+    expect(suspicion.querySelectorAll('i[data-active="true"]')).toHaveLength(5)
+  })
 })

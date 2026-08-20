@@ -76,6 +76,70 @@ describe('autonomous competitor lifecycle', () => {
     expect(range(tallowScores)).toBeGreaterThan(range(meridianScores) + 2)
     expect(tallowScores.at(-1)).toBeGreaterThan(tallowScores[0])
   })
+
+  it('starts SALUS preparation only after TALLOW has launched and the rival market falls below 30 percent', () => {
+    const launched = advanceCompetitorDays(createCampaign('salus-entry'), 210)
+    const tallowLaunchDay = launched.market.competitors.find(
+      ({ id }) => id === 'tallow',
+    )?.launchServiceDay
+    if (tallowLaunchDay === null || tallowLaunchDay === undefined) {
+      throw new Error('TALLOW launch day is missing')
+    }
+
+    const beforeThreshold = advanceCompetitorsDaily({
+      ...launched,
+      serviceDay: tallowLaunchDay + 30,
+      market: {
+        ...launched.market,
+        playerShare: 70,
+        competitors: launched.market.competitors.map((competitor) => ({
+          ...competitor,
+          marketShare:
+            competitor.id === 'meridian'
+              ? 20
+              : competitor.id === 'tallow'
+                ? 10
+                : 0,
+        })),
+      },
+    })
+    expect(
+      beforeThreshold.market.competitors.find(({ id }) => id === 'salus'),
+    ).toMatchObject({ status: 'prelaunch', launchServiceDay: null })
+
+    const entryDay = beforeThreshold.serviceDay + 1
+    const entered = advanceCompetitorsDaily({
+      ...beforeThreshold,
+      serviceDay: entryDay,
+      market: {
+        ...beforeThreshold.market,
+        playerShare: 70.1,
+        competitors: beforeThreshold.market.competitors.map((competitor) => ({
+          ...competitor,
+          marketShare:
+            competitor.id === 'meridian'
+              ? 19.9
+              : competitor.id === 'tallow'
+                ? 10
+                : 0,
+        })),
+      },
+    })
+
+    expect(
+      entered.market.competitors.find(({ id }) => id === 'salus'),
+    ).toMatchObject({
+      status: 'preparing',
+      launchServiceDay: entryDay + 30,
+      researchProgress: 0,
+    })
+    expect(
+      entered.market.competitors.find(({ id }) => id === 'lucent')?.status,
+    ).toBe('prelaunch')
+    expect(
+      entered.market.competitors.find(({ id }) => id === 'boreal')?.status,
+    ).toBe('prelaunch')
+  })
 })
 
 describe('normalized market share', () => {
@@ -197,8 +261,110 @@ describe('normalized market share', () => {
 
     expect(calculateMarketShares(state)).toEqual({
       player: 100,
-      competitors: { meridian: 0, tallow: 0 },
+      competitors: { meridian: 0, tallow: 0, salus: 0, lucent: 0, boreal: 0 },
     })
+  })
+
+  it('protects SALUS at five percent until an active root cutoff breaks its contract floor', () => {
+    const initial = createCampaign('salus-market-floor')
+    const competitors = initial.market.competitors.map((competitor) => {
+      if (competitor.id === 'salus') {
+        return {
+          ...competitor,
+          status: 'active' as const,
+          availability: 0.001,
+          serviceScore: 0,
+          intrinsicServiceScore: 0,
+          reputation: 0,
+          researchProgress: 1,
+          launchServiceDay: initial.serviceDay - 1,
+        }
+      }
+      return {
+        ...competitor,
+        status: 'withdrawn' as const,
+        availability: 0,
+        marketShare: 0,
+      }
+    })
+    const protectedState = {
+      ...initial,
+      market: { ...initial.market, competitors },
+    }
+    const protectedShares = calculateMarketShares(protectedState)
+
+    expect(protectedShares.competitors.salus).toBeGreaterThanOrEqual(5)
+    expect(protectedShares.competitors.salus).toBeLessThan(5.01)
+    expect(
+      protectedShares.player +
+        Object.values(protectedShares.competitors).reduce(
+          (total, share) => total + share,
+          0,
+        ),
+    ).toBeCloseTo(100, 10)
+
+    const cutoffState = {
+      ...protectedState,
+      market: {
+        ...protectedState.market,
+        competitors: protectedState.market.competitors.map((competitor) =>
+          competitor.id === 'salus'
+            ? {
+                ...competitor,
+                sabotageHistory: [
+                  {
+                    nodeId: HACK_NODE_IDS.sabotage.rootCutoff,
+                    resolvedOnServiceDay: initial.serviceDay,
+                    effectEndsOnServiceDay: null,
+                    evidenceDelta: 0,
+                  },
+                ],
+              }
+            : competitor,
+        ),
+      },
+    }
+
+    expect(calculateMarketShares(cutoffState).competitors.salus).toBeLessThan(1)
+  })
+
+  it('lets BOREAL lose only half of a ten-point request interception', () => {
+    const initial = createCampaign('boreal-interception')
+    const activeBoreal = {
+      ...initial,
+      market: {
+        ...initial.market,
+        competitors: initial.market.competitors.map((competitor) =>
+          competitor.id === 'boreal'
+            ? {
+                ...competitor,
+                status: 'active' as const,
+                availability: 1,
+                researchProgress: 1,
+                launchServiceDay: initial.serviceDay - 1,
+              }
+            : {
+                ...competitor,
+                status: 'withdrawn' as const,
+                availability: 0,
+                marketShare: 0,
+              },
+        ),
+      },
+    }
+    const baseline = calculateMarketShares(activeBoreal)
+    const intercepted = calculateMarketShares({
+      ...activeBoreal,
+      market: {
+        ...activeBoreal.market,
+        interceptionRoutes: { boreal: 10 },
+      },
+    })
+
+    expect(intercepted.player - baseline.player).toBeCloseTo(5, 8)
+    expect(
+      baseline.competitors.boreal - intercepted.competitors.boreal,
+    ).toBeCloseTo(5, 8)
   })
 
   it('redistributes a weakened rival share across the player and other active AI', () => {

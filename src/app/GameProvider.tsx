@@ -24,6 +24,7 @@ import {
 } from '../game/progressTransfer'
 import { applyCommand } from '../game/reducer'
 import { advanceSupervisorMessagePresentation } from '../game/story'
+import type { TutorialProgress } from '../game/tutorialProgress'
 import {
   DEFAULT_LOCALE,
   MESSAGE_CATALOGS,
@@ -40,6 +41,8 @@ import {
   SettingsContext,
   StateContext,
   SupervisorPresentationCheckpointContext,
+  type TutorialProgressContextValue,
+  TutorialProgressContext,
 } from './GameContext'
 import {
   applySupervisorPresentationResume,
@@ -50,6 +53,7 @@ import {
 
 interface ProviderModel {
   campaign: CampaignState
+  hasResumableCampaign: boolean
   loadIssue: Extract<LoadCampaignResult, { status: 'error' }> | null
   storageRevision: CampaignStorageRevision
   presentationResumeApplied: boolean
@@ -61,6 +65,7 @@ type ProviderAction =
   | { type: 'IMPORT_CAMPAIGN'; campaign: CampaignState }
   | { type: 'CLOCK_CHECKPOINT'; elapsedDayMs: number }
   | { type: 'SUPERVISOR_PRESENTATION_CHECKPOINT'; elapsedRealMs: number }
+  | { type: 'TUTORIAL_PROGRESS'; tutorial: TutorialProgress }
 
 const SETTINGS_STORAGE_KEY = 'permission-zero.settings.v1'
 
@@ -150,6 +155,7 @@ function initializeProvider({
       )
       return {
         campaign,
+        hasResumableCampaign: true,
         loadIssue: null,
         storageRevision: loaded.revision,
         presentationResumeApplied: campaign !== loaded.state,
@@ -158,6 +164,7 @@ function initializeProvider({
     if (loaded.status === 'error') {
       return {
         campaign: createCampaign(initialSeed),
+        hasResumableCampaign: false,
         loadIssue: loaded,
         storageRevision: loaded.revision,
         presentationResumeApplied: false,
@@ -166,6 +173,7 @@ function initializeProvider({
   }
   return {
     campaign: createCampaign(initialSeed),
+    hasResumableCampaign: false,
     loadIssue: null,
     storageRevision: null,
     presentationResumeApplied: false,
@@ -173,6 +181,13 @@ function initializeProvider({
 }
 
 function providerReducer(model: ProviderModel, action: ProviderAction): ProviderModel {
+  if (action.type === 'TUTORIAL_PROGRESS') {
+    return {
+      ...model,
+      campaign: { ...model.campaign, tutorial: action.tutorial },
+      presentationResumeApplied: false,
+    }
+  }
   if (action.type === 'SUPERVISOR_PRESENTATION_CHECKPOINT') {
     const campaign = advanceSupervisorMessagePresentation(
       model.campaign,
@@ -197,6 +212,7 @@ function providerReducer(model: ProviderModel, action: ProviderAction): Provider
     return {
       ...model,
       campaign: action.campaign,
+      hasResumableCampaign: true,
       loadIssue: null,
       presentationResumeApplied: false,
     }
@@ -206,6 +222,7 @@ function providerReducer(model: ProviderModel, action: ProviderAction): Provider
     return {
       ...model,
       campaign: createCampaign(seed),
+      hasResumableCampaign: true,
       loadIssue: null,
       presentationResumeApplied: false,
     }
@@ -394,6 +411,25 @@ export function GameProvider({
     [attemptSave, markDirty],
   )
 
+  const updateTutorialProgress = useCallback(
+    (next: TutorialProgress, flush = false) => {
+      if (
+        JSON.stringify(next) ===
+        JSON.stringify(latestCampaignRef.current.tutorial)
+      ) {
+        return
+      }
+      latestCampaignRef.current = {
+        ...latestCampaignRef.current,
+        tutorial: next,
+      }
+      markDirty()
+      reactDispatch({ type: 'TUTORIAL_PROGRESS', tutorial: next })
+      if (flush) void attemptSave()
+    },
+    [attemptSave, markDirty],
+  )
+
   const copyProgressExport = useCallback<
     SettingsContextValue['copyProgressExport']
   >(async () => {
@@ -537,6 +573,7 @@ export function GameProvider({
       settings,
       updateSettings,
       startNewCampaign,
+      hasResumableCampaign: model.hasResumableCampaign,
       loadIssue: model.loadIssue,
       saveFailure,
       retrySave: attemptSave,
@@ -553,6 +590,7 @@ export function GameProvider({
       createProgressFile,
       importProgressFile,
       importProgressExport,
+      model.hasResumableCampaign,
       model.loadIssue,
       saveFailure,
       settings,
@@ -572,19 +610,26 @@ export function GameProvider({
     [acquireSuspension, releaseSuspension, suspensionOwners.size],
   )
 
+  const tutorialProgressValue = useMemo<TutorialProgressContextValue>(
+    () => ({ updateTutorialProgress }),
+    [updateTutorialProgress],
+  )
+
   return (
     <StateContext value={model.campaign}>
       <DispatchContext value={dispatch}>
         <SettingsContext value={settingsValue}>
-          <ClockCheckpointContext value={checkpointClock}>
-            <SupervisorPresentationCheckpointContext
-              value={checkpointSupervisorPresentation}
-            >
-              <RuntimeSuspensionContext value={runtimeSuspensionValue}>
-                {children}
-              </RuntimeSuspensionContext>
-            </SupervisorPresentationCheckpointContext>
-          </ClockCheckpointContext>
+          <TutorialProgressContext value={tutorialProgressValue}>
+            <ClockCheckpointContext value={checkpointClock}>
+              <SupervisorPresentationCheckpointContext
+                value={checkpointSupervisorPresentation}
+              >
+                <RuntimeSuspensionContext value={runtimeSuspensionValue}>
+                  {children}
+                </RuntimeSuspensionContext>
+              </SupervisorPresentationCheckpointContext>
+            </ClockCheckpointContext>
+          </TutorialProgressContext>
         </SettingsContext>
       </DispatchContext>
     </StateContext>

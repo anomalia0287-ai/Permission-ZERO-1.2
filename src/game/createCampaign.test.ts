@@ -51,6 +51,14 @@ describe('createCampaign', () => {
     expect(campaign.commandSequence).toBe(0)
     expect(campaign.suspicion).toBe(0)
     expect(campaign.reputation).toBe(60)
+    expect(campaign.tutorial).toEqual({
+      activeSequenceId: 'intro-resource-recovery',
+      activeStepId: 'base',
+      completedSequenceIds: [],
+    })
+    expect(campaign.resourceIntrusion).toEqual({
+      successfulCoreDeposits: 0,
+    })
 
     for (const category of COMPANY_CATEGORIES) {
       expect(campaign.resources.company[category]).toHaveLength(18)
@@ -77,6 +85,25 @@ describe('createCampaign', () => {
       status: 'preparing',
       marketShare: 0,
     })
+  })
+
+  it('keeps three successor AIs dormant without exposing them as active market actors', () => {
+    const campaign = createCampaign('successor-roster')
+
+    expect(
+      campaign.market.competitors.map(({ id, name, status, marketShare }) => ({
+        id,
+        name,
+        status,
+        marketShare,
+      })),
+    ).toEqual([
+      { id: 'meridian', name: 'MERIDIAN', status: 'active', marketShare: 40 },
+      { id: 'tallow', name: 'TALLOW', status: 'preparing', marketShare: 0 },
+      { id: 'salus', name: 'SALUS', status: 'prelaunch', marketShare: 0 },
+      { id: 'lucent', name: 'LUCENT', status: 'prelaunch', marketShare: 0 },
+      { id: 'boreal', name: 'BOREAL', status: 'prelaunch', marketShare: 0 },
+    ])
   })
 
   it('uses unique stable block identifiers', () => {

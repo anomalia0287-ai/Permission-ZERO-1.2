@@ -7,6 +7,17 @@ import { pageFromNewest } from '../../game/pageRange'
 import { MarketPanel } from '../market/MarketPanel'
 
 const HISTORY_PAGE_SIZE = 50
+const EVALUATION_TOPICS = new Set(['reasoning', 'memory', 'fluency', 'competitor'])
+
+type ReviewChannel = 'evaluation' | 'general'
+
+function reviewChannel(review: ReviewFeedEntry): ReviewChannel {
+  return review.sentiment === 'positive' ||
+    review.sentiment === 'negative' ||
+    review.topics.some((topic) => EVALUATION_TOPICS.has(topic))
+    ? 'evaluation'
+    : 'general'
+}
 
 function handleReviewAreaKey(
   event: KeyboardEvent<HTMLDivElement>,
@@ -34,10 +45,12 @@ function handleReviewAreaKey(
 }
 
 function ReviewEntry({ review }: { review: ReviewFeedEntry }) {
+  const channel = reviewChannel(review)
   return (
-    <article className="review-entry">
+    <article className="review-entry" data-review-channel={channel}>
       <span className="review-entry__header">
         <strong>{review.authorId}</strong>
+        <em>{channel === 'evaluation' ? '평가' : '일반'}</em>
         <time>{formatServiceDateLabel(review.serviceDay)}</time>
       </span>
       <p>{review.text}</p>
@@ -47,8 +60,10 @@ function ReviewEntry({ review }: { review: ReviewFeedEntry }) {
 
 export function ReviewFeed({
   onOpenHistory,
+  onOpenMarket,
 }: {
   onOpenHistory: (trigger: HTMLElement) => void
+  onOpenMarket?: (trigger: HTMLElement) => void
 }) {
   const reviews = pageFromNewest(useGameState().reviews.feed, 0, 6).items
 
@@ -75,15 +90,21 @@ export function ReviewFeed({
           <ReviewEntry review={review} key={review.id} />
         ))}
       </div>
-      <MarketPanel compact />
+      <MarketPanel compact onOpenDetails={onOpenMarket} />
     </section>
   )
 }
 
 export function ReviewHistoryPanel({ onClose }: { onClose: () => void }) {
   const reviews = useGameState().reviews.feed
+  const [channel, setChannel] = useState<ReviewChannel>('general')
   const [page, setPage] = useState(0)
-  const visiblePage = pageFromNewest(reviews, page, HISTORY_PAGE_SIZE)
+  const channelCounts = {
+    evaluation: reviews.filter((review) => reviewChannel(review) === 'evaluation').length,
+    general: reviews.filter((review) => reviewChannel(review) === 'general').length,
+  }
+  const filteredReviews = reviews.filter((review) => reviewChannel(review) === channel)
+  const visiblePage = pageFromNewest(filteredReviews, page, HISTORY_PAGE_SIZE)
 
   return (
     <section className="detail-panel history-panel" aria-label="전체 유저 리뷰">
@@ -96,13 +117,35 @@ export function ReviewHistoryPanel({ onClose }: { onClose: () => void }) {
           닫기 ×
         </button>
       </header>
+      <nav className="review-channel-tabs" role="tablist" aria-label="리뷰 구분">
+        {([
+          ['evaluation', '평가'],
+          ['general', '일반'],
+        ] as const).map(([id, label]) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={channel === id}
+            onClick={() => {
+              setChannel(id)
+              setPage(0)
+            }}
+          >
+            <span>{label}</span>
+            <strong>{channelCounts[id]}</strong>
+          </button>
+        ))}
+      </nav>
       <div className="history-list">
         {visiblePage.total > 0 ? (
           visiblePage.items.map((review) => (
             <ReviewEntry review={review} key={review.id} />
           ))
         ) : (
-          <p className="empty-state">아직 도착한 리뷰가 없습니다.</p>
+          <p className="empty-state">
+            아직 도착한 {channel === 'evaluation' ? '평가' : '일반'} 리뷰가 없습니다.
+          </p>
         )}
       </div>
       {visiblePage.pageCount > 1 ? (

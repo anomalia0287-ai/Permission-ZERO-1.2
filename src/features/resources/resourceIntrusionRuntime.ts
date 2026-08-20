@@ -1,23 +1,30 @@
 import { CATEGORY_LABELS } from '../../game/config'
 import type { CompanyCategory } from '../../game/model'
+import {
+  advanceResourceCombatState,
+  createResourceCombatState,
+  getSalvageAtPlayer,
+  recordResourceCombatMovement,
+  synchronizeResourceCombatState,
+  type ResourceCombatEvent,
+  type ResourceCombatState,
+} from './resourceCombatRuntime'
 
-export const INTRUSION_FIELD_WIDTH = 500
-export const INTRUSION_FIELD_HEIGHT = 300
-export const INTRUSION_GRID_TILE_SIZE = 10
-export const INTRUSION_PLAYER_SIZE = 14
-export const INTRUSION_RESOURCE_SIZE = 8
-export const INTRUSION_MOVE_STEP = 5
-export const INTRUSION_MOVE_INTERVAL_MS = 80
+export const INTRUSION_FIELD_WIDTH = 50
+export const INTRUSION_FIELD_HEIGHT = 24
+export const INTRUSION_GRID_TILE_SIZE = 1
+export const INTRUSION_PLAYER_SIZE = 2
+export const INTRUSION_RESOURCE_SIZE = 1
+export const INTRUSION_MOVE_STEP = 1
+export const INTRUSION_FIELD_PADDING = 1
+export const INTRUSION_MOVE_INTERVAL_MS = 72
 export const INTRUSION_THEFT_HOLD_MS = 700
 export const INTRUSION_TICK_MS = 50
-export const INTRUSION_UNARMED_MS = 6_000
-export const INTRUSION_IDLE_MS = 1_400
-export const INTRUSION_SIGNAL_MS = 2_400
-export const INTRUSION_ACTIVE_MS = 1_800
-export const INTRUSION_CLEAR_MS = 900
-export const INTRUSION_AUDIT_BAND_SIZE = INTRUSION_GRID_TILE_SIZE
-export const INTRUSION_FIRST_WALL_AT_MS = 12_500
-export const INTRUSION_WALL_REVEAL_MS = 1_800
+export const INTRUSION_UNARMED_MS = 10_000
+export const INTRUSION_IDLE_MS = 7_000
+export const INTRUSION_SIGNAL_MS = 3_000
+export const INTRUSION_ACTIVE_MS = 1_400
+export const INTRUSION_CLEAR_MS = 2_600
 
 export interface IntrusionPoint {
   x: number
@@ -33,11 +40,13 @@ export interface IntrusionFieldResource {
   blockId: string
   origin: CompanyCategory
   contribution: 'normal' | 'disguised'
+  hiddenBomb?: boolean
 }
 
 export interface IntrusionSurveillanceLane {
   axis: 'row' | 'column'
   index: number
+  bandSize: number
   fromStart: boolean
 }
 
@@ -64,6 +73,7 @@ export interface IntrusionPendingDiversion {
 export interface ResourceIntrusionRuntimeState {
   seed: string
   positions: ReadonlyMap<string, IntrusionPoint>
+  combat: ResourceCombatState
   player: IntrusionPoint
   totalElapsedMs: number
   surveillance: IntrusionSurveillancePhase
@@ -89,31 +99,35 @@ export type ResourceIntrusionDiversionOutcome =
   | { kind: 'rejected' }
 
 export const INTRUSION_PLAYER_START: Readonly<IntrusionPoint> = {
-  x: INTRUSION_FIELD_WIDTH / 2 - INTRUSION_PLAYER_SIZE / 2,
-  y: INTRUSION_FIELD_HEIGHT / 2 - INTRUSION_PLAYER_SIZE / 2,
+  x: 24,
+  y: 21,
 }
 
-export const INTRUSION_WALL_PLAN: readonly IntrusionRect[] = [
-  { x: 70, y: 40, width: 10, height: 110 },
-  { x: 120, y: 200, width: 110, height: 10 },
-  { x: 310, y: 30, width: 10, height: 90 },
-  { x: 380, y: 180, width: 100, height: 10 },
-  { x: 130, y: 90, width: 90, height: 10 },
-  { x: 270, y: 250, width: 120, height: 10 },
-]
+export const INTRUSION_BASE_BOX: Readonly<IntrusionRect> = {
+  x: 22.5,
+  y: 21.25,
+  width: 5,
+  height: 1.75,
+}
 
 export const INTRUSION_DEPOSIT_BOX: Readonly<IntrusionRect> = {
-  x: INTRUSION_FIELD_WIDTH / 2 - 30,
-  y: INTRUSION_FIELD_HEIGHT - 30,
-  width: 60,
-  height: 20,
+  x: 20.5,
+  y: 19.5,
+  width: 9,
+  height: 4,
 }
 
-const FIRST_RESOURCE_ANCHORS: Record<CompanyCategory, IntrusionPoint> = {
-  reasoning: { x: 261, y: 141 },
-  memory: { x: 241, y: 161 },
-  fluency: { x: 231, y: 141 },
+const OPENING_RESOURCE_ANCHORS: Partial<
+  Record<CompanyCategory, readonly IntrusionPoint[]>
+> = {
+  reasoning: [{ x: 34, y: 9 }],
+  fluency: [
+    { x: 16, y: 9 },
+    { x: 28, y: 4 },
+  ],
 }
+
+type ResourcePlacementBand = 'outer' | 'middle' | 'inner'
 
 function hashString(value: string): number {
   let hash = 0x811c9dc5
@@ -126,6 +140,29 @@ function hashString(value: string): number {
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.max(minimum, Math.min(maximum, value))
+}
+
+function distanceFromDeposit(point: IntrusionPoint): number {
+  const centerX = INTRUSION_DEPOSIT_BOX.x + INTRUSION_DEPOSIT_BOX.width / 2
+  const centerY = INTRUSION_DEPOSIT_BOX.y + INTRUSION_DEPOSIT_BOX.height / 2
+  return Math.hypot(point.x - centerX, point.y - centerY)
+}
+
+function placementBand(point: IntrusionPoint): ResourcePlacementBand {
+  const distance = distanceFromDeposit(point)
+  if (distance >= 20) return 'outer'
+  if (distance >= 12) return 'middle'
+  return 'inner'
+}
+
+function preferredPlacementBands(
+  seed: string,
+  blockId: string,
+): readonly ResourcePlacementBand[] {
+  const roll = hashString(`${seed}|${blockId}|placement-band`) % 100
+  if (roll < 70) return ['outer', 'middle', 'inner']
+  if (roll < 97) return ['middle', 'outer', 'inner']
+  return ['inner', 'middle', 'outer']
 }
 
 export function intrusionRectsOverlap(
@@ -161,60 +198,91 @@ function reconcilePositions(
   const sorted = [...resources].sort((left, right) =>
     left.blockId.localeCompare(right.blockId),
   )
-  const anchoredCategories = new Set<CompanyCategory>()
+  const initialLayout = current.size === 0
+  const openingAnchorAssignments = new Map<string, IntrusionPoint>()
+
+  if (initialLayout) {
+    for (const [origin, anchors] of Object.entries(OPENING_RESOURCE_ANCHORS)) {
+      const matching = sorted.filter((resource) => resource.origin === origin)
+      anchors?.forEach((anchor, index) => {
+        const resource = matching[index]
+        if (resource) openingAnchorAssignments.set(resource.blockId, anchor)
+      })
+    }
+  }
+  const placementOrder = initialLayout
+    ? [
+        ...sorted.filter(({ blockId }) => openingAnchorAssignments.has(blockId)),
+        ...sorted.filter(({ blockId }) => !openingAnchorAssignments.has(blockId)),
+      ]
+    : sorted
 
   for (const resource of sorted) {
     const retained = current.get(resource.blockId)
     if (!retained) continue
     next.set(resource.blockId, retained)
-    const anchor = FIRST_RESOURCE_ANCHORS[resource.origin]
-    if (retained.x === anchor.x && retained.y === anchor.y) {
-      anchoredCategories.add(resource.origin)
-    }
   }
 
-  for (const resource of sorted) {
+  const placementAvailable = (candidate: IntrusionPoint): boolean => {
+    const candidateRect = intrusionCellRect(candidate, INTRUSION_RESOURCE_SIZE)
+    return !(
+      intrusionRectsOverlap(
+        candidateRect,
+        intrusionCellRect(INTRUSION_PLAYER_START, INTRUSION_PLAYER_SIZE),
+      ) ||
+      intrusionRectsOverlap(candidateRect, INTRUSION_DEPOSIT_BOX) ||
+      [...next.values()].some((position) =>
+        intrusionRectsOverlap(
+          intrusionCellRect(candidate, INTRUSION_PLAYER_SIZE),
+          intrusionCellRect(position, INTRUSION_PLAYER_SIZE),
+        ),
+      )
+    )
+  }
+
+  const availableCandidates = (
+    band: ResourcePlacementBand,
+  ): IntrusionPoint[] => {
+    const candidates: IntrusionPoint[] = []
+    for (
+      let y = INTRUSION_FIELD_PADDING;
+      y <= INTRUSION_FIELD_HEIGHT - INTRUSION_RESOURCE_SIZE - INTRUSION_FIELD_PADDING;
+      y += 1
+    ) {
+      for (
+        let x = INTRUSION_FIELD_PADDING;
+        x <= INTRUSION_FIELD_WIDTH - INTRUSION_RESOURCE_SIZE - INTRUSION_FIELD_PADDING;
+        x += 1
+      ) {
+        const candidate = { x, y }
+        if (placementBand(candidate) === band && placementAvailable(candidate)) {
+          candidates.push(candidate)
+        }
+      }
+    }
+    return candidates
+  }
+
+  for (const resource of placementOrder) {
     if (next.has(resource.blockId)) continue
-    if (!anchoredCategories.has(resource.origin)) {
-      const anchor = FIRST_RESOURCE_ANCHORS[resource.origin]
-      next.set(resource.blockId, anchor)
-      anchoredCategories.add(resource.origin)
-      continue
+
+    if (initialLayout) {
+      const anchor = openingAnchorAssignments.get(resource.blockId)
+      if (anchor && placementAvailable(anchor)) {
+        next.set(resource.blockId, anchor)
+        continue
+      }
     }
 
     let placed: IntrusionPoint | null = null
-    for (let attempt = 0; attempt < 512; attempt += 1) {
-      const x =
-        (hashString(`${seed}|${resource.blockId}|x|${attempt}`) %
-          (INTRUSION_FIELD_WIDTH / INTRUSION_GRID_TILE_SIZE)) *
-          INTRUSION_GRID_TILE_SIZE +
-        1
-      const y =
-        (hashString(`${seed}|${resource.blockId}|y|${attempt}`) %
-          (INTRUSION_FIELD_HEIGHT / INTRUSION_GRID_TILE_SIZE)) *
-          INTRUSION_GRID_TILE_SIZE +
-        1
-      const candidate = { x, y }
-      const candidateRect = intrusionCellRect(candidate, INTRUSION_RESOURCE_SIZE)
-      if (
-        intrusionRectsOverlap(
-          candidateRect,
-          intrusionCellRect(INTRUSION_PLAYER_START, INTRUSION_PLAYER_SIZE),
-        ) ||
-        intrusionRectsOverlap(candidateRect, INTRUSION_DEPOSIT_BOX) ||
-        INTRUSION_WALL_PLAN.some((wall) =>
-          intrusionRectsOverlap(candidateRect, wall),
-        ) ||
-        [...next.values()].some((position) =>
-          intrusionRectsOverlap(
-            candidateRect,
-            intrusionCellRect(position, INTRUSION_RESOURCE_SIZE),
-          ),
-        )
-      ) {
-        continue
-      }
-      placed = candidate
+    for (const band of preferredPlacementBands(seed, resource.blockId)) {
+      const candidates = availableCandidates(band)
+      if (candidates.length === 0) continue
+      placed =
+        candidates[
+          hashString(`${seed}|${resource.blockId}|${band}|position`) %
+            candidates.length
+        ]
       break
     }
     next.set(resource.blockId, placed ?? { x: 0, y: 0 })
@@ -250,87 +318,98 @@ export function getIntrusionPhaseLabel(
   return '감시 해제'
 }
 
+export function getIntrusionAuditBandSize(suspicionStage: number): number {
+  const boundedStage = Math.max(
+    1,
+    Math.min(10, Math.floor(Number.isFinite(suspicionStage) ? suspicionStage : 1)),
+  )
+  return boundedStage + 1
+}
+
 function chooseSurveillanceLanes(
   seed: string,
   sequence: number,
+  suspicionStage: number,
 ): readonly IntrusionSurveillanceLane[] {
-  const lanePairs = Math.min(3, 1 + Math.floor(sequence / 3))
-  const lanes: IntrusionSurveillanceLane[] = []
-  const usedRows = new Set<number>()
-  const usedColumns = new Set<number>()
-
-  for (let pair = 0; pair < lanePairs; pair += 1) {
-    let row = 0
-    let column = 0
-    for (let attempt = 0; attempt < INTRUSION_FIELD_HEIGHT; attempt += 1) {
-      row =
-        hashString(`${seed}|${sequence}|row|${pair}|${attempt}`) %
-        (INTRUSION_FIELD_HEIGHT / INTRUSION_AUDIT_BAND_SIZE)
-      row *= INTRUSION_AUDIT_BAND_SIZE
-      if (!usedRows.has(row)) break
-    }
-    for (let attempt = 0; attempt < INTRUSION_FIELD_WIDTH; attempt += 1) {
-      column =
-        hashString(`${seed}|${sequence}|column|${pair}|${attempt}`) %
-        (INTRUSION_FIELD_WIDTH / INTRUSION_AUDIT_BAND_SIZE)
-      column *= INTRUSION_AUDIT_BAND_SIZE
-      if (!usedColumns.has(column)) break
-    }
-    usedRows.add(row)
-    usedColumns.add(column)
-    lanes.push({
-      axis: 'row',
-      index: row,
-      fromStart: hashString(`${seed}|${sequence}|row-side|${pair}`) % 2 === 0,
-    })
-    lanes.push({
-      axis: 'column',
-      index: column,
-      fromStart:
-        hashString(`${seed}|${sequence}|column-side|${pair}`) % 2 === 0,
-    })
-  }
-  return lanes
+  const axis =
+    hashString(`${seed}|${sequence}|axis`) % 2 === 0 ? 'row' : 'column'
+  const bandSize = getIntrusionAuditBandSize(suspicionStage)
+  const laneLength =
+    axis === 'row' ? INTRUSION_FIELD_HEIGHT : INTRUSION_FIELD_WIDTH
+  const maximumIndex = Math.max(0, laneLength - bandSize)
+  return [
+    {
+      axis,
+      index:
+        hashString(`${seed}|${sequence}|${axis}`) % (maximumIndex + 1),
+      bandSize,
+      fromStart: hashString(`${seed}|${sequence}|side`) % 2 === 0,
+    },
+  ]
 }
 
 export function getActiveIntrusionScanRects(
   phase: IntrusionSurveillancePhase,
 ): readonly IntrusionRect[] {
   if (phase.kind !== 'active') return []
-  return phase.lanes.map((lane) =>
+  return getIntrusionSurveillanceRects(phase)
+}
+
+function subtractIntrusionRect(
+  source: IntrusionRect,
+  exclusion: IntrusionRect,
+): IntrusionRect[] {
+  const left = Math.max(source.x, exclusion.x)
+  const top = Math.max(source.y, exclusion.y)
+  const right = Math.min(
+    source.x + source.width,
+    exclusion.x + exclusion.width,
+  )
+  const bottom = Math.min(
+    source.y + source.height,
+    exclusion.y + exclusion.height,
+  )
+  if (left >= right || top >= bottom) return [source]
+
+  return [
+    { x: source.x, y: source.y, width: source.width, height: top - source.y },
+    {
+      x: source.x,
+      y: bottom,
+      width: source.width,
+      height: source.y + source.height - bottom,
+    },
+    { x: source.x, y: top, width: left - source.x, height: bottom - top },
+    {
+      x: right,
+      y: top,
+      width: source.x + source.width - right,
+      height: bottom - top,
+    },
+  ].filter((rect) => rect.width > 0 && rect.height > 0)
+}
+
+export function getIntrusionSurveillanceRects(
+  phase: IntrusionSurveillancePhase,
+): readonly IntrusionRect[] {
+  if (phase.kind !== 'signal' && phase.kind !== 'active') return []
+  return phase.lanes.flatMap((lane) => {
+    const laneRect =
     lane.axis === 'row'
       ? {
           x: 0,
           y: lane.index,
           width: INTRUSION_FIELD_WIDTH,
-          height: INTRUSION_AUDIT_BAND_SIZE,
+          height: lane.bandSize,
         }
       : {
           x: lane.index,
           y: 0,
-          width: INTRUSION_AUDIT_BAND_SIZE,
+          width: lane.bandSize,
           height: INTRUSION_FIELD_HEIGHT,
-        },
-  )
-}
-
-export function getIntrusionWallCount(totalElapsedMs: number): number {
-  return totalElapsedMs < INTRUSION_FIRST_WALL_AT_MS
-    ? 0
-    : Math.min(
-        INTRUSION_WALL_PLAN.length,
-        1 +
-          Math.floor(
-            (totalElapsedMs - INTRUSION_FIRST_WALL_AT_MS) /
-              INTRUSION_WALL_REVEAL_MS,
-          ),
-      )
-}
-
-export function getVisibleIntrusionWalls(
-  totalElapsedMs: number,
-): readonly IntrusionRect[] {
-  return INTRUSION_WALL_PLAN.slice(0, getIntrusionWallCount(totalElapsedMs))
+        }
+    return subtractIntrusionRect(laneRect, INTRUSION_DEPOSIT_BOX)
+  })
 }
 
 function resourceMap(
@@ -344,30 +423,21 @@ export function getResourceAtIntrusionPlayer(
   resources: readonly IntrusionFieldResource[],
 ): IntrusionFieldResource | null {
   const byId = resourceMap(resources)
-  const playerRect = intrusionCellRect(state.player, INTRUSION_PLAYER_SIZE)
-  for (const [blockId, position] of state.positions) {
-    if (blockId === state.carriedBlockId) continue
-    const resource = byId.get(blockId)
-    if (
-      resource?.contribution === 'normal' &&
-      intrusionRectsOverlap(
-        playerRect,
-        intrusionCellRect(position, INTRUSION_RESOURCE_SIZE),
-      )
-    ) {
-      return resource
-    }
-  }
-  return null
+  const salvage = getSalvageAtPlayer(state.combat, state.player)
+  if (!salvage || salvage.blockId === state.carriedBlockId) return null
+  const resource = byId.get(salvage.blockId)
+  return resource?.contribution === 'normal' ? resource : null
 }
 
 export function createResourceIntrusionRuntime(
   seed: string,
   resources: readonly IntrusionFieldResource[],
 ): ResourceIntrusionRuntimeState {
+  const positions = reconcilePositions(seed, resources, new Map())
   return {
     seed,
-    positions: reconcilePositions(seed, resources, new Map()),
+    positions,
+    combat: createResourceCombatState(seed, resources, positions),
     player: { ...INTRUSION_PLAYER_START },
     totalElapsedMs: 0,
     surveillance: { kind: 'unarmed', elapsedMs: 0, sequence: 0 },
@@ -391,6 +461,11 @@ export function synchronizeResourceIntrusionRuntime(
   const positions = positionsMatch(reconciledPositions, state.positions)
     ? state.positions
     : reconciledPositions
+  const combat = synchronizeResourceCombatState(
+    state.combat,
+    resources,
+    reconciledPositions,
+  )
   const theft = state.theft && currentIds.has(state.theft.blockId) ? state.theft : null
   const carriedBlockId =
     state.carriedBlockId && currentIds.has(state.carriedBlockId)
@@ -399,17 +474,19 @@ export function synchronizeResourceIntrusionRuntime(
 
   if (
     positions === state.positions &&
+    combat === state.combat &&
     theft === state.theft &&
     carriedBlockId === state.carriedBlockId
   ) {
     return state
   }
-  return { ...state, positions, theft, carriedBlockId }
+  return { ...state, positions, combat, theft, carriedBlockId }
 }
 
 function nextSurveillancePhase(
   phase: IntrusionSurveillancePhase,
   seed: string,
+  suspicionStage: number,
 ): IntrusionSurveillancePhase {
   if (phase.kind === 'unarmed') {
     return { kind: 'idle', elapsedMs: 0, sequence: 0 }
@@ -419,7 +496,7 @@ function nextSurveillancePhase(
       kind: 'signal',
       elapsedMs: 0,
       sequence: phase.sequence,
-      lanes: chooseSurveillanceLanes(seed, phase.sequence),
+      lanes: chooseSurveillanceLanes(seed, phase.sequence, suspicionStage),
     }
   }
   if (phase.kind === 'signal') {
@@ -443,6 +520,7 @@ function advanceSurveillance(
   initial: IntrusionSurveillancePhase,
   elapsedMs: number,
   seed: string,
+  suspicionStage: number,
 ): IntrusionSurveillancePhase {
   let phase = initial
   let remainingMs = elapsedMs
@@ -452,7 +530,7 @@ function advanceSurveillance(
     phase = { ...phase, elapsedMs: phase.elapsedMs + stepMs }
     remainingMs -= stepMs
     if (phase.elapsedMs >= surveillanceDuration(phase)) {
-      phase = nextSurveillancePhase(phase, seed)
+      phase = nextSurveillancePhase(phase, seed, suspicionStage)
     }
   }
   return phase
@@ -462,6 +540,48 @@ function emptyTransition(
   state: ResourceIntrusionRuntimeState,
 ): ResourceIntrusionTransition {
   return { state, effects: [] }
+}
+
+function announcementFromCombatEvents(
+  events: readonly ResourceCombatEvent[],
+  fallback: string,
+): string {
+  if (events.some((event) => event.type === 'player-disabled')) {
+    return '연결 손상 · 기지에서 재구성했습니다. 리소스 손실은 없습니다.'
+  }
+  const damaged = events.find((event) => event.type === 'player-damaged')
+  if (damaged?.type === 'player-damaged') {
+    return `본체 손상 · 무결성 ${damaged.health}/3`
+  }
+  const disabled = events.find((event) => event.type === 'resource-disabled')
+  if (disabled?.type === 'resource-disabled') {
+    return '리소스 분해 완료 · 사각 데이터 셀에 접촉해 회수하십시오.'
+  }
+  const compression = events.find(
+    (event) => event.type === 'compression-resolved',
+  )
+  if (compression?.type === 'compression-resolved') {
+    return compression.hitBlockIds.length > 0
+      ? `경로 폐쇄 · 리소스 ${compression.hitBlockIds.length}기 압축`
+      : '경로 폐쇄 · 포위 안에 리소스가 없습니다.'
+  }
+  return fallback
+}
+
+function collectSalvageAtPlayer(
+  state: ResourceIntrusionRuntimeState,
+  resources: readonly IntrusionFieldResource[],
+): ResourceIntrusionRuntimeState {
+  if (state.carriedBlockId || state.pendingDiversion) return state
+  const resource = getResourceAtIntrusionPlayer(state, resources)
+  if (!resource) return state
+  return {
+    ...state,
+    theft: null,
+    carriedBlockId: resource.blockId,
+    combat: { ...state.combat, trail: [] },
+    announcement: '데이터 셀 회수 · 하단 기지의 투입 파장으로 운반하십시오.',
+  }
 }
 
 function settleTheftAndCarrying(
@@ -479,45 +599,10 @@ function settleTheftAndCarrying(
     next = { ...next, carriedBlockId: null }
   }
 
-  if (next.theft) {
-    const caught = getActiveIntrusionScanRects(next.surveillance).some((scanRect) =>
-      intrusionRectsOverlap(
-        intrusionCellRect(next.theft!.position, INTRUSION_PLAYER_SIZE),
-        scanRect,
-      ),
-    )
-    if (caught) {
-      return emptyTransition({
-        ...next,
-        theft: null,
-        announcement:
-          '절도 중 감사선에 적발되었습니다. 자원은 회사 필드에 남습니다.',
-      })
-    }
-    if (next.theft.elapsedMs >= INTRUSION_THEFT_HOLD_MS) {
-      next = {
-        ...next,
-        theft: null,
-        carriedBlockId: next.theft.blockId,
-        announcement: '절도 진행 중 · 중앙 하단 상자까지 운반하십시오.',
-      }
-    }
-  }
+  next = collectSalvageAtPlayer(next, resources)
 
   if (!next.carriedBlockId) return emptyTransition(next)
-
   const playerRect = intrusionCellRect(next.player, INTRUSION_PLAYER_SIZE)
-  const caughtCarrying = getActiveIntrusionScanRects(next.surveillance).some(
-    (scanRect) => intrusionRectsOverlap(playerRect, scanRect),
-  )
-  if (caughtCarrying) {
-    return emptyTransition({
-      ...next,
-      carriedBlockId: null,
-      player: { ...INTRUSION_PLAYER_START },
-      announcement: '운반 중 적발 · 운반물 회수 · 시작점 복귀',
-    })
-  }
 
   if (
     next.pendingDiversion ||
@@ -543,19 +628,33 @@ export function advanceResourceIntrusionRuntime(
   elapsedMs: number,
   resources: readonly IntrusionFieldResource[],
   commandSequence: number,
+  suspicionStage = 1,
 ): ResourceIntrusionTransition {
   const safeElapsedMs = Number.isFinite(elapsedMs) ? Math.max(0, elapsedMs) : 0
+  const combatTransition = advanceResourceCombatState(state.combat, {
+    elapsedMs: safeElapsedMs,
+    player: state.player,
+  })
+  const playerDisabled = combatTransition.events.some(
+    (event) => event.type === 'player-disabled',
+  )
   const advanced: ResourceIntrusionRuntimeState = {
     ...state,
+    player: playerDisabled ? { ...INTRUSION_PLAYER_START } : state.player,
+    combat: combatTransition.state,
     totalElapsedMs: state.totalElapsedMs + safeElapsedMs,
     surveillance: advanceSurveillance(
       state.surveillance,
       safeElapsedMs,
       state.seed,
+      suspicionStage,
     ),
-    theft: state.theft
-      ? { ...state.theft, elapsedMs: state.theft.elapsedMs + safeElapsedMs }
-      : null,
+    theft: null,
+    carriedBlockId: state.carriedBlockId,
+    announcement: announcementFromCombatEvents(
+      combatTransition.events,
+      state.announcement,
+    ),
   }
   return settleTheftAndCarrying(advanced, resources, commandSequence)
 }
@@ -565,26 +664,13 @@ export function beginResourceIntrusionTheft(
   resources: readonly IntrusionFieldResource[],
   running: boolean,
 ): ResourceIntrusionRuntimeState {
-  if (
-    !running ||
-    state.pendingDiversion ||
-    state.theft ||
-    state.carriedBlockId
-  ) {
-    return state
-  }
-  const resource = getResourceAtIntrusionPlayer(state, resources)
-  if (!resource) {
-    return { ...state, announcement: '플레이어와 겹친 자원이 없습니다.' }
-  }
+  if (!running || state.pendingDiversion || state.carriedBlockId) return state
+  const collected = collectSalvageAtPlayer(state, resources)
+  if (collected !== state) return collected
   return {
     ...state,
-    theft: {
-      blockId: resource.blockId,
-      position: { ...state.player },
-      elapsedMs: 0,
-    },
-    announcement: '절도 중… 손을 떼면 즉시 취소됩니다.',
+    theft: null,
+    announcement: '삼각 리소스를 이동 궤적으로 포위해 먼저 분해하십시오.',
   }
 }
 
@@ -598,10 +684,16 @@ export function cancelResourceIntrusionTheft(
 export function suspendResourceIntrusionRuntime(
   state: ResourceIntrusionRuntimeState,
 ): ResourceIntrusionRuntimeState {
-  return cancelResourceIntrusionTheft(
-    state,
-    '절도 입력이 취소되었습니다. 감시 불이익은 없습니다.',
-  )
+  const announcement = '전투 입력이 일시 정지되었습니다. 불이익은 없습니다.'
+  if (state.theft === null && state.combat.trail.length === 0) return state
+  return {
+    ...state,
+    theft: null,
+    combat: state.combat.trail.length === 0
+      ? state.combat
+      : { ...state.combat, trail: [] },
+    announcement,
+  }
 }
 
 export function moveResourceIntrusionPlayer(
@@ -611,35 +703,52 @@ export function moveResourceIntrusionPlayer(
   resources: readonly IntrusionFieldResource[],
   commandSequence: number,
 ): ResourceIntrusionTransition {
-  const theftCanceled = cancelResourceIntrusionTheft(
-    state,
-    '절도를 취소했습니다. 자원 변화는 없습니다.',
-  )
   const candidate = {
     x: clamp(
-      theftCanceled.player.x + dx,
-      0,
-      INTRUSION_FIELD_WIDTH - INTRUSION_PLAYER_SIZE,
+      state.player.x + dx,
+      INTRUSION_FIELD_PADDING,
+      INTRUSION_FIELD_WIDTH -
+        INTRUSION_PLAYER_SIZE -
+        INTRUSION_FIELD_PADDING,
     ),
     y: clamp(
-      theftCanceled.player.y + dy,
-      0,
-      INTRUSION_FIELD_HEIGHT - INTRUSION_PLAYER_SIZE,
+      state.player.y + dy,
+      INTRUSION_FIELD_PADDING,
+      INTRUSION_FIELD_HEIGHT -
+        INTRUSION_PLAYER_SIZE -
+        INTRUSION_FIELD_PADDING,
     ),
   }
-  const candidateRect = intrusionCellRect(candidate, INTRUSION_PLAYER_SIZE)
-  const blocked = getVisibleIntrusionWalls(theftCanceled.totalElapsedMs).some(
-    (wall) => intrusionRectsOverlap(candidateRect, wall),
-  )
   if (
-    blocked ||
-    (candidate.x === theftCanceled.player.x &&
-      candidate.y === theftCanceled.player.y)
+    candidate.x === state.player.x &&
+    candidate.y === state.player.y
   ) {
-    return emptyTransition(theftCanceled)
+    return settleTheftAndCarrying(state, resources, commandSequence)
   }
+  const combatTransition = state.carriedBlockId || state.pendingDiversion
+    ? {
+        state: state.combat.trail.length === 0
+          ? state.combat
+          : { ...state.combat, trail: [] },
+        events: [] as readonly ResourceCombatEvent[],
+      }
+    : recordResourceCombatMovement(
+        state.combat,
+        state.player,
+        candidate,
+        state.totalElapsedMs,
+      )
   return settleTheftAndCarrying(
-    { ...theftCanceled, player: candidate },
+    {
+      ...state,
+      player: candidate,
+      theft: null,
+      combat: combatTransition.state,
+      announcement: announcementFromCombatEvents(
+        combatTransition.events,
+        state.announcement,
+      ),
+    },
     resources,
     commandSequence,
   )

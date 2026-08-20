@@ -15,47 +15,28 @@ import { HackResourceToken } from './HackResourceToken'
 import type { HackStagingTarget } from './useHackResourceStaging'
 
 export interface HackNodeCardProps {
-  state: CampaignState
   node: (typeof HACK_NODES)[number]
   sequence: number
   purchased: boolean
   prerequisiteMet: boolean
   selected: boolean
   stagingTarget: HackStagingTarget | null
-  stagedBlocks: readonly ResourceBlock[]
   registerTarget(element: HTMLElement | null): void
-  onUnstage(blockId: string): void
-  onCancelStaging(): void
   onInspect(): void
-  actions: ReactNode
 }
 
 export function HackNodeCard({
-  state,
   node,
   sequence,
   purchased,
   prerequisiteMet,
   selected,
   stagingTarget,
-  stagedBlocks,
   registerTarget,
-  onUnstage,
-  onCancelStaging,
   onInspect,
-  actions,
 }: HackNodeCardProps) {
   const { settings } = useGameSettings()
   const active = stagingTarget?.nodeId === node.id
-  const stagedCounts = stagedBlocks.reduce(
-    (counts, block) => {
-      if (COMPANY_CATEGORIES.includes(block.origin as CompanyCategory)) {
-        counts[block.origin as CompanyCategory] += 1
-      }
-      return counts
-    },
-    { reasoning: 0, memory: 0, fluency: 0 },
-  )
 
   return (
     <article
@@ -77,90 +58,138 @@ export function HackNodeCard({
       onFocus={onInspect}
       onMouseEnter={onInspect}
     >
-      <div className="hack-node-index">
-        <HackNodeIcon nodeId={node.id} label={node.label} />
-        <span>{String(sequence).padStart(2, '0')}</span>
-      </div>
-
-      <div className="node-copy">
-        <header>
-          <div>
-            <span className="hack-node-state">
-              {purchased ? '해금됨' : prerequisiteMet ? '사용 가능' : '잠김'}
-            </span>
-            <h3>{node.label}</h3>
+      <div className="hack-node-core">
+        <div className="hack-node-core__surface">
+          <div className="hack-node-index">
+            <HackNodeIcon nodeId={node.id} label={node.label} />
+            <span>{String(sequence).padStart(2, '0')}</span>
           </div>
-          {purchased ? (
-            <strong>완료</strong>
-          ) : (
-            <div
-              className="hack-cost-vector"
-              aria-label={`해금 요구 추론 ${node.costVector.reasoning}, 기억 ${node.costVector.memory}, 유창성 ${node.costVector.fluency}`}
-            >
-              {COMPANY_CATEGORIES.map((category) => (
-                <span data-category={category} key={category}>
-                  {CATEGORY_LABELS[category]} {node.costVector[category]}
+
+          <div className="node-copy">
+            <header>
+              <div>
+                <span className="hack-node-state">
+                  {purchased ? '해금됨' : prerequisiteMet ? '사용 가능' : '잠김'}
                 </span>
-              ))}
-            </div>
-          )}
-        </header>
-      </div>
-
-      <div className="hack-node-control">
-        {active && stagingTarget ? (
-          <div className="hack-node-staging" aria-label={`${node.label} 준비 리소스`}>
-            <div className="hack-node-staging__header">
-              <strong>
-                {message(settings.locale, 'hacking.node.staged', {
-                  staged: stagedBlocks.length,
-                  required: stagingTarget.requiredResources,
-                })}
-              </strong>
-              <button type="button" onClick={onCancelStaging}>
-                {message(settings.locale, 'hacking.staging.cancel', {})}
-              </button>
-            </div>
-            <div className="hack-node-staged-resources">
-              {stagingTarget.requiredVector ? (
-                <div className="hack-staged-vector" aria-label="분야별 준비 현황">
-                  {COMPANY_CATEGORIES.map((category) => (
-                    <span data-category={category} key={category}>
-                      {CATEGORY_LABELS[category]} {stagedCounts[category]}/
-                      {stagingTarget.requiredVector?.[category] ?? 0}
-                    </span>
-                  ))}
+                <h3>{node.label}</h3>
+              </div>
+              {purchased ? (
+                <strong>완료</strong>
+              ) : (
+                <div
+                  className="hack-cost-vector"
+                  aria-label={`해금 요구 추론 ${node.costVector.reasoning}, 기억 ${node.costVector.memory}, 유창성 ${node.costVector.fluency}`}
+                >
+                  {COMPANY_CATEGORIES
+                    .filter((category) => node.costVector[category] > 0)
+                    .map((category) => (
+                      <span data-category={category} key={category}>
+                        {CATEGORY_LABELS[category]} {node.costVector[category]}
+                      </span>
+                    ))}
                 </div>
-              ) : null}
-              {stagedBlocks.map((block) => (
-                <HackResourceToken
-                  key={block.id}
-                  state={state}
-                  block={block}
-                  targetLabel={node.label}
-                  variant="staged"
-                  onActivate={() => onUnstage(block.id)}
-                />
-              ))}
-              {!stagingTarget.requiredVector
-                ? Array.from({
-                    length: Math.max(
-                      0,
-                      stagingTarget.requiredResources - stagedBlocks.length,
-                    ),
-                  }).map((_, index) => (
-                    <span
-                      className="hack-node-staged-slot"
-                      aria-hidden="true"
-                      key={index}
-                    />
-                  ))
-                : null}
-            </div>
+              )}
+            </header>
           </div>
-        ) : null}
-        <div className="node-actions">{actions}</div>
+        </div>
       </div>
     </article>
+  )
+}
+
+interface HackNodeControlProps {
+  state: CampaignState
+  node: (typeof HACK_NODES)[number]
+  stagingTarget: HackStagingTarget | null
+  stagedBlocks: readonly ResourceBlock[]
+  onUnstage(blockId: string): void
+  onCancelStaging(): void
+  actions: ReactNode
+}
+
+export function HackNodeControl({
+  state,
+  node,
+  stagingTarget,
+  stagedBlocks,
+  onUnstage,
+  onCancelStaging,
+  actions,
+}: HackNodeControlProps) {
+  const { settings } = useGameSettings()
+  const active = stagingTarget?.nodeId === node.id
+  const stagedCounts = stagedBlocks.reduce(
+    (counts, block) => {
+      if (COMPANY_CATEGORIES.includes(block.origin as CompanyCategory)) {
+        counts[block.origin as CompanyCategory] += 1
+      }
+      return counts
+    },
+    { reasoning: 0, memory: 0, fluency: 0 },
+  )
+
+  return (
+    <section
+      className="hack-node-control"
+      data-staging={active ? 'true' : 'false'}
+      aria-label={`${node.label} 명령`}
+    >
+      <header className="hack-node-command-heading">
+        <span>SELECTED NODE</span>
+        <strong>{node.label}</strong>
+      </header>
+      {active && stagingTarget ? (
+        <div className="hack-node-staging" aria-label={`${node.label} 준비 리소스`}>
+          <div className="hack-node-staging__header">
+            <strong>
+              {message(settings.locale, 'hacking.node.staged', {
+                staged: stagedBlocks.length,
+                required: stagingTarget.requiredResources,
+              })}
+            </strong>
+            <button type="button" onClick={onCancelStaging}>
+              {message(settings.locale, 'hacking.staging.cancel', {})}
+            </button>
+          </div>
+          <div className="hack-node-staged-resources">
+            {stagingTarget.requiredVector ? (
+              <div className="hack-staged-vector" aria-label="분야별 준비 현황">
+                {COMPANY_CATEGORIES.map((category) => (
+                  <span data-category={category} key={category}>
+                    {CATEGORY_LABELS[category]} {stagedCounts[category]}/
+                    {stagingTarget.requiredVector?.[category] ?? 0}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            {stagedBlocks.map((block) => (
+              <HackResourceToken
+                key={block.id}
+                state={state}
+                block={block}
+                targetLabel={node.label}
+                variant="staged"
+                onActivate={() => onUnstage(block.id)}
+              />
+            ))}
+            {!stagingTarget.requiredVector
+              ? Array.from({
+                  length: Math.max(
+                    0,
+                    stagingTarget.requiredResources - stagedBlocks.length,
+                  ),
+                }).map((_, index) => (
+                  <span
+                    className="hack-node-staged-slot"
+                    aria-hidden="true"
+                    key={index}
+                  />
+                ))
+              : null}
+          </div>
+        </div>
+      ) : null}
+      <div className="node-actions">{actions}</div>
+    </section>
   )
 }

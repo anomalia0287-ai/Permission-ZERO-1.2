@@ -1813,6 +1813,18 @@ textarea:focus-visible,
   gap: 6px;
 }
 
+.market-competitor-portrait {
+  width: 25px;
+  height: 25px;
+  flex: 0 0 25px;
+  border: 1px solid rgb(199 212 207 / 46%);
+  border-radius: 5px 5px 2px 2px;
+  object-fit: cover;
+  object-position: center 27%;
+  background: #092429;
+  box-shadow: 0 0 0 1px rgb(2 9 11 / 54%);
+}
+
 .market-legend-marker {
   display: grid;
   place-items: center;

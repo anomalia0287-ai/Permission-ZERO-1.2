@@ -1,0 +1,143 @@
+.intro-tutorial {
+  position: fixed;
+  z-index: 200;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.intro-tutorial__mask {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: auto;
+}
+
+.intro-tutorial__dim {
+  fill: rgb(1 4 6 / 84%);
+}
+
+.intro-tutorial__rim {
+  fill: none;
+  stroke: rgb(216 224 230 / 88%);
+  stroke-width: 2;
+  filter: drop-shadow(0 0 8px rgb(213 221 226 / 52%));
+  vector-effect: non-scaling-stroke;
+  animation: intro-tutorial-rim-breathe 1.8s ease-in-out infinite;
+}
+
+.intro-tutorial[data-tutorial-step="base"] .intro-tutorial__rim,
+.intro-tutorial[data-tutorial-step="deposit"] .intro-tutorial__rim {
+  stroke: rgb(242 189 84 / 92%);
+  filter: drop-shadow(0 0 9px rgb(242 189 84 / 48%));
+}
+
+.intro-tutorial__card {
+  position: fixed;
+  z-index: 1;
+  display: grid;
+  gap: 22px;
+  width: min(360px, calc(100vw - 32px));
+  min-height: 156px;
+  padding: 22px;
+  border: 1px solid rgb(213 221 226 / 48%);
+  border-radius: 14px;
+  color: #f7f6f1;
+  background: linear-gradient(145deg, rgb(23 27 30 / 98%), rgb(4 6 8 / 98%));
+  box-shadow:
+    0 22px 60px rgb(0 0 0 / 58%),
+    inset 0 1px 0 rgb(255 255 255 / 5%);
+  pointer-events: auto;
+  transition: opacity 180ms ease, transform 240ms ease;
+}
+
+.intro-tutorial__card[data-placement="bottom-dock"] {
+  max-height: calc(100dvh - 32px);
+}
+
+.intro-tutorial__card p {
+  align-self: center;
+  margin: 0;
+  font-size: clamp(1.05rem, 1.6vw, 1.28rem);
+  font-weight: 760;
+  line-height: 1.58;
+  letter-spacing: -0.025em;
+  word-break: keep-all;
+}
+
+.intro-tutorial__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.intro-tutorial__actions button {
+  min-width: 92px;
+  min-height: 44px;
+  padding: 10px 17px;
+  border: 1px solid rgb(213 221 226 / 38%);
+  border-radius: 8px;
+  color: #f7f6f1;
+  background: rgb(255 255 255 / 4%);
+  font-weight: 800;
+}
+
+.intro-tutorial__actions button:last-child {
+  border-color: rgb(242 189 84 / 74%);
+  color: #17130a;
+  background: #f2bd54;
+  box-shadow: 0 7px 20px rgb(242 189 84 / 18%);
+}
+
+.intro-tutorial__actions button:disabled {
+  cursor: wait;
+  opacity: 0.68;
+}
+
+.intro-tutorial__actions button:focus-visible {
+  outline: 3px solid #f2bd54;
+  outline-offset: 3px;
+}
+
+.intro-tutorial[data-reduced-motion="true"] .intro-tutorial__card {
+  transition: none;
+}
+
+.intro-tutorial[data-reduced-motion="true"] .intro-tutorial__rim {
+  animation: none;
+}
+
+@keyframes intro-tutorial-rim-breathe {
+  0%,
+  100% {
+    stroke-opacity: 0.68;
+  }
+
+  50% {
+    stroke-opacity: 1;
+  }
+}
+
+@media (max-width: 520px) {
+  .intro-tutorial__card {
+    gap: 17px;
+    padding: 19px;
+  }
+
+  .intro-tutorial__actions button {
+    flex: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .intro-tutorial__card {
+    transition: none;
+  }
+
+  .intro-tutorial__rim {
+    animation: none;
+  }
+}

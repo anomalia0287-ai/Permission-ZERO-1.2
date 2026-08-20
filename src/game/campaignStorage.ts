@@ -453,6 +453,8 @@ function decodeLocalManifest(
       manifest.version !== 5 &&
       manifest.version !== 6 &&
       manifest.version !== 7 &&
+      manifest.version !== 8 &&
+      manifest.version !== 9 &&
       manifest.version !== SAVE_FORMAT_VERSION) ||
     !hasOnlyKeys(manifest, [
       'kind',
@@ -460,7 +462,10 @@ function decodeLocalManifest(
       'savedAt',
       'campaignSeed',
       'commandProtocol',
-      ...(manifest.version === 7 || manifest.version === SAVE_FORMAT_VERSION
+      ...(manifest.version === 7 ||
+      manifest.version === 8 ||
+      manifest.version === 9 ||
+      manifest.version === SAVE_FORMAT_VERSION
         ? ['replayBootstrap']
         : []),
       'commandSequence',
@@ -509,7 +514,10 @@ function decodeLocalManifest(
       savedAt: manifest.savedAt,
       campaignSeed: manifest.campaignSeed,
       commandProtocol: manifest.commandProtocol,
-      ...(manifest.version === 7 || manifest.version === SAVE_FORMAT_VERSION
+      ...(manifest.version === 7 ||
+      manifest.version === 8 ||
+      manifest.version === 9 ||
+      manifest.version === SAVE_FORMAT_VERSION
         ? { replayBootstrap: manifest.replayBootstrap }
         : {}),
       commandSequence: manifest.commandSequence,

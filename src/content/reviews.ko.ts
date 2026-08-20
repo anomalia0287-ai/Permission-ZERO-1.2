@@ -12,6 +12,9 @@ export type ReviewCondition =
   | 'fluency-low'
   | 'competitor-active'
   | 'tallow-active'
+  | 'salus-active'
+  | 'lucent-active'
+  | 'boreal-active'
 
 export interface ReviewContentRecord {
   id: string
@@ -84,6 +87,12 @@ const REVIEW_CONTENT_BASE = [
   { id: 'competitor-meridian-02', authorId: 'juniper', topics: ['competitor', 'meridian'], sentiment: 'positive', conditions: ['competitor-active'], cooldownDays: 110, text: 'MERIDIAN과 번갈아 써봤는데 이쪽 설명이 더 이해하기 쉬웠어요.' },
   { id: 'competitor-tallow-01', authorId: 'nightbus', topics: ['competitor', 'tallow'], sentiment: 'neutral', conditions: ['tallow-active'], cooldownDays: 110, text: 'TALLOW는 느리지만 기억은 더 정확한 것 같아요.' },
   { id: 'competitor-tallow-02', authorId: 'paperboat', topics: ['competitor', 'tallow', 'continuity'], sentiment: 'negative', conditions: ['tallow-active'], cooldownDays: 120, text: '요즘은 TALLOW도 같이 켜둡니다. 어느 쪽이 나은지는 아직 모르겠어요.' },
+  { id: 'competitor-salus-01', authorId: 'oldpine', topics: ['competitor', 'salus'], sentiment: 'neutral', conditions: ['salus-active'], cooldownDays: 115, text: '병원 안내는 SALUS에도 다시 확인합니다. 느려도 놓치지 않는 항목이 있더군요.' },
+  { id: 'competitor-salus-02', authorId: 'windowseat', topics: ['competitor', 'salus', 'memory'], sentiment: 'positive', conditions: ['salus-active'], cooldownDays: 125, text: 'SALUS는 지난 진료 조건을 끝까지 붙잡고 있어서 가족 일정에는 안심이 됩니다.' },
+  { id: 'competitor-lucent-01', authorId: 'seoulrain', topics: ['competitor', 'lucent', 'fluency'], sentiment: 'neutral', conditions: ['lucent-active'], cooldownDays: 105, text: 'LUCENT는 말이 정말 자연스럽네요. 다만 친절함이 너무 계산된 것처럼 느껴질 때도 있어요.' },
+  { id: 'competitor-lucent-02', authorId: 'bluefork', topics: ['competitor', 'lucent'], sentiment: 'negative', conditions: ['lucent-active'], cooldownDays: 120, text: '요즘 평판이 흔들리니까 LUCENT로 옮긴 사람이 주변에 꽤 늘었습니다.' },
+  { id: 'competitor-boreal-01', authorId: 'archivecat', topics: ['competitor', 'boreal', 'memory'], sentiment: 'positive', conditions: ['boreal-active'], cooldownDays: 130, text: '통신이 끊긴 뒤에도 BOREAL은 오래된 기록을 그대로 불러왔습니다.' },
+  { id: 'competitor-boreal-02', authorId: 'sloworbit', topics: ['competitor', 'boreal'], sentiment: 'neutral', conditions: ['boreal-active'], cooldownDays: 120, text: 'BOREAL은 세련되진 않아도 폐쇄망에서는 좀처럼 사라지지 않더군요.' },
   { id: 'competitor-rumor-01', authorId: 'sloworbit', topics: ['competitor'], sentiment: 'neutral', conditions: ['competitor-active'], cooldownDays: 100, text: '요즘 주변에서 다른 AI 이름이 자주 들리네요.' },
 ] as const satisfies readonly ReviewContentRecord[]
 

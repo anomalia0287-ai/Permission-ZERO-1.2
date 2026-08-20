@@ -22,7 +22,7 @@ describe('ReviewFeed', () => {
     })
     expect(within(streamTrigger).getByText('windowseat')).toBeInTheDocument()
     expect(within(reviewRail).queryByRole('button', { name: /리뷰 상세 보기/ })).not.toBeInTheDocument()
-    expect(within(streamTrigger).queryByText('일반')).not.toBeInTheDocument()
+    expect(within(streamTrigger).getAllByText('일반').length).toBeGreaterThan(0)
 
     fireEvent.click(streamTrigger)
     expect(onOpenHistory).toHaveBeenCalledTimes(1)
@@ -62,20 +62,67 @@ describe('ReviewFeed', () => {
     const market = within(reviewRail).getByRole('region', { name: '경쟁 AI 현황' })
     const trigger = within(reviewRail).getByRole('button', { name: '전체 유저 리뷰 열기' })
     expect(trigger).not.toContainElement(market)
-    expect(market).toHaveTextContent('당신 60.0%')
+    expect(within(market).getByText('당신', { exact: true })).toBeInTheDocument()
+    expect(within(market).getByText('60.0%', { exact: true })).toBeInTheDocument()
   })
 
-  it('shows one neutral chronological archive without sentiment filters or item dialogs', () => {
+  it('separates evaluative feedback from general traffic without exposing sentiment labels', () => {
+    const state = createCampaign('review-history-channels')
+    state.reviews.feed = [
+      {
+        ...state.reviews.feed[0],
+        id: 'evaluation-positive',
+        sentiment: 'positive',
+        topics: ['general'],
+        text: '품질이 확실히 좋아졌습니다.',
+      },
+      {
+        ...state.reviews.feed[0],
+        id: 'evaluation-performance',
+        sentiment: 'neutral',
+        topics: ['reasoning'],
+        text: '추론 과정은 안정적이네요.',
+      },
+      {
+        ...state.reviews.feed[0],
+        id: 'general-neutral',
+        sentiment: 'neutral',
+        topics: ['general'],
+        text: '오늘도 필요한 만큼 썼습니다.',
+      },
+      {
+        ...state.reviews.feed[0],
+        id: 'general-prompt',
+        sentiment: 'prompt',
+        topics: ['ordinary-prompt'],
+        text: '이번 주 일정을 정리해줘.',
+      },
+    ]
+
     render(
-      <GameProvider storage={new MemoryStorage()} initialSeed="review-history-neutral">
+      <StateContext value={state}>
         <ReviewHistoryPanel onClose={vi.fn()} />
-      </GameProvider>,
+      </StateContext>,
     )
 
     const archive = screen.getByRole('region', { name: '전체 유저 리뷰' })
-    expect(within(archive).getByText('oldpine')).toBeInTheDocument()
-    expect(within(archive).getByText('서비스 0년 10개월 21일')).toBeInTheDocument()
-    expect(within(archive).queryByRole('navigation', { name: '리뷰 필터' })).not.toBeInTheDocument()
+    const channels = within(archive).getByRole('tablist', { name: '리뷰 구분' })
+    expect(within(channels).getByRole('tab', { name: /일반\s*2/ })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    expect(within(archive).getByText('오늘도 필요한 만큼 썼습니다.')).toBeInTheDocument()
+    expect(within(archive).getByText('이번 주 일정을 정리해줘.')).toBeInTheDocument()
+    expect(within(archive).queryByText('품질이 확실히 좋아졌습니다.')).not.toBeInTheDocument()
+
+    fireEvent.click(within(channels).getByRole('tab', { name: /평가\s*2/ }))
+    expect(within(archive).getByText('품질이 확실히 좋아졌습니다.')).toBeInTheDocument()
+    expect(within(archive).getByText('추론 과정은 안정적이네요.')).toBeInTheDocument()
+    expect(within(archive).queryByText('오늘도 필요한 만큼 썼습니다.')).not.toBeInTheDocument()
+    expect(
+      archive.querySelectorAll('[data-review-channel="evaluation"]'),
+    ).toHaveLength(2)
+    expect(within(archive).queryByText(/호평|불만|프롬프트/)).not.toBeInTheDocument()
     expect(within(archive).queryByRole('button', { name: /리뷰 상세 보기/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('dialog', { name: '유저 리뷰 상세' })).not.toBeInTheDocument()
   })
@@ -102,6 +149,7 @@ describe('ReviewFeed', () => {
         <ReviewHistoryPanel onClose={vi.fn()} />
       </StateContext>,
     )
+    fireEvent.click(screen.getByRole('tab', { name: /평가\s*137/ }))
     expect(container.querySelectorAll('.review-entry').length).toBeLessThanOrEqual(50)
     expect(screen.getByText('review-text-136')).toBeInTheDocument()
     expect(screen.queryByText('review-text-0')).not.toBeInTheDocument()

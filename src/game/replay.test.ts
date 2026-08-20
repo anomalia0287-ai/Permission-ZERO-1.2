@@ -271,6 +271,26 @@ describe('deterministic command replay', () => {
       'DIVERT_BLOCK_TO_RESERVE',
     ])
     expect(first.state.resources.reserve).toEqual([blockId])
+    expect(first.state.resourceIntrusion.successfulCoreDeposits).toBe(1)
+  })
+
+  it('replays radar head detections deterministically as one suspicion point each', () => {
+    const commands = [
+      { type: 'RECORD_INTRUSION_RADAR_DETECTION' },
+      { type: 'RECORD_INTRUSION_RADAR_DETECTION' },
+    ] as const satisfies readonly GameCommand[]
+
+    const first = replayCommands('radar-detection-replay', commands, NATIVE_V4_REPLAY)
+    const second = replayCommands('radar-detection-replay', commands, NATIVE_V4_REPLAY)
+
+    expect(first).toEqual(second)
+    expect(first).toMatchObject({ ok: true })
+    if (!first.ok) return
+    expect(first.state.suspicion).toBe(2)
+    expect(journalToArray(first.state.commandLog).map(({ command }) => command.type)).toEqual([
+      'RECORD_INTRUSION_RADAR_DETECTION',
+      'RECORD_INTRUSION_RADAR_DETECTION',
+    ])
   })
 
   it('replays a genuine v1 save exactly apart from the documented wall-clock presentation cursor', () => {
@@ -295,6 +315,7 @@ describe('deterministic command replay', () => {
     if (!replay.ok) return
     expect({
       ...replay.state,
+      tutorial: decoded.envelope.state.tutorial,
       story: {
         ...replay.state.story,
         supervisorPresentationRuntime: null,
@@ -515,6 +536,7 @@ describe('deterministic command replay', () => {
     if (!replay.ok) return
     expect({
       ...replay.state,
+      tutorial: expected.tutorial,
       story: {
         ...replay.state.story,
         supervisorPresentationRuntime: null,

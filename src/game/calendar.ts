@@ -34,6 +34,8 @@ import {
   enqueueMercyIfNeeded,
 } from './story'
 import { appendJournal } from './journal'
+import { competitorProfile } from './competitors'
+import { enqueueBlockingEvent } from './events'
 
 export { enqueueBlockingEvent, resolveActiveEvent } from './events'
 
@@ -105,6 +107,37 @@ function appendPeriodicEvents(state: CampaignState): CampaignState {
     if (next.story.endingId !== null) return next
     next = recordMarketSnapshot(next, 'monthly', ['공식 성능 평가 반영'])
     next = openScheduledAudit(next)
+  }
+
+  return next
+}
+
+function enqueueSuccessorEntryAnnouncement(
+  beforeAdvance: CampaignState,
+  afterAdvance: CampaignState,
+): CampaignState {
+  if (afterAdvance.story.endingId !== null) return afterAdvance
+  const previousStatuses = new Map(
+    beforeAdvance.market.competitors.map(({ id, status }) => [id, status] as const),
+  )
+  let next = afterAdvance
+
+  for (const competitor of afterAdvance.market.competitors) {
+    if (
+      competitor.status !== 'preparing' ||
+      previousStatuses.get(competitor.id) !== 'prelaunch' ||
+      competitor.launchServiceDay === null
+    ) {
+      continue
+    }
+    const profile = competitorProfile(competitor.id)
+    if (profile.entry.kind !== 'vacuum') continue
+    const event = createTimedEvent(
+      next,
+      'competitor-entry',
+      `${profile.name}가 ${profile.publicRole}을 기반으로 시장 진입 준비를 공개했습니다. 정식 서비스 예정: ${formatServiceDateLabel(competitor.launchServiceDay)}.`,
+    )
+    next = enqueueBlockingEvent(next, event)
   }
 
   return next
@@ -264,7 +297,11 @@ export function tryAdvanceOneDay(
     }
   }
 
-  return { completed: true, state: finishAdvancedDay(publication.state) }
+  const withEntryAnnouncement = enqueueSuccessorEntryAnnouncement(
+    sabotageResolution.state,
+    publication.state,
+  )
+  return { completed: true, state: finishAdvancedDay(withEntryAnnouncement) }
 }
 
 export function advanceOneDay(

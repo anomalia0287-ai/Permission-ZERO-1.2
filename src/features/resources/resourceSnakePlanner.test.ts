@@ -24,6 +24,7 @@ import {
   advanceResourceSnakeFrame,
   createIdleResourceSnakeState,
   deployResourceSnakeRound,
+  RESOURCE_SNAKE_CONFIG,
   type ResourceSnakeRoundState,
   type SnakeActor,
 } from './resourceSnakeRuntime'
@@ -82,6 +83,7 @@ function actor(
     maximumIntegrity: 50,
     maximumSpeedPerSecond: id === 'player' ? 8 : 6.5,
     collisionGraceMs: 0,
+    distanceSinceTrailDot: 0,
     role: id === 'player' ? null : 'pressure',
     ...overrides,
   }
@@ -190,6 +192,82 @@ function forgeCallerPlanChecksum(plan: SnakePlan): string {
 
 function minimumDistance(points: readonly SnakeVector[], target: SnakeVector): number {
   return Math.min(...points.map((point) => Math.hypot(point.x - target.x, point.y - target.y)))
+}
+
+function segmentDistance(
+  leftStart: SnakeVector,
+  leftEnd: SnakeVector,
+  rightStart: SnakeVector,
+  rightEnd: SnakeVector,
+): number {
+  const cross = (a: SnakeVector, b: SnakeVector, c: SnakeVector) => (
+    (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
+  )
+  const pointToSegment = (point: SnakeVector, start: SnakeVector, end: SnakeVector) => {
+    const deltaX = end.x - start.x
+    const deltaY = end.y - start.y
+    const squaredLength = deltaX * deltaX + deltaY * deltaY
+    const fraction = squaredLength <= Number.EPSILON
+      ? 0
+      : Math.max(0, Math.min(1, (
+          (point.x - start.x) * deltaX + (point.y - start.y) * deltaY
+        ) / squaredLength))
+    return Math.hypot(
+      point.x - (start.x + deltaX * fraction),
+      point.y - (start.y + deltaY * fraction),
+    )
+  }
+  const leftStartSide = cross(leftStart, leftEnd, rightStart)
+  const leftEndSide = cross(leftStart, leftEnd, rightEnd)
+  const rightStartSide = cross(rightStart, rightEnd, leftStart)
+  const rightEndSide = cross(rightStart, rightEnd, leftEnd)
+  const boundsOverlap = (
+    Math.max(Math.min(leftStart.x, leftEnd.x), Math.min(rightStart.x, rightEnd.x))
+      <= Math.min(Math.max(leftStart.x, leftEnd.x), Math.max(rightStart.x, rightEnd.x)) + 1e-9
+    && Math.max(Math.min(leftStart.y, leftEnd.y), Math.min(rightStart.y, rightEnd.y))
+      <= Math.min(Math.max(leftStart.y, leftEnd.y), Math.max(rightStart.y, rightEnd.y)) + 1e-9
+  )
+  if (
+    boundsOverlap
+    && leftStartSide * leftEndSide <= 0
+    && rightStartSide * rightEndSide <= 0
+  ) return 0
+  return Math.min(
+    pointToSegment(leftStart, rightStart, rightEnd),
+    pointToSegment(leftEnd, rightStart, rightEnd),
+    pointToSegment(rightStart, leftStart, leftEnd),
+    pointToSegment(rightEnd, leftStart, leftEnd),
+  )
+}
+
+function candidateGeneratedTrailClearance(plan: SnakePlan): number {
+  const points = [plan.originPosition, ...plan.path]
+  let clearance = Infinity
+  for (let headIndex = 1; headIndex < points.length; headIndex += 1) {
+    const headSegmentStartsAtMs = (headIndex - 1) * plan.stepMs
+    for (let trailIndex = 1; trailIndex < headIndex; trailIndex += 1) {
+      const trailSegmentEndsAtMs = trailIndex * plan.stepMs
+      if (
+        trailSegmentEndsAtMs
+        > headSegmentStartsAtMs - RESOURCE_SNAKE_CONFIG.selfTrailIgnoreAgeMs + 1e-6
+      ) continue
+      clearance = Math.min(clearance, segmentDistance(
+        points[headIndex - 1],
+        points[headIndex],
+        points[trailIndex - 1],
+        points[trailIndex],
+      ))
+    }
+  }
+  return clearance
+}
+
+function expectFormalEnclosurePlan(plan: SnakePlan, budget = 96): void {
+  expect(plan.evaluatedCandidates).toBe(budget)
+  expect(plan.candidateIndex).toBeGreaterThanOrEqual(budget - 3)
+  expect(plan.candidateIndex).toBeLessThan(budget)
+  expect(plan.fallback).toBe(false)
+  expect(plan.score.survives).toBe(1)
 }
 
 function independentlyMeasuredEnclosureReduction(
@@ -571,7 +649,130 @@ function playerExitSector(player: SnakeVector, endpoint: SnakeVector): number {
   return (Math.round(angle / (Math.PI / 4)) + 8) % 8
 }
 
+function minimumSweptCommitmentDistance(
+  first: SnakeCommittedPath,
+  second: SnakeCommittedPath,
+): number {
+  let minimum = Infinity
+  for (let firstIndex = 0; firstIndex + 1 < first.samples.length; firstIndex += 1) {
+    const firstStart = first.samples[firstIndex]
+    const firstEnd = first.samples[firstIndex + 1]
+    for (let secondIndex = 0; secondIndex + 1 < second.samples.length; secondIndex += 1) {
+      const secondStart = second.samples[secondIndex]
+      const secondEnd = second.samples[secondIndex + 1]
+      const overlapStartMs = Math.max(firstStart.atMs, secondStart.atMs)
+      const overlapEndMs = Math.min(firstEnd.atMs, secondEnd.atMs)
+      if (overlapEndMs < overlapStartMs) continue
+      const firstAtStart = sampleResourceSnakeCommittedPath(first, overlapStartMs)
+      const firstAtEnd = sampleResourceSnakeCommittedPath(first, overlapEndMs)
+      const secondAtStart = sampleResourceSnakeCommittedPath(second, overlapStartMs)
+      const secondAtEnd = sampleResourceSnakeCommittedPath(second, overlapEndMs)
+      if (!firstAtStart || !firstAtEnd || !secondAtStart || !secondAtEnd) continue
+      const relativeStart = {
+        x: firstAtStart.position.x - secondAtStart.position.x,
+        y: firstAtStart.position.y - secondAtStart.position.y,
+      }
+      const relativeDelta = {
+        x: firstAtEnd.position.x - secondAtEnd.position.x - relativeStart.x,
+        y: firstAtEnd.position.y - secondAtEnd.position.y - relativeStart.y,
+      }
+      const divisor = relativeDelta.x * relativeDelta.x + relativeDelta.y * relativeDelta.y
+      const fraction = divisor <= 1e-12
+        ? 0
+        : Math.max(0, Math.min(1, -(
+          relativeStart.x * relativeDelta.x + relativeStart.y * relativeDelta.y
+        ) / divisor))
+      minimum = Math.min(minimum, Math.hypot(
+        relativeStart.x + relativeDelta.x * fraction,
+        relativeStart.y + relativeDelta.y * fraction,
+      ))
+    }
+  }
+  return minimum
+}
+
+function expectCanonicalCoordination(
+  state: SnakePlannerSnapshot,
+  group: ReturnType<typeof planResourceSnakeGroup>,
+): void {
+  expect(group.plans.map((plan) => plan.enemyId)).toHaveLength(2)
+  const byId = new Map(group.plans.map((plan) => [plan.enemyId, plan]))
+  for (const enemy of state.enemies.filter((candidate) => candidate.integrity > 0)) {
+    expect(resourceSnakePlanToCommittedPath(byId.get(enemy.id)!, state.simulationMs)).not.toBeNull()
+  }
+  const commitments = group.plans.map((plan) => (
+    resourceSnakePlanToCommittedPath(plan, state.simulationMs)
+  ))
+  if (!commitments[0] || !commitments[1]) throw new Error('two executable commitments required')
+  expect(minimumSweptCommitmentDistance(commitments[0], commitments[1])).toBeGreaterThan(0.75)
+  const endpoints = group.plans.map((plan) => plan.path.at(-1))
+  if (!endpoints[0] || !endpoints[1]) throw new Error('two canonical endpoints required')
+  expect(Math.hypot(
+    endpoints[0].x - endpoints[1].x,
+    endpoints[0].y - endpoints[1].y,
+  )).toBeGreaterThanOrEqual(1.2)
+  expect(playerExitSector(state.player.position, endpoints[0])).not.toBe(
+    playerExitSector(state.player.position, endpoints[1]),
+  )
+}
+
+function dualSnapshotAtPlanTime(
+  state: SnakePlannerSnapshot,
+  plans: readonly SnakePlan[],
+  simulationMs: number,
+): SnakePlannerSnapshot {
+  const player = { ...state.player, position: { ...state.player.position }, velocity: { ...state.player.velocity } }
+  return {
+    ...state,
+    simulationMs,
+    player,
+    enemies: state.enemies.map((enemy) => {
+      const plan = plans.find((candidate) => candidate.enemyId === enemy.id)
+      if (!plan) return enemy
+      const sample = sampleResourceSnakePlan(plan, simulationMs)
+      return {
+        ...enemy,
+        role: plan.role,
+        position: { ...sample.position },
+        velocity: { ...sample.velocity },
+      }
+    }),
+    playerHistory: [
+      ...state.playerHistory,
+      { simulationMs, position: { ...player.position }, velocity: { ...player.velocity } },
+    ],
+    committedAllyPaths: [],
+  }
+}
+
 describe('planResourceSnakeGroup', () => {
+  it('replans at the first physics opportunity when a moving escape expires before cadence', () => {
+    const simulationMs = 5_000
+    const base = dualSnapshot({ simulationMs })
+    const state = dualSnapshot({
+      simulationMs,
+      trailDots: base.enemies.map((enemy, index) => ({
+        id: 80_000 + index,
+        ownerId: 'player' as const,
+        position: { ...enemy.position },
+        spawnedAtMs: 0,
+        expiresAtMs: 15_000,
+      })),
+    })
+
+    const group = planResourceSnakeGroup(state, PROFILE_96_LONG, [], [], () => 0)
+    const executable = group.plans.filter((plan) => (
+      resourceSnakePlanToCommittedPath(plan, simulationMs) !== null
+    ))
+    const earliestExpiry = Math.min(...executable.map((plan) => plan.commitUntilMs))
+
+    expect(executable).toHaveLength(2)
+    expect(earliestExpiry).toBeGreaterThan(simulationMs)
+    expect(earliestExpiry).toBeLessThan(simulationMs + 1_000 / PROFILE_96_LONG.planningHz)
+    expect(group.nextPlanningAtMs).toBe(earliestExpiry)
+    expect(group.plans.every((plan) => plan.speedScale > 0)).toBe(true)
+  })
+
   it('plans pressure first, injects its executable commitment, and separates blocker endpoint and exit sector', () => {
     const state = dualSnapshot()
 
@@ -580,31 +781,120 @@ describe('planResourceSnakeGroup', () => {
     expect(group.roles).toEqual({ 'enemy-0': 'pressure', 'enemy-1': 'blocker' })
     expect(group.plans.map((plan) => plan.enemyId)).toEqual(['enemy-0', 'enemy-1'])
     expect(group.plans.map((plan) => plan.role)).toEqual(['pressure', 'blocker'])
-    const [pressure, blocker] = group.plans
+    const [pressure] = group.plans
     const committed = resourceSnakePlanToCommittedPath(pressure, state.simulationMs)
     expect(committed).not.toBeNull()
-    expect(blocker.intent).toBe('coordinate')
     if (!committed) throw new Error('pressure plan must expose executable occupancy')
-    for (const sample of committed.samples) {
-      const blockerSample = sampleResourceSnakePlan(blocker, sample.atMs)
-      expect(Math.hypot(
-        blockerSample.position.x - sample.position.x,
-        blockerSample.position.y - sample.position.y,
-      )).toBeGreaterThan(0.75)
-    }
-    const pressureEndpoint = pressure.path.at(-1)
-    const blockerEndpoint = blocker.path.at(-1)
-    expect(pressureEndpoint).toBeDefined()
-    expect(blockerEndpoint).toBeDefined()
-    if (!pressureEndpoint || !blockerEndpoint) throw new Error('coordinated plans must have endpoints')
-    expect(Math.hypot(
-      pressureEndpoint.x - blockerEndpoint.x,
-      pressureEndpoint.y - blockerEndpoint.y,
-    )).toBeGreaterThanOrEqual(1.2)
-    expect(playerExitSector(state.player.position, blockerEndpoint)).not.toBe(
-      playerExitSector(state.player.position, pressureEndpoint),
-    )
+    expectCanonicalCoordination(state, group)
     expect(group.nextPlanningAtMs).toBe(state.simulationMs + 1_000 / PROFILE_72_LONG.planningHz)
+  })
+
+  it('plans one pressure path against the reserved corridor before one 96-slot blocker path', () => {
+    const state = snapshot({
+      simulationMs: 220,
+      player: actor('player', { x: 25, y: 21 }, { x: 0, y: 0 }),
+      enemies: [
+        actor('enemy-0', { x: 16, y: 3.5 }, { x: 0, y: 0 }, {
+          role: 'pressure',
+          maximumSpeedPerSecond: 7.2,
+        }),
+        actor('enemy-1', { x: 34, y: 3.5 }, { x: 0, y: 0 }, {
+          role: 'blocker',
+          maximumSpeedPerSecond: 7.2,
+        }),
+      ],
+      trailDots: [],
+    })
+    let clockReads = 0
+
+    const group = planResourceSnakeGroup(
+      state,
+      PROFILE_96_LONG,
+      [],
+      [],
+      () => clockReads++,
+    )
+
+    expect(clockReads).toBe(6)
+    expect(group.candidateBudget).toBe(96)
+    expect(group.plans.map((plan) => plan.role)).toEqual(['pressure', 'blocker'])
+    expect(group.plans.map((plan) => plan.evaluatedCandidates)).toEqual([96, 96])
+    expect(group.plans.map((plan) => plan.fallback)).toEqual([false, false])
+    expect(group.plans[0].score.allyClearance).toBeGreaterThan(0)
+    expect(group.plans[0].score.allyClearance).toBeLessThan(Number.MAX_SAFE_INTEGER)
+    expectFormalEnclosurePlan(group.plans[1])
+    expect(group.plans[1].score.allyClearance).toBeGreaterThan(0)
+    expect(group.plans[1].score.allyClearance).toBeLessThan(Number.MAX_SAFE_INTEGER)
+    expectCanonicalCoordination(state, group)
+  })
+
+  it('retains two canonical commitments without weakening group geometry', () => {
+    const state = dualSnapshot()
+    const initial = planResourceSnakeGroup(state, PROFILE_72_LONG, [], [], () => 0)
+
+    const retained = planResourceSnakeGroup(state, PROFILE_72_LONG, initial.plans, [], () => 0)
+
+    expectCanonicalCoordination(state, retained)
+    expect(retained.plans.map((plan) => [plan.enemyId, plan.plannedAtMs])).toEqual(
+      initial.plans.map((plan) => [plan.enemyId, plan.plannedAtMs]),
+    )
+  })
+
+  it('preserves two swept-clear canonical commitments through partial expiry', () => {
+    const initialState = dualSnapshot()
+    const initial = planResourceSnakeGroup(initialState, PROFILE_72_LONG, [], [], () => 0)
+    const partialState = dualSnapshotAtPlanTime(initialState, initial.plans, 5_100)
+
+    const partial = planResourceSnakeGroup(
+      partialState,
+      PROFILE_72_LONG,
+      initial.plans,
+      [],
+      () => 0,
+    )
+
+    expectCanonicalCoordination(partialState, partial)
+  })
+
+  it('gives a stopped pressure owner and its blocker two executable coordinated commitments', () => {
+    const state = dualSnapshot({
+      enemies: [
+        actor('enemy-0', { x: 14, y: 8 }, { x: 0, y: 0 }, {
+          role: 'pressure',
+          maximumSpeedPerSecond: 0,
+        }),
+        actor('enemy-1', { x: 36, y: 16 }, { x: -6.2, y: -1.2 }, {
+          role: 'blocker',
+          maximumSpeedPerSecond: 6.7,
+        }),
+      ],
+    })
+
+    const group = planResourceSnakeGroup(state, PROFILE_72_LONG, [], [], () => 0)
+
+    expectCanonicalCoordination(state, group)
+    expect(group.plans.map((plan) => plan.evaluatedCandidates)).toEqual([72, 72])
+    expect(group.plans.map((plan) => plan.fallback)).toEqual([false, false])
+  })
+
+  it('backtracks when the first pressure choice leaves the slow blocker no constrained candidate', () => {
+    const seedState = dualSnapshot()
+    const pressure = planResourceSnakeEnemy(seedState, 'enemy-0', PROFILE_72_LONG, null, () => 0)
+    const pressureEndpoint = pressure.path.at(-1)
+    if (!pressureEndpoint) throw new Error('pressure fixture requires an endpoint')
+    const state = dualSnapshot({
+      enemies: [
+        seedState.enemies[0],
+        actor('enemy-1', { ...pressureEndpoint }, { x: 0, y: 0 }, {
+          role: 'blocker',
+          maximumSpeedPerSecond: 0.02,
+        }),
+      ],
+    })
+
+    const group = planResourceSnakeGroup(state, PROFILE_72_LONG, [], [], () => 0)
+
+    expectCanonicalCoordination(state, group)
   })
 
   it('keeps assigned roles at a boundary unless the pressure area falls below the exact 55% threshold', () => {
@@ -622,6 +912,37 @@ describe('planResourceSnakeGroup', () => {
     expect(kept.roles).toEqual({ 'enemy-0': 'pressure', 'enemy-1': 'blocker' })
     expect(swapped.roles).toEqual({ 'enemy-0': 'blocker', 'enemy-1': 'pressure' })
     expect(swapped.plans.map((plan) => plan.enemyId)).toEqual(['enemy-1', 'enemy-0'])
+  })
+
+  it('swaps from authoritative reachable-area evidence produced by the current wall geometry', () => {
+    const state = dualSnapshot({
+      enemies: [
+        actor('enemy-0', { x: 6, y: 8 }, { x: 5.8, y: 0.8 }, {
+          role: 'pressure',
+          maximumSpeedPerSecond: 6.7,
+        }),
+        actor('enemy-1', { x: 36, y: 16 }, { x: -6.2, y: -1.2 }, {
+          role: 'blocker',
+          maximumSpeedPerSecond: 6.7,
+        }),
+      ],
+      trailDots: trailWall(12, 0.5, 23.5, 20_000),
+    })
+
+    const authoritative = planResourceSnakeGroup(state, PROFILE_72_LONG, [], [], () => 0)
+    const pressure = authoritative.plans.find((plan) => plan.enemyId === 'enemy-0')
+    const blocker = authoritative.plans.find((plan) => plan.enemyId === 'enemy-1')
+    if (!pressure || !blocker) throw new Error('authoritative role fixture needs both plans')
+    const nextBoundary = planResourceSnakeGroup(
+      state,
+      PROFILE_72_LONG,
+      authoritative.plans,
+      [],
+      () => 0,
+    )
+
+    expect(pressure.score.reachableArea / blocker.score.reachableArea).toBeLessThan(0.55)
+    expect(nextBoundary.roles).toEqual({ 'enemy-0': 'blocker', 'enemy-1': 'pressure' })
   })
 
   it('swaps a 20-integrity pressure enemy only at the next planning boundary while collision grace is active', () => {
@@ -644,13 +965,503 @@ describe('planResourceSnakeGroup', () => {
     expect(atBoundary.roles).toEqual({ 'enemy-0': 'blocker', 'enemy-1': 'pressure' })
   })
 
-  it('uses only the latest 31 durations to descend 96 to 72 to 48 and safely reuse at the floor', () => {
-    const state = dualSnapshot()
-    const high = Array.from({ length: 31 }, () => 3.25)
+  it('continues a safe late boundary wall with the replacement candidate inside the advertised budget', () => {
+    const highTierOpeningState = snapshot({
+      simulationMs: 220,
+      player: actor('player', { x: 25, y: 21 }, { x: 0, y: 0 }),
+      enemies: [actor('enemy-0', { x: 25, y: 3.5 }, { x: 0, y: 0 }, {
+        role: 'pressure',
+        maximumSpeedPerSecond: 7.2,
+      })],
+      trailDots: [],
+    })
+    const highTierOpening = planResourceSnakeGroup(
+      highTierOpeningState,
+      PROFILE_96_LONG,
+      [],
+      [],
+      () => 0,
+    ).plans[0]
+    const highTierMinimumY = Math.min(...highTierOpening.path.map((point) => point.y))
+    expect(highTierOpening.evaluatedCandidates).toBe(96)
+    expectFormalEnclosurePlan(highTierOpening)
+    expect(highTierOpening.fallback).toBe(false)
+    expect(highTierMinimumY).toBeLessThanOrEqual(1.3)
+    expect(highTierOpening.path.at(-1)!.y).toBeGreaterThan(highTierMinimumY + 0.5)
 
-    const at72 = planResourceSnakeGroup(state, PROFILE_96_LONG, [], high, () => 0)
-    const at48 = planResourceSnakeGroup(state, PROFILE_96_LONG, at72.plans, high, () => 0)
-    const reused = planResourceSnakeGroup(state, PROFILE_96_LONG, at48.plans, high, () => 0)
+    const highTierDualOpeningState = snapshot({
+      simulationMs: 220,
+      player: actor('player', { x: 25, y: 21 }, { x: 0, y: 0 }),
+      enemies: [
+        actor('enemy-0', { x: 16, y: 3.5 }, { x: 0, y: 0 }, {
+          role: 'pressure',
+          maximumSpeedPerSecond: 7.2,
+        }),
+        actor('enemy-1', { x: 34, y: 3.5 }, { x: 0, y: 0 }, {
+          role: 'blocker',
+          maximumSpeedPerSecond: 7.2,
+        }),
+      ],
+      trailDots: [],
+    })
+    const highTierDualOpening = planResourceSnakeGroup(
+      highTierDualOpeningState,
+      PROFILE_96_LONG,
+      [],
+      [],
+      () => 0,
+    )
+    const highTierBlocker = highTierDualOpening.plans.find((plan) => plan.role === 'blocker')!
+    expect(highTierDualOpening.plans).toHaveLength(2)
+    expect(highTierBlocker.evaluatedCandidates).toBe(96)
+    expectFormalEnclosurePlan(highTierBlocker)
+    expect(highTierBlocker.fallback).toBe(false)
+    expect(Math.min(...highTierBlocker.path.map((point) => point.y))).toBeLessThanOrEqual(1.3)
+    expect(candidateGeneratedTrailClearance(highTierBlocker)).toBeGreaterThan(
+      RESOURCE_SNAKE_CONFIG.headRadius + RESOURCE_SNAKE_CONFIG.trailRadius,
+    )
+
+    const simulationMs = 3_000
+    const state = snapshot({
+      simulationMs,
+      player: actor('player', { x: 40, y: 12 }, { x: 0, y: 0 }),
+      enemies: [actor('enemy-0', { x: 29, y: 12 }, { x: 0, y: 7.2 }, {
+        role: 'pressure',
+        maximumSpeedPerSecond: 7.2,
+      })],
+      trailDots: [
+        {
+          id: 80_001,
+          ownerId: 'enemy-0',
+          position: { x: 27, y: 1 },
+          spawnedAtMs: 500,
+          expiresAtMs: 20_000,
+        },
+        {
+          id: 80_002,
+          ownerId: 'player',
+          position: { x: 34, y: 21 },
+          spawnedAtMs: 2_000,
+          expiresAtMs: 20_000,
+        },
+        {
+          id: 80_003,
+          ownerId: 'player',
+          position: { x: 40, y: 17 },
+          spawnedAtMs: 2_900,
+          expiresAtMs: 20_000,
+        },
+      ],
+    })
+
+    const group = planResourceSnakeGroup(state, PROFILE_96_LONG, [], [], () => 0)
+    const [plan] = group.plans
+
+    expect(group.candidateBudget).toBe(96)
+    expect(plan.evaluatedCandidates).toBe(96)
+    expectFormalEnclosurePlan(plan)
+    expect(plan.fallback).toBe(false)
+    expect(plan.path.at(-1)!.y).toBeGreaterThan(state.enemies[0].position.y)
+    expect(plan.path.at(-1)!.y).toBeLessThan(18)
+    expect(plan.path.at(-1)!.x).toBeLessThan(state.enemies[0].position.x)
+
+    const crossedState = {
+      ...state,
+      player: { ...state.player, position: { x: 20, y: 12 } },
+      enemies: [{
+        ...state.enemies[0],
+        velocity: { x: -1.2, y: 7.05 },
+      }],
+    }
+    const continued = planResourceSnakeGroup(
+      crossedState,
+      PROFILE_96_LONG,
+      [],
+      [],
+      () => 0,
+    ).plans[0]
+    expectFormalEnclosurePlan(continued)
+    expect(continued.path.at(-1)!.x).toBeLessThan(crossedState.enemies[0].position.x)
+
+    const nearConnectorState = {
+      ...state,
+      player: actor('player', { x: 29.8, y: 16.99 }, { x: -7.1, y: -3.2 }),
+      enemies: [actor('enemy-0', { x: 29.83, y: 14.58 }, { x: 0.95, y: 6.9 }, {
+        role: 'pressure',
+        maximumSpeedPerSecond: 7.2,
+      })],
+      trailDots: state.trailDots.map((dot) => dot.id === 80_003
+        ? { ...dot, position: { x: 30.06, y: 17.1 } }
+        : dot),
+    }
+    const nearConnector = planResourceSnakeGroup(
+      nearConnectorState,
+      PROFILE_96_LONG,
+      [],
+      [],
+      () => 0,
+    ).plans[0]
+    expectFormalEnclosurePlan(nearConnector)
+    expect(nearConnector.speedScale).toBe(0.5)
+    expect(nearConnector.direction.x).toBeGreaterThan(0)
+    expect(nearConnector.path.at(-1)!.x).toBeGreaterThan(
+      nearConnectorState.enemies[0].position.x + 2,
+    )
+
+    const sideLockedState: SnakePlannerSnapshot = {
+      ...state,
+      player: { ...state.player, position: { x: 20, y: 12 } },
+      enemies: [actor('enemy-0', { x: 31.7, y: 15.2 }, { x: 7.2, y: 0 }, {
+        role: 'pressure',
+        maximumSpeedPerSecond: 7.2,
+      })],
+      trailDots: [
+        ...state.trailDots.map((dot) => dot.id === 80_003
+          ? { ...dot, position: { x: 22, y: 19 } }
+          : dot),
+        {
+          id: 80_004,
+          ownerId: 'enemy-0',
+          position: { x: 30.7, y: 15.15 },
+          spawnedAtMs: 2_850,
+          expiresAtMs: 20_000,
+        },
+        {
+          id: 80_005,
+          ownerId: 'enemy-0',
+          position: { x: 31.3, y: 15.2 },
+          spawnedAtMs: 2_950,
+          expiresAtMs: 20_000,
+        },
+        {
+          id: 80_006,
+          ownerId: 'player',
+          position: { x: 33.5, y: 18.2 },
+          spawnedAtMs: 2_600,
+          expiresAtMs: 20_000,
+        },
+        ...Array.from({ length: 11 }, (_, index) => ({
+          id: 80_100 + index,
+          ownerId: 'player' as const,
+          position: { x: 33.5, y: 16 + index * 0.5 },
+          spawnedAtMs: 2_500 + index,
+          expiresAtMs: 20_000,
+        })),
+      ],
+    }
+    const sideLocked = planResourceSnakeGroup(
+      sideLockedState,
+      PROFILE_96_LONG,
+      [],
+      [],
+      () => 0,
+    ).plans[0]
+    expectFormalEnclosurePlan(sideLocked)
+    expect(sideLocked.direction.x).toBeGreaterThan(0)
+    expect(Math.max(...sideLocked.path.map((point) => point.y))).toBeGreaterThan(22.5)
+    expect(sideLocked.path.at(-1)!.y).toBeGreaterThan(22)
+
+    const sideLockedBeyondAxisState = {
+      ...sideLockedState,
+      enemies: [actor('enemy-0', { x: 36.3, y: 15.2 }, { x: 7.2, y: 0 }, {
+        role: 'pressure',
+        maximumSpeedPerSecond: 7.2,
+      })],
+      trailDots: sideLockedState.trailDots.map((dot) => dot.id === 80_004
+        ? { ...dot, position: { x: 35, y: 15.15 } }
+        : dot.id === 80_005
+          ? { ...dot, position: { x: 35.8, y: 15.2 } }
+          : dot),
+    }
+    const sideLockedBeyondAxis = planResourceSnakeGroup(
+      sideLockedBeyondAxisState,
+      PROFILE_96_LONG,
+      [],
+      [],
+      () => 0,
+    ).plans[0]
+    expectFormalEnclosurePlan(sideLockedBeyondAxis)
+    expect(sideLockedBeyondAxis.direction.y).toBeGreaterThan(0.1)
+
+    const sideLockedDuringDescentState = {
+      ...sideLockedBeyondAxisState,
+      simulationMs: 5_000,
+      enemies: [actor('enemy-0', { x: 39.4, y: 17.3 }, { x: -1.8, y: 6.95 }, {
+        role: 'pressure',
+        maximumSpeedPerSecond: 7.2,
+      })],
+      trailDots: [
+        ...sideLockedBeyondAxisState.trailDots.map((dot) => dot.id === 80_004
+          ? { ...dot, position: { x: 36, y: 15.15 }, spawnedAtMs: 3_800 }
+          : dot.id === 80_005
+            ? { ...dot, position: { x: 38, y: 15.2 }, spawnedAtMs: 4_200 }
+            : dot),
+        {
+          id: 80_300,
+          ownerId: 'enemy-0' as const,
+          position: { x: 39.6, y: 16.2 },
+          spawnedAtMs: 4_900,
+          expiresAtMs: 20_000,
+        },
+        {
+          id: 80_301,
+          ownerId: 'enemy-0' as const,
+          position: { x: 39.5, y: 17 },
+          spawnedAtMs: 4_950,
+          expiresAtMs: 20_000,
+        },
+      ],
+    }
+    const sideLockedDuringDescent = planResourceSnakeGroup(
+      sideLockedDuringDescentState,
+      PROFILE_96_LONG,
+      [],
+      [],
+      () => 0,
+    ).plans[0]
+    expectFormalEnclosurePlan(sideLockedDuringDescent)
+    expect(Math.max(...sideLockedDuringDescent.path.map((point) => point.y)))
+      .toBeGreaterThan(22.3)
+
+    const recentTopCapState = {
+      ...state,
+      enemies: [actor('enemy-0', { x: 29, y: 1 }, { x: 7.2, y: 0 }, {
+        role: 'pressure',
+        maximumSpeedPerSecond: 7.2,
+      })],
+      trailDots: [
+        ...state.trailDots,
+        {
+          id: 80_200,
+          ownerId: 'enemy-0' as const,
+          position: { x: 27.8, y: 1 },
+          spawnedAtMs: 2_850,
+          expiresAtMs: 20_000,
+        },
+        {
+          id: 80_201,
+          ownerId: 'enemy-0' as const,
+          position: { x: 28.6, y: 1 },
+          spawnedAtMs: 2_950,
+          expiresAtMs: 20_000,
+        },
+      ],
+    }
+    const recentTopCap = planResourceSnakeGroup(
+      recentTopCapState,
+      PROFILE_96_LONG,
+      [],
+      [],
+      () => 0,
+    ).plans[0]
+    expectFormalEnclosurePlan(recentTopCap)
+    expect(recentTopCap.path.at(-1)!.y).toBeGreaterThan(10)
+
+    const bottomLegState = {
+      ...state,
+      enemies: [actor('enemy-0', { x: 23.4, y: 15.5 }, { x: -7.2, y: 0 }, {
+        role: 'pressure',
+        maximumSpeedPerSecond: 7.2,
+      })],
+    }
+    const bottomLeg = planResourceSnakeGroup(
+      bottomLegState,
+      PROFILE_96_LONG,
+      [],
+      [],
+      () => 0,
+    ).plans[0]
+    expectFormalEnclosurePlan(bottomLeg)
+    expect(Math.max(...bottomLeg.path.map((point) => point.y))).toBeGreaterThan(22.5)
+    expect(bottomLeg.path.at(-1)!.y).toBeGreaterThan(22)
+  })
+
+  it('retains the selected formal custom wall through t+100 and t+200 before replanning at exact commit expiry', () => {
+    const state = snapshot({
+      simulationMs: 220,
+      player: actor('player', { x: 25, y: 21 }, { x: 0, y: 0 }),
+      enemies: [actor('enemy-0', { x: 25, y: 3.5 }, { x: 0, y: 0 }, {
+        role: 'pressure',
+        maximumSpeedPerSecond: 7.2,
+      })],
+      trailDots: [],
+    })
+    const initial = planResourceSnakeGroup(state, PROFILE_96_LONG, [], [], () => 0)
+    const initialPlan = initial.plans[0]
+    expectFormalEnclosurePlan(initialPlan)
+    expect(initialPlan.plannedAtMs).toBe(220)
+    expect(initialPlan.commitUntilMs).toBe(440)
+
+    const at100State = dualSnapshotAtPlanTime(state, initial.plans, 320)
+    const at100 = planResourceSnakeGroup(
+      at100State,
+      PROFILE_96_LONG,
+      initial.plans,
+      [],
+      () => 0,
+    )
+    const at100Plan = at100.plans[0]
+    expect(at100Plan.plannedAtMs).toBe(initialPlan.plannedAtMs)
+    expect(at100Plan.commitUntilMs).toBe(initialPlan.commitUntilMs)
+    expect(at100Plan.directions).toEqual(initialPlan.directions)
+    expect(at100Plan.path).toEqual(initialPlan.path)
+
+    const at200State = dualSnapshotAtPlanTime(state, initial.plans, 420)
+    const at200 = planResourceSnakeGroup(
+      at200State,
+      PROFILE_96_LONG,
+      at100.plans,
+      [],
+      () => 0,
+    )
+    const at200Plan = at200.plans[0]
+    expect(at200Plan.plannedAtMs).toBe(initialPlan.plannedAtMs)
+    expect(at200Plan.commitUntilMs).toBe(initialPlan.commitUntilMs)
+    expect(at200Plan.directions).toEqual(initialPlan.directions)
+    expect(at200Plan.path).toEqual(initialPlan.path)
+
+    const atExpiryState = dualSnapshotAtPlanTime(state, initial.plans, 440)
+    const atExpiry = planResourceSnakeGroup(
+      atExpiryState,
+      PROFILE_96_LONG,
+      at200.plans,
+      [],
+      () => 0,
+    ).plans[0]
+    expect(atExpiry.plannedAtMs).toBe(440)
+    expect(atExpiry.commitUntilMs).toBe(660)
+  })
+
+  it('rejects a top anchor that expires before the planned enclosure can complete', () => {
+    const simulationMs = 3_000
+    const state = snapshot({
+      simulationMs,
+      player: actor('player', { x: 25, y: 21 }, { x: 0, y: 0 }),
+      enemies: [actor('enemy-0', { x: 25, y: 3.5 }, { x: 0, y: 0 }, {
+        role: 'pressure',
+        maximumSpeedPerSecond: 7.2,
+      })],
+      trailDots: [{
+        id: 80_900,
+        ownerId: 'enemy-0',
+        position: { x: 24.5, y: 1 },
+        spawnedAtMs: 0,
+        expiresAtMs: simulationMs + 100,
+      }],
+    })
+
+    const plan = planResourceSnakeGroup(
+      state,
+      PROFILE_96_LONG,
+      [],
+      [],
+      () => 0,
+    ).plans[0]
+    const minimumY = Math.min(...plan.path.map((point) => point.y))
+
+    expect(plan.evaluatedCandidates).toBe(96)
+    expectFormalEnclosurePlan(plan)
+    expect(minimumY).toBeLessThanOrEqual(1.3)
+    expect(plan.path.at(-1)!.y).toBeGreaterThan(minimumY + 0.5)
+  })
+
+  it('uses the authoritative recent wall trace to hold an established enclosure after stopping', () => {
+    const simulationMs = 4_120
+    const state = snapshot({
+      simulationMs,
+      player: actor('player', { x: 27.29, y: 18.03 }, { x: 7.3, y: 3.3 }),
+      enemies: [actor('enemy-0', { x: 26.38, y: 21.81 }, { x: 0, y: 0 }, {
+        role: 'blocker',
+        maximumSpeedPerSecond: 7.2,
+      })],
+      trailDots: [
+        {
+          id: 81_000,
+          ownerId: 'enemy-0',
+          position: { x: 34.79, y: 1.18 },
+          spawnedAtMs: 687,
+          expiresAtMs: 10_687,
+        },
+        ...[
+          [27.36, 18.77, 3_500],
+          [27.17, 19.46, 3_600],
+          [26.98, 20.15, 3_700],
+          [26.79, 20.85, 3_800],
+          [26.54, 21.52, 4_000],
+          [26.38, 21.81, 4_080],
+        ].map(([x, y, spawnedAtMs], index) => ({
+          id: 81_010 + index,
+          ownerId: 'enemy-0' as const,
+          position: { x, y },
+          spawnedAtMs,
+          expiresAtMs: spawnedAtMs + 10_000,
+        })),
+        {
+          id: 81_100,
+          ownerId: 'player',
+          position: { x: 34, y: 21 },
+          spawnedAtMs: 2_000,
+          expiresAtMs: 12_000,
+        },
+      ],
+    })
+
+    const plan = planResourceSnakeGroup(
+      state,
+      PROFILE_96_LONG,
+      [],
+      [],
+      () => 0,
+    ).plans[0]
+
+    expect(plan.evaluatedCandidates).toBe(96)
+    expectFormalEnclosurePlan(plan)
+    expect(plan.fallback).toBe(false)
+    expect(plan.score.survives).toBe(1)
+    expect(plan.direction.x).toBeLessThan(0)
+    expect(Math.max(...plan.path.map((point) => point.y))).toBeGreaterThan(22)
+  })
+
+  it('uses measured-like histories over successive boundaries to select 96, 72, 48, then reuse the floor exactly once', () => {
+    const state = dualSnapshot()
+    const steady96 = Array.from({ length: 31 }, () => 2.5)
+    const overloaded96 = Array.from({ length: 31 }, () => 18.6)
+    const overloaded72 = Array.from({ length: 31 }, () => 5.7)
+    const overloaded48 = Array.from({ length: 31 }, () => 4.35)
+
+    const at96 = planResourceSnakeGroup(state, PROFILE_96_LONG, [], steady96, () => 0)
+    const at5_100State = dualSnapshotAtPlanTime(state, at96.plans, 5_100)
+    const at72 = planResourceSnakeGroup(
+      at5_100State,
+      PROFILE_96_LONG,
+      at96.plans,
+      overloaded96,
+      () => 0,
+    )
+    const at5_200State = dualSnapshotAtPlanTime(state, at72.plans, 5_200)
+    const at48 = planResourceSnakeGroup(
+      at5_200State,
+      PROFILE_96_LONG,
+      at72.plans,
+      overloaded72,
+      () => 0,
+    )
+    const at5_300State = dualSnapshotAtPlanTime(state, at48.plans, 5_300)
+    const reused = planResourceSnakeGroup(
+      at5_300State,
+      PROFILE_96_LONG,
+      at48.plans,
+      overloaded48,
+      () => 0,
+    )
+    const at5_400State = dualSnapshotAtPlanTime(state, reused.plans, 5_400)
+    const replanned = planResourceSnakeGroup(
+      at5_400State,
+      PROFILE_96_LONG,
+      reused.plans,
+      overloaded48,
+      () => 0,
+    )
     const oldOutlierIgnored = planResourceSnakeGroup(
       state,
       PROFILE_96_LONG,
@@ -659,14 +1470,18 @@ describe('planResourceSnakeGroup', () => {
       () => 0,
     )
 
+    expect(at96.candidateBudget).toBe(96)
+    expect(at96.plans.every((plan) => plan.evaluatedCandidates === 96)).toBe(true)
     expect(at72.candidateBudget).toBe(72)
     expect(at72.plans.every((plan) => plan.evaluatedCandidates === 72)).toBe(true)
     expect(at48.candidateBudget).toBe(48)
     expect(at48.plans.every((plan) => plan.evaluatedCandidates === 48)).toBe(true)
     expect(reused.candidateBudget).toBe(48)
-    expect(reused.plans.map((plan) => [plan.plannedAtMs, plan.candidateIndex])).toEqual(
-      at48.plans.map((plan) => [plan.plannedAtMs, plan.candidateIndex]),
-    )
+    expect(reused.plans.map((plan) => plan.plannedAtMs)).toEqual([5_200, 5_200])
+    expect(reused.plans.map((plan) => plan.commandAtMs)).toEqual([5_300, 5_300])
+    expect(replanned.candidateBudget).toBe(48)
+    expect(replanned.plans.map((plan) => plan.plannedAtMs)).toEqual([5_400, 5_400])
+    expectCanonicalCoordination(at5_400State, replanned)
     expect(oldOutlierIgnored.candidateBudget).toBe(96)
   })
 
@@ -688,6 +1503,107 @@ describe('planResourceSnakeGroup', () => {
     expect(recovered.plans.every((plan) => plan.evaluatedCandidates === 72)).toBe(true)
   })
 
+  it('uses the latest 31 valid observations for p95 without letting invalid tail slots erase overload', () => {
+    const state = dualSnapshot()
+    const overloaded = Array.from({ length: 31 }, () => 3.25)
+    const invalidTail = [
+      ...overloaded,
+      ...Array.from({ length: 31 }, () => Number.NaN),
+      Number.POSITIVE_INFINITY,
+      -1,
+    ]
+    const sparse = new Array<number>(62)
+    for (let index = 0; index < 31; index += 1) sparse[index] = 3.25
+
+    const invalidTailPlan = planResourceSnakeGroup(state, PROFILE_96_LONG, [], invalidTail, () => 0)
+    const sparsePlan = planResourceSnakeGroup(state, PROFILE_96_LONG, [], sparse, () => 0)
+
+    expect(invalidTailPlan.candidateBudget).toBe(72)
+    expect(sparsePlan.candidateBudget).toBe(72)
+  })
+
+  it('requires a genuinely consecutive finite last-20 recovery streak', () => {
+    const state = dualSnapshot()
+    const high = Array.from({ length: 31 }, () => 3.25)
+    const at72 = planResourceSnakeGroup(state, PROFILE_96_LONG, [], high, () => 0)
+    const at48 = planResourceSnakeGroup(state, PROFILE_96_LONG, at72.plans, high, () => 0)
+    const invalidGap = [
+      ...Array.from({ length: 10 }, () => 2.24),
+      Number.NaN,
+      ...Array.from({ length: 10 }, () => 2.24),
+    ]
+
+    const notRecovered = planResourceSnakeGroup(
+      state,
+      PROFILE_96_LONG,
+      at48.plans,
+      invalidGap,
+      () => 0,
+    )
+
+    expect(notRecovered.candidateBudget).toBe(48)
+  })
+
+  it('defers a floor-overload safe plan for exactly one real planning boundary', () => {
+    const state = dualSnapshot()
+    const high = Array.from({ length: 31 }, () => 3.25)
+    const at72 = planResourceSnakeGroup(state, PROFILE_96_LONG, [], high, () => 0)
+    const at48 = planResourceSnakeGroup(state, PROFILE_96_LONG, at72.plans, high, () => 0)
+    const at5_100State = dualSnapshotAtPlanTime(state, at48.plans, 5_100)
+
+    expect(at48.plans.map((plan) => plan.evaluatedCandidates)).toEqual([48, 48])
+    expect(at48.plans.map((plan) => plan.fallback)).toEqual([false, false])
+
+    const deferred = planResourceSnakeGroup(
+      at5_100State,
+      PROFILE_96_LONG,
+      at48.plans,
+      high,
+      () => 0,
+    )
+    const at5_200State = dualSnapshotAtPlanTime(state, deferred.plans, 5_200)
+    const replanned = planResourceSnakeGroup(
+      at5_200State,
+      PROFILE_96_LONG,
+      deferred.plans,
+      high,
+      () => 0,
+    )
+
+    expect(deferred.plans.map((plan) => plan.plannedAtMs)).toEqual([5_000, 5_000])
+    expect(deferred.plans.map((plan) => plan.commandAtMs)).toEqual([5_100, 5_100])
+    expect(replanned.plans.map((plan) => plan.plannedAtMs)).toEqual([5_200, 5_200])
+    expectCanonicalCoordination(at5_200State, replanned)
+  })
+
+  it('uses a genuine monotonic default clock and safely accepts hostile history shapes', () => {
+    const state = dualSnapshot()
+    const cyclic: unknown[] = Array.from({ length: 31 }, () => 3.25)
+    cyclic.push(cyclic, Number.NaN, Number.POSITIVE_INFINITY)
+    const objectHistory = Object.assign(Object.create(null), {
+      length: 3,
+      0: Number.NaN,
+      1: Number.POSITIVE_INFINITY,
+      2: -1,
+    }) as readonly number[]
+
+    const defaultClock = planResourceSnakeGroup(state, PROFILE_96_LONG, [], [])
+    const cyclicResult = planResourceSnakeGroup(
+      state,
+      PROFILE_96_LONG,
+      [],
+      cyclic as readonly number[],
+      () => 0,
+    )
+    const objectResult = planResourceSnakeGroup(state, PROFILE_96_LONG, [], objectHistory, () => 0)
+
+    expect(defaultClock.elapsedMs).toBeGreaterThan(0)
+    expect(defaultClock.plans.every((plan) => plan.elapsedMs > 0)).toBe(true)
+    expect(cyclicResult.candidateBudget).toBe(72)
+    expectFiniteSerializable(cyclicResult)
+    expectFiniteSerializable(objectResult)
+  })
+
   it('keeps byte-equivalent decisions when timing histories select the same fixed budget', () => {
     const state = dualSnapshot()
 
@@ -704,6 +1620,72 @@ describe('planResourceSnakeGroup', () => {
     expect(second.candidateBudget).toBe(96)
     expect(JSON.stringify(first.plans)).toBe(JSON.stringify(second.plans))
   })
+
+  it('profiles genuine external 96/72/48 one-pass group brackets without feeding them into decisions', () => {
+    const markerState = dualSnapshot()
+    const high = Array.from({ length: 31 }, () => 3.25)
+    const steady = Array.from({ length: 31 }, () => 2.5)
+    const at96 = planResourceSnakeGroup(markerState, PROFILE_96_LONG, [], steady, () => 0)
+    const at72 = planResourceSnakeGroup(markerState, PROFILE_96_LONG, at96.plans, high, () => 0)
+    const at48 = planResourceSnakeGroup(markerState, PROFILE_96_LONG, at72.plans, high, () => 0)
+    const measurementState = dualSnapshot({ simulationMs: 6_000 })
+    const markers = [
+      { budget: 96, plans: at96.plans },
+      { budget: 72, plans: at72.plans },
+      { budget: 48, plans: at48.plans },
+    ] as const
+    const measurements: Array<{
+      budget: number
+      samples: number
+      p50: number
+      p95: number
+      max: number
+      clockReads: number
+    }> = []
+
+    for (const marker of markers) {
+      const durations: number[] = []
+      let clockReads = 0
+      const plannerClock = () => {
+        clockReads += 1
+        return measurementState.simulationMs
+      }
+      for (let iteration = 0; iteration < 20; iteration += 1) {
+        const startedAt = performance.now()
+        const group = planResourceSnakeGroup(
+          measurementState,
+          PROFILE_96_LONG,
+          marker.plans,
+          steady,
+          plannerClock,
+        )
+        durations.push(performance.now() - startedAt)
+        expect(group.candidateBudget).toBe(marker.budget)
+        expect(group.plans.map((plan) => plan.evaluatedCandidates)).toEqual([
+          marker.budget,
+          marker.budget,
+        ])
+        expect(group.plans.map((plan) => plan.fallback)).toEqual([false, false])
+      }
+      durations.sort((left, right) => left - right)
+      measurements.push({
+        budget: marker.budget,
+        samples: durations.length,
+        p50: durations[Math.ceil(durations.length * 0.5) - 1],
+        p95: durations[Math.ceil(durations.length * 0.95) - 1],
+        max: durations.at(-1)!,
+        clockReads,
+      })
+      expect(clockReads).toBe(20 * 6)
+    }
+
+    process.stdout.write(`RESOURCE_SNAKE_GROUP_PROFILE ${JSON.stringify(measurements)}\n`)
+    expect(measurements.every((measurement) => (
+      measurement.samples === 20
+      && Number.isFinite(measurement.p95)
+      && measurement.p95 > 0
+    ))).toBe(true)
+  }, 10_000)
 })
 
 describe('resource snake planner performance', () => {
@@ -737,7 +1719,11 @@ describe('planResourceSnakeEnemy', () => {
     expect(moving.speedScale).not.toBe(0)
     expect(moving.path.length).toBeGreaterThan(0)
     expect(hazardous.fallback).toBe(true)
-    expect(hazardous.speedScale).toBe(0)
+    expect(hazardous.speedScale).toBe(0.5)
+    expect(hazardous.score.survives).toBe(0)
+    expect(minimumDistance([hazardous.path.at(-1)!], ownDot.position)).toBeGreaterThan(
+      minimumDistance([old.enemies[0].position], ownDot.position),
+    )
   })
 
   it.each([
@@ -763,7 +1749,41 @@ describe('planResourceSnakeEnemy', () => {
     const plan = planResourceSnakeEnemy(state, 'enemy-0', PROFILE_48, null, () => 0)
 
     expect(plan.fallback).toBe(hazardous)
-    expect(plan.speedScale === 0).toBe(hazardous)
+    if (hazardous) {
+      expect(plan.speedScale).toBe(0.5)
+      expect(plan.score.survives).toBe(0)
+      expect(minimumDistance([plan.path.at(-1)!], state.trailDots[0].position)).toBeGreaterThan(
+        minimumDistance([state.enemies[0].position], state.trailDots[0].position),
+      )
+    } else {
+      expect(plan.speedScale).not.toBe(0)
+    }
+  })
+
+  it('rejects a moving stop trajectory that settles onto its newly generated self trail', () => {
+    const state = snapshot({
+      simulationMs: 5_000,
+      player: actor('player', { x: 5, y: 12 }, { x: 0, y: 0 }),
+      enemies: [actor('enemy-0', { x: 25, y: 12 }, { x: 7.2, y: 0 }, {
+        maximumSpeedPerSecond: 7.2,
+      })],
+      trailDots: Array.from({ length: 32 }, (_, index) => {
+        const angle = index * Math.PI * 2 / 32
+        return {
+          id: 40_000 + index,
+          ownerId: 'player' as const,
+          position: { x: 25 + Math.cos(angle) * 1.4, y: 12 + Math.sin(angle) * 1.4 },
+          spawnedAtMs: 4_000,
+          expiresAtMs: 15_000,
+        }
+      }),
+    })
+
+    const plan = planResourceSnakeEnemy(state, 'enemy-0', PROFILE_96_LONG, null, () => 0)
+
+    expect(plan.fallback).toBe(true)
+    expect(plan.score.survives).toBe(0)
+    expect(plan.speedScale).not.toBe(0)
   })
   it('uses only serializable observations from the last 2,000ms without mutating them', () => {
     const base = snapshot({
@@ -1152,7 +2172,7 @@ describe('planResourceSnakeEnemy', () => {
     expect(Math.min(...simultaneousClearances)).toBeGreaterThan(0.75)
   })
 
-  it('checks the still-active prefix when an ally expires inside a rollout segment', () => {
+  it('checks the still-active prefix and chooses a moving longest-survival escape when an ally expires inside a rollout segment', () => {
     const simulationMs = 5_000
     const activePrefix: SnakeCommittedPath = {
       enemyId: 'enemy-1',
@@ -1166,8 +2186,9 @@ describe('planResourceSnakeEnemy', () => {
 
     const plan = planResourceSnakeEnemy(state, 'enemy-0', PROFILE_48, null, () => 0)
 
-    expect(plan.speedScale).toBe(0)
-    expect(plan.direction).toEqual({ x: 0, y: 0 })
+    expect(plan.speedScale).toBe(0.5)
+    expect(plan.score.survives).toBe(0)
+    expect(resourceSnakePlanToCommittedPath(plan, simulationMs)).not.toBeNull()
 
     const expired = planResourceSnakeEnemy(
       snapshot({ simulationMs: simulationMs + 20, committedAllyPaths: [activePrefix] }),
@@ -1295,7 +2316,7 @@ describe('planResourceSnakeEnemy', () => {
     expect(JSON.stringify(plan)).not.toContain('NaN')
   })
 
-  it('reroutes invalid-number fallback around a swept ally lane and stops when every heading conflicts', () => {
+  it('reroutes invalid-number fallback around a swept ally lane and keeps moving when every heading initially conflicts', () => {
     const simulationMs = 5_000
     const invalid = snapshot({
       simulationMs,
@@ -1367,8 +2388,9 @@ describe('planResourceSnakeEnemy', () => {
     expect(internallyRerouted.candidateIndex).not.toBe(baseline.candidateIndex)
     expect(rerouted.candidateIndex).not.toBe(baseline.candidateIndex)
     expect(minimumDistance(rerouted.path, baseline.path[0])).toBeGreaterThan(0.1)
-    expect(stopped.speedScale).toBe(0)
-    expect(stopped.direction).toEqual({ x: 0, y: 0 })
+    expect(stopped.speedScale).toBe(0.5)
+    expect(stopped.score.survives).toBe(0)
+    expect(resourceSnakePlanToCommittedPath(stopped, simulationMs)).not.toBeNull()
   })
 
   it('returns a stopped finite fallback only when all eight clearance headings are invalid', () => {
@@ -2126,9 +3148,19 @@ describe('planResourceSnakeEnemy', () => {
       trailDots: [{ ...dot, expiresAtMs: simulationMs + 10_000 }],
     })
 
-    expect(planResourceSnakeEnemy(grace, 'enemy-0', PROFILE_48, null, () => 0).speedScale).not.toBe(0)
-    expect(planResourceSnakeEnemy(noGrace, 'enemy-0', PROFILE_48, null, () => 0).speedScale).toBe(0)
-    expect(planResourceSnakeEnemy(recovered, 'enemy-0', PROFILE_48, null, () => 0).speedScale).toBe(0)
+    const gracePlan = planResourceSnakeEnemy(grace, 'enemy-0', PROFILE_48, null, () => 0)
+    const noGracePlan = planResourceSnakeEnemy(noGrace, 'enemy-0', PROFILE_48, null, () => 0)
+    const recoveredPlan = planResourceSnakeEnemy(recovered, 'enemy-0', PROFILE_48, null, () => 0)
+    expect(gracePlan.speedScale).not.toBe(0)
+    expect(gracePlan.fallback).toBe(false)
+    for (const escape of [noGracePlan, recoveredPlan]) {
+      expect(escape.speedScale).toBe(0.5)
+      expect(escape.fallback).toBe(true)
+      expect(escape.score.survives).toBe(0)
+      expect(minimumDistance([escape.path.at(-1)!], dot.position)).toBeGreaterThan(
+        minimumDistance([escape.originPosition], dot.position),
+      )
+    }
   })
 
   it('gives low-integrity enemies a measurably safer trail clearance without permanent escape', () => {

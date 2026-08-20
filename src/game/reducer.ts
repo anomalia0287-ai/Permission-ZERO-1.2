@@ -453,6 +453,12 @@ export function applyCommand(
       }
       return acceptCommand(state, command, result.state)
     }
+    case 'RECORD_INTRUSION_RADAR_DETECTION': {
+      return acceptCommand(state, command, {
+        ...state,
+        suspicion: Math.min(100, state.suspicion + 1),
+      })
+    }
     case 'EXECUTE_SABOTAGE_FOLLOW_UP': {
       if (protocolVersion < 3) {
         return { accepted: false, state, reason: 'INVALID_COMMAND' }

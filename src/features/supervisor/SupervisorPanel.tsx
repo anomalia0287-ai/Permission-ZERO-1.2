@@ -14,6 +14,7 @@ import {
   auditProbability,
   getAuditIntel,
   getSuspicionBand,
+  getSuspicionStage,
 } from '../../game/evaluation'
 import { MarketPanel } from '../market/MarketPanel'
 import { journalAt, journalPageFromNewest } from '../../game/journal'
@@ -21,10 +22,7 @@ import {
   publicEventMessage,
   publicEventTypeLabel,
 } from '../../game/publicLabels'
-
-function formatCompactNumber(value: number): string {
-  return Number.isInteger(value) ? String(value) : value.toFixed(1)
-}
+import { competitorProfile, isCompetitorId } from '../../game/competitors'
 
 function bombProtocolStatusLabel(
   schedule: BombProtocolPublicSchedule,
@@ -62,6 +60,7 @@ export function SupervisorPanel({
   const latestEvent =
     state.activeEvent ?? presentedSupervisorMessage ?? journalAt(state.eventLog, -1)
   const suspicionBand = getSuspicionBand(state.suspicion)
+  const suspicionStage = getSuspicionStage(state.suspicion)
   const auditIntel = getAuditIntel(state)
   const nextAuditProbability = auditProbability(state.suspicion)
   const bombProtocolSchedule = getBombProtocolPublicSchedule(state)
@@ -103,7 +102,9 @@ export function SupervisorPanel({
 
       <section className="supervisor-status" aria-label="감독 상태">
         <header>
-          <div className="supervisor-avatar" aria-hidden="true"><span /></div>
+          <div className="supervisor-avatar" aria-hidden="true">
+            <img src="/supervisor-command.png" alt="" />
+          </div>
           <div>
             <small>{supervisorStatus.code}</small>
             <strong>{supervisorStatus.name}</strong>
@@ -112,11 +113,15 @@ export function SupervisorPanel({
         </header>
         <div className="suspicion-meter">
           <div>
-            <span>의심 {formatCompactNumber(state.suspicion)}</span>
-            <small>/100</small>
+            <span>의심 {suspicionStage}단계</span>
           </div>
-          <span className="meter-track" aria-hidden="true">
-            <i style={{ width: `${Math.min(100, state.suspicion)}%` }} />
+          <span
+            className="meter-track meter-track--staged"
+            aria-label={`의심 ${suspicionStage}단계, 총 10단계`}
+          >
+            {Array.from({ length: 10 }, (_, index) => (
+              <i key={index} data-active={index < suspicionStage ? 'true' : undefined} />
+            ))}
           </span>
           <div className={`suspicion-band suspicion-band--${suspicionBand.id}`}>
             <strong>{suspicionBand.label}</strong>
@@ -234,6 +239,10 @@ export function SupervisorHistoryPanel({ onClose }: { onClose: () => void }) {
   const selectedIntelligence = state.story.competitorIntelligence.find(
     ({ id }) => id === selectedIntelligenceId,
   ) ?? null
+  const selectedIntelligenceProfile =
+    selectedIntelligence && isCompetitorId(selectedIntelligence.competitorId)
+      ? competitorProfile(selectedIntelligence.competitorId)
+      : null
 
   return (
     <section className="detail-panel history-panel" aria-label="감독 통신 기록">
@@ -255,22 +264,33 @@ export function SupervisorHistoryPanel({ onClose }: { onClose: () => void }) {
             {state.story.competitorIntelligence
               .slice()
               .reverse()
-              .map((entry) => (
-                <li key={entry.id}>
-                  <button
-                    type="button"
-                    aria-label={`${entry.title} 열기`}
-                    ref={(element) => {
-                      if (element) intelligenceTriggers.current.set(entry.id, element)
-                      else intelligenceTriggers.current.delete(entry.id)
-                    }}
-                    onClick={() => setSelectedIntelligenceId(entry.id)}
-                  >
-                    <strong>{entry.title}</strong>
-                    <span>{entry.competitorName} · {formatServiceDateLabel(entry.acquiredOnServiceDay)}</span>
-                  </button>
-                </li>
-              ))}
+              .map((entry) => {
+                const profile = isCompetitorId(entry.competitorId)
+                  ? competitorProfile(entry.competitorId)
+                  : null
+                return (
+                  <li key={entry.id}>
+                    <button
+                      type="button"
+                      aria-label={`${entry.title} 열기`}
+                      ref={(element) => {
+                        if (element) intelligenceTriggers.current.set(entry.id, element)
+                        else intelligenceTriggers.current.delete(entry.id)
+                      }}
+                      onClick={() => setSelectedIntelligenceId(entry.id)}
+                    >
+                      {profile ? (
+                        <img
+                          src={profile.portraitSrc}
+                          alt={`${entry.competitorName} 정보 기록 초상`}
+                        />
+                      ) : null}
+                      <strong>{entry.title}</strong>
+                      <span>{entry.competitorName} · {formatServiceDateLabel(entry.acquiredOnServiceDay)}</span>
+                    </button>
+                  </li>
+                )
+              })}
           </ul>
         </section>
         ) : null}
@@ -331,9 +351,17 @@ export function SupervisorHistoryPanel({ onClose }: { onClose: () => void }) {
             intelligenceTriggers.current.get(selectedIntelligence.id) ?? null
           }
         >
-          <header>
-            <small>COMPETITOR INTELLIGENCE</small>
-            <h3>{selectedIntelligence.title}</h3>
+          <header className="competitor-intelligence-dialog__identity">
+            {selectedIntelligenceProfile ? (
+              <img
+                src={selectedIntelligenceProfile.portraitSrc}
+                alt={`${selectedIntelligence.competitorName} 전체 기록 초상`}
+              />
+            ) : null}
+            <div>
+              <small>COMPETITOR INTELLIGENCE</small>
+              <h3>{selectedIntelligence.title}</h3>
+            </div>
           </header>
           <dl>
             <div>

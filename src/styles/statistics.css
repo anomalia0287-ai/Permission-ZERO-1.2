@@ -35,6 +35,17 @@
   gap: 6px;
 }
 
+.chart-legend img {
+  width: 32px;
+  height: 32px;
+  border: 1px solid currentcolor;
+  border-radius: 7px 7px 3px 3px;
+  object-fit: cover;
+  object-position: center 24%;
+  background: #092429;
+  box-shadow: 0 4px 10px rgb(0 0 0 / 24%);
+}
+
 .chart-legend i {
   width: 13px;
   height: 2px;

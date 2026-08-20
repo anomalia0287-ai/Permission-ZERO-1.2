@@ -17,14 +17,26 @@ describe('StatisticsPanel', () => {
         serviceDay: 337,
         cadence: 'weekly',
         playerShare: 58.5,
-        competitorShares: { meridian: 41.5, tallow: 0 },
+        competitorShares: {
+          meridian: 41.5,
+          tallow: 0,
+          salus: 0,
+          lucent: 0,
+          boreal: 0,
+        },
         reasons: ['주간 정규화'],
       },
       {
         serviceDay: 344,
         cadence: 'weekly',
         playerShare: 57.25,
-        competitorShares: { meridian: 42.75, tallow: 0 },
+        competitorShares: {
+          meridian: 42.75,
+          tallow: 0,
+          salus: 0,
+          lucent: 0,
+          boreal: 0,
+        },
         reasons: ['주간 정규화'],
       },
     ]
@@ -40,6 +52,14 @@ describe('StatisticsPanel', () => {
     expect(screen.getByRole('img', { name: '시장 점유율 변화 차트' })).toBeInTheDocument()
     expect(screen.getByText('당신 · 57.25%')).toBeInTheDocument()
     expect(screen.getByText('MERIDIAN · 42.75%')).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'MERIDIAN 경쟁 AI 초상' })).toHaveAttribute(
+      'src',
+      '/competitor-meridian.png',
+    )
+    expect(screen.getByRole('img', { name: 'TALLOW 경쟁 AI 초상' })).toHaveAttribute(
+      'src',
+      '/competitor-tallow.png',
+    )
     expect(screen.getByRole('table', { name: '시장 기록 표' })).toHaveTextContent('58.50%')
     expect(screen.getByRole('table', { name: '시장 기록 표' })).toHaveTextContent('57.25%')
     expect(screen.getByRole('table', { name: '시장 기록 표' })).toHaveTextContent(
@@ -130,6 +150,9 @@ describe('StatisticsPanel', () => {
       competitorShares: {
         meridian: 40 - (index % 10) / 10,
         tallow: 0,
+        salus: 0,
+        lucent: 0,
+        boreal: 0,
       },
       reasons: [`snapshot-${index}`],
     }))

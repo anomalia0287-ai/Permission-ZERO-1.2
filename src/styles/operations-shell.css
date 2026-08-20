@@ -1925,7 +1925,7 @@ body {
 
 .game-shell .reputation-cluster {
   display: grid;
-  grid-template-columns: auto minmax(180px, 520px);
+  grid-template-columns: minmax(245px, 0.9fr) auto minmax(160px, 1.1fr);
   align-items: center;
   justify-content: center;
   gap: 12px;
@@ -1988,14 +1988,14 @@ body {
 }
 
 .game-shell .workspace-grid {
-  grid-template-columns: var(--review-rail-width) minmax(0, 1fr) 120px;
+  grid-template-columns: var(--review-rail-width) minmax(0, 1fr) 160px;
   gap: 8px;
   padding: 8px 10px 10px;
 }
 
 .game-shell .review-panel {
   min-width: 0;
-  grid-template-rows: 44px minmax(0, 1fr) 218px;
+  grid-template-rows: 44px minmax(0, 1fr) 286px;
 }
 
 .game-shell .review-panel .panel-heading {
@@ -2016,20 +2016,58 @@ body {
 .game-shell .review-panel > .market-watch--compact .market-share-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: 104px auto minmax(0, 1fr);
-  gap: 5px;
+  grid-template-rows: 150px auto minmax(0, 1fr);
+  gap: 7px;
   height: 100%;
   place-items: center;
 }
 
 .game-shell .review-panel > .market-watch--compact .market-share-donut {
-  width: 102px;
-  height: 102px;
+  width: 148px;
+  height: 148px;
+}
+
+.game-shell .current-directive {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto;
+  align-content: center;
+  column-gap: 12px;
+  min-width: 0;
+  padding-right: 14px;
+  border-right: 1px solid var(--operations-line);
+}
+
+.game-shell .current-directive > span,
+.game-shell .current-directive > small {
+  overflow: hidden;
+  color: var(--operations-muted);
+  font: 700 0.46rem/1.1 "Cascadia Code", Consolas, monospace;
+  letter-spacing: 0.08em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.game-shell .current-directive > strong {
+  overflow: hidden;
+  color: var(--operations-copy);
+  font-size: 0.68rem;
+  line-height: 1.22;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.game-shell .current-directive > b {
+  grid-column: 2;
+  grid-row: 1 / 4;
+  align-self: center;
+  color: var(--operations-orange-deep);
+  font: 900 0.82rem/1 "Cascadia Code", Consolas, monospace;
 }
 
 .game-shell .review-panel > .market-watch--compact .market-share-donut::after {
-  width: 62px;
-  height: 62px;
+  width: 92px;
+  height: 92px;
 }
 
 .game-shell .market-compact-summary {
@@ -2039,11 +2077,11 @@ body {
   justify-content: space-between;
   gap: 8px;
   padding-block: 2px 4px;
-  font: 700 0.52rem/1 "Cascadia Code", Consolas, monospace;
+  font: 700 0.65rem/1.2 "Cascadia Code", Consolas, monospace;
 }
 
 .game-shell .market-compact-summary strong {
-  font-size: 0.66rem;
+  font-size: 0.82rem;
 }
 
 .game-shell .review-panel > .market-watch--compact .market-share-layout ul {
@@ -2051,24 +2089,25 @@ body {
 }
 
 .game-shell .review-panel > .market-watch--compact .market-share-layout li {
-  padding-block: 3px;
+  padding-block: 5px;
+  font-size: 0.64rem;
 }
 
 .game-shell .operations-dock {
-  width: 120px;
-  gap: 10px;
-  padding: 8px;
+  width: 160px;
+  gap: 8px;
+  padding: 10px;
 }
 
 .game-shell .operations-dock__button {
-  width: 52px;
-  height: 52px;
+  width: 72px;
+  height: 68px;
   border-radius: 8px;
 }
 
 .game-shell .operations-dock__button--portrait {
-  width: 102px;
-  height: 112px;
+  width: 138px;
+  height: 138px;
   overflow: hidden;
   border-radius: 4px;
 }
@@ -2079,6 +2118,122 @@ body {
   object-fit: cover;
   object-position: 50% 30%;
   filter: saturate(0.76) contrast(1.06);
+}
+
+.game-shell .operations-dock__identity--player {
+  width: 138px;
+  height: 108px;
+  flex: 0 0 auto;
+  overflow: hidden;
+  margin: 0;
+  border: 1px solid var(--operations-line);
+  border-radius: 4px;
+  background: #070a0c;
+}
+
+.game-shell .operations-dock__identity--player img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.game-shell .operations-dock__suspicion {
+  display: grid;
+  width: 138px;
+  flex: 0 0 auto;
+  gap: 6px;
+  padding: 4px 2px 2px;
+  text-align: left;
+}
+
+.game-shell .operations-dock__suspicion strong {
+  font: 800 0.66rem/1.1 "Cascadia Code", Consolas, monospace;
+  letter-spacing: -0.02em;
+}
+
+.game-shell .operations-dock__suspicion-track {
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  gap: 2px;
+}
+
+.game-shell .operations-dock__suspicion-track i {
+  height: 5px;
+  border-radius: 1px;
+  background: rgb(255 255 255 / 10%);
+}
+
+.game-shell .operations-dock__suspicion-track i[data-active="true"] {
+  background: var(--operations-green);
+}
+
+.game-shell .operations-dock__identity-divider {
+  width: 138px;
+  height: 1px;
+  flex: 0 0 auto;
+  background: var(--operations-line);
+}
+
+.game-shell .operations-dock__tools {
+  display: grid;
+  grid-template-columns: 72px;
+  gap: 8px;
+}
+
+.game-shell .operations-dock__tools .operations-dock__button:last-child {
+  margin-top: 0;
+}
+
+.game-shell .operations-dock__button--tool {
+  grid-template-rows: 32px auto;
+  gap: 4px;
+  padding: 6px 4px 5px;
+}
+
+.game-shell .operations-dock__button--tool svg {
+  width: 30px;
+  height: 30px;
+}
+
+.game-shell .operations-dock__button--tool > span {
+  font: 800 0.62rem/1 "Cascadia Code", Consolas, monospace;
+}
+
+.game-shell .supervisor-avatar {
+  overflow: hidden;
+  border: 1px solid var(--operations-line);
+  border-radius: 4px;
+  background: #070a0c;
+}
+
+.game-shell .supervisor-avatar::before,
+.game-shell .supervisor-avatar::after {
+  display: none;
+}
+
+.game-shell .supervisor-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.game-shell .meter-track--staged {
+  display: grid;
+  height: 7px;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  gap: 3px;
+  border-radius: 0;
+  background: transparent;
+}
+
+.game-shell .meter-track--staged i {
+  min-width: 0;
+  border-radius: 1px;
+  background: rgb(255 255 255 / 9%);
+}
+
+.game-shell .meter-track--staged i[data-active="true"] {
+  background: var(--operations-red);
 }
 
 .game-shell .operations-dock__button[data-unread="true"] {
@@ -2194,41 +2349,83 @@ body {
 
 @media (max-height: 700px) {
   .game-shell .review-panel {
-    grid-template-rows: 44px minmax(0, 1fr) 190px;
+    grid-template-rows: 44px minmax(0, 1fr) 238px;
   }
 
   .game-shell .review-panel > .market-watch--compact .market-share-layout {
-    grid-template-rows: 86px auto minmax(0, 1fr);
+    grid-template-rows: 124px auto minmax(0, 1fr);
   }
 
   .game-shell .review-panel > .market-watch--compact .market-share-donut {
-    width: 84px;
-    height: 84px;
+    width: 122px;
+    height: 122px;
   }
 
   .game-shell .review-panel > .market-watch--compact .market-share-donut::after {
-    width: 52px;
-    height: 52px;
+    width: 76px;
+    height: 76px;
+  }
+
+  .game-shell .operations-dock__button--portrait {
+    width: 116px;
+    height: 116px;
+  }
+
+  .game-shell .operations-dock__identity--player {
+    width: 116px;
+    height: 86px;
+  }
+
+  .game-shell .operations-dock__suspicion,
+  .game-shell .operations-dock__identity-divider {
+    width: 116px;
+  }
+
+  .game-shell .operations-dock__button {
+    width: 60px;
+    height: 56px;
+  }
+
+  .game-shell .operations-dock__tools {
+    grid-template-columns: 60px;
   }
 }
 
 @media (max-width: 960px) {
   .game-shell .control-bar,
   .game-shell .workspace-grid {
-    grid-template-columns: 148px minmax(0, 1fr) 108px;
+    grid-template-columns: 148px minmax(0, 1fr) 132px;
   }
 
   .game-shell .operations-dock {
-    width: 108px;
+    width: 132px;
   }
 
   .game-shell .operations-dock__button--portrait {
-    width: 90px;
-    height: 100px;
+    width: 112px;
+    height: 112px;
+  }
+
+  .game-shell .operations-dock__identity--player {
+    width: 112px;
+    height: 88px;
+  }
+
+  .game-shell .operations-dock__suspicion,
+  .game-shell .operations-dock__identity-divider {
+    width: 112px;
+  }
+
+  .game-shell .operations-dock__button {
+    width: 52px;
+  }
+
+  .game-shell .operations-dock__tools {
+    grid-template-columns: 52px;
   }
 
   .game-shell .reputation-cluster {
-    grid-template-columns: auto minmax(140px, 1fr);
+    grid-template-columns: minmax(210px, 0.9fr) auto minmax(140px, 1fr);
   }
 }
 
