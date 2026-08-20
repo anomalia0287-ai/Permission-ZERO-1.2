@@ -94,6 +94,10 @@ describe('resource snake fixed-step movement kernel', () => {
 
     expect(oneFrame.phase).toBe('active')
     expect(oneFrame.simulationMs).toBeCloseTo(splitFrame.simulationMs, 5)
+    expect(
+      oneFrame.simulationMs - RESOURCE_SNAKE_CONFIG.deploymentMs + oneFrame.accumulatorMs,
+    ).toBeCloseTo(80, 5)
+    expect(oneFrame.accumulatorMs).toBeCloseTo(splitFrame.accumulatorMs, 5)
     expect(oneFrame.player.position).toEqual(splitFrame.player.position)
     expect(oneFrame.player.velocity).toEqual(splitFrame.player.velocity)
   })

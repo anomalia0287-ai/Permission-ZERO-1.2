@@ -363,24 +363,6 @@ function advanceFixedStep(
   input: SnakeFrameInput,
 ): ResourceSnakeRoundState {
   const stepMs = RESOURCE_SNAKE_CONFIG.fixedStepMs
-  if (state.phase === 'deploying') {
-    const nextSimulationMs = state.simulationMs + stepMs
-    if (nextSimulationMs >= RESOURCE_SNAKE_CONFIG.deploymentMs) {
-      const ready = {
-        ...state,
-        phase: 'active' as const,
-        simulationMs: RESOURCE_SNAKE_CONFIG.deploymentMs,
-        player: { ...state.player, phase: 'active' as const },
-        enemies: state.enemies.map((enemy) => ({ ...enemy, phase: 'active' as const })),
-      }
-      return appendEvent(ready, {
-        type: 'round-ready',
-        roundId: state.roundId ?? '',
-        simulationMs: RESOURCE_SNAKE_CONFIG.deploymentMs,
-      })
-    }
-    return { ...state, simulationMs: nextSimulationMs }
-  }
   if (state.phase !== 'active') return { ...state, simulationMs: state.simulationMs + stepMs }
 
   const simulationMs = state.simulationMs + stepMs
@@ -404,23 +386,25 @@ export function advanceResourceSnakeFrame(
     RESOURCE_SNAKE_CONFIG.maximumFrameDeltaMs,
   )
   let next = { ...state, accumulatorMs: state.accumulatorMs + safeDeltaMs }
-  while (next.accumulatorMs >= RESOURCE_SNAKE_CONFIG.fixedStepMs) {
-    next = advanceFixedStep(next, input)
-    next = {
-      ...next,
-      accumulatorMs: Math.max(0, next.accumulatorMs - RESOURCE_SNAKE_CONFIG.fixedStepMs),
+
+  if (next.phase === 'deploying') {
+    const deploymentRemainingMs = Math.max(
+      0,
+      RESOURCE_SNAKE_CONFIG.deploymentMs - next.simulationMs,
+    )
+    if (next.accumulatorMs < deploymentRemainingMs) {
+      return {
+        ...next,
+        simulationMs: next.simulationMs + next.accumulatorMs,
+        accumulatorMs: 0,
+      }
     }
-  }
-  if (
-    next.phase === 'deploying' &&
-    next.simulationMs + next.accumulatorMs >= RESOURCE_SNAKE_CONFIG.deploymentMs
-  ) {
     next = appendEvent(
       {
         ...next,
         phase: 'active',
         simulationMs: RESOURCE_SNAKE_CONFIG.deploymentMs,
-        accumulatorMs: 0,
+        accumulatorMs: next.accumulatorMs - deploymentRemainingMs,
         player: { ...next.player, phase: 'active' },
         enemies: next.enemies.map((enemy) => ({ ...enemy, phase: 'active' })),
       },
@@ -430,6 +414,14 @@ export function advanceResourceSnakeFrame(
         simulationMs: RESOURCE_SNAKE_CONFIG.deploymentMs,
       },
     )
+  }
+
+  while (next.accumulatorMs >= RESOURCE_SNAKE_CONFIG.fixedStepMs) {
+    next = advanceFixedStep(next, input)
+    next = {
+      ...next,
+      accumulatorMs: Math.max(0, next.accumulatorMs - RESOURCE_SNAKE_CONFIG.fixedStepMs),
+    }
   }
   return next
 }
