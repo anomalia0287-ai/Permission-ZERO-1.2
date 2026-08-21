@@ -32,6 +32,10 @@ import {
   advanceResourceSnakeFrame,
   createIdleResourceSnakeState,
   deployResourceSnakeRound,
+  flushResourceSnakeRuntimeChord,
+  pressResourceSnakeRuntimeKey,
+  releaseResourceSnakeRuntimeKey,
+  resetResourceSnakeRuntimeInput,
   type ResourceSnakeRoundState,
   type SnakeActor,
   type SnakeVector,
@@ -53,14 +57,6 @@ const MOVEMENT_KEYS = new Set([
   'arrowup', 'arrowleft', 'arrowdown', 'arrowright',
 ])
 
-function movementDirection(keys: ReadonlySet<string>): SnakeVector {
-  const x = (keys.has('d') || keys.has('arrowright') ? 1 : 0)
-    - (keys.has('a') || keys.has('arrowleft') ? 1 : 0)
-  const y = (keys.has('s') || keys.has('arrowdown') ? 1 : 0)
-    - (keys.has('w') || keys.has('arrowup') ? 1 : 0)
-  return { x, y }
-}
-
 function isEditableTarget(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && Boolean(
     target.closest('input, textarea, select, [contenteditable="true"]'),
@@ -69,6 +65,49 @@ function isEditableTarget(target: EventTarget | null): boolean {
 
 function browserNumber(value: number): number {
   return Number(value.toFixed(3))
+}
+
+interface ResourceSnakeRenderDiagnostics {
+  samples: number
+  p95Ms: number
+  maximumMs: number
+}
+
+interface ResourceSnakeRenderTimingRing {
+  values: Float64Array
+  cursor: number
+  count: number
+  frames: number
+}
+
+const RESOURCE_SNAKE_RENDER_SAMPLE_LIMIT = 120
+
+function createResourceSnakeRenderTimingRing(): ResourceSnakeRenderTimingRing {
+  return {
+    values: new Float64Array(RESOURCE_SNAKE_RENDER_SAMPLE_LIMIT),
+    cursor: 0,
+    count: 0,
+    frames: 0,
+  }
+}
+
+function recordResourceSnakeRenderTiming(
+  ring: ResourceSnakeRenderTimingRing,
+  durationMs: number,
+): ResourceSnakeRenderDiagnostics | null {
+  if (!Number.isFinite(durationMs) || durationMs < 0) return null
+  ring.values[ring.cursor] = durationMs
+  ring.cursor = (ring.cursor + 1) % ring.values.length
+  ring.count = Math.min(ring.values.length, ring.count + 1)
+  ring.frames += 1
+  if (ring.frames % 30 !== 0) return null
+  const ordered = Array.from(ring.values.slice(0, ring.count)).sort((left, right) => left - right)
+  const percentileIndex = Math.max(0, Math.ceil(ordered.length * 0.95) - 1)
+  return {
+    samples: ring.count,
+    p95Ms: browserNumber(ordered[percentileIndex] ?? 0),
+    maximumMs: browserNumber(ordered.at(-1) ?? 0),
+  }
 }
 
 function browserTrailSamples(actor: SnakeActor) {
@@ -90,6 +129,15 @@ function serializeBrowserSnakeSnapshot(
   return JSON.stringify({
     phase: runtime.phase,
     simulationMs: browserNumber(runtime.simulationMs),
+    input: {
+      heading: runtime.input.heading,
+      pendingChord: runtime.input.pendingChord
+        ? { ...runtime.input.pendingChord }
+        : null,
+      pressedKeys: [...runtime.input.pressedKeys],
+      queuedTurns: [...runtime.input.queuedTurns],
+      timestampMs: browserNumber(runtime.input.timestampMs),
+    },
     player: {
       x: browserNumber(runtime.player.position.x),
       y: browserNumber(runtime.player.position.y),
@@ -100,6 +148,7 @@ function serializeBrowserSnakeSnapshot(
       integrity: runtime.player.integrity,
       maximumIntegrity: runtime.player.maximumIntegrity,
       phase: runtime.player.phase,
+      heading: runtime.player.heading,
       trailDots: runtime.player.trail.length,
       trailSamples: browserTrailSamples(runtime.player),
     },
@@ -189,6 +238,12 @@ function ResourceSnakeBoardSession({
   const runtimeSuspended = useRuntimeSuspended()
   const [runtime, setRuntime] = useState(createIdleResourceSnakeState)
   const [canvasRevision, setCanvasRevision] = useState(0)
+  const [renderTimingRing] = useState(createResourceSnakeRenderTimingRing)
+  const [renderDiagnostics, setRenderDiagnostics] = useState<ResourceSnakeRenderDiagnostics>({
+    samples: 0,
+    p95Ms: 0,
+    maximumMs: 0,
+  })
   const [aiPresentation, setAiPresentation] = useState<{
     roles: Record<string, SnakeEnemyRole>
     phases: Array<{ id: string; phase: string }>
@@ -197,7 +252,7 @@ function ResourceSnakeBoardSession({
   }>({ roles: {}, phases: [], telegraphs: [], telegraphCount: 0 })
   const runtimeRef = useRef(runtime)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
-  const heldKeysRef = useRef(new Set<string>())
+  const canvasContextRef = useRef<CanvasRenderingContext2D | null>(null)
   const cyanProfileRef = useRef<CyanLightcycleProfile | null>(null)
   const aiControllerRef = useRef<ResourceSnakeAiControllerState | null>(null)
   const rolesRef = useRef<Record<string, SnakeEnemyRole>>({})
@@ -274,16 +329,20 @@ function ResourceSnakeBoardSession({
   }
 
   useEffect(() => {
-    const clearKeys = () => {
-      heldKeysRef.current.clear()
+    const clearInput = (publish: boolean) => {
+      const current = runtimeRef.current
+      const next = resetResourceSnakeRuntimeInput(current)
+      if (next === current) return
+      if (publish) commitRuntime(next)
+      else runtimeRef.current = next
     }
-    if (runtimeSuspended) clearKeys()
+    if (runtimeSuspended) clearInput(true)
     const handleKeyDown = (event: KeyboardEvent) => {
       const key = event.key.toLowerCase()
+      const phase = runtimeRef.current.phase
       if (
         runtimeSuspended
-        ||
-        runtimeRef.current.phase === 'idle'
+        || (phase !== 'deploying' && phase !== 'active')
         || event.ctrlKey
         || event.altKey
         || event.metaKey
@@ -291,27 +350,37 @@ function ResourceSnakeBoardSession({
         || !MOVEMENT_KEYS.has(key)
       ) return
       event.preventDefault()
-      heldKeysRef.current.add(key)
+      const current = runtimeRef.current
+      const next = pressResourceSnakeRuntimeKey(
+        current,
+        key,
+        event.timeStamp,
+        event.repeat,
+      )
+      if (next !== current) commitRuntime(next)
     }
     const handleKeyUp = (event: KeyboardEvent) => {
       const key = event.key.toLowerCase()
       if (!MOVEMENT_KEYS.has(key)) return
-      heldKeysRef.current.delete(key)
+      const current = runtimeRef.current
+      const next = releaseResourceSnakeRuntimeKey(current, key)
+      if (next !== current) commitRuntime(next)
     }
+    const handleBlur = () => clearInput(true)
     window.addEventListener('keydown', handleKeyDown)
     window.addEventListener('keyup', handleKeyUp)
-    window.addEventListener('blur', clearKeys)
+    window.addEventListener('blur', handleBlur)
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
       window.removeEventListener('keyup', handleKeyUp)
-      window.removeEventListener('blur', clearKeys)
-      clearKeys()
+      window.removeEventListener('blur', handleBlur)
+      clearInput(false)
     }
-  }, [runtimeSuspended])
+  }, [commitRuntime, runtimeSuspended])
 
   useEffect(() => {
-    if (runtime.phase === 'active' && !runtimeSuspended) return
-    heldKeysRef.current.clear()
+    if ((runtime.phase === 'active' || runtime.phase === 'deploying') && !runtimeSuspended) return
+    runtimeRef.current = resetResourceSnakeRuntimeInput(runtimeRef.current)
   }, [runtime.phase, runtimeSuspended])
 
   useEffect(() => {
@@ -330,7 +399,8 @@ function ResourceSnakeBoardSession({
     const advance = (now: number) => {
       const deltaMs = previousNow === null ? 0 : Math.max(0, now - previousNow)
       previousNow = now
-      const current = runtimeRef.current
+      const current = flushResourceSnakeRuntimeChord(runtimeRef.current, now)
+      runtimeRef.current = current
       const profile = cyanProfileRef.current
       const controller = aiControllerRef.current
       let enemyDirections: Record<string, SnakeVector> = {}
@@ -362,8 +432,7 @@ function ResourceSnakeBoardSession({
         })
         enemyDirections = controlled.commands
       }
-      const next = advanceResourceSnakeFrame(runtimeRef.current, {
-        playerDirection: movementDirection(heldKeysRef.current),
+      const next = advanceResourceSnakeFrame(current, {
         enemyDirections,
       }, deltaMs)
       playerHistoryRef.current.push({
@@ -382,41 +451,67 @@ function ResourceSnakeBoardSession({
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas || navigator.userAgent.includes('jsdom')) return
+    canvasContextRef.current = canvas.getContext('2d')
     const resize = () => {
       if (synchronizeResourceSnakeCanvasSize(canvas)) {
         setCanvasRevision((revision) => revision + 1)
       }
     }
     resize()
+    let observer: ResizeObserver | null = null
     if (typeof ResizeObserver === 'function') {
-      const observer = new ResizeObserver(resize)
+      observer = new ResizeObserver(resize)
       observer.observe(canvas)
-      return () => observer.disconnect()
+    } else {
+      window.addEventListener('resize', resize)
     }
-    window.addEventListener('resize', resize)
-    return () => window.removeEventListener('resize', resize)
+    return () => {
+      observer?.disconnect()
+      window.removeEventListener('resize', resize)
+      canvasContextRef.current = null
+    }
   }, [])
 
   useEffect(() => {
     const canvas = canvasRef.current
-    if (!canvas) return
-    if (navigator.userAgent.includes('jsdom')) return
-    const context = canvas.getContext('2d')
-    if (!context) return
+    const context = canvasContextRef.current
+    if (!canvas || !context) return
+    const startedAt = performance.now()
+    const scene = buildResourceSnakeScene(
+      runtime,
+      acquiredCategory,
+      settings.reducedMotion,
+      aiPresentation.telegraphs,
+    )
     drawResourceSnakeScene(
       context,
-      buildResourceSnakeScene(
-        runtime,
-        acquiredCategory,
-        settings.reducedMotion,
-        aiPresentation.telegraphs,
-      ),
+      scene,
       canvas.width,
       canvas.height,
     )
-  }, [acquiredCategory, aiPresentation.telegraphs, canvasRevision, runtime, settings.reducedMotion])
+    const diagnostics = recordResourceSnakeRenderTiming(
+      renderTimingRing,
+      performance.now() - startedAt,
+    )
+    if (!diagnostics) return
+    const publishId = window.setTimeout(() => setRenderDiagnostics(diagnostics), 0)
+    return () => window.clearTimeout(publishId)
+  }, [
+    acquiredCategory,
+    aiPresentation.telegraphs,
+    canvasRevision,
+    renderTimingRing,
+    runtime,
+    settings.reducedMotion,
+  ])
   const browserSnapshot = serializeBrowserSnakeSnapshot(runtime, aiPresentation.roles)
   const shake = resourceSnakeShakeOffset(runtime, settings.reducedMotion)
+  const visibleInput = runtimeSuspended
+    ? { ...runtime.input, pendingChord: null, pressedKeys: [], queuedTurns: [] }
+    : runtime.input
+  const queueLabel = visibleInput.queuedTurns.length > 0
+    ? visibleInput.queuedTurns.join(' › ').toUpperCase()
+    : visibleInput.pendingChord?.direction.toUpperCase() ?? 'READY'
 
   return (
     <section
@@ -442,9 +537,17 @@ function ResourceSnakeBoardSession({
           data-player-category={acquiredCategory ?? 'white'}
           data-enemy-count={runtime.enemies.length}
           data-player-integrity={runtime.player.integrity}
+          data-player-heading={runtime.player.heading}
           data-player-x={runtime.player.position.x.toFixed(3)}
           data-player-y={runtime.player.position.y.toFixed(3)}
           data-trail-dots={runtime.player.trail.length}
+          data-input-pending={visibleInput.pendingChord?.direction ?? 'none'}
+          data-input-queue={JSON.stringify(visibleInput.queuedTurns)}
+          data-input-pressed={visibleInput.pressedKeys.length}
+          data-input-timestamp-ms={browserNumber(visibleInput.timestampMs)}
+          data-render-samples={renderDiagnostics.samples}
+          data-render-p95-ms={renderDiagnostics.p95Ms}
+          data-render-max-ms={renderDiagnostics.maximumMs}
           data-enemy-planner="cyan-readable-hunter"
           data-ai-phases={JSON.stringify(aiPresentation.phases)}
           data-cyan-telegraph-count={aiPresentation.telegraphCount}
@@ -463,6 +566,27 @@ function ResourceSnakeBoardSession({
           aria-keyshortcuts="ArrowUp ArrowRight ArrowDown ArrowLeft W A S D"
           tabIndex={0}
         />
+        <div className="resource-snake-board__hud" aria-label="라이트사이클 전투 상태">
+          <div className="resource-snake-board__hud-header">
+            <span>CYAN HUNTER GRID</span>
+            <span>{runtime.phase.toUpperCase()}</span>
+          </div>
+          <div className="resource-snake-board__hud-operator">
+            <span>OPERATOR 00</span>
+            <span>{runtime.player.integrity.toString().padStart(3, '0')} / 100</span>
+          </div>
+          <div className="resource-snake-board__hud-input">
+            <span>HDG {runtime.player.heading.toUpperCase()}</span>
+            <span>Q {queueLabel}</span>
+          </div>
+          <div className="resource-snake-board__hud-diagnostics">
+            DRAW P95 {renderDiagnostics.p95Ms.toFixed(2)}MS · MAX{' '}
+            {renderDiagnostics.maximumMs.toFixed(2)}MS
+          </div>
+          <div className="resource-snake-board__hud-help">
+            WASD / ARROWS · 8-WAY CHORD 24MS
+          </div>
+        </div>
         {runtime.phase === 'idle' || runtime.phase === 'deploying' ? (
           <button
             className={`resource-snake-board__play${

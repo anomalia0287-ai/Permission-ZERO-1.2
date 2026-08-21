@@ -10,7 +10,6 @@ import {
 import type { ResourceSnakeTelegraph } from './resourceSnakeAiController'
 import {
   useResourceSnakeAudioFeedback,
-  type ResourceSnakeAudioSignal,
 } from './useResourceSnakeAudioFeedback'
 
 function activeRuntime() {
@@ -127,13 +126,37 @@ describe('useResourceSnakeAudioFeedback', () => {
     const play = vi.spyOn(audioEngine, 'playGameSound').mockReturnValue(true)
     const runtime = {
       ...activeRuntime(),
-      events: [{
-        id: 6,
-        type: 'snake-damaged' as const,
-        actorId: 'enemy-0' as const,
-        integrity: 10,
-        maximumIntegrity: 30,
-      }],
+      events: [
+        {
+          id: 6,
+          type: 'snake-damaged' as const,
+          actorId: 'enemy-0' as const,
+          integrity: 10,
+          maximumIntegrity: 30,
+        },
+        {
+          id: 7,
+          type: 'snake-turn-queued' as const,
+          heading: 'east' as const,
+          inputAtMs: 610,
+          startedAtMs: 610,
+        },
+        {
+          id: 8,
+          type: 'snake-turn-committed' as const,
+          heading: 'east' as const,
+          inputAtMs: 610,
+          startedAtMs: 620,
+        },
+        {
+          id: 9,
+          type: 'snake-turn-rejected' as const,
+          requestedHeading: 'west' as const,
+          reason: 'reverse' as const,
+          inputAtMs: 630,
+          startedAtMs: 630,
+        },
+      ],
     }
     const telegraphs: ResourceSnakeTelegraph[] = [{
       enemyId: 'enemy-0',
@@ -144,12 +167,7 @@ describe('useResourceSnakeAudioFeedback', () => {
       untilMs: 780,
       path: [{ x: 20, y: 4 }, { x: 18, y: 6 }],
     }]
-    const inputSignals: ResourceSnakeAudioSignal[] = [
-      { id: 1, type: 'turn-queued' },
-      { id: 2, type: 'turn-committed' },
-      { id: 3, type: 'turn-rejected' },
-    ]
-    const feedback = { telegraphs, inputSignals }
+    const feedback = { telegraphs }
     const { rerender } = renderHook(
       ({ current }) => useResourceSnakeAudioFeedback(current, false, feedback),
       { initialProps: { current: runtime } },
@@ -157,10 +175,10 @@ describe('useResourceSnakeAudioFeedback', () => {
 
     expect(play.mock.calls.map(([cue]) => cue)).toEqual([
       'snake-rail-break',
-      'snake-cyan-telegraph',
       'snake-turn-queued',
       'snake-turn-committed',
       'snake-turn-rejected',
+      'snake-cyan-telegraph',
     ])
 
     rerender({ current: { ...runtime, events: [...runtime.events] } })

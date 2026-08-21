@@ -12,14 +12,8 @@ import type {
 } from './resourceSnakeRuntime'
 import type { ResourceSnakeTelegraph } from './resourceSnakeAiController'
 
-export interface ResourceSnakeAudioSignal {
-  id: number
-  type: 'turn-queued' | 'turn-committed' | 'turn-rejected'
-}
-
 export interface ResourceSnakeAudioFeedback {
   telegraphs?: readonly ResourceSnakeTelegraph[]
-  inputSignals?: readonly ResourceSnakeAudioSignal[]
 }
 
 const EMPTY_FEEDBACK: ResourceSnakeAudioFeedback = Object.freeze({})
@@ -28,6 +22,12 @@ function eventCue(event: ResourceSnakeEvent): GameSoundCue | null {
   switch (event.type) {
     case 'round-started':
       return 'snake-deploy'
+    case 'snake-turn-queued':
+      return 'snake-turn-queued'
+    case 'snake-turn-committed':
+      return 'snake-turn-committed'
+    case 'snake-turn-rejected':
+      return 'snake-turn-rejected'
     case 'snake-collided':
       return 'snake-hit'
     case 'snake-damaged':
@@ -39,12 +39,6 @@ function eventCue(event: ResourceSnakeEvent): GameSoundCue | null {
     default:
       return null
   }
-}
-
-function inputCue(signal: ResourceSnakeAudioSignal): GameSoundCue {
-  if (signal.type === 'turn-queued') return 'snake-turn-queued'
-  if (signal.type === 'turn-committed') return 'snake-turn-committed'
-  return 'snake-turn-rejected'
 }
 
 function playCueSafely(cue: GameSoundCue): void {
@@ -87,7 +81,6 @@ export function useResourceSnakeAudioFeedback(
 ): void {
   const highestEventByRoundRef = useRef(new Map<string, number>())
   const heardTelegraphsRef = useRef(new Map<string, true>())
-  const heardInputSignalsRef = useRef(new Map<string, true>())
   const movementLoopActiveRef = useRef(false)
   const moving = runtime.phase === 'active'
     && !runtimeSuspended
@@ -119,15 +112,6 @@ export function useResourceSnakeAudioFeedback(
       playCueSafely('snake-cyan-telegraph')
     }
   }, [feedback.telegraphs, runtime.roundId])
-
-  useEffect(() => {
-    const roundKey = runtime.roundId ?? 'idle'
-    for (const signal of feedback.inputSignals ?? []) {
-      const key = `${roundKey}:${signal.id}`
-      if (!rememberBounded(heardInputSignalsRef.current, key)) continue
-      playCueSafely(inputCue(signal))
-    }
-  }, [feedback.inputSignals, runtime.roundId])
 
   useEffect(() => {
     if (!moving) {

@@ -90,9 +90,94 @@
     inset 0 0 24px rgba(33, 230, 255, 0.18);
 }
 
-.resource-snake-board__play {
+.resource-snake-board__hud {
   position: absolute;
   z-index: 3;
+  inset: 0;
+  color: rgba(215, 251, 255, 0.82);
+  font: 650 clamp(0.56rem, 0.66vw, 0.7rem)/1.2 var(--font-mono, monospace);
+  letter-spacing: 0.08em;
+  text-shadow: 0 0 9px rgba(33, 230, 255, 0.42);
+  pointer-events: none;
+}
+
+.resource-snake-board__hud-header,
+.resource-snake-board__hud-operator,
+.resource-snake-board__hud-input,
+.resource-snake-board__hud-diagnostics,
+.resource-snake-board__hud-help {
+  position: absolute;
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border-left: 1px solid rgba(33, 230, 255, 0.5);
+  background: linear-gradient(90deg, rgba(3, 12, 17, 0.88), rgba(3, 12, 17, 0.12));
+  clip-path: polygon(0 0, calc(100% - 7px) 0, 100% 7px, 100% 100%, 0 100%);
+}
+
+.resource-snake-board__hud-header {
+  top: clamp(11px, 2%, 18px);
+  right: clamp(14px, 2%, 24px);
+  left: clamp(14px, 2%, 24px);
+  justify-content: space-between;
+  border-right: 1px solid rgba(33, 230, 255, 0.26);
+  background: linear-gradient(
+    90deg,
+    rgba(3, 12, 17, 0.88),
+    rgba(3, 12, 17, 0.06) 38%,
+    rgba(3, 12, 17, 0.68)
+  );
+  color: var(--snake-cyan-hot);
+}
+
+.resource-snake-board__hud-header span:last-child {
+  color: var(--snake-cyan);
+  letter-spacing: 0.16em;
+}
+
+.resource-snake-board__hud-operator {
+  bottom: clamp(12px, 2.5%, 22px);
+  left: clamp(14px, 2%, 24px);
+  color: rgba(244, 247, 255, 0.9);
+}
+
+.resource-snake-board__hud-operator span:last-child {
+  color: var(--snake-cyan-hot);
+  font-variant-numeric: tabular-nums;
+}
+
+.resource-snake-board__hud-input {
+  bottom: clamp(12px, 2.5%, 22px);
+  left: 50%;
+  min-width: 250px;
+  justify-content: space-between;
+  transform: translateX(-50%);
+  border-right: 1px solid rgba(33, 230, 255, 0.24);
+  background: rgba(3, 12, 17, 0.78);
+  color: var(--snake-cyan-hot);
+}
+
+.resource-snake-board__hud-diagnostics {
+  right: clamp(14px, 2%, 24px);
+  bottom: clamp(12px, 2.5%, 22px);
+  color: rgba(135, 151, 170, 0.76);
+  font-size: 0.54rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.resource-snake-board__hud-help {
+  right: clamp(14px, 2%, 24px);
+  top: clamp(42px, 8%, 52px);
+  min-height: 18px;
+  color: rgba(135, 151, 170, 0.62);
+  font-size: 0.52rem;
+}
+
+.resource-snake-board__play {
+  position: absolute;
+  z-index: 4;
   left: 50%;
   bottom: clamp(22px, 7%, 54px);
   width: clamp(112px, 14%, 150px);
@@ -239,5 +324,19 @@
   .resource-snake-reward-flight span {
     animation-name: resource-snake-reward-pulse;
     animation-duration: 180ms;
+  }
+}
+
+@media (max-width: 760px) {
+  .resource-snake-board__hud-diagnostics,
+  .resource-snake-board__hud-help {
+    display: none;
+  }
+
+  .resource-snake-board__hud-input {
+    right: 14px;
+    left: auto;
+    min-width: 0;
+    transform: none;
   }
 }

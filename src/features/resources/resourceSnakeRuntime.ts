@@ -3,6 +3,10 @@ import {
   SNAKE_DIRECTION_VECTORS,
   consumeResourceSnakeTurn,
   createResourceSnakeInputState,
+  flushResourceSnakeChord,
+  pressResourceSnakeKey,
+  releaseResourceSnakeKey,
+  resetPressedSnakeKeys,
   type ResourceSnakeInputState,
   type SnakeDirection8,
 } from './resourceSnakeInput'
@@ -30,6 +34,8 @@ export const RESOURCE_SNAKE_CONFIG = {
   roundResolveMs: 520,
   playerMaximumIntegrity: 100,
 } as const
+
+const FIXED_STEP_COMPARISON_EPSILON_MS = 1e-9
 
 export type SnakeId = 'player' | `enemy-${number}`
 export type SnakeRoundPhase = 'idle' | 'deploying' | 'active' | 'resolving'
@@ -100,6 +106,28 @@ export interface SnakeFrameInput {
 
 export type ResourceSnakeEvent =
   | { id: number; type: 'round-started'; roundId: string }
+  | {
+      id: number
+      type: 'snake-turn-queued'
+      heading: SnakeDirection8
+      inputAtMs: number
+      startedAtMs: number
+    }
+  | {
+      id: number
+      type: 'snake-turn-committed'
+      heading: SnakeDirection8
+      inputAtMs: number
+      startedAtMs: number
+    }
+  | {
+      id: number
+      type: 'snake-turn-rejected'
+      requestedHeading: SnakeDirection8
+      reason: 'reverse' | 'queue-full'
+      inputAtMs: number
+      startedAtMs: number
+    }
   | {
       id: number
       type: 'snake-collided'
@@ -352,6 +380,109 @@ export function deployResourceSnakeRound(
     type: 'round-started',
     roundId: setup.roundId,
   })
+}
+
+const OPPOSITE_INPUT_HEADING: Readonly<Record<SnakeDirection8, SnakeDirection8>> =
+  Object.freeze({
+    north: 'south',
+    'north-east': 'south-west',
+    east: 'west',
+    'south-east': 'north-west',
+    south: 'north',
+    'south-west': 'north-east',
+    west: 'east',
+    'north-west': 'south-east',
+  })
+
+function effectiveInputHeading(inputState: ResourceSnakeInputState): SnakeDirection8 {
+  return inputState.queuedTurns.at(-1) ?? inputState.heading
+}
+
+function newlyQueuedHeading(
+  before: ResourceSnakeInputState,
+  after: ResourceSnakeInputState,
+): SnakeDirection8 | null {
+  if (after.queuedTurns.length <= before.queuedTurns.length) return null
+  return after.queuedTurns.at(-1) ?? null
+}
+
+function appendQueuedTurnEvent(
+  state: ResourceSnakeRoundState,
+  heading: SnakeDirection8,
+  inputAtMs: number,
+): ResourceSnakeRoundState {
+  return appendEvent(state, {
+    type: 'snake-turn-queued',
+    heading,
+    inputAtMs,
+    startedAtMs: state.simulationMs,
+  })
+}
+
+export function flushResourceSnakeRuntimeChord(
+  state: ResourceSnakeRoundState,
+  timestampMs: number,
+): ResourceSnakeRoundState {
+  const before = state.input
+  const after = flushResourceSnakeChord(before, timestampMs)
+  if (after === before) return state
+  let next = { ...state, input: after }
+  const queued = newlyQueuedHeading(before, after)
+  if (queued) return appendQueuedTurnEvent(next, queued, after.timestampMs)
+
+  const pending = before.pendingChord
+  if (!pending || after.pendingChord !== null) return next
+  const effective = effectiveInputHeading(before)
+  if (OPPOSITE_INPUT_HEADING[effective] === pending.direction) {
+    next = appendEvent(next, {
+      type: 'snake-turn-rejected',
+      requestedHeading: pending.direction,
+      reason: 'reverse',
+      inputAtMs: after.timestampMs,
+      startedAtMs: state.simulationMs,
+    })
+  } else if (before.queuedTurns.length >= 2) {
+    next = appendEvent(next, {
+      type: 'snake-turn-rejected',
+      requestedHeading: pending.direction,
+      reason: 'queue-full',
+      inputAtMs: after.timestampMs,
+      startedAtMs: state.simulationMs,
+    })
+  }
+  return next
+}
+
+export function pressResourceSnakeRuntimeKey(
+  state: ResourceSnakeRoundState,
+  key: string,
+  timestampMs: number,
+  repeat = false,
+): ResourceSnakeRoundState {
+  let next = flushResourceSnakeRuntimeChord(state, timestampMs)
+  const before = next.input
+  const after = pressResourceSnakeKey(before, key, timestampMs, repeat)
+  if (after === before) return next
+  next = { ...next, input: after }
+  const queued = newlyQueuedHeading(before, after)
+  return queued
+    ? appendQueuedTurnEvent(next, queued, after.timestampMs)
+    : next
+}
+
+export function releaseResourceSnakeRuntimeKey(
+  state: ResourceSnakeRoundState,
+  key: string,
+): ResourceSnakeRoundState {
+  const inputState = releaseResourceSnakeKey(state.input, key)
+  return inputState === state.input ? state : { ...state, input: inputState }
+}
+
+export function resetResourceSnakeRuntimeInput(
+  state: ResourceSnakeRoundState,
+): ResourceSnakeRoundState {
+  const inputState = resetPressedSnakeKeys(state.input)
+  return inputState === state.input ? state : { ...state, input: inputState }
 }
 
 function sampleTrail(
@@ -810,8 +941,10 @@ function advanceFixedStep(
   const simulationMs = state.simulationMs + stepMs
   let playerInput = synchronizeInputHeading(state.input, state.player.heading)
   let player = state.player
+  let committedTurn: SnakeDirection8 | null = null
   if (state.player.phase === 'active') {
     const consumed = consumeResourceSnakeTurn(playerInput)
+    committedTurn = consumed.turn
     const playerDirection = consumed.turn === null
       ? input.playerDirection ?? input.playerIntent
       : SNAKE_DIRECTION_VECTORS[consumed.turn]
@@ -830,13 +963,22 @@ function advanceFixedStep(
       }, enemyDirections[enemy.id], stepMs, simulationMs, true)
       : enemy,
   )
-  return resolveCollisions({
+  let stepped: ResourceSnakeRoundState = {
     ...state,
     simulationMs,
     input: playerInput,
     player,
     enemies,
-  }, stepMs)
+  }
+  if (committedTurn !== null) {
+    stepped = appendEvent(stepped, {
+      type: 'snake-turn-committed',
+      heading: committedTurn,
+      inputAtMs: playerInput.timestampMs,
+      startedAtMs: simulationMs,
+    })
+  }
+  return resolveCollisions(stepped, stepMs)
 }
 
 export function advanceResourceSnakeFrame(
@@ -891,7 +1033,8 @@ export function advanceResourceSnakeFrame(
 
   while (
     next.phase === 'active'
-    && next.accumulatorMs >= RESOURCE_SNAKE_CONFIG.fixedStepMs
+    && next.accumulatorMs + FIXED_STEP_COMPARISON_EPSILON_MS
+      >= RESOURCE_SNAKE_CONFIG.fixedStepMs
   ) {
     next = advanceFixedStep(next, input)
     next = {

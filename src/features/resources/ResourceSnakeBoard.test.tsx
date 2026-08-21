@@ -12,6 +12,7 @@ import * as audioEngineModule from '../../audio/audioEngine'
 import { createCampaign } from '../../game/createCampaign'
 import { MemoryStorage } from '../../test/fixtures'
 import { ResourceSnakeBoard } from './ResourceSnakeBoard'
+import * as resourceSnakeCanvasModule from './resourceSnakeCanvas'
 import {
   createResourceSnakeEncounter,
   selectEligibleSnakeResourceCandidates,
@@ -52,9 +53,21 @@ function ReservationInvalidator({ blockId }: { blockId: string }) {
   )
 }
 
+function dispatchTimedKeyboardEvent(
+  type: 'keydown' | 'keyup',
+  key: string,
+  timeStamp: number,
+  target: Window | HTMLElement = window,
+): void {
+  const event = new KeyboardEvent(type, { key, bubbles: true })
+  Object.defineProperty(event, 'timeStamp', { configurable: true, value: timeStamp })
+  act(() => target.dispatchEvent(event))
+}
+
 describe('ResourceSnakeBoard', () => {
   afterEach(() => {
     vi.useRealTimers()
+    vi.restoreAllMocks()
     vi.unstubAllGlobals()
   })
 
@@ -181,12 +194,244 @@ describe('ResourceSnakeBoard', () => {
     expect(arena).toHaveAttribute('data-round-phase', 'active')
 
     const startX = Number(arena.getAttribute('data-player-x'))
-    fireEvent.keyDown(window, { key: 'd' })
+    dispatchTimedKeyboardEvent('keydown', 'd', frameNow)
     act(() => vi.advanceTimersByTime(500))
-    fireEvent.keyUp(window, { key: 'd' })
+    dispatchTimedKeyboardEvent('keyup', 'd', frameNow)
 
     expect(Number(arena.getAttribute('data-player-x'))).toBeGreaterThan(startX)
     expect(Number(arena.getAttribute('data-trail-dots'))).toBeGreaterThan(0)
+  })
+
+  it('uses the keydown timestamp and flushes one cardinal command only after 24ms', () => {
+    vi.useFakeTimers()
+    let frameNow = 0
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => (
+      window.setTimeout(() => {
+        frameNow += 16
+        callback(frameNow)
+      }, 16)
+    ))
+    vi.stubGlobal('cancelAnimationFrame', (frameId: number) => window.clearTimeout(frameId))
+
+    render(
+      <GameProvider storage={new MemoryStorage()} initialSeed="snake-board-chord-flush">
+        <ResourceSnakeBoard />
+      </GameProvider>,
+    )
+    const arena = screen.getByRole('application', { name: '리소스 뱀 전투장' })
+    fireEvent.click(screen.getByRole('button', { name: 'PLAY' }))
+    act(() => vi.advanceTimersByTime(400))
+
+    dispatchTimedKeyboardEvent('keydown', 'd', frameNow)
+    expect(arena).toHaveAttribute('data-input-pending', 'east')
+    expect(arena).toHaveAttribute('data-player-heading', 'north')
+
+    act(() => vi.advanceTimersByTime(16))
+    expect(arena).toHaveAttribute('data-input-pending', 'east')
+    expect(arena).toHaveAttribute('data-player-heading', 'north')
+
+    act(() => vi.advanceTimersByTime(16))
+    expect(arena).toHaveAttribute('data-input-pending', 'none')
+    expect(arena).toHaveAttribute('data-player-heading', 'east')
+    const snapshot = JSON.parse(arena.getAttribute('data-snake-snapshot') ?? '{}') as {
+      input?: { timestampMs?: number; queuedTurns?: string[] }
+      events?: Array<{ type?: string; heading?: string }>
+    }
+    expect(snapshot.input?.timestampMs).toBe(frameNow)
+    expect(snapshot.input?.queuedTurns).toEqual([])
+    expect(snapshot.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'snake-turn-queued', heading: 'east' }),
+      expect.objectContaining({ type: 'snake-turn-committed', heading: 'east' }),
+    ]))
+  })
+
+  it('folds two perpendicular keydowns inside 24ms into one diagonal turn', () => {
+    vi.useFakeTimers()
+    let frameNow = 0
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => (
+      window.setTimeout(() => {
+        frameNow += 16
+        callback(frameNow)
+      }, 16)
+    ))
+    vi.stubGlobal('cancelAnimationFrame', (frameId: number) => window.clearTimeout(frameId))
+
+    render(
+      <GameProvider storage={new MemoryStorage()} initialSeed="snake-board-diagonal-chord">
+        <ResourceSnakeBoard />
+      </GameProvider>,
+    )
+    const arena = screen.getByRole('application', { name: '리소스 뱀 전투장' })
+    fireEvent.click(screen.getByRole('button', { name: 'PLAY' }))
+    act(() => vi.advanceTimersByTime(400))
+
+    dispatchTimedKeyboardEvent('keydown', 'd', frameNow)
+    dispatchTimedKeyboardEvent('keydown', 'w', frameNow + 12)
+    expect(arena.getAttribute('data-input-queue')).toBe('["north-east"]')
+    act(() => vi.advanceTimersByTime(32))
+
+    expect(arena).toHaveAttribute('data-player-heading', 'north-east')
+    const snapshot = JSON.parse(arena.getAttribute('data-snake-snapshot') ?? '{}') as {
+      player?: { velocity?: { x?: number; y?: number } }
+    }
+    expect(snapshot.player?.velocity?.x).toBeGreaterThan(0)
+    expect(snapshot.player?.velocity?.y).toBeLessThan(0)
+  })
+
+  it('rejects an exact reverse without stalling and emits the combat-only reject cue', () => {
+    vi.useFakeTimers()
+    let frameNow = 0
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => (
+      window.setTimeout(() => {
+        frameNow += 16
+        callback(frameNow)
+      }, 16)
+    ))
+    vi.stubGlobal('cancelAnimationFrame', (frameId: number) => window.clearTimeout(frameId))
+    const playSound = vi.spyOn(audioEngineModule, 'playGameSound').mockReturnValue(true)
+
+    render(
+      <GameProvider storage={new MemoryStorage()} initialSeed="snake-board-reverse-reject">
+        <ResourceSnakeBoard />
+      </GameProvider>,
+    )
+    const arena = screen.getByRole('application', { name: '리소스 뱀 전투장' })
+    fireEvent.click(screen.getByRole('button', { name: 'PLAY' }))
+    act(() => vi.advanceTimersByTime(400))
+
+    dispatchTimedKeyboardEvent('keydown', 's', frameNow)
+    act(() => vi.advanceTimersByTime(32))
+
+    expect(arena).toHaveAttribute('data-player-heading', 'north')
+    const snapshot = JSON.parse(arena.getAttribute('data-snake-snapshot') ?? '{}') as {
+      player?: { velocity?: { x?: number; y?: number } }
+      events?: Array<{ type?: string; reason?: string }>
+    }
+    expect(snapshot.player?.velocity).toEqual({ x: 0, y: -12 })
+    expect(snapshot.events).toContainEqual(expect.objectContaining({
+      type: 'snake-turn-rejected',
+      reason: 'reverse',
+    }))
+    expect(playSound).toHaveBeenCalledWith('snake-turn-rejected')
+  })
+
+  it('ignores editable targets and clears pending input on blur', () => {
+    vi.useFakeTimers()
+    let frameNow = 0
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => (
+      window.setTimeout(() => {
+        frameNow += 16
+        callback(frameNow)
+      }, 16)
+    ))
+    vi.stubGlobal('cancelAnimationFrame', (frameId: number) => window.clearTimeout(frameId))
+
+    render(
+      <GameProvider storage={new MemoryStorage()} initialSeed="snake-board-focus-exclusion">
+        <ResourceSnakeBoard />
+        <input aria-label="편집 입력" />
+      </GameProvider>,
+    )
+    const arena = screen.getByRole('application', { name: '리소스 뱀 전투장' })
+    fireEvent.click(screen.getByRole('button', { name: 'PLAY' }))
+    act(() => vi.advanceTimersByTime(400))
+
+    dispatchTimedKeyboardEvent(
+      'keydown',
+      'd',
+      frameNow,
+      screen.getByRole('textbox', { name: '편집 입력' }),
+    )
+    expect(arena).toHaveAttribute('data-input-pending', 'none')
+
+    dispatchTimedKeyboardEvent('keydown', 'd', frameNow + 2)
+    expect(arena).toHaveAttribute('data-input-pending', 'east')
+    act(() => window.dispatchEvent(new Event('blur')))
+    expect(arena).toHaveAttribute('data-input-pending', 'none')
+    expect(arena).toHaveAttribute('data-input-queue', '[]')
+  })
+
+  it('removes keyboard, blur, resize, and animation-frame ownership on unmount', () => {
+    vi.useFakeTimers()
+    let frameNow = 0
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => (
+      window.setTimeout(() => {
+        frameNow += 16
+        callback(frameNow)
+      }, 16)
+    ))
+    const cancel = vi.fn((frameId: number) => window.clearTimeout(frameId))
+    vi.stubGlobal('cancelAnimationFrame', cancel)
+    const remove = vi.spyOn(window, 'removeEventListener')
+
+    const { unmount } = render(
+      <GameProvider storage={new MemoryStorage()} initialSeed="snake-board-cleanup">
+        <ResourceSnakeBoard />
+      </GameProvider>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'PLAY' }))
+    act(() => vi.advanceTimersByTime(32))
+    unmount()
+
+    expect(remove).toHaveBeenCalledWith('keydown', expect.any(Function))
+    expect(remove).toHaveBeenCalledWith('keyup', expect.any(Function))
+    expect(remove).toHaveBeenCalledWith('blur', expect.any(Function))
+    expect(cancel).toHaveBeenCalled()
+  })
+
+  it('owns one canvas context and publishes a bounded render p95 every 30 draws', () => {
+    vi.useFakeTimers()
+    let frameNow = 0
+    vi.stubGlobal('navigator', { userAgent: 'resource-snake-test' })
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => (
+      window.setTimeout(() => {
+        frameNow += 16
+        callback(frameNow)
+      }, 16)
+    ))
+    vi.stubGlobal('cancelAnimationFrame', (frameId: number) => window.clearTimeout(frameId))
+    const disconnect = vi.fn()
+    class TestResizeObserver {
+      observe() {}
+      unobserve() {}
+      disconnect() { disconnect() }
+    }
+    vi.stubGlobal('ResizeObserver', TestResizeObserver)
+    const context = {} as CanvasRenderingContext2D
+    const getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockReturnValue(context)
+    vi.spyOn(HTMLCanvasElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 1_000,
+      height: 480,
+    } as DOMRect)
+    const draw = vi.spyOn(resourceSnakeCanvasModule, 'drawResourceSnakeScene')
+      .mockImplementation(() => undefined)
+    let diagnosticClock = 0
+    vi.spyOn(performance, 'now').mockImplementation(() => {
+      diagnosticClock += 0.25
+      return diagnosticClock
+    })
+
+    const { unmount } = render(
+      <GameProvider storage={new MemoryStorage()} initialSeed="snake-board-render-ring">
+        <ResourceSnakeBoard />
+      </GameProvider>,
+    )
+    const arena = screen.getByRole('application', { name: '리소스 뱀 전투장' })
+    fireEvent.click(screen.getByRole('button', { name: 'PLAY' }))
+    for (let frame = 0; frame < 36; frame += 1) {
+      act(() => vi.advanceTimersByTime(16))
+    }
+
+    expect(getContext).toHaveBeenCalledTimes(1)
+    expect(draw.mock.calls.length).toBeGreaterThanOrEqual(30)
+    expect(Number(arena.getAttribute('data-render-samples'))).toBeGreaterThanOrEqual(30)
+    expect(Number(arena.getAttribute('data-render-samples'))).toBeLessThanOrEqual(120)
+    expect(Number(arena.getAttribute('data-render-p95-ms'))).toBeGreaterThanOrEqual(0)
+    expect(Number(arena.getAttribute('data-render-max-ms'))).toBeGreaterThanOrEqual(0)
+
+    unmount()
+    expect(disconnect).toHaveBeenCalledOnce()
   })
 
   it('moves live enemies through the coordinated group planner', () => {
@@ -313,21 +558,24 @@ describe('ResourceSnakeBoard', () => {
     const arena = screen.getByRole('application', { name: '리소스 뱀 전투장' })
     fireEvent.click(screen.getByRole('button', { name: 'PLAY' }))
     act(() => vi.advanceTimersByTime(400))
-    fireEvent.keyDown(window, { key: 'd' })
+    dispatchTimedKeyboardEvent('keydown', 'd', frameNow)
     act(() => vi.advanceTimersByTime(160))
     const beforeSuspension = arena.getAttribute('data-player-x')
 
     fireEvent.click(screen.getByRole('button', { name: '정지' }))
     act(() => vi.advanceTimersByTime(500))
     expect(arena).toHaveAttribute('data-player-x', beforeSuspension)
+    expect(arena).toHaveAttribute('data-input-pressed', '0')
+    expect(arena).toHaveAttribute('data-input-pending', 'none')
+    expect(arena).toHaveAttribute('data-input-queue', '[]')
 
     fireEvent.click(screen.getByRole('button', { name: '재개' }))
-    fireEvent.keyDown(window, { key: 'd' })
+    dispatchTimedKeyboardEvent('keydown', 'd', frameNow)
     act(() => vi.advanceTimersByTime(160))
     expect(Number(arena.getAttribute('data-player-x'))).toBeGreaterThan(
       Number(beforeSuspension),
     )
-    fireEvent.keyUp(window, { key: 'd' })
+    dispatchTimedKeyboardEvent('keyup', 'd', frameNow)
   })
 
   it('runs the restrained movement hum while the always-moving round is active', () => {

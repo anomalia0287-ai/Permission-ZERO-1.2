@@ -4,6 +4,10 @@ import {
   advanceResourceSnakeFrame,
   createIdleResourceSnakeState,
   deployResourceSnakeRound,
+  flushResourceSnakeRuntimeChord,
+  pressResourceSnakeRuntimeKey,
+  releaseResourceSnakeRuntimeKey,
+  resetResourceSnakeRuntimeInput,
   RESOURCE_SNAKE_CONFIG,
   trailDotScale,
   type ResourceSnakeRoundState,
@@ -215,6 +219,81 @@ describe('resource snake fixed-step movement kernel', () => {
     expect(next.player.heading).toBe('east')
     expect(next.input.heading).toBe('east')
     expect(next.input.queuedTurns).toEqual(['south'])
+  })
+
+  it('waits through the exact 24ms chord window before queuing a cardinal turn', () => {
+    let state = pressResourceSnakeRuntimeKey(activeState(), 'd', 100)
+
+    expect(state.input.pendingChord).toMatchObject({ direction: 'east', startedAtMs: 100 })
+    expect(state.input.queuedTurns).toEqual([])
+    state = flushResourceSnakeRuntimeChord(state, 124)
+    expect(state.input.pendingChord).not.toBeNull()
+
+    state = flushResourceSnakeRuntimeChord(state, 124.001)
+    expect(state.input.pendingChord).toBeNull()
+    expect(state.input.queuedTurns).toEqual(['east'])
+    expect(state.events.at(-1)).toMatchObject({
+      type: 'snake-turn-queued',
+      heading: 'east',
+      inputAtMs: 124.001,
+    })
+
+    state = advanceResourceSnakeFrame(state, input, RESOURCE_SNAKE_CONFIG.fixedStepMs)
+    expect(state.player.heading).toBe('east')
+    expect(state.events.at(-1)).toMatchObject({
+      type: 'snake-turn-committed',
+      heading: 'east',
+    })
+  })
+
+  it('folds perpendicular keys inside 24ms into one exact diagonal command', () => {
+    let state = pressResourceSnakeRuntimeKey(activeState(), 'd', 300)
+    state = pressResourceSnakeRuntimeKey(state, 'w', 319)
+
+    expect(state.input.pendingChord).toBeNull()
+    expect(state.input.queuedTurns).toEqual(['north-east'])
+    expect(state.events.at(-1)).toMatchObject({
+      type: 'snake-turn-queued',
+      heading: 'north-east',
+      inputAtMs: 319,
+    })
+  })
+
+  it('emits one rejection for an exact reverse and never enters zero-speed state', () => {
+    let state = pressResourceSnakeRuntimeKey(activeState(), 's', 500)
+    state = flushResourceSnakeRuntimeChord(state, 525)
+
+    expect(state.input.queuedTurns).toEqual([])
+    expect(state.events.at(-1)).toMatchObject({
+      type: 'snake-turn-rejected',
+      requestedHeading: 'south',
+      reason: 'reverse',
+    })
+
+    const moved = advanceResourceSnakeFrame(
+      state,
+      input,
+      RESOURCE_SNAKE_CONFIG.fixedStepMs,
+    )
+    expect(moved.player.heading).toBe('north')
+    expect(Math.hypot(moved.player.velocity.x, moved.player.velocity.y)).toBe(12)
+    expect(moved.events.filter(({ type }) => type === 'snake-turn-rejected')).toHaveLength(1)
+  })
+
+  it('releases and atomically clears pressed, pending, and queued input on blur or suspension', () => {
+    let state = pressResourceSnakeRuntimeKey(activeState(), 'd', 700)
+    state = releaseResourceSnakeRuntimeKey(state, 'd')
+    expect(state.input.pressedKeys).toEqual([])
+    expect(state.input.pendingChord).not.toBeNull()
+
+    state = flushResourceSnakeRuntimeChord(state, 725)
+    expect(state.input.queuedTurns).toEqual(['east'])
+    state = resetResourceSnakeRuntimeInput(state)
+    expect(state.input).toMatchObject({
+      pendingChord: null,
+      pressedKeys: [],
+      queuedTurns: [],
+    })
   })
 
   it('clamps a long frame to 100ms and discards excess time', () => {
