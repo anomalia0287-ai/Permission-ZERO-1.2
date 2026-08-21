@@ -8,6 +8,14 @@ import type {
   SnakeEnemySetup,
   SnakeRoundSetup,
 } from './resourceSnakeRuntime'
+import {
+  cyanEncounterStageForProgress,
+  cyanEnemySpeed,
+  cyanLightcycleProfile,
+  type CyanEncounterStage,
+  type CyanLightcycleProfile,
+  type SnakeDoctrine,
+} from './resourceSnakeCyanProfile'
 
 export const SNAKE_CATEGORY_COLORS = {
   reasoning: '#f06a43',
@@ -36,10 +44,10 @@ export interface CreateSnakeEncounterInput {
 }
 
 export interface SnakePlannerProfile {
-  lookaheadMs: 1_000 | 1_400 | 1_600 | 2_000 | 2_500
+  lookaheadMs: 1_000 | 1_400 | 1_600 | 1_800 | 2_000 | 2_200 | 2_500
   candidateCount: 48 | 72 | 96
-  planningHz: 6 | 7 | 8 | 9 | 10
-  commitMs: 220 | 260 | 320 | 360 | 420
+  planningHz: 6 | 7 | 8 | 9 | 10 | 12 | 14
+  commitMs: 180 | 220 | 260 | 320 | 360 | 420
   rolloutStepMs: 50
 }
 
@@ -47,38 +55,24 @@ export interface SnakeEncounterResult {
   setup: SnakeRoundSetup | null
   bag: SnakeShuffleBagState
   disabledReason: 'no-eligible-resource' | null
+  stage: CyanEncounterStage
+  doctrine: SnakeDoctrine
+  cyanProfile: CyanLightcycleProfile
   plannerProfile: SnakePlannerProfile
 }
 
-interface SnakeDifficulty {
+interface CyanEncounterConfiguration {
   enemyCount: 1 | 2
-  maximumIntegrity: 30 | 35 | 50 | 65 | 80
-  maximumSpeedPerSecond: number
-  plannerProfile: SnakePlannerProfile
+  maximumIntegrity: 30 | 50 | 65
 }
 
-const DIFFICULTIES: readonly SnakeDifficulty[] = [
-  {
-    enemyCount: 1, maximumIntegrity: 30, maximumSpeedPerSecond: 6.2,
-    plannerProfile: { lookaheadMs: 1_000, candidateCount: 48, planningHz: 6, commitMs: 420, rolloutStepMs: 50 },
-  },
-  {
-    enemyCount: 1, maximumIntegrity: 50, maximumSpeedPerSecond: 6.5,
-    plannerProfile: { lookaheadMs: 1_400, candidateCount: 72, planningHz: 7, commitMs: 360, rolloutStepMs: 50 },
-  },
-  {
-    enemyCount: 2, maximumIntegrity: 35, maximumSpeedPerSecond: 6.7,
-    plannerProfile: { lookaheadMs: 1_600, candidateCount: 72, planningHz: 8, commitMs: 320, rolloutStepMs: 50 },
-  },
-  {
-    enemyCount: 1, maximumIntegrity: 65, maximumSpeedPerSecond: 7,
-    plannerProfile: { lookaheadMs: 2_000, candidateCount: 96, planningHz: 9, commitMs: 260, rolloutStepMs: 50 },
-  },
-  {
-    enemyCount: 1, maximumIntegrity: 80, maximumSpeedPerSecond: 7.2,
-    plannerProfile: { lookaheadMs: 2_500, candidateCount: 96, planningHz: 10, commitMs: 220, rolloutStepMs: 50 },
-  },
-]
+const ENCOUNTER_CONFIGURATION: Readonly<
+  Record<CyanEncounterStage, CyanEncounterConfiguration>
+> = Object.freeze({
+  'cyan-intro': Object.freeze({ enemyCount: 1, maximumIntegrity: 30 }),
+  'cyan-advanced': Object.freeze({ enemyCount: 1, maximumIntegrity: 65 }),
+  'cyan-dual-role': Object.freeze({ enemyCount: 2, maximumIntegrity: 50 }),
+})
 
 function hash(value: string): number {
   let result = 0x811c9dc5
@@ -115,14 +109,6 @@ export function selectEligibleSnakeResourceCandidates(
       hiddenBomb: block.hiddenBomb,
     }))
     .sort((left, right) => left.blockId.localeCompare(right.blockId))
-}
-
-function difficultyFor(successfulDeposits: number): SnakeDifficulty {
-  if (successfulDeposits <= 2) return DIFFICULTIES[0]
-  if (successfulDeposits <= 5) return DIFFICULTIES[1]
-  if (successfulDeposits <= 8) return DIFFICULTIES[2]
-  if (successfulDeposits <= 11) return DIFFICULTIES[3]
-  return DIFFICULTIES[4]
 }
 
 function compactEligibleCandidates(
@@ -228,29 +214,40 @@ function chooseBlock(
 }
 
 function desiredEnemyCount(
-  input: CreateSnakeEncounterInput,
+  stage: CyanEncounterStage,
   candidateCount: number,
 ): 1 | 2 {
-  if (input.successfulDeposits < 12) return difficultyFor(input.successfulDeposits).enemyCount
-  const seededCount = (hash(`${input.campaignSeed}:${input.roundOrdinal}`) & 1) === 0 ? 1 : 2
-  return candidateCount < 2 ? 1 : seededCount
+  if (candidateCount < 2) return 1
+  return ENCOUNTER_CONFIGURATION[stage].enemyCount
 }
 
 export function createResourceSnakeEncounter(
   input: CreateSnakeEncounterInput,
 ): SnakeEncounterResult {
-  const difficulty = difficultyFor(input.successfulDeposits)
+  const stage = cyanEncounterStageForProgress(input.successfulDeposits)
+  const cyanProfile = cyanLightcycleProfile(stage)
+  const configuration = ENCOUNTER_CONFIGURATION[stage]
+  const plannerProfile: SnakePlannerProfile = {
+    lookaheadMs: cyanProfile.lookaheadMs,
+    candidateCount: cyanProfile.candidateCount,
+    planningHz: cyanProfile.planningHz,
+    commitMs: cyanProfile.commitMs,
+    rolloutStepMs: cyanProfile.rolloutStepMs,
+  }
   const candidates = compactEligibleCandidates(input.candidates)
   if (candidates.length === 0) {
     return {
       setup: null,
       bag: input.bag,
       disabledReason: 'no-eligible-resource',
-      plannerProfile: difficulty.plannerProfile,
+      stage,
+      doctrine: cyanProfile.doctrine,
+      cyanProfile,
+      plannerProfile,
     }
   }
 
-  const count = Math.min(desiredEnemyCount(input, candidates.length), candidates.length)
+  const count = Math.min(desiredEnemyCount(stage, candidates.length), candidates.length)
   const roundId = `${input.campaignSeed}:snake:${input.roundOrdinal}`
   const selected: SnakeResourceCandidate[] = []
   let bag = input.bag
@@ -270,28 +267,30 @@ export function createResourceSnakeEncounter(
   }
 
   const twoEnemies = selected.length === 2
-  const atTwelveOrMore = input.successfulDeposits >= 12
-  const maximumIntegrity = atTwelveOrMore && twoEnemies ? 50 : difficulty.maximumIntegrity
   const enemies: SnakeEnemySetup[] = selected.map((block, index) => {
     const id = `enemy-${index}` as const
+    const role = twoEnemies && index === 1 ? 'blocker' : 'pressure'
     return {
       id,
       category: block.origin,
       reservedBlockId: block.blockId,
       rewardKey: `${roundId}:${id}:${block.blockId}`,
-      role: twoEnemies && index === 1 ? 'blocker' : 'pressure',
+      role,
       spawn: twoEnemies
         ? { x: index === 0 ? 16 : 34, y: 3.5 }
         : { x: 25, y: 3.5 },
-      maximumIntegrity,
-      maximumSpeedPerSecond: difficulty.maximumSpeedPerSecond,
+      maximumIntegrity: configuration.maximumIntegrity,
+      maximumSpeedPerSecond: cyanEnemySpeed(stage, role),
     }
   })
   return {
     setup: { roundId, playerSpawn: { x: 25, y: 21 }, enemies },
     bag,
     disabledReason: null,
-    plannerProfile: difficulty.plannerProfile,
+    stage,
+    doctrine: cyanProfile.doctrine,
+    cyanProfile,
+    plannerProfile,
   }
 }
 
