@@ -2,7 +2,7 @@
   display: grid;
   min-width: 0;
   min-height: 0;
-  place-items: center;
+  place-items: stretch;
   padding: 8px;
   background: #f7f8fa;
 }
@@ -11,11 +11,13 @@
   position: relative;
   overflow: hidden;
   width: 100%;
-  aspect-ratio: 50 / 24;
+  height: 100%;
   min-height: 0;
   border: 1px solid rgba(15, 18, 24, 0.2);
   border-radius: 8px;
   background: #030407;
+  transform-origin: center;
+  will-change: transform;
 }
 
 .resource-snake-board__canvas {
@@ -65,8 +67,69 @@
   pointer-events: none;
 }
 
+.resource-snake-reward-flight {
+  position: fixed;
+  z-index: 170;
+  inset: 0;
+  pointer-events: none;
+}
+
+.resource-snake-reward-flight span {
+  position: fixed;
+  display: block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  opacity: 0;
+  box-shadow: 0 0 10px currentcolor;
+  animation: resource-snake-reward-flight 520ms cubic-bezier(0.2, 0.72, 0.22, 1) both;
+}
+
+.resource-snake-reward-flight[data-reduced-motion="true"] span {
+  animation: resource-snake-reward-pulse 180ms ease-out both;
+}
+
+@keyframes resource-snake-reward-flight {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0) scale(0.55);
+  }
+
+  18% {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translate(var(--snake-flight-x), var(--snake-flight-y)) scale(0.3);
+  }
+}
+
+@keyframes resource-snake-reward-pulse {
+  0% {
+    opacity: 0;
+    transform: scale(0.45);
+  }
+
+  42% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(0.7);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .resource-snake-board__play {
     transition: none;
+  }
+
+  .resource-snake-reward-flight span {
+    animation-name: resource-snake-reward-pulse;
+    animation-duration: 180ms;
   }
 }

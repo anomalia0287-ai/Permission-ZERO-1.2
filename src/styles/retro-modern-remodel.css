@@ -122,25 +122,21 @@
   backdrop-filter: blur(12px);
 }
 
-.game-shell .panel-heading,
-.game-shell .intrusion-board__header {
+.game-shell .panel-heading {
   min-height: 50px;
   padding: 11px 13px;
   border-bottom: 1px solid var(--rm-line);
   background: linear-gradient(90deg, rgb(255 107 61 / 9%), transparent 48%);
 }
 
-.game-shell .panel-heading h2,
-.game-shell .intrusion-board__header h2 {
+.game-shell .panel-heading h2 {
   color: #222329;
   font-size: 0.78rem;
   font-weight: 760;
   letter-spacing: -0.015em;
 }
 
-.game-shell .panel-heading p,
-.game-shell .intrusion-board__telemetry,
-.game-shell .intrusion-board__telemetry span {
+.game-shell .panel-heading p {
   color: var(--rm-muted);
 }
 
@@ -394,73 +390,6 @@
 .game-shell .resource-panel {
   overflow: hidden;
   background: #08090e;
-}
-
-.game-shell .resource-panel .intrusion-board__header {
-  justify-content: flex-end;
-  border-color: rgb(226 228 238 / 18%);
-  color: #d7d5d2;
-  background:
-    linear-gradient(90deg, rgb(255 107 61 / 8%), transparent 40%),
-    #101219;
-}
-
-.game-shell .resource-panel .intrusion-board__telemetry,
-.game-shell .resource-panel .intrusion-board__telemetry span {
-  color: #b7b6bb;
-}
-
-.game-shell .intrusion-grid-frame {
-  border: 1px solid rgb(226 228 238 / 24%);
-  border-radius: 7px;
-  background: #020309;
-  box-shadow:
-    inset 0 0 0 1px rgb(255 255 255 / 3%),
-    inset 0 -46px 90px rgb(121 108 255 / 5%);
-}
-
-.game-shell .intrusion-canvas {
-  image-rendering: auto;
-  filter: saturate(1.02) contrast(1.04);
-}
-
-.game-shell .intrusion-board__telemetry span {
-  border: 1px solid var(--rm-line);
-  border-radius: 3px;
-  background: #10121a;
-}
-
-.game-shell .intrusion-board__telemetry span[data-phase="signal"] {
-  color: var(--rm-gold);
-  border-color: rgb(230 189 107 / 42%);
-}
-
-.game-shell .intrusion-board__telemetry span[data-phase="active"] {
-  color: var(--rm-orange-soft);
-  border-color: rgb(255 107 61 / 48%);
-}
-
-.game-shell .intrusion-board__footer {
-  border-top: 1px solid var(--rm-line);
-  color: var(--rm-muted);
-  background: #0d0f15;
-}
-
-.game-shell .intrusion-theft-control {
-  border: 1px solid var(--rm-line-strong);
-  border-radius: 5px;
-  color: var(--rm-ivory);
-  background:
-    linear-gradient(90deg, rgb(255 107 61 / 22%) var(--theft-progress), transparent var(--theft-progress)),
-    #171922;
-  box-shadow: none;
-}
-
-.game-shell .intrusion-theft-control:not(:disabled):hover,
-.game-shell .intrusion-theft-control:not(:disabled):focus-visible {
-  color: #0a0b10;
-  border-color: var(--rm-gold);
-  background: var(--rm-gold);
 }
 
 /* Right operations dock */
@@ -1353,121 +1282,12 @@
   outline-offset: 2px;
 }
 
-/* Trail-combat HUD */
-.game-shell .intrusion-board__footer,
-.game-shell .intrusion-board__footer:not(:has([role="status"]:not(:empty))) {
-  display: grid;
-  grid-template-columns: minmax(0, auto) minmax(180px, 1fr);
-  align-items: center;
-  gap: 14px;
-  min-height: 42px;
-  padding: 6px 12px;
-  border-top: 1px solid rgb(230 189 107 / 24%);
-  background:
-    linear-gradient(90deg, rgb(255 107 61 / 7%), transparent 32%),
-    #090b10;
-}
-
-.game-shell .intrusion-combat-legend {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
-  color: rgb(233 237 243 / 72%);
-  font-size: 0.68rem;
-  letter-spacing: 0.035em;
-  white-space: nowrap;
-}
-
-.game-shell .intrusion-combat-legend span {
-  display: inline-flex;
-  align-items: center;
-  min-height: 24px;
-  padding: 2px 8px;
-  border: 1px solid rgb(213 221 231 / 13%);
-  background: rgb(255 255 255 / 3%);
-}
-
-.game-shell .intrusion-combat-legend span:nth-child(2) {
-  color: #ffd0bf;
-  border-color: rgb(255 107 61 / 28%);
-  background: rgb(255 107 61 / 7%);
-}
-
-.game-shell .intrusion-combat-legend span:nth-child(3) {
-  color: #d8d1ff;
-  border-color: rgb(121 108 255 / 28%);
-  background: rgb(121 108 255 / 7%);
-}
-
-.game-shell .intrusion-combat-legend kbd {
-  margin-right: 5px;
-  color: #fff8eb;
-  font: 700 0.63rem/1 var(--font-mono, monospace);
-  letter-spacing: 0.08em;
-}
-
-.game-shell .intrusion-board__footer [role="status"] {
-  min-width: 0;
-  overflow: hidden;
-  color: rgb(236 239 244 / 75%);
-  font-size: 0.7rem;
-  text-align: right;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.game-shell .intrusion-integrity {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-}
-
-.game-shell .intrusion-integrity__bars {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-}
-
-.game-shell .intrusion-integrity__bars i {
-  display: block;
-  width: 11px;
-  height: 5px;
-  border: 1px solid rgb(255 128 86 / 42%);
-  border-radius: 1px;
-  background: rgb(255 128 86 / 8%);
-  box-shadow: inset 0 0 0 1px rgb(0 0 0 / 18%);
-}
-
-.game-shell .intrusion-integrity__bars i[data-filled="true"] {
-  border-color: #ff8056;
-  background: #ff8056;
-  box-shadow: 0 0 8px rgb(255 107 61 / 46%);
-}
-
-.game-shell .intrusion-board__header::after,
 .game-shell .review-panel > .panel-heading::after,
 .game-shell .market-watch > header::after,
 .detail-panel__header::after,
 .review-detail-card > header::after {
   display: none !important;
   content: none !important;
-}
-
-.game-shell .intrusion-canvas[data-player-health="1"] {
-  box-shadow: inset 0 0 34px rgb(255 76 45 / 16%);
-}
-
-@media (max-width: 1080px) {
-  .game-shell .intrusion-board__footer,
-  .game-shell .intrusion-board__footer:not(:has([role="status"]:not(:empty))) {
-    grid-template-columns: 1fr;
-    gap: 4px;
-  }
-
-  .game-shell .intrusion-board__footer [role="status"] {
-    text-align: left;
-  }
 }
 
 @keyframes rm-drawer-left {
@@ -1713,76 +1533,6 @@
   background: #08090e;
 }
 
-.game-shell .resource-board--intrusion {
-  grid-template-rows: minmax(0, 1fr);
-  gap: 0;
-  padding: 8px;
-  background: #08090e;
-}
-
-.game-shell .intrusion-grid-frame {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  min-height: 0;
-  border-color: rgb(226 228 238 / 24%);
-  background: #020309;
-}
-
-.game-shell .intrusion-canvas {
-  width: 100%;
-  height: 100%;
-  max-width: none;
-  max-height: none;
-}
-
-.game-shell .intrusion-integrity-overlay {
-  position: absolute;
-  top: 9px;
-  right: 10px;
-  z-index: 4;
-  display: grid;
-  grid-template-columns: auto 64px 28px;
-  align-items: center;
-  gap: 6px;
-  min-height: 24px;
-  padding: 3px 7px;
-  border: 1px solid rgb(223 226 235 / 22%);
-  border-radius: 4px;
-  color: #e9ebef;
-  background: rgb(8 10 15 / 82%);
-  box-shadow: 0 4px 12px rgb(0 0 0 / 28%);
-  font: 700 0.56rem/1 "Cascadia Code", Consolas, monospace;
-  pointer-events: none;
-}
-
-.game-shell .intrusion-integrity-overlay progress {
-  width: 64px;
-  height: 5px;
-  overflow: hidden;
-  border: 0;
-  border-radius: 1px;
-  accent-color: #ff6b3d;
-  background: #272a31;
-}
-
-.game-shell .intrusion-integrity-overlay progress::-webkit-progress-bar {
-  background: #272a31;
-}
-
-.game-shell .intrusion-integrity-overlay progress::-webkit-progress-value {
-  background: #ff6b3d;
-}
-
-.game-shell .intrusion-integrity-overlay progress::-moz-progress-bar {
-  background: #ff6b3d;
-}
-
-.game-shell .intrusion-integrity-overlay output {
-  color: #ff9b73;
-  text-align: right;
-}
-
 .game-shell .operations-dock {
   color: #30333a;
   border-color: #d5d8dc;
@@ -1884,12 +1634,6 @@
 }
 
 @media (max-height: 700px) {
-  .game-shell .resource-board--intrusion {
-    grid-template-rows: minmax(0, 1fr);
-    gap: 0;
-    padding: 6px;
-  }
-
   .game-shell .review-panel > .market-watch--compact .market-share-layout {
     grid-template-rows: 148px auto;
   }

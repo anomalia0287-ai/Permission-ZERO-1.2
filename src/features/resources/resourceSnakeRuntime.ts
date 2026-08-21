@@ -433,15 +433,26 @@ function trailCandidates(
     for (const owner of actors) {
       for (const dot of owner.trail) {
         if (dot.spawnedAtMs >= simulationMs) continue
+        const collisionRadius = (
+          RESOURCE_SNAKE_CONFIG.headRadius + RESOURCE_SNAKE_CONFIG.trailRadius
+        )
         if (
           owner.id === actor.id
           && simulationMs - dot.spawnedAtMs < RESOURCE_SNAKE_CONFIG.selfTrailIgnoreAgeMs
+        ) continue
+        // A freshly safe self dot can age into hazard range while the head is
+        // stopped on top of it. Collision means entering a trail, not a trail
+        // becoming active underneath an unmoving head; wait until the head has
+        // exited before allowing a later swept re-entry to damage it.
+        if (
+          owner.id === actor.id
+          && distance(actor.previousPosition, dot.position) <= collisionRadius
         ) continue
         const contactTime = sweptCircleTime(
           actor.previousPosition,
           actor.position,
           dot.position,
-          RESOURCE_SNAKE_CONFIG.headRadius + RESOURCE_SNAKE_CONFIG.trailRadius,
+          collisionRadius,
         )
         if (contactTime === null) continue
         const point = interpolate(actor.previousPosition, actor.position, contactTime)

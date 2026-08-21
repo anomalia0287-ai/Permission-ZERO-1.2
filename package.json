@@ -15,8 +15,9 @@
     "lint": "eslint .",
     "test": "vitest",
     "test:run": "vitest run",
+    "test:performance": "vitest run --config vitest.performance.config.ts",
     "test:e2e": "playwright test",
-    "verify": "pnpm typecheck && pnpm lint && pnpm test:run && pnpm build && pnpm test:e2e"
+    "verify": "pnpm typecheck && pnpm lint && pnpm test:run && pnpm test:performance && pnpm build && pnpm test:e2e"
   },
   "dependencies": {
     "react": "^19.2.8",

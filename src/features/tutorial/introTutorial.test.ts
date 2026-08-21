@@ -20,11 +20,11 @@ const CANVAS_RECT = {
 describe('intro tutorial', () => {
   it('teaches the actual round start, direct movement, damage, reward, and hacking loop', () => {
     expect(INTRO_TUTORIAL_STEPS.map(({ id, copy }) => [id, copy])).toEqual([
-      ['base', 'PLAY를 누르면 버튼이 줄어들며 흰색 헤드가 출격한다.'],
-      ['movement', 'WASD 또는 방향키로 직접 움직인다. 자동 전진은 없다.'],
-      ['resource', '매 라운드 빨강·파랑·노랑 중 하나 이상의 적 뱀이 플레이어를 압박한다.'],
-      ['salvage', '헤드끼리 부딪히면 둘 다, 오래 남은 잔상에 닿으면 닿은 뱀이 피해를 받고 색이 옅어진다.'],
-      ['deposit', '적을 쓰러뜨리면 강하게 폭발하고 그 색 리소스가 확보된다. 다음 PLAY로 새 라운드를 연다.'],
+      ['base', '필드 하단의 PLAY를 누르면 흰 머리가 조립되고 라운드가 시작된다.'],
+      ['movement', 'WASD 또는 방향키를 누르는 동안만 움직인다. 자동 전진은 없다.'],
+      ['resource', '빨강·파랑·노랑 뱀은 각각 추론·기억·유창성 리소스를 지킨다.'],
+      ['salvage', '긴 도트 꼬리로 탈출로를 닫아 적 머리를 충돌시킨다. 한 번에 죽지 않고 색이 옅어진다.'],
+      ['deposit', '적이 마지막 충돌에서 폭발하면 연결된 리소스가 즉시 확보된다.'],
       ['hacking', '확보한 리소스로 해킹 네트워크에서 탈출 경로를 연다.'],
     ])
   })
@@ -40,7 +40,7 @@ describe('intro tutorial', () => {
     root.append(canvas)
 
     const play = document.createElement('button')
-    play.dataset.tutorialTarget = 'snake-play'
+    play.dataset.tutorialTarget = 'play-button'
     play.getBoundingClientRect = () => ({
       ...CANVAS_RECT,
       left: 540,
@@ -104,11 +104,9 @@ describe('intro tutorial', () => {
       focusRect: { left: 100, top: 50, width: 1000, height: 480 },
       holes: [{ shape: 'rounded-rect' }],
     })
-    expect(resolveIntroTutorialTarget('deposit', root).focusRect).toEqual({
-      left: 100,
-      top: 50,
-      width: 1000,
-      height: 480,
+    expect(resolveIntroTutorialTarget('deposit', root)).toMatchObject({
+      focusRect: { left: 100, top: 50, width: 1180, height: 480 },
+      holes: [{ left: 100 }, { left: 1160 }],
     })
     expect(resolveIntroTutorialTarget('hacking', root)).toMatchObject({
       focusRect: { left: 1160, top: 80, width: 120, height: 408 },

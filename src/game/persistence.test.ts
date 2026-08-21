@@ -975,7 +975,7 @@ function task5ScheduledStateFor(
 
 describe('versioned campaign saves', () => {
   it('round-trips resource intrusion progress in save format 10', () => {
-    const state = createCampaign('resource-intrusion-v10')
+    const state = createCampaign('resource-progress-v10')
     state.resourceIntrusion.successfulCoreDeposits = 7
     const encoded = encodeSave(state, '2026-08-20T00:00:00.000Z')
 
@@ -989,7 +989,7 @@ describe('versioned campaign saves', () => {
   })
 
   it('migrates a valid v9 checkpoint with zero new core deposits and no intro replay', () => {
-    const state = createCampaign('resource-intrusion-v9')
+    const state = createCampaign('resource-progress-v9')
     state.tutorial = createMigratedTutorialProgress()
     const parsed = JSON.parse(encodeSave(state)) as {
       version: number

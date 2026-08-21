@@ -224,6 +224,7 @@ interface GroupCandidateConstraints {
   emergencyTrajectoryOverrides?: readonly InternalTrajectoryCandidate[]
   trajectoryCorridor?: readonly SnakeVector[]
   trajectoryCorridorRadius?: number
+  minimumSpeedScale?: 0.5 | 1
 }
 
 interface RolloutResult {
@@ -3337,12 +3338,19 @@ function identifyRetainedCustomCandidate(
       candidate.candidateIndex === plan.candidateIndex
     ))
   ) return null
-  const playerAtPlan = Math.abs(plan.plannedAtMs - snapshot.simulationMs) <= EPSILON
+  const recordedPlayerAtPlan = Math.abs(plan.plannedAtMs - snapshot.simulationMs) <= EPSILON
     ? { position: snapshot.player.position, velocity: snapshot.player.velocity }
     : snapshot.playerHistory.find((sample) => (
         Math.abs(sample.simulationMs - plan.plannedAtMs) <= EPSILON
       ))
-  if (!playerAtPlan) return null
+  // A floor-overload deferral can receive a compact snapshot whose history no
+  // longer contains the exact planning boundary. Rebuild from the current
+  // player only as an exact-match fallback: the regenerated custom path below
+  // must still equal every stored direction and point before it can be reused.
+  const playerAtPlan = recordedPlayerAtPlan ?? {
+    position: snapshot.player.position,
+    velocity: snapshot.player.velocity,
+  }
   const originEnemy: SnakePlannerActor = {
     ...enemy,
     position: { ...plan.originPosition },
@@ -4249,6 +4257,10 @@ function planResourceSnakeEnemyInternal(
       && (fatalInMs === null || fatalInMs > COMMIT_FATAL_OVERRIDE_MS + EPSILON)
       && satisfiesGroupCandidateConstraints(previousPlan.path.at(-1), groupConstraints)
       && (
+        groupConstraints?.minimumSpeedScale === undefined
+        || previousPlan.speedScale >= groupConstraints.minimumSpeedScale
+      )
+      && (
         !groupConstraints?.trajectoryCorridor
         || previousPlan.candidateIndex === previousPlan.evaluatedCandidates - 1
       )
@@ -4324,6 +4336,10 @@ function planResourceSnakeEnemyInternal(
     // it win; this preserves exact comparison while avoiding redundant floods.
     let contenders: ScoredCandidate[] = []
     const evaluateSurvival = (candidate: ScoredCandidate): boolean => {
+      if (
+        groupConstraints?.minimumSpeedScale !== undefined
+        && candidate.speedScale < groupConstraints.minimumSpeedScale
+      ) return false
       if (!satisfiesGroupCandidateConstraints(candidate.path.at(-1), groupConstraints)) return false
       if (!candidateFollowsGroupTrajectoryCorridor(candidate, groupConstraints)) return false
       if (candidateSurvives(
@@ -4386,6 +4402,22 @@ function planResourceSnakeEnemyInternal(
       )
     }
 
+    const safeEmergencyContenders = canonicalSafe
+      ? []
+      : contenders.filter((candidate) => emergencyOverrides.includes(candidate))
+    if (safeEmergencyContenders.length > 0) {
+      contenders = safeEmergencyContenders
+    } else if (
+      groupConstraints?.preferredCandidateIndex !== undefined
+      && contenders.some((candidate) => (
+        candidate.candidateIndex === groupConstraints.preferredCandidateIndex
+      ))
+    ) {
+      contenders = contenders.filter((candidate) => (
+        candidate.candidateIndex === groupConstraints.preferredCandidateIndex
+      ))
+    }
+
     for (const candidate of contenders) {
       const endpoint = candidate.path.at(-1) ?? enemy.position
       candidate.score.reachableArea = componentAreaAt(
@@ -4394,39 +4426,6 @@ function planResourceSnakeEnemyInternal(
         workspace.enemyLabels,
         workspace.enemyAreas,
       )
-    }
-    if (
-      enemy.id === 'enemy-1'
-      && Math.abs(snapshot.simulationMs - 3_020) < 1
-      && profile.candidateCount === 96
-    ) {
-      console.info('RESOURCE_SNAKE_MPC_3020', JSON.stringify({
-        player: snapshot.player.position,
-        enemy: { position: enemy.position, velocity: enemy.velocity },
-        topOwnDots: snapshot.trailDots.filter((dot) => (
-          dot.ownerId === enemy.id
-          && dot.position.y <= snapshot.field.padding + 0.8
-          && dot.expiresAtMs > snapshot.simulationMs + profile.lookaheadMs
-        )),
-        candidates: candidates
-          .filter((candidate) => candidate.candidateIndex === 1 || candidate.candidateIndex >= 93)
-          .map((candidate) => ({
-            candidateIndex: candidate.candidateIndex,
-            survives: candidate.score.survives,
-            reachableArea: candidate.score.reachableArea,
-            allyClearance: minimumAllyClearance(
-              snapshot,
-              enemy,
-              candidate,
-              profile.rolloutStepMs,
-            ),
-            endpoint: candidate.path.at(-1),
-            firstDirections: candidate.directions.slice(0, 6),
-            tailDirections: candidate.directions.slice(6, 16),
-            tailPath: candidate.path.slice(5, 16),
-            rawBounds: candidate.rawBounds,
-          })),
-      }))
     }
     contenders = retainMaximum(contenders, (candidate) => candidate.score.reachableArea)
 
@@ -4439,17 +4438,6 @@ function planResourceSnakeEnemyInternal(
       )
     }
     contenders = retainMaximum(contenders, (candidate) => candidate.score.allyClearance)
-
-    if (
-      groupConstraints?.preferredCandidateIndex !== undefined
-      && contenders.some((candidate) => (
-        candidate.candidateIndex === groupConstraints.preferredCandidateIndex
-      ))
-    ) {
-      contenders = contenders.filter((candidate) => (
-        candidate.candidateIndex === groupConstraints.preferredCandidateIndex
-      ))
-    }
 
     if (groupConstraints?.preferTopBoundaryTrace) {
       let earliestConnectionStep = Number.MAX_SAFE_INTEGER
@@ -4715,6 +4703,15 @@ function groupConstraintsAgainstEndpoint(
   }
 }
 
+function groupMotionConstraints(
+  enemy: SnakePlannerActor,
+  role: SnakeEnemyRole,
+  constraints: GroupCandidateConstraints | undefined,
+): GroupCandidateConstraints | undefined {
+  if (role !== 'pressure' && magnitude(enemy.velocity) > 0.1) return constraints
+  return { ...constraints, minimumSpeedScale: 0.5 }
+}
+
 function activeTopBoundaryConnectionAt(
   snapshot: SnakePlannerSnapshot,
   enemy: SnakePlannerActor,
@@ -4972,6 +4969,8 @@ function repairLateEnclosureTail(
     const repairStartsAt = requiresPreemptivePrefix
       ? 0
       : Math.max(committedPrefixSteps, collisionIndex - evasionLeadSteps)
+    const enclosureRecoveryStartsAt = collisionIndex
+      + Math.ceil(SELF_TRAIL_IGNORE_MS / profile.rolloutStepMs)
     const directions = originalDirections.slice(0, repairStartsAt).map(
       (direction) => ({ ...direction }),
     )
@@ -5001,10 +5000,21 @@ function repairLateEnclosureTail(
         y: total.y + point.y / playerPoints.length,
       }), { x: 0, y: 0 })
       const verticalEscape = snapshot.field.height / 2 - position.y
-      const targetHeading = Math.atan2(
-        verticalEscape,
-        position.x - playerCenter.x,
-      )
+      const recoveringEnclosure = enemy.role === 'blocker'
+        && index > enclosureRecoveryStartsAt
+      const referencePoint = originalPath[Math.min(
+        originalPath.length - 1,
+        index + Math.ceil(400 / profile.rolloutStepMs),
+      )] ?? originalPath.at(-1) ?? position
+      const targetHeading = recoveringEnclosure
+        ? Math.atan2(
+            referencePoint.y - position.y,
+            referencePoint.x - position.x,
+          )
+        : Math.atan2(
+            verticalEscape,
+            position.x - playerCenter.x,
+          )
       const headings = [
         heading - maximumTurn,
         heading,
@@ -5104,9 +5114,25 @@ function repairLateEnclosureTail(
           )
         }
         const targetAlignment = Math.cos(signedAngleDifference(optionHeading, targetHeading))
+        const optionIsSafe = safety >= -EPSILON
+        const bestIsSafe = best !== null && best.safety >= -EPSILON
         if (
           !best
-          || safety > best.safety + EPSILON
+          || (
+            recoveringEnclosure
+            && optionIsSafe
+            && !bestIsSafe
+          )
+          || (
+            recoveringEnclosure
+            && optionIsSafe === bestIsSafe
+            && optionIsSafe
+            && targetAlignment > best.targetAlignment + EPSILON
+          )
+          || (
+            (!recoveringEnclosure || (!optionIsSafe && !bestIsSafe))
+            && safety > best.safety + EPSILON
+          )
           || (
             Math.abs(safety - best.safety) <= EPSILON
             && targetAlignment > best.targetAlignment + EPSILON
@@ -5234,6 +5260,7 @@ function lateEnclosureTraceCandidate(
   enemy: SnakePlannerActor,
   profile: SnakePlannerProfile,
   target: SnakeVector,
+  forcedClosingTowardLeft?: boolean,
 ): InternalTrajectoryCandidate {
   const stepCount = profile.lookaheadMs / profile.rolloutStepMs
   const maximumTurn = RESOURCE_SNAKE_MAX_TURN_RADIANS_PER_SECOND
@@ -5285,7 +5312,12 @@ function lateEnclosureTraceCandidate(
     ? target.x
     : enemy.position.x + (enemy.id === 'enemy-0' ? 3 : -3)
   const connector = activePlayerDots
-    .filter((dot) => dot.position.y > enemy.position.y + 1)
+    .filter((dot) => (
+      dot.position.y > enemy.position.y + 1
+      && (profile.lookaheadMs < 2_500
+        || distance(enemy.position, snapshot.player.position) < 3
+        || snapshot.simulationMs - dot.spawnedAtMs >= 600)
+    ))
     .sort((left, right) => (
       right.spawnedAtMs - left.spawnedAtMs
       || Math.abs(left.position.x - connectorAxisX)
@@ -5352,7 +5384,8 @@ function lateEnclosureTraceCandidate(
     && (preferredClosingTowardLeft
       ? snapshot.player.position.x < enemy.position.x
       : snapshot.player.position.x > enemy.position.x)
-  const closingTowardLeft = lockedClosingTowardLeft
+  const closingTowardLeft = forcedClosingTowardLeft
+    ?? lockedClosingTowardLeft
     ?? (playerBlocksPreferredSide
       ? !preferredClosingTowardLeft
       : preferredClosingTowardLeft)
@@ -5388,9 +5421,17 @@ function lateEnclosureTraceCandidate(
       && Math.abs(diagonalTraceDelta.x) >= 0.45
     )
     )
+  const enemyToPlayer = {
+    x: snapshot.player.position.x - enemy.position.x,
+    y: snapshot.player.position.y - enemy.position.y,
+  }
+  const enemyIsSeparatingFromPlayer = (
+    enemy.velocity.x * enemyToPlayer.x + enemy.velocity.y * enemyToPlayer.y
+  ) < -EPSILON
   const traceSpeedScale: 0.5 | 1 = predictedConnection
     && enteringClosingTurn
     && distance(enemy.position, snapshot.player.position) < 3
+    && !enemyIsSeparatingFromPlayer
     ? 0.5
     : 1
   const currentClosingHeading = closingTowardLeft ? Math.PI : 0
@@ -5527,7 +5568,9 @@ function lateEnclosureTraceCandidate(
       && index >= executedPrefixSteps
       && (
         bottomCapStarted
-        || (!bottomLegStarted && (closingTurnStarted || incomingTopTraceCleared))
+        || (!bottomLegStarted
+          && !directDiagonalWall
+          && (closingTurnStarted || incomingTopTraceCleared))
       )
     ) {
       if (bottomCapStarted) {
@@ -5651,17 +5694,48 @@ function lateEnclosureTraceCandidate(
     }
     if (position.y <= snapshot.field.padding + 0.8) predictedConnection = true
   }
-  const repaired = alreadyConnected
-    ? { directions, path, rawPath }
-    : repairLateEnclosureTail(
+  if (
+    forcedClosingTowardLeft === undefined
+    && directDiagonalWall
+    && enemy.role === 'blocker'
+    && enemy.position.y < bottomTurnY - EPSILON
+  ) {
+    const hypotheses = acquirePlayerHypotheses(
+      snapshot,
+      profile.lookaheadMs,
+      profile.rolloutStepMs,
+    )
+    let playerCollisionIndex: number
+    try {
+      playerCollisionIndex = firstPlayerCollisionSegment(
+        snapshot,
+        enemy,
+        path,
+        hypotheses,
+        profile.rolloutStepMs,
+      )
+    } finally {
+      releasePlayerHypotheses(hypotheses)
+    }
+    if (playerCollisionIndex >= 0) {
+      return lateEnclosureTraceCandidate(
         snapshot,
         enemy,
         profile,
-        traceSpeedScale,
-        directions,
-        path,
-        rawPath,
+        target,
+        !closingTowardLeft,
       )
+    }
+  }
+  const repaired = repairLateEnclosureTail(
+    snapshot,
+    enemy,
+    profile,
+    traceSpeedScale,
+    directions,
+    path,
+    rawPath,
+  )
   const bounds = pathBounds(enemy.position, repaired.path)
   return {
     candidateIndex: profile.candidateCount - 1,
@@ -5859,6 +5933,14 @@ export function planResourceSnakeGroup(
     const enclosureOwnerId = adaptiveProfile.lookaheadMs >= 2_000
       ? connectedEnclosureOwner?.id ?? owners.blocker?.id ?? owners.pressure?.id
       : undefined
+    const previousFor = (enemyId: SnakeId) => {
+      const previous = previousPlans.find((plan) => plan.enemyId === enemyId) ?? null
+      const alreadyDeferredAtFloor = adaptive.floorOverloaded
+        && candidateBudget === 48
+        && previous?.evaluatedCandidates === 48
+        && previous.commandAtMs > previous.plannedAtMs + EPSILON
+      return alreadyDeferredAtFloor ? null : previous
+    }
     const enclosureConstraintsFor = (
       planningSnapshot: SnakePlannerSnapshot,
       enemy: SnakePlannerActor,
@@ -5871,14 +5953,6 @@ export function planResourceSnakeGroup(
           coordinationConstraints,
         )
       : coordinationConstraints
-    const previousFor = (enemyId: SnakeId) => {
-      const previous = previousPlans.find((plan) => plan.enemyId === enemyId) ?? null
-      const alreadyDeferredAtFloor = adaptive.floorOverloaded
-        && candidateBudget === 48
-        && previous?.evaluatedCandidates === 48
-        && previous.commandAtMs > previous.plannedAtMs + EPSILON
-      return alreadyDeferredAtFloor ? null : previous
-    }
     const plans: SnakePlan[] = []
     if (owners.pressure) {
       const blockerEnclosureConstraints = owners.blocker
@@ -5912,12 +5986,16 @@ export function planResourceSnakeGroup(
             ],
           }
         : assignedSnapshot
-      const pressureConstraints = enclosureConstraintsFor(
-        pressurePlanningSnapshot,
+      const pressureConstraints = groupMotionConstraints(
         owners.pressure,
-        reservation
-          ? groupConstraintsAgainstEndpoint(snapshot, reservation.endpoint)
-          : undefined,
+        'pressure',
+        enclosureConstraintsFor(
+          pressurePlanningSnapshot,
+          owners.pressure,
+          reservation
+            ? groupConstraintsAgainstEndpoint(snapshot, reservation.endpoint)
+            : undefined,
+        ),
       )
       let pressurePlan = planResourceSnakeEnemyInternal(
         pressurePlanningSnapshot,
@@ -5938,10 +6016,14 @@ export function planResourceSnakeGroup(
       }
       if (owners.blocker) {
         const blockerSnapshot = groupSnapshotWithCommitment(assignedSnapshot, pressurePlan)
-        const blockerConstraints = enclosureConstraintsFor(
-          blockerSnapshot,
+        const blockerConstraints = groupMotionConstraints(
           owners.blocker,
-          groupConstraintsAgainst(snapshot, pressurePlan),
+          'blocker',
+          enclosureConstraintsFor(
+            blockerSnapshot,
+            owners.blocker,
+            groupConstraintsAgainst(snapshot, pressurePlan),
+          ),
         )
         let blockerPlan = planResourceSnakeEnemyInternal(
           blockerSnapshot,

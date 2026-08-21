@@ -2,11 +2,20 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { useRuntimeSuspensionOwnership } from '../../app/GameContext'
+import {
+  useGameDispatch,
+  useGameState,
+  useRuntimeSuspensionOwnership,
+} from '../../app/GameContext'
 import { GameProvider } from '../../app/GameProvider'
 import * as audioEngineModule from '../../audio/audioEngine'
+import { createCampaign } from '../../game/createCampaign'
 import { MemoryStorage } from '../../test/fixtures'
 import { ResourceSnakeBoard } from './ResourceSnakeBoard'
+import {
+  createResourceSnakeEncounter,
+  selectEligibleSnakeResourceCandidates,
+} from './resourceSnakeEncounter'
 
 function SuspensionControl() {
   const [suspended, setSuspended] = useState(false)
@@ -14,6 +23,31 @@ function SuspensionControl() {
   return (
     <button type="button" onClick={() => setSuspended((current) => !current)}>
       {suspended ? '재개' : '정지'}
+    </button>
+  )
+}
+
+function CampaignProbe() {
+  const gameState = useGameState()
+  return (
+    <output
+      data-testid="campaign-probe"
+      data-successful-deposits={gameState.resourceIntrusion.successfulCoreDeposits}
+    />
+  )
+}
+
+function ReservationInvalidator({ blockId }: { blockId: string }) {
+  const dispatch = useGameDispatch()
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        dispatch({ type: 'BEGIN_BLOCK_SEPARATION', blockId, purpose: 'divert' })
+        dispatch({ type: 'DIVERT_BLOCK_TO_RESERVE', blockId })
+      }}
+    >
+      예약 원본 이동
     </button>
   )
 }
@@ -36,8 +70,7 @@ describe('ResourceSnakeBoard', () => {
 
     expect(board).toHaveClass('resource-snake-board')
     expect(board).not.toHaveClass('resource-panel')
-    expect(canvas).not.toHaveClass('intrusion-canvas')
-    expect(canvas.parentElement).not.toHaveClass('intrusion-grid-frame')
+    expect(canvas).toHaveClass('resource-snake-board__canvas')
   })
 
   it('deploys a real snake round when PLAY is pressed', () => {
@@ -62,6 +95,66 @@ describe('ResourceSnakeBoard', () => {
     )
     expect(Number(arena.getAttribute('data-enemy-count'))).toBeGreaterThan(0)
     expect(arena).toHaveAttribute('data-player-integrity', '100')
+    const snapshot = JSON.parse(arena.getAttribute('data-snake-snapshot') ?? '{}') as {
+      phase?: string
+      simulationMs?: number
+      player?: { x?: number; y?: number; integrity?: number; trailDots?: number }
+      enemies?: Array<{
+        id?: string
+        category?: string
+        integrity?: number
+        role?: string
+        reservedBlockId?: string
+      }>
+    }
+    expect(snapshot).toMatchObject({
+      phase: 'deploying',
+      simulationMs: 0,
+      player: { x: 25, y: 21, integrity: 100, trailDots: 0 },
+    })
+    expect(snapshot.enemies).toHaveLength(1)
+    expect(snapshot.enemies?.[0]).toMatchObject({
+      id: 'enemy-0',
+      integrity: 30,
+      role: 'pressure',
+    })
+    expect(['reasoning', 'memory', 'fluency']).toContain(snapshot.enemies?.[0]?.category)
+    expect(snapshot.enemies?.[0]?.reservedBlockId).toEqual(expect.any(String))
+  })
+
+  it('cancels an active reward reservation when its source block leaves the company', () => {
+    const seed = 'snake-board-reservation-reconcile'
+    const initial = createCampaign(seed)
+    const encounter = createResourceSnakeEncounter({
+      campaignSeed: seed,
+      roundOrdinal: 0,
+      successfulDeposits: 0,
+      candidates: selectEligibleSnakeResourceCandidates(initial.resources),
+      bag: { cycle: 0, remainingCategories: [] },
+    })
+    const reservedBlockId = encounter.setup?.enemies[0]?.reservedBlockId
+    if (!reservedBlockId) throw new Error('테스트 예약 리소스 누락')
+
+    render(
+      <GameProvider storage={new MemoryStorage()} initialSeed={seed}>
+        <ResourceSnakeBoard />
+        <ReservationInvalidator blockId={reservedBlockId} />
+      </GameProvider>,
+    )
+
+    const arena = screen.getByRole('application', { name: '리소스 뱀 전투장' })
+    fireEvent.click(screen.getByRole('button', { name: 'PLAY' }))
+    fireEvent.click(screen.getByRole('button', { name: '예약 원본 이동' }))
+
+    const snapshot = JSON.parse(arena.getAttribute('data-snake-snapshot') ?? '{}') as {
+      enemies?: Array<{ reservationStatus?: string }>
+      events?: Array<{ type?: string; outcome?: string }>
+    }
+    expect(snapshot.enemies?.[0]?.reservationStatus).toBe('cancelled')
+    expect(snapshot.events).toContainEqual(expect.objectContaining({
+      type: 'resource-reward-resolved',
+      outcome: 'cancelled',
+    }))
   })
 
   it('advances the real runtime from deployment and moves while D is held', () => {
@@ -95,7 +188,7 @@ describe('ResourceSnakeBoard', () => {
     expect(Number(arena.getAttribute('data-trail-dots'))).toBeGreaterThan(0)
   })
 
-  it('moves live enemies through the single-enemy planner without the group enclosure path', () => {
+  it('moves live enemies through the coordinated group planner', () => {
     vi.useFakeTimers()
     let frameNow = 0
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => (
@@ -118,10 +211,38 @@ describe('ResourceSnakeBoard', () => {
 
     act(() => vi.advanceTimersByTime(1_000))
 
-    expect(arena).toHaveAttribute('data-enemy-planner', 'single-predictive')
+    expect(arena).toHaveAttribute('data-enemy-planner', 'group-predictive')
     expect(arena.getAttribute('data-enemy-positions')).not.toBe(initialPositions)
     expect(Number(arena.getAttribute('data-enemy-trail-dots'))).toBeGreaterThan(0)
   })
+
+  it('does not award a resource when an untouched enemy only has to survive its own opening route', () => {
+    vi.useFakeTimers()
+    let frameNow = 0
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => (
+      window.setTimeout(() => {
+        frameNow += 16
+        callback(frameNow)
+      }, 16)
+    ))
+    vi.stubGlobal('cancelAnimationFrame', (frameId: number) => window.clearTimeout(frameId))
+
+    render(
+      <GameProvider storage={new MemoryStorage()} initialSeed="snake-board-idle-survival">
+        <ResourceSnakeBoard />
+        <CampaignProbe />
+      </GameProvider>,
+    )
+
+    const arena = screen.getByRole('application', { name: '리소스 뱀 전투장' })
+    const campaign = screen.getByTestId('campaign-probe')
+    fireEvent.click(screen.getByRole('button', { name: 'PLAY' }))
+
+    act(() => vi.advanceTimersByTime(30_000))
+
+    expect(arena).toHaveAttribute('data-round-phase', 'active')
+    expect(campaign).toHaveAttribute('data-successful-deposits', '0')
+  }, 30_000)
 
   it('schedules a fresh decision at an emergency plan expiry before normal cadence', async () => {
     const { nextResourceSnakePlanningAtMs } = await import('./resourceSnakeScheduling')
@@ -171,7 +292,7 @@ describe('ResourceSnakeBoard', () => {
     fireEvent.keyUp(window, { key: 'd' })
   })
 
-  it('runs the restrained movement hum only while active movement input is held', () => {
+  it('runs the restrained movement hum only while held input produces real velocity', () => {
     vi.useFakeTimers()
     let frameNow = 0
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => (
@@ -193,8 +314,11 @@ describe('ResourceSnakeBoard', () => {
     act(() => vi.advanceTimersByTime(240))
 
     fireEvent.keyDown(window, { key: 'd' })
+    expect(startLoop).not.toHaveBeenCalled()
+    act(() => vi.advanceTimersByTime(32))
     expect(startLoop).toHaveBeenCalledWith('movement-hum')
     fireEvent.keyUp(window, { key: 'd' })
+    act(() => vi.advanceTimersByTime(160))
     expect(stopLoop).toHaveBeenCalledWith('movement-hum')
   })
 })

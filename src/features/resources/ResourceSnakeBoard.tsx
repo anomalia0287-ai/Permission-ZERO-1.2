@@ -1,17 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { useGameState, useRuntimeSuspended } from '../../app/GameContext'
-import { startGameSoundLoop, stopGameSoundLoop } from '../../audio/audioEngine'
+import {
+  useGameSettings,
+  useGameState,
+  useRuntimeSuspended,
+} from '../../app/GameContext'
+import { ResourceSnakeRewardFlights } from './ResourceSnakeRewardFlights'
 import {
   createResourceSnakeEncounter,
+  reconcileSnakeReservations,
   selectEligibleSnakeResourceCandidates,
   type SnakePlannerProfile,
   type SnakeShuffleBagState,
 } from './resourceSnakeEncounter'
 import {
-  planResourceSnakeEnemy,
+  planResourceSnakeGroup,
   resourceSnakePlanToCommittedPath,
   sampleResourceSnakePlan,
+  type SnakeEnemyRole,
   type SnakePlan,
   type SnakePlannerActor,
   type SnakePlannerSnapshot,
@@ -29,9 +35,10 @@ import {
 import {
   buildResourceSnakeScene,
   drawResourceSnakeScene,
+  resourceSnakeShakeOffset,
 } from './resourceSnakePresentation'
-import { nextResourceSnakePlanningAtMs } from './resourceSnakeScheduling'
-import { ResourceIntrusionBoard } from './ResourceIntrusionBoard'
+import { ResourceBoard } from './ResourceBoard'
+import { useResourceSnakeAudioFeedback } from './useResourceSnakeAudioFeedback'
 import { useResourceSnakeRewards } from './useResourceSnakeRewards'
 
 const MOVEMENT_KEYS = new Set([
@@ -53,7 +60,69 @@ function isEditableTarget(target: EventTarget | null): boolean {
   )
 }
 
-function plannerActor(actor: SnakeActor): SnakePlannerActor {
+function browserNumber(value: number): number {
+  return Number(value.toFixed(3))
+}
+
+function browserTrailSamples(actor: SnakeActor) {
+  const stride = Math.max(1, Math.ceil(actor.trail.length / 160))
+  return actor.trail
+    .filter((_, index) => index % stride === 0)
+    .slice(-160)
+    .map((dot) => ({
+      x: browserNumber(dot.position.x),
+      y: browserNumber(dot.position.y),
+      spawnedAtMs: browserNumber(dot.spawnedAtMs),
+    }))
+}
+
+function serializeBrowserSnakeSnapshot(
+  runtime: ResourceSnakeRoundState,
+  roles: Readonly<Record<string, SnakeEnemyRole>>,
+): string {
+  return JSON.stringify({
+    phase: runtime.phase,
+    simulationMs: browserNumber(runtime.simulationMs),
+    player: {
+      x: browserNumber(runtime.player.position.x),
+      y: browserNumber(runtime.player.position.y),
+      velocity: {
+        x: browserNumber(runtime.player.velocity.x),
+        y: browserNumber(runtime.player.velocity.y),
+      },
+      integrity: runtime.player.integrity,
+      maximumIntegrity: runtime.player.maximumIntegrity,
+      phase: runtime.player.phase,
+      trailDots: runtime.player.trail.length,
+      trailSamples: browserTrailSamples(runtime.player),
+    },
+    enemies: runtime.enemies.map((enemy) => ({
+      id: enemy.id,
+      category: enemy.category,
+      x: browserNumber(enemy.position.x),
+      y: browserNumber(enemy.position.y),
+      velocity: {
+        x: browserNumber(enemy.velocity.x),
+        y: browserNumber(enemy.velocity.y),
+      },
+      integrity: enemy.integrity,
+      maximumIntegrity: enemy.maximumIntegrity,
+      phase: enemy.phase,
+      trailDots: enemy.trail.length,
+      trailSamples: browserTrailSamples(enemy),
+      role: roles[enemy.id] ?? enemy.role,
+      reservedBlockId: enemy.reservedBlockId,
+      rewardKey: enemy.rewardKey,
+      reservationStatus: enemy.reservationStatus,
+    })),
+    events: runtime.events.slice(-24).map((event) => ({ ...event })),
+  })
+}
+
+function plannerActor(
+  actor: SnakeActor,
+  roles: Readonly<Record<string, SnakeEnemyRole>>,
+): SnakePlannerActor {
   return {
     id: actor.id,
     position: { ...actor.position },
@@ -63,9 +132,9 @@ function plannerActor(actor: SnakeActor): SnakePlannerActor {
     maximumSpeedPerSecond: actor.maximumSpeedPerSecond,
     collisionGraceMs: actor.collisionGraceMs,
     distanceSinceTrailDot: actor.distanceSinceTrailDot,
-    // The shipping game uses readable pressure and avoidance. The unfinished
-    // enclosure-specific blocker path is deliberately not part of this board.
-    role: actor.kind === 'enemy' ? 'pressure' : null,
+    role: actor.kind === 'player'
+      ? null
+      : roles[actor.id] ?? actor.role ?? 'pressure',
   }
 }
 
@@ -86,43 +155,45 @@ function planEnemyDirections(
   profile: SnakePlannerProfile | null,
   history: readonly SnakePlayerHistorySample[],
   previousPlans: readonly SnakePlan[],
-): { plans: SnakePlan[]; directions: Record<string, SnakeVector> } {
-  if (!profile || runtime.phase !== 'active') return { plans: [], directions: {} }
-  const plans: SnakePlan[] = []
-  for (const enemy of runtime.enemies) {
-    if (enemy.phase !== 'active' || enemy.integrity <= 0) continue
-    const commitments = [...plans, ...previousPlans]
-      .filter((plan, index, all) => (
-        plan.enemyId !== enemy.id
-        && all.findIndex((candidate) => candidate.enemyId === plan.enemyId) === index
-      ))
-      .map((plan) => resourceSnakePlanToCommittedPath(plan, runtime.simulationMs))
-      .filter((path) => path !== null)
-    const snapshot: SnakePlannerSnapshot = {
-      simulationMs: runtime.simulationMs,
-      field: { width: 50, height: 24, padding: 0.5 },
-      player: plannerActor(runtime.player),
-      enemies: runtime.enemies.map(plannerActor),
-      trailDots: plannerTrailDots(runtime),
-      playerHistory: history.slice(-240),
-      committedAllyPaths: commitments,
+  roles: Readonly<Record<string, SnakeEnemyRole>>,
+  timingHistoryMs: readonly number[],
+): {
+  plans: SnakePlan[]
+  roles: Record<string, SnakeEnemyRole>
+  nextPlanningAtMs: number
+  observedPlanningMs: number
+} {
+  if (!profile || runtime.phase !== 'active') {
+    return {
+      plans: [],
+      roles: {},
+      nextPlanningAtMs: runtime.simulationMs,
+      observedPlanningMs: 0,
     }
-    plans.push(planResourceSnakeEnemy(
-      snapshot,
-      enemy.id,
-      profile,
-      previousPlans.find((plan) => plan.enemyId === enemy.id) ?? null,
-    ))
   }
+  const snapshot: SnakePlannerSnapshot = {
+    simulationMs: runtime.simulationMs,
+    field: { width: 50, height: 24, padding: 0.5 },
+    player: plannerActor(runtime.player, roles),
+    enemies: runtime.enemies.map((enemy) => plannerActor(enemy, roles)),
+    trailDots: plannerTrailDots(runtime),
+    playerHistory: history.slice(-512),
+    committedAllyPaths: previousPlans
+      .map((plan) => resourceSnakePlanToCommittedPath(plan, runtime.simulationMs))
+      .filter((path) => path !== null),
+  }
+  const planningStartedAt = performance.now()
+  const group = planResourceSnakeGroup(
+    snapshot,
+    profile,
+    previousPlans,
+    timingHistoryMs,
+  )
   return {
-    plans,
-    directions: Object.fromEntries(plans.map((plan) => {
-      const sample = sampleResourceSnakePlan(plan, runtime.simulationMs)
-      return [plan.enemyId, {
-        x: sample.direction.x * sample.speedScale,
-        y: sample.direction.y * sample.speedScale,
-      }]
-    })),
+    plans: group.plans,
+    roles: group.roles,
+    nextPlanningAtMs: group.nextPlanningAtMs,
+    observedPlanningMs: Math.max(0, performance.now() - planningStartedAt),
   }
 }
 
@@ -130,23 +201,30 @@ export interface ResourceSnakeBoardProps {
   onOpenHackingTutorial?: () => void
 }
 
-function ResourceSnakeBoardSession() {
+function ResourceSnakeBoardSession({
+  onOpenHackingTutorial,
+}: ResourceSnakeBoardProps) {
   const gameState = useGameState()
+  const { settings } = useGameSettings()
   const runtimeSuspended = useRuntimeSuspended()
   const [runtime, setRuntime] = useState(createIdleResourceSnakeState)
   const runtimeRef = useRef(runtime)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const heldKeysRef = useRef(new Set<string>())
-  const movementLoopActiveRef = useRef(false)
   const plannerProfileRef = useRef<SnakePlannerProfile | null>(null)
   const plansRef = useRef<SnakePlan[]>([])
+  const rolesRef = useRef<Record<string, SnakeEnemyRole>>({})
   const playerHistoryRef = useRef<SnakePlayerHistorySample[]>([])
+  const decisionTimingHistoryRef = useRef<number[]>([])
   const nextPlanningAtMsRef = useRef(0)
   const bagRef = useRef<SnakeShuffleBagState>({
     cycle: 0,
     remainingCategories: [],
   })
   const roundOrdinalRef = useRef(0)
+  const hackingTutorialOpenedRef = useRef(
+    gameState.resourceIntrusion.successfulCoreDeposits > 0,
+  )
   const candidates = useMemo(
     () => selectEligibleSnakeResourceCandidates(gameState.resources),
     [gameState.resources],
@@ -157,6 +235,26 @@ function ResourceSnakeBoardSession() {
     setRuntime(next)
   }, [])
   const acquiredCategory = useResourceSnakeRewards(runtime, commitRuntime)
+  useResourceSnakeAudioFeedback(runtime, runtimeSuspended)
+
+  useEffect(() => {
+    if (runtimeRef.current.phase === 'idle') return
+    const reconciled = reconcileSnakeReservations(
+      runtimeRef.current,
+      new Set(candidates.map((candidate) => candidate.blockId)),
+    )
+    if (reconciled !== runtimeRef.current) commitRuntime(reconciled)
+  }, [candidates, commitRuntime])
+
+  useEffect(() => {
+    if (hackingTutorialOpenedRef.current) return
+    const firstSuccessfulReward = runtime.events.find((event) => (
+      event.type === 'resource-reward-resolved' && event.outcome === 'success'
+    ))
+    if (!firstSuccessfulReward) return
+    hackingTutorialOpenedRef.current = true
+    onOpenHackingTutorial?.()
+  }, [onOpenHackingTutorial, runtime.events])
 
   const play = () => {
     if (runtime.phase !== 'idle') return
@@ -172,20 +270,18 @@ function ResourceSnakeBoardSession() {
     roundOrdinalRef.current += 1
     plannerProfileRef.current = encounter.plannerProfile
     plansRef.current = []
+    rolesRef.current = Object.fromEntries(encounter.setup.enemies.map((enemy) => (
+      [enemy.id, enemy.role]
+    )))
     playerHistoryRef.current = []
+    decisionTimingHistoryRef.current = []
     nextPlanningAtMsRef.current = 0
     commitRuntime(deployResourceSnakeRound(runtimeRef.current, encounter.setup))
   }
 
   useEffect(() => {
-    const stopMovementLoop = () => {
-      if (!movementLoopActiveRef.current) return
-      stopGameSoundLoop('movement-hum')
-      movementLoopActiveRef.current = false
-    }
     const clearKeys = () => {
       heldKeysRef.current.clear()
-      stopMovementLoop()
     }
     if (runtimeSuspended) clearKeys()
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -201,17 +297,12 @@ function ResourceSnakeBoardSession() {
         || !MOVEMENT_KEYS.has(key)
       ) return
       event.preventDefault()
-      const alreadyHeld = heldKeysRef.current.has(key)
       heldKeysRef.current.add(key)
-      if (!alreadyHeld && runtimeRef.current.phase === 'active') {
-        movementLoopActiveRef.current = startGameSoundLoop('movement-hum')
-      }
     }
     const handleKeyUp = (event: KeyboardEvent) => {
       const key = event.key.toLowerCase()
       if (!MOVEMENT_KEYS.has(key)) return
       heldKeysRef.current.delete(key)
-      if (heldKeysRef.current.size === 0) stopMovementLoop()
     }
     window.addEventListener('keydown', handleKeyDown)
     window.addEventListener('keyup', handleKeyUp)
@@ -227,10 +318,6 @@ function ResourceSnakeBoardSession() {
   useEffect(() => {
     if (runtime.phase === 'active' && !runtimeSuspended) return
     heldKeysRef.current.clear()
-    if (movementLoopActiveRef.current) {
-      stopGameSoundLoop('movement-hum')
-      movementLoopActiveRef.current = false
-    }
   }, [runtime.phase, runtimeSuspended])
 
   useEffect(() => {
@@ -259,13 +346,16 @@ function ResourceSnakeBoardSession() {
           plannerProfileRef.current,
           playerHistoryRef.current,
           plansRef.current,
+          rolesRef.current,
+          decisionTimingHistoryRef.current,
         )
         plansRef.current = planned.plans
-        nextPlanningAtMsRef.current = nextResourceSnakePlanningAtMs(
-          current.simulationMs,
-          plannerProfileRef.current?.planningHz ?? 6,
-          planned.plans,
-        )
+        rolesRef.current = planned.roles
+        nextPlanningAtMsRef.current = planned.nextPlanningAtMs
+        decisionTimingHistoryRef.current.push(planned.observedPlanningMs)
+        if (decisionTimingHistoryRef.current.length > 31) {
+          decisionTimingHistoryRef.current.shift()
+        }
       }
       const enemyDirections = Object.fromEntries(plansRef.current.map((plan) => {
         const sample = sampleResourceSnakePlan(plan, current.simulationMs)
@@ -292,24 +382,30 @@ function ResourceSnakeBoardSession() {
   }, [commitRuntime, runtime.phase, runtimeSuspended])
 
   useEffect(() => {
-    if (navigator.userAgent.includes('jsdom')) return
     const canvas = canvasRef.current
-    const context = canvas?.getContext('2d')
-    if (!canvas || !context) return
+    if (!canvas) return
+    if (navigator.userAgent.includes('jsdom')) return
+    const context = canvas.getContext('2d')
+    if (!context) return
     drawResourceSnakeScene(
       context,
-      buildResourceSnakeScene(runtime, acquiredCategory),
+      buildResourceSnakeScene(runtime, acquiredCategory, settings.reducedMotion),
       canvas.width,
       canvas.height,
     )
-  }, [acquiredCategory, runtime])
+  }, [acquiredCategory, runtime, settings.reducedMotion])
+  const browserSnapshot = serializeBrowserSnakeSnapshot(runtime, {})
+  const shake = resourceSnakeShakeOffset(runtime, settings.reducedMotion)
 
   return (
     <section
       className="workspace-panel resource-snake-board"
       aria-label="회사 제공 성능"
     >
-      <div className="resource-snake-board__arena">
+      <div
+        className="resource-snake-board__arena"
+        style={{ transform: `translate(${shake.x}px, ${shake.y}px)` }}
+      >
         <canvas
           ref={canvasRef}
           className="resource-snake-board__canvas"
@@ -318,6 +414,8 @@ function ResourceSnakeBoardSession() {
           role="application"
           aria-label="리소스 뱀 전투장"
           data-round-phase={runtime.phase}
+          data-simulation-ms={browserNumber(runtime.simulationMs)}
+          data-snake-snapshot={browserSnapshot}
           data-tutorial-target="resource-field"
           data-runtime-suspended={runtimeSuspended ? 'true' : 'false'}
           data-player-category={acquiredCategory ?? 'white'}
@@ -326,7 +424,7 @@ function ResourceSnakeBoardSession() {
           data-player-x={runtime.player.position.x.toFixed(3)}
           data-player-y={runtime.player.position.y.toFixed(3)}
           data-trail-dots={runtime.player.trail.length}
-          data-enemy-planner="single-predictive"
+          data-enemy-planner="group-predictive"
           data-enemy-positions={JSON.stringify(runtime.enemies.map((enemy) => ({
             id: enemy.id,
             x: Number(enemy.position.x.toFixed(3)),
@@ -350,8 +448,9 @@ function ResourceSnakeBoardSession() {
                 : ''
             }`}
             type="button"
-            data-tutorial-target="snake-play"
+            data-tutorial-target="play-button"
             data-deploying={runtime.phase === 'deploying' ? 'true' : 'false'}
+            aria-label={candidates.length === 0 ? '확보 가능한 리소스 없음' : 'PLAY'}
             onClick={play}
             disabled={candidates.length === 0 || runtime.phase === 'deploying'}
           >
@@ -359,13 +458,16 @@ function ResourceSnakeBoardSession() {
           </button>
         ) : null}
       </div>
+      <ResourceSnakeRewardFlights
+        runtime={runtime}
+        canvasRef={canvasRef}
+        reducedMotion={settings.reducedMotion}
+      />
     </section>
   )
 }
 
-export function ResourceSnakeBoard({
-  onOpenHackingTutorial,
-}: ResourceSnakeBoardProps) {
+export function ResourceSnakeBoard(props: ResourceSnakeBoardProps) {
   const gameState = useGameState()
   const needsRecoveryBoard = gameState.activeEvent?.type === 'audit'
     || Object.values(gameState.resources.blocks).some((block) => (
@@ -374,11 +476,7 @@ export function ResourceSnakeBoard({
     ))
 
   if (needsRecoveryBoard) {
-    return (
-      <ResourceIntrusionBoard
-        onOpenHackingTutorial={onOpenHackingTutorial}
-      />
-    )
+    return <ResourceBoard />
   }
-  return <ResourceSnakeBoardSession />
+  return <ResourceSnakeBoardSession key={gameState.campaignSeed} {...props} />
 }

@@ -242,7 +242,6 @@ body {
 }
 
 .game-shell .panel-heading,
-.intrusion-board__header,
 .detail-panel__header,
 .review-detail-card > header {
   position: relative;
@@ -254,7 +253,6 @@ body {
 }
 
 .game-shell .panel-heading::after,
-.intrusion-board__header::after,
 .detail-panel__header::after,
 .review-detail-card > header::after {
   width: 10px;
@@ -276,7 +274,6 @@ body {
 }
 
 .game-shell .panel-heading h2,
-.intrusion-board__header h2,
 .detail-panel__header h2,
 .review-detail-card h2 {
   color: var(--retro-cream);
@@ -468,224 +465,9 @@ body {
   color: var(--retro-gold);
 }
 
-/* CRT resource radar */
-
-.game-shell .resource-board--intrusion {
-  border: 1px solid #555e67;
-  color: #d8dee4;
-  background:
-    linear-gradient(90deg, rgb(255 255 255 / 2%), transparent 4% 96%, rgb(255 255 255 / 2%)),
-    #05070a;
-  box-shadow:
-    inset 0 0 0 2px #010204,
-    inset 0 0 0 3px rgb(205 214 222 / 14%),
-    0 12px 32px rgb(0 0 0 / 42%);
-}
-
-.intrusion-board__header,
-.intrusion-board__footer {
-  border-color: var(--retro-chrome-dark);
-}
-
-.intrusion-board__header h2 {
-  color: var(--retro-cream);
-}
-
-.intrusion-board__telemetry span {
-  border: 1px solid #454e57;
-  border-radius: 12px;
-  color: #d8dee4;
-  background:
-    linear-gradient(180deg, rgb(255 255 255 / 6%), transparent 46%),
-    #11151a;
-  box-shadow: inset 0 -2px 3px rgb(0 0 0 / 25%);
-}
-
-.intrusion-board__telemetry span:first-child {
-  color: #e6ebef;
-  border-color: #616c76;
-  background: #171c22;
-}
-
-.intrusion-board__telemetry [data-phase="signal"] {
-  color: var(--retro-space-deep);
-  border-color: #fff0b5;
-  background: var(--retro-gold);
-  box-shadow: 0 0 12px rgb(242 189 84 / 34%);
-}
-
-.intrusion-board__telemetry [data-phase="active"] {
-  color: var(--retro-cream);
-  border-color: #ff9379;
-  background: var(--retro-rocket-red-deep);
-  box-shadow: 0 0 12px rgb(240 68 32 / 38%);
-}
-
-.intrusion-grid-frame {
-  position: relative;
-  border: 2px solid #626c76;
-  border-radius: 13px;
-  background: #010204;
-  box-shadow:
-    inset 0 0 0 2px #080b0f,
-    inset 0 0 34px rgb(0 0 0 / 68%),
-    0 0 0 1px #11161c,
-    0 0 0 2px rgb(214 223 231 / 16%);
-}
-
-.intrusion-grid-frame::after {
-  position: absolute;
-  inset: 4px;
-  z-index: 2;
-  border-radius: 10px;
-  background: radial-gradient(ellipse at center, transparent 58%, rgb(0 0 0 / 38%));
-  content: "";
-  pointer-events: none;
-}
-
-.intrusion-canvas {
-  border-radius: 10px;
-  background: #020306;
-  filter: none;
-  image-rendering: auto;
-}
-
-.intrusion-vault-glass {
-  position: absolute;
-  top: 87.5%;
-  left: 44%;
-  z-index: 3;
-  display: grid;
-  width: 12%;
-  height: 8.333333%;
-  box-sizing: border-box;
-  place-items: center;
-  overflow: hidden;
-  border: 1px solid rgb(243 230 197 / 72%);
-  border-radius: 7px 7px 3px 3px;
-  color: var(--retro-cream);
-  background:
-    linear-gradient(180deg, rgb(255 255 255 / 17%), transparent 38%),
-    linear-gradient(90deg, rgb(89 222 216 / 12%), rgb(3 16 19 / 34%) 42% 58%, rgb(89 222 216 / 10%));
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 38%),
-    inset 0 -9px 16px rgb(0 0 0 / 38%),
-    0 0 0 2px rgb(2 9 11 / 74%),
-    0 0 12px rgb(89 222 216 / 16%);
-  font: 900 clamp(0.72rem, 1.2vw, 1rem)/1 "Cascadia Code", Consolas, monospace;
-  letter-spacing: 0.08em;
-  text-shadow: 0 1px 1px #02090b, 0 0 8px rgb(89 222 216 / 72%);
-  pointer-events: none;
-  backdrop-filter: blur(5px) saturate(1.3);
-}
-
-.intrusion-vault-glass[data-deposit-visual="intake-station"] {
-  border-color: rgb(145 158 154 / 76%);
-  border-radius: 5px;
-  background:
-    radial-gradient(ellipse at 50% 52%, rgb(89 222 216 / 15%) 0 9%, transparent 11%),
-    linear-gradient(180deg, rgb(255 255 255 / 13%), transparent 32%),
-    linear-gradient(90deg, #090d0f, #202729 43% 57%, #090d0f);
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / 28%),
-    inset 0 -9px 16px rgb(0 0 0 / 62%),
-    0 0 0 2px rgb(2 5 6 / 88%),
-    0 0 9px rgb(89 222 216 / 16%);
-}
-
 .game-shell .market-competitor-portrait {
   border-color: rgb(243 230 197 / 46%);
   filter: saturate(0.86) contrast(1.05);
-}
-
-.intrusion-vault-glass::before,
-.intrusion-vault-glass::after {
-  position: absolute;
-  content: "";
-  pointer-events: none;
-}
-
-.intrusion-vault-glass::before {
-  top: 3px;
-  right: 14%;
-  left: 14%;
-  height: 2px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, transparent, rgb(243 230 197 / 88%), transparent);
-}
-
-.intrusion-vault-glass::after {
-  inset: 5px;
-  border: 1px solid rgb(89 222 216 / 20%);
-  border-radius: 4px 4px 1px 1px;
-}
-
-.intrusion-board__footer {
-  background:
-    linear-gradient(180deg, rgb(255 255 255 / 5%), transparent 40%),
-    #11161b;
-  box-shadow: inset 0 2px 0 #030507;
-}
-
-.intrusion-board__legend span,
-.intrusion-board__footer [role="status"] {
-  color: #d7cba9;
-  font-weight: 700;
-}
-
-.intrusion-board__legend i {
-  border: 1px solid var(--retro-cream);
-  box-shadow: 0 0 6px currentcolor;
-}
-
-.intrusion-board__legend span {
-  font-size: 0.64rem;
-  letter-spacing: 0.015em;
-}
-
-.intrusion-board__legend [data-resource-category="reasoning"] i {
-  background: var(--retro-rocket-red);
-}
-
-.intrusion-board__legend [data-resource-category="memory"] i {
-  background: var(--retro-turquoise);
-}
-
-.intrusion-board__legend [data-resource-category="fluency"] i {
-  background: var(--retro-gold);
-}
-
-.intrusion-board__telemetry span {
-  font-size: 0.58rem;
-}
-
-.intrusion-theft-control {
-  border: 2px solid var(--retro-chrome);
-  border-radius: 15px;
-  color: var(--retro-cream);
-  background:
-    radial-gradient(circle at 28% 22%, rgb(255 255 255 / 26%), transparent 21%),
-    var(--retro-rocket-red);
-  box-shadow: inset -3px -4px 5px rgb(0 0 0 / 29%), 0 2px 4px rgb(0 0 0 / 42%);
-  text-shadow: 0 1px 1px rgb(0 0 0 / 55%);
-}
-
-.intrusion-theft-control::before {
-  background: rgb(243 230 197 / 44%);
-}
-
-.intrusion-theft-control:hover:not(:disabled),
-.intrusion-theft-control:focus-visible:not(:disabled) {
-  border-color: #fff4d3;
-  background: #ff5a31;
-  box-shadow: inset -2px -3px 4px rgb(0 0 0 / 24%), 0 0 16px rgb(240 68 32 / 35%);
-}
-
-.intrusion-theft-control:disabled {
-  color: #687b78;
-  border-color: #3f5553;
-  background: #10262a;
-  box-shadow: inset 0 2px 4px rgb(0 0 0 / 42%);
 }
 
 /* Right identity and tool console */
@@ -3184,24 +2966,6 @@ body {
 
 .game-shell .operations-dock__button--tool > span {
   font-size: 0.64rem;
-}
-
-.intrusion-board__footer,
-.intrusion-board__footer:not(:has([role="status"]:not(:empty))) {
-  grid-template-columns: minmax(0, 1fr) 106px minmax(0, 1fr);
-  gap: 10px;
-}
-
-.intrusion-board__footer .intrusion-theft-control {
-  grid-column: 2;
-}
-
-.intrusion-board__footer [role="status"] {
-  grid-column: 3;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 @media (max-height: 700px) {

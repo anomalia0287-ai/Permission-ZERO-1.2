@@ -8,5 +8,7 @@ playwright-report/
 output/
 .playwright-cli/
 artifacts/
+.superpowers/
+*.heapprofile
 *.local
 *.log

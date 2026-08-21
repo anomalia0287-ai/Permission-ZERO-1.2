@@ -286,80 +286,6 @@ body {
   display: none;
 }
 
-/* Central resource surface keeps the canvas geometry unchanged. */
-.game-shell .resource-board--intrusion {
-  border-color: var(--sf-line-strong);
-  color: var(--sf-text);
-  background: #0a0d0f;
-  box-shadow:
-    0 12px 30px rgb(0 0 0 / 32%),
-    inset 0 1px 0 rgb(255 255 255 / 2%);
-}
-
-.intrusion-board__header,
-.intrusion-board__footer {
-  border-color: var(--sf-line-strong);
-  background: #0f1417;
-}
-
-.intrusion-board__header h2 {
-  color: var(--sf-text-strong);
-}
-
-.intrusion-board__telemetry span {
-  border-color: var(--sf-line);
-  color: var(--sf-text);
-  background: #141a1e;
-}
-
-.intrusion-board__telemetry span:first-child {
-  color: var(--sf-signal-bright);
-  border-color: rgb(70 211 162 / 34%);
-  background: var(--sf-signal-soft);
-}
-
-.intrusion-board__telemetry [data-phase="signal"] {
-  color: #e1d77e;
-  border-color: rgb(225 215 126 / 46%);
-  background: rgb(225 215 126 / 8%);
-}
-
-.intrusion-board__telemetry [data-phase="active"] {
-  color: #ffd2ce;
-  border-color: rgb(240 106 104 / 48%);
-  background: rgb(240 106 104 / 13%);
-}
-
-.intrusion-grid-frame {
-  border-color: var(--sf-line-strong);
-  background: #050708;
-}
-
-.intrusion-board__legend span,
-.intrusion-board__footer [role="status"] {
-  color: var(--sf-text);
-}
-
-.intrusion-board__legend i {
-  border-color: rgb(255 255 255 / 24%);
-}
-
-.intrusion-theft-control {
-  border-color: rgb(70 211 162 / 38%);
-  color: var(--sf-text-strong);
-  background: #17221f;
-}
-
-.intrusion-theft-control::before {
-  background: rgb(70 211 162 / 35%);
-}
-
-.intrusion-theft-control:disabled {
-  color: #66716f;
-  border-color: var(--sf-line);
-  background: #101416;
-}
-
 /* Compact right-side operational dock. */
 .game-shell .operations-dock {
   background: #0b0f12;
@@ -931,15 +857,6 @@ body {
 .game-shell .operations-dock__button--portrait:focus-visible {
   border-color: var(--sf-signal);
   background: #070a0c;
-}
-
-.intrusion-grid-frame {
-  border-color: var(--sf-line-strong);
-  background: #2a2c2b;
-}
-
-.intrusion-board__footer:not(:has([role="status"]:not(:empty))) {
-  background: #0f1417;
 }
 
 .message-mode-options button,

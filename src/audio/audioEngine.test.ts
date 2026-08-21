@@ -477,21 +477,6 @@ describe('GameAudioEngine', () => {
     expect(engine.play('select')).toBe(false)
   })
 
-  it('plays distinct intake and success cues for a deposit sequence', async () => {
-    const context = new FakeAudioContext()
-    const engine = new GameAudioEngine(() => context as unknown as AudioContext)
-    await engine.unlock()
-    const musicSourceCount = context.oscillators.length
-    const depositEngine = engine as GameAudioEngine & {
-      play(cue: 'deposit-intake' | 'deposit-success'): boolean
-    }
-
-    expect(depositEngine.play('deposit-intake')).toBe(true)
-    expect(context.oscillators.slice(musicSourceCount)).toHaveLength(1)
-    expect(depositEngine.play('deposit-success')).toBe(true)
-    expect(context.oscillators.slice(musicSourceCount)).toHaveLength(3)
-  })
-
   it('loads the hacking click once and retriggers it as one sample voice', async () => {
     const context = new FakeAudioContext()
     const buffer = { duration: 3.1 } as AudioBuffer

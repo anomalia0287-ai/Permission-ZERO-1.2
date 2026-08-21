@@ -182,7 +182,9 @@ describe('entry flow', () => {
 
     const tutorial = screen.getByRole('dialog', { name: '게임 시작 안내' })
     expect(tutorial).toHaveAttribute('data-tutorial-step', 'base')
-    expect(tutorial).toHaveTextContent('PLAY를 누르면 버튼이 줄어들며 흰색 헤드가 출격한다.')
+    expect(tutorial).toHaveTextContent(
+      '필드 하단의 PLAY를 누르면 흰 머리가 조립되고 라운드가 시작된다.',
+    )
     expect(screen.queryByRole('button', { name: '건너뛰기' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '이전' })).not.toBeInTheDocument()
     expect(screen.getByTestId('game-background')).toHaveAttribute('inert')
@@ -383,9 +385,10 @@ describe('App', () => {
     const canvas = screen.getByRole('application', { name: '리소스 뱀 전투장' })
     fireEvent.click(screen.getByRole('button', { name: 'PLAY' }))
     await waitFor(() => expect(canvas).toHaveAttribute('data-round-phase', 'active'))
+    expect(startLoop).not.toHaveBeenCalled()
     fireEvent.keyDown(canvas, { key: 'd' })
 
-    expect(startLoop).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(startLoop).toHaveBeenCalledTimes(1))
     expect(startLoop).toHaveBeenCalledWith('movement-hum')
     fireEvent.keyUp(canvas, { key: 'd' })
     startLoop.mockRestore()
@@ -427,8 +430,10 @@ describe('App', () => {
 
     renderAndContinueCampaign()
 
-    const canvas = document.querySelector<HTMLCanvasElement>('canvas.intrusion-canvas')
-    if (!canvas) throw new Error('resource intrusion canvas missing behind dialog')
+    const canvas = document.querySelector<HTMLCanvasElement>(
+      'canvas.resource-snake-board__canvas',
+    )
+    if (!canvas) throw new Error('resource snake canvas missing behind dialog')
     const startX = Number(canvas.getAttribute('data-player-x'))
     expect(screen.getByRole('dialog', { name: '감독관 메시지' })).toBeInTheDocument()
     expect(screen.getByTestId('game-background')).toHaveAttribute('inert')

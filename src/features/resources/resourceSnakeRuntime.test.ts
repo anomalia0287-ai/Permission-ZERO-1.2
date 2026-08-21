@@ -201,6 +201,25 @@ describe('resource snake fixed-step movement kernel', () => {
     expect(stopped.player.trail.length).toBeLessThanOrEqual(moving.player.trail.length)
   })
 
+  it('does not activate the last self trail dot underneath a head that stopped after release', () => {
+    let state = activeState()
+    const heldInput = { ...input, playerDirection: { x: 1, y: 0 } }
+    for (let elapsedMs = 0; elapsedMs < 600; elapsedMs += 100) {
+      state = advanceResourceSnakeFrame(state, heldInput, 100)
+    }
+    state = advanceResourceSnakeFrame(state, input, RESOURCE_SNAKE_CONFIG.playerDecelerationMs)
+    const stoppedAt = { ...state.player.position }
+    const integrity = state.player.integrity
+    for (let elapsedMs = 0; elapsedMs < 500; elapsedMs += 100) {
+      state = advanceResourceSnakeFrame(state, input, 100)
+    }
+
+    expect(state.player.velocity).toEqual({ x: 0, y: 0 })
+    expect(state.player.position).toEqual(stoppedAt)
+    expect(state.player.integrity).toBe(integrity)
+    expect(state.events.filter((event) => event.type === 'snake-collided')).toHaveLength(0)
+  })
+
   it('shrinks a trail dot linearly only during its final shrink window', () => {
     const dot = {
       id: 1,

@@ -828,6 +828,43 @@ describe('planResourceSnakeGroup', () => {
     expectCanonicalCoordination(state, group)
   })
 
+  it('starts both stopped mid-tier enemies instead of repeatedly assigning a zero-speed opening', () => {
+    const state = snapshot({
+      simulationMs: 220,
+      player: actor('player', { x: 25, y: 21 }, { x: 0, y: 0 }),
+      enemies: [
+        actor('enemy-0', { x: 16, y: 3.5 }, { x: 0, y: 0 }, {
+          role: 'pressure',
+          integrity: 35,
+          maximumIntegrity: 35,
+          maximumSpeedPerSecond: 6.7,
+        }),
+        actor('enemy-1', { x: 34, y: 3.5 }, { x: 0, y: 0 }, {
+          role: 'blocker',
+          integrity: 35,
+          maximumIntegrity: 35,
+          maximumSpeedPerSecond: 6.7,
+        }),
+      ],
+      trailDots: [],
+      playerHistory: [
+        { simulationMs: 0, position: { x: 25, y: 21 }, velocity: { x: 0, y: 0 } },
+        { simulationMs: 220, position: { x: 25, y: 21 }, velocity: { x: 0, y: 0 } },
+      ],
+    })
+
+    const group = planResourceSnakeGroup(state, PROFILE_72_LONG, [], [], () => 0)
+
+    expect(group.plans.map((plan) => plan.enemyId)).toEqual(['enemy-0', 'enemy-1'])
+    expect(group.plans.every((plan) => plan.speedScale > 0)).toBe(true)
+    expect(group.plans.every((plan) => (
+      Math.hypot(
+        (plan.path.at(-1)?.x ?? 0) - state.enemies.find(({ id }) => id === plan.enemyId)!.position.x,
+        (plan.path.at(-1)?.y ?? 0) - state.enemies.find(({ id }) => id === plan.enemyId)!.position.y,
+      ) > 0.1
+    ))).toBe(true)
+  })
+
   it('retains two canonical commitments without weakening group geometry', () => {
     const state = dualSnapshot()
     const initial = planResourceSnakeGroup(state, PROFILE_72_LONG, [], [], () => 0)
@@ -1688,13 +1725,16 @@ describe('planResourceSnakeGroup', () => {
   }, 10_000)
 })
 
-describe('resource snake planner performance', () => {
-  it(
-    'keeps repeated empty, off-path, and hot-corridor 2,500ms/96 moving planning under 3ms p95 in both timing brackets',
-    runResourceSnakePerformanceAcceptance,
-    20_000,
-  )
-})
+describe.runIf(process.env.RESOURCE_SNAKE_PERF_ACCEPTANCE === '1')(
+  'resource snake planner performance',
+  () => {
+    it(
+      'keeps repeated empty, off-path, and hot-corridor 2,500ms/96 moving planning under 3ms p95 in both timing brackets',
+      runResourceSnakePerformanceAcceptance,
+      20_000,
+    )
+  },
+)
 
 describe('planResourceSnakeEnemy', () => {
   it('ignores only its own newest runtime-shaped trail dot for exactly 240ms', () => {

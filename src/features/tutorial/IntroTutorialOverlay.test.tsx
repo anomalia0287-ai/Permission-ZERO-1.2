@@ -66,7 +66,7 @@ function TutorialHarness({ enabled = true }: { enabled?: boolean }) {
           data-tutorial-resource-x="10"
           data-tutorial-resource-y="5"
         />
-        <button type="button" data-tutorial-target="snake-play">PLAY</button>
+        <button type="button" data-tutorial-target="play-button">PLAY</button>
         <section data-tutorial-target="secured-resources">확보 자원</section>
         <button type="button" data-tutorial-target="hacking-button">
           해킹
@@ -102,7 +102,7 @@ beforeEach(() => {
       if (this.dataset.tutorialTarget === 'resource-field') {
         return elementRect(canvasLeft, 50, 1000, 480)
       }
-      if (this.dataset.tutorialTarget === 'snake-play') {
+      if (this.dataset.tutorialTarget === 'play-button') {
         return elementRect(canvasLeft + 440, 440, 120, 44)
       }
       if (this.dataset.tutorialTarget === 'secured-resources') {
@@ -131,7 +131,7 @@ describe('IntroTutorialOverlay', () => {
     expect(dialog).toHaveAttribute('data-tutorial-step', 'base')
     expect(dialog).toHaveAttribute('data-target-hole-count', '1')
     expect(dialog.querySelector('.intro-tutorial__card')).toHaveTextContent(
-      'PLAY를 누르면 버튼이 줄어들며 흰색 헤드가 출격한다.',
+      '필드 하단의 PLAY를 누르면 흰 머리가 조립되고 라운드가 시작된다.',
     )
     expect(dialog).not.toHaveTextContent(/\b[1-6]\s*\/\s*6\b/)
     expect(screen.getByLabelText('런타임 상태')).toHaveTextContent('정지')

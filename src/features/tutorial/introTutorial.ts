@@ -20,27 +20,27 @@ export interface IntroTutorialTarget {
 export const INTRO_TUTORIAL_STEPS = [
   {
     id: 'base',
-    copy: 'PLAY를 누르면 버튼이 줄어들며 흰색 헤드가 출격한다.',
+    copy: '필드 하단의 PLAY를 누르면 흰 머리가 조립되고 라운드가 시작된다.',
     preferredPlacement: 'top',
   },
   {
     id: 'movement',
-    copy: 'WASD 또는 방향키로 직접 움직인다. 자동 전진은 없다.',
+    copy: 'WASD 또는 방향키를 누르는 동안만 움직인다. 자동 전진은 없다.',
     preferredPlacement: 'bottom',
   },
   {
     id: 'resource',
-    copy: '매 라운드 빨강·파랑·노랑 중 하나 이상의 적 뱀이 플레이어를 압박한다.',
+    copy: '빨강·파랑·노랑 뱀은 각각 추론·기억·유창성 리소스를 지킨다.',
     preferredPlacement: 'bottom',
   },
   {
     id: 'salvage',
-    copy: '헤드끼리 부딪히면 둘 다, 오래 남은 잔상에 닿으면 닿은 뱀이 피해를 받고 색이 옅어진다.',
+    copy: '긴 도트 꼬리로 탈출로를 닫아 적 머리를 충돌시킨다. 한 번에 죽지 않고 색이 옅어진다.',
     preferredPlacement: 'bottom',
   },
   {
     id: 'deposit',
-    copy: '적을 쓰러뜨리면 강하게 폭발하고 그 색 리소스가 확보된다. 다음 PLAY로 새 라운드를 연다.',
+    copy: '적이 마지막 충돌에서 폭발하면 연결된 리소스가 즉시 확보된다.',
     preferredPlacement: 'top',
   },
   {
@@ -105,7 +105,7 @@ export function resolveIntroTutorialTarget(
   const canvasRect = canvas ? rectOf(canvas) : viewportFallback()
 
   if (stepId === 'base') {
-    const play = root.querySelector('[data-tutorial-target="snake-play"]')
+    const play = root.querySelector('[data-tutorial-target="play-button"]')
     return targetFromRects([play ? rectOf(play) : canvasRect])
   }
 
@@ -113,13 +113,20 @@ export function resolveIntroTutorialTarget(
     stepId === 'movement'
     || stepId === 'resource'
     || stepId === 'salvage'
-    || stepId === 'deposit'
   ) {
     return targetFromRects([canvasRect])
   }
 
+  const secured = root.querySelector('[data-tutorial-target="secured-resources"]')
+  if (stepId === 'deposit') {
+    return targetFromRects([
+      canvasRect,
+      ...(secured ? [rectOf(secured)] : []),
+    ])
+  }
+
   const hackingRects = [
-    root.querySelector('[data-tutorial-target="secured-resources"]'),
+    secured,
     root.querySelector('[data-tutorial-target="hacking-button"]'),
   ].filter((element): element is Element => element !== null).map(rectOf)
   return targetFromRects(hackingRects)

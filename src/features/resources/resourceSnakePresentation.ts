@@ -41,11 +41,19 @@ export interface ResourceSnakeSceneExplosion {
   progress: number
 }
 
+export interface ResourceSnakeSceneChainBurst {
+  x: number
+  y: number
+  color: string
+  progress: number
+}
+
 export interface ResourceSnakeScene {
   actors: ResourceSnakeSceneActor[]
   trailDots: ResourceSnakeSceneDot[]
   flashes: ResourceSnakeSceneFlash[]
   explosions: ResourceSnakeSceneExplosion[]
+  chainBursts: ResourceSnakeSceneChainBurst[]
 }
 
 function actorColor(actor: SnakeActor, playerCategory: CompanyCategory | null): string {
@@ -63,8 +71,11 @@ function actorOpacity(actor: SnakeActor): number {
 export function buildResourceSnakeScene(
   runtime: ResourceSnakeRoundState,
   playerCategory: CompanyCategory | null,
+  reducedMotion = false,
 ): ResourceSnakeScene {
-  const allActors = [runtime.player, ...runtime.enemies]
+  const allActors = runtime.phase === 'idle'
+    ? []
+    : [runtime.player, ...runtime.enemies]
   const actors = allActors.map((actor) => ({
     id: actor.id,
     x: actor.position.x,
@@ -107,7 +118,51 @@ export function buildResourceSnakeScene(
       progress: age / RESOURCE_SNAKE_CONFIG.deathFlashMs,
     }]
   })
-  return { actors, trailDots, flashes, explosions }
+  const chainBursts = reducedMotion ? [] : runtime.events.flatMap((event) => {
+    if (event.type !== 'snake-died') return []
+    const age = runtime.simulationMs - event.startedAtMs
+    if (age < 0 || age > RESOURCE_SNAKE_CONFIG.deathFlashMs) return []
+    const actor = allActors.find((candidate) => candidate.id === event.actorId)
+    if (!actor || actor.trail.length === 0) return []
+    const stride = Math.max(1, Math.ceil(actor.trail.length / 18))
+    const sampled = actor.trail.filter((_, index) => index % stride === 0).slice(-18)
+    const color = event.category ? SNAKE_CATEGORY_COLORS[event.category] : PLAYER_WHITE
+    return sampled.map((dot, index) => {
+      const staggerMs = sampled.length <= 1
+        ? 0
+        : index / (sampled.length - 1) * RESOURCE_SNAKE_CONFIG.deathFlashMs * 0.35
+      return {
+        x: dot.position.x,
+        y: dot.position.y,
+        color,
+        progress: Math.max(0, Math.min(
+          1,
+          (age - staggerMs) / Math.max(1, RESOURCE_SNAKE_CONFIG.deathFlashMs - staggerMs),
+        )),
+      }
+    })
+  })
+  return { actors, trailDots, flashes, explosions, chainBursts }
+}
+
+export function resourceSnakeShakeOffset(
+  runtime: ResourceSnakeRoundState,
+  reducedMotion: boolean,
+): { x: number; y: number } {
+  if (reducedMotion) return { x: 0, y: 0 }
+  const collision = [...runtime.events].reverse().find((event) => (
+    event.type === 'snake-collided'
+    && runtime.simulationMs >= event.startedAtMs
+    && runtime.simulationMs - event.startedAtMs <= 180
+  ))
+  if (!collision || collision.type !== 'snake-collided') return { x: 0, y: 0 }
+  const age = runtime.simulationMs - collision.startedAtMs
+  const amplitude = Math.max(0, 3 * (1 - age / 180))
+  const phase = collision.id * 1.618 + age * 0.17
+  return {
+    x: Number((Math.sin(phase) * amplitude).toFixed(3)),
+    y: Number((Math.cos(phase * 1.37) * amplitude).toFixed(3)),
+  }
 }
 
 export function drawResourceSnakeScene(
@@ -192,5 +247,19 @@ export function drawResourceSnakeScene(
     }
     context.shadowBlur = 0
   }
+  for (const burst of scene.chainBursts) {
+    if (burst.progress >= 1) continue
+    const x = burst.x * scaleX
+    const y = burst.y * scaleY
+    const radius = unit * (0.12 + burst.progress * 0.34)
+    context.globalAlpha = Math.max(0, 0.9 - burst.progress * 0.9)
+    context.fillStyle = burst.color
+    context.shadowColor = burst.color
+    context.shadowBlur = unit * 0.45
+    context.beginPath()
+    context.arc(x, y, radius, 0, Math.PI * 2)
+    context.fill()
+  }
+  context.shadowBlur = 0
   context.globalAlpha = 1
 }
