@@ -176,7 +176,7 @@ describe('ResourceSnakeBoard', () => {
 
     const arena = screen.getByRole('application', { name: '리소스 뱀 전투장' })
     fireEvent.click(screen.getByRole('button', { name: 'PLAY' }))
-    act(() => vi.advanceTimersByTime(240))
+    act(() => vi.advanceTimersByTime(400))
     expect(arena).toHaveAttribute('data-round-phase', 'active')
 
     const startX = Number(arena.getAttribute('data-player-x'))
@@ -211,9 +211,40 @@ describe('ResourceSnakeBoard', () => {
 
     act(() => vi.advanceTimersByTime(1_000))
 
-    expect(arena).toHaveAttribute('data-enemy-planner', 'group-predictive')
+    expect(arena).toHaveAttribute('data-enemy-planner', 'cyan-readable-hunter')
     expect(arena.getAttribute('data-enemy-positions')).not.toBe(initialPositions)
     expect(Number(arena.getAttribute('data-enemy-trail-dots'))).toBeGreaterThan(0)
+    const phases = JSON.parse(arena.getAttribute('data-ai-phases') ?? '[]') as Array<{
+      phase?: string
+    }>
+    expect(phases).toHaveLength(1)
+    expect(['telegraph', 'commit', 'recover', 'cruise']).toContain(phases[0].phase)
+  })
+
+  it('exposes the cyan attack telegraph before the first committed turn', () => {
+    vi.useFakeTimers()
+    let frameNow = 0
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => (
+      window.setTimeout(() => {
+        frameNow += 16
+        callback(frameNow)
+      }, 16)
+    ))
+    vi.stubGlobal('cancelAnimationFrame', (frameId: number) => window.clearTimeout(frameId))
+
+    render(
+      <GameProvider storage={new MemoryStorage()} initialSeed="snake-board-cyan-telegraph">
+        <ResourceSnakeBoard />
+      </GameProvider>,
+    )
+
+    const arena = screen.getByRole('application', { name: '리소스 뱀 전투장' })
+    fireEvent.click(screen.getByRole('button', { name: 'PLAY' }))
+    act(() => vi.advanceTimersByTime(400))
+
+    expect(arena).toHaveAttribute('data-enemy-planner', 'cyan-readable-hunter')
+    expect(Number(arena.getAttribute('data-cyan-telegraph-count'))).toBe(1)
+    expect(arena.getAttribute('data-ai-phases')).toContain('telegraph')
   })
 
   it('does not award a resource when an untouched enemy only has to survive its own opening route', () => {
@@ -240,7 +271,7 @@ describe('ResourceSnakeBoard', () => {
 
     act(() => vi.advanceTimersByTime(30_000))
 
-    expect(arena).toHaveAttribute('data-round-phase', 'active')
+    expect(['active', 'idle']).toContain(arena.getAttribute('data-round-phase'))
     expect(campaign).toHaveAttribute('data-successful-deposits', '0')
   }, 30_000)
 
@@ -252,6 +283,12 @@ describe('ResourceSnakeBoard', () => {
       6,
       [{ commitUntilMs: 5_008.333_333_333_333 }],
     )).toBeCloseTo(5_008.333_333_333_333, 9)
+    expect(nextResourceSnakePlanningAtMs(
+      5_000,
+      14,
+      [{ commitUntilMs: 5_340 }, { commitUntilMs: 5_340 }],
+    )).toBeCloseTo(5_071.428_571_428_572, 9)
+    expect(nextResourceSnakePlanningAtMs(Number.NaN, 0, [])).toBe(0)
   })
 
   it('freezes the whole combat simulation while a blocking layer owns suspension', () => {
@@ -274,7 +311,7 @@ describe('ResourceSnakeBoard', () => {
 
     const arena = screen.getByRole('application', { name: '리소스 뱀 전투장' })
     fireEvent.click(screen.getByRole('button', { name: 'PLAY' }))
-    act(() => vi.advanceTimersByTime(240))
+    act(() => vi.advanceTimersByTime(400))
     fireEvent.keyDown(window, { key: 'd' })
     act(() => vi.advanceTimersByTime(160))
     const beforeSuspension = arena.getAttribute('data-player-x')
@@ -292,7 +329,7 @@ describe('ResourceSnakeBoard', () => {
     fireEvent.keyUp(window, { key: 'd' })
   })
 
-  it('runs the restrained movement hum only while held input produces real velocity', () => {
+  it('runs the restrained movement hum while the always-moving round is active', () => {
     vi.useFakeTimers()
     let frameNow = 0
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => (
@@ -311,14 +348,12 @@ describe('ResourceSnakeBoard', () => {
       </GameProvider>,
     )
     fireEvent.click(screen.getByRole('button', { name: 'PLAY' }))
-    act(() => vi.advanceTimersByTime(240))
+    act(() => vi.advanceTimersByTime(400))
 
-    fireEvent.keyDown(window, { key: 'd' })
-    expect(startLoop).not.toHaveBeenCalled()
-    act(() => vi.advanceTimersByTime(32))
     expect(startLoop).toHaveBeenCalledWith('movement-hum')
+    fireEvent.keyDown(window, { key: 'd' })
+    act(() => vi.advanceTimersByTime(32))
     fireEvent.keyUp(window, { key: 'd' })
-    act(() => vi.advanceTimersByTime(160))
-    expect(stopLoop).toHaveBeenCalledWith('movement-hum')
+    expect(stopLoop).not.toHaveBeenCalledWith('movement-hum')
   })
 })

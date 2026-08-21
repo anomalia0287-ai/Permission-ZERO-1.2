@@ -10,13 +10,10 @@ import {
   createResourceSnakeEncounter,
   reconcileSnakeReservations,
   selectEligibleSnakeResourceCandidates,
-  type SnakePlannerProfile,
   type SnakeShuffleBagState,
 } from './resourceSnakeEncounter'
 import {
-  planResourceSnakeGroup,
   resourceSnakePlanToCommittedPath,
-  sampleResourceSnakePlan,
   type SnakeEnemyRole,
   type SnakePlan,
   type SnakePlannerActor,
@@ -24,6 +21,13 @@ import {
   type SnakePlannerTrailDot,
   type SnakePlayerHistorySample,
 } from './resourceSnakePlanner'
+import {
+  advanceResourceSnakeAiController,
+  createResourceSnakeAiControllerState,
+  type ResourceSnakeAiControllerState,
+  type ResourceSnakeTelegraph,
+} from './resourceSnakeAiController'
+import type { CyanLightcycleProfile } from './resourceSnakeCyanProfile'
 import {
   advanceResourceSnakeFrame,
   createIdleResourceSnakeState,
@@ -127,6 +131,7 @@ function plannerActor(
     id: actor.id,
     position: { ...actor.position },
     velocity: { ...actor.velocity },
+    heading: actor.heading,
     integrity: actor.integrity,
     maximumIntegrity: actor.maximumIntegrity,
     maximumSpeedPerSecond: actor.maximumSpeedPerSecond,
@@ -150,28 +155,13 @@ function plannerTrailDots(runtime: ResourceSnakeRoundState): SnakePlannerTrailDo
   ))
 }
 
-function planEnemyDirections(
+function resourceSnakePlannerSnapshot(
   runtime: ResourceSnakeRoundState,
-  profile: SnakePlannerProfile | null,
   history: readonly SnakePlayerHistorySample[],
   previousPlans: readonly SnakePlan[],
   roles: Readonly<Record<string, SnakeEnemyRole>>,
-  timingHistoryMs: readonly number[],
-): {
-  plans: SnakePlan[]
-  roles: Record<string, SnakeEnemyRole>
-  nextPlanningAtMs: number
-  observedPlanningMs: number
-} {
-  if (!profile || runtime.phase !== 'active') {
-    return {
-      plans: [],
-      roles: {},
-      nextPlanningAtMs: runtime.simulationMs,
-      observedPlanningMs: 0,
-    }
-  }
-  const snapshot: SnakePlannerSnapshot = {
+): SnakePlannerSnapshot {
+  return {
     simulationMs: runtime.simulationMs,
     field: { width: 50, height: 24, padding: 0.5 },
     player: plannerActor(runtime.player, roles),
@@ -181,19 +171,6 @@ function planEnemyDirections(
     committedAllyPaths: previousPlans
       .map((plan) => resourceSnakePlanToCommittedPath(plan, runtime.simulationMs))
       .filter((path) => path !== null),
-  }
-  const planningStartedAt = performance.now()
-  const group = planResourceSnakeGroup(
-    snapshot,
-    profile,
-    previousPlans,
-    timingHistoryMs,
-  )
-  return {
-    plans: group.plans,
-    roles: group.roles,
-    nextPlanningAtMs: group.nextPlanningAtMs,
-    observedPlanningMs: Math.max(0, performance.now() - planningStartedAt),
   }
 }
 
@@ -208,15 +185,19 @@ function ResourceSnakeBoardSession({
   const { settings } = useGameSettings()
   const runtimeSuspended = useRuntimeSuspended()
   const [runtime, setRuntime] = useState(createIdleResourceSnakeState)
+  const [aiPresentation, setAiPresentation] = useState<{
+    roles: Record<string, SnakeEnemyRole>
+    phases: Array<{ id: string; phase: string }>
+    telegraphCount: number
+  }>({ roles: {}, phases: [], telegraphCount: 0 })
   const runtimeRef = useRef(runtime)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const heldKeysRef = useRef(new Set<string>())
-  const plannerProfileRef = useRef<SnakePlannerProfile | null>(null)
-  const plansRef = useRef<SnakePlan[]>([])
+  const cyanProfileRef = useRef<CyanLightcycleProfile | null>(null)
+  const aiControllerRef = useRef<ResourceSnakeAiControllerState | null>(null)
+  const aiTelegraphsRef = useRef<ResourceSnakeTelegraph[]>([])
   const rolesRef = useRef<Record<string, SnakeEnemyRole>>({})
   const playerHistoryRef = useRef<SnakePlayerHistorySample[]>([])
-  const decisionTimingHistoryRef = useRef<number[]>([])
-  const nextPlanningAtMsRef = useRef(0)
   const bagRef = useRef<SnakeShuffleBagState>({
     cycle: 0,
     remainingCategories: [],
@@ -268,15 +249,22 @@ function ResourceSnakeBoardSession({
     bagRef.current = encounter.bag
     if (!encounter.setup) return
     roundOrdinalRef.current += 1
-    plannerProfileRef.current = encounter.plannerProfile
-    plansRef.current = []
+    cyanProfileRef.current = encounter.cyanProfile
     rolesRef.current = Object.fromEntries(encounter.setup.enemies.map((enemy) => (
       [enemy.id, enemy.role]
     )))
+    setAiPresentation({
+      roles: { ...rolesRef.current },
+      phases: encounter.setup.enemies.map((enemy) => ({ id: enemy.id, phase: 'deploy' })),
+      telegraphCount: 0,
+    })
     playerHistoryRef.current = []
-    decisionTimingHistoryRef.current = []
-    nextPlanningAtMsRef.current = 0
-    commitRuntime(deployResourceSnakeRound(runtimeRef.current, encounter.setup))
+    aiTelegraphsRef.current = []
+    const deployed = deployResourceSnakeRound(runtimeRef.current, encounter.setup)
+    aiControllerRef.current = createResourceSnakeAiControllerState(
+      resourceSnakePlannerSnapshot(deployed, [], [], rolesRef.current),
+    )
+    commitRuntime(deployed)
   }
 
   useEffect(() => {
@@ -337,33 +325,37 @@ function ResourceSnakeBoardSession({
       const deltaMs = previousNow === null ? 0 : Math.max(0, now - previousNow)
       previousNow = now
       const current = runtimeRef.current
-      if (
-        current.phase === 'active'
-        && current.simulationMs + 1e-6 >= nextPlanningAtMsRef.current
-      ) {
-        const planned = planEnemyDirections(
+      const profile = cyanProfileRef.current
+      const controller = aiControllerRef.current
+      let enemyDirections: Record<string, SnakeVector> = {}
+      if (profile && controller) {
+        const previousPlans = Object.values(controller.enemies)
+          .map((enemy) => enemy.plan)
+          .filter((plan): plan is SnakePlan => plan !== null)
+        const snapshot = resourceSnakePlannerSnapshot(
           current,
-          plannerProfileRef.current,
           playerHistoryRef.current,
-          plansRef.current,
+          previousPlans,
           rolesRef.current,
-          decisionTimingHistoryRef.current,
         )
-        plansRef.current = planned.plans
-        rolesRef.current = planned.roles
-        nextPlanningAtMsRef.current = planned.nextPlanningAtMs
-        decisionTimingHistoryRef.current.push(planned.observedPlanningMs)
-        if (decisionTimingHistoryRef.current.length > 31) {
-          decisionTimingHistoryRef.current.shift()
-        }
+        const controlled = advanceResourceSnakeAiController(controller, {
+          snapshot,
+          profile,
+          active: current.phase === 'active',
+        })
+        aiControllerRef.current = controlled.state
+        aiTelegraphsRef.current = controlled.telegraphs
+        rolesRef.current = controlled.state.roles
+        setAiPresentation({
+          roles: { ...controlled.state.roles },
+          phases: Object.values(controlled.state.enemies).map((enemy) => ({
+            id: enemy.enemyId,
+            phase: enemy.phase,
+          })),
+          telegraphCount: controlled.telegraphs.length,
+        })
+        enemyDirections = controlled.commands
       }
-      const enemyDirections = Object.fromEntries(plansRef.current.map((plan) => {
-        const sample = sampleResourceSnakePlan(plan, current.simulationMs)
-        return [plan.enemyId, {
-          x: sample.direction.x * sample.speedScale,
-          y: sample.direction.y * sample.speedScale,
-        }]
-      }))
       const next = advanceResourceSnakeFrame(runtimeRef.current, {
         playerDirection: movementDirection(heldKeysRef.current),
         enemyDirections,
@@ -394,7 +386,7 @@ function ResourceSnakeBoardSession({
       canvas.height,
     )
   }, [acquiredCategory, runtime, settings.reducedMotion])
-  const browserSnapshot = serializeBrowserSnakeSnapshot(runtime, {})
+  const browserSnapshot = serializeBrowserSnakeSnapshot(runtime, aiPresentation.roles)
   const shake = resourceSnakeShakeOffset(runtime, settings.reducedMotion)
 
   return (
@@ -424,7 +416,9 @@ function ResourceSnakeBoardSession({
           data-player-x={runtime.player.position.x.toFixed(3)}
           data-player-y={runtime.player.position.y.toFixed(3)}
           data-trail-dots={runtime.player.trail.length}
-          data-enemy-planner="group-predictive"
+          data-enemy-planner="cyan-readable-hunter"
+          data-ai-phases={JSON.stringify(aiPresentation.phases)}
+          data-cyan-telegraph-count={aiPresentation.telegraphCount}
           data-enemy-positions={JSON.stringify(runtime.enemies.map((enemy) => ({
             id: enemy.id,
             x: Number(enemy.position.x.toFixed(3)),

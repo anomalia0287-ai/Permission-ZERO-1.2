@@ -6,7 +6,7 @@ export default defineConfig({
     environment: 'node',
     fileParallelism: false,
     maxWorkers: 1,
-    testNamePattern: /keeps repeated empty, off-path, and hot-corridor/,
+    testNamePattern: /keeps the 96-candidate external p95 at or below 3ms/,
     env: {
       RESOURCE_SNAKE_PERF_ACCEPTANCE: '1',
       RESOURCE_SNAKE_PERF_REPORT: '1',
