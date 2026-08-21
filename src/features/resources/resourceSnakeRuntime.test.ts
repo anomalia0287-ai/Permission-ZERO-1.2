@@ -106,6 +106,42 @@ describe('resource snake fixed-step movement kernel', () => {
     )
   })
 
+  it('applies absolute enemy turns on fixed steps independent of frame partition', () => {
+    let state = deployResourceSnakeRound(createIdleResourceSnakeState(), {
+      roundId: 'scheduled-enemy-turn',
+      playerSpawn: { x: 25, y: 21 },
+      enemies: [{
+        id: 'enemy-0', category: 'reasoning', reservedBlockId: 'scheduled-block',
+        rewardKey: 'scheduled-enemy-turn:enemy-0:scheduled-block', role: 'pressure',
+        spawn: { x: 16, y: 3.5 }, maximumIntegrity: 30, maximumSpeedPerSecond: 12,
+      }],
+    })
+    for (const deltaMs of [100, 100, 100, 60]) {
+      state = advanceResourceSnakeFrame(state, input, deltaMs)
+    }
+    const stepMs = RESOURCE_SNAKE_CONFIG.fixedStepMs
+    const scheduledInput: SnakeFrameInput = {
+      enemyDirections: { 'enemy-0': { x: 1, y: 0 } },
+      enemyDirectionSchedules: {
+        'enemy-0': [
+          { atMs: state.simulationMs, direction: { x: 1, y: 0 } },
+          { atMs: state.simulationMs + stepMs * 2, direction: { x: 0, y: 1 } },
+        ],
+      },
+    }
+    const coarse = advanceResourceSnakeFrame(state, scheduledInput, stepMs * 4)
+    let split = state
+    for (let index = 0; index < 4; index += 1) {
+      split = advanceResourceSnakeFrame(split, scheduledInput, stepMs)
+    }
+
+    expect(coarse.enemies[0].heading).toBe('south')
+    expect(split.enemies[0].heading).toBe('south')
+    expect(split.enemies[0].position.x).toBeCloseTo(coarse.enemies[0].position.x, 10)
+    expect(split.enemies[0].position.y).toBeCloseTo(coarse.enemies[0].position.y, 10)
+    expect(split.enemies[0].trail).toEqual(coarse.enemies[0].trail)
+  })
+
   it('moves the player at full speed immediately and never treats missing input as stop', () => {
     const state = activeState()
     const next = advanceResourceSnakeFrame(

@@ -77,8 +77,11 @@ function plan(
     path: Array.from({ length: stepCount }, (_, index) => ({ x: 10 + index, y: 12 })),
     score: {
       survives: fallback ? 0 : 1,
+      selfEscape: fallback ? 0 : 5,
+      responsePathFloor: fallback ? 0 : 3,
       reachableArea: 100,
       allyClearance: 10,
+      intersectionLead: 2,
       playerAreaReduction: 5,
       cutoffProgress: 1,
       pressureDistance: 4,
@@ -140,6 +143,30 @@ describe('cyan lightcycle AI controller', () => {
       enemyId: 'enemy-0', originHeading: 'east', attackHeading: 'north',
       startedAtMs: 5_000, untilMs: 5_160,
     })])
+  })
+
+  it('publishes the advertised turn and post-commit continuation on the plan clock', () => {
+    const profile = cyanLightcycleProfile('cyan-dual-role')
+    const selected = plan(5_000, 'north')
+    selected.headingChanges = [
+      ...selected.headingChanges!,
+      {
+        offsetMs: profile.telegraphMs + profile.commitMs,
+        heading: 'south',
+      },
+    ]
+    const controlled = advanceResourceSnakeAiController(
+      createResourceSnakeAiControllerState(snapshot(5_000)),
+      { snapshot: snapshot(5_000), profile, active: true },
+      dependencies([selected]),
+    )
+
+    expect(controlled.commands['enemy-0']).toEqual(SNAKE_DIRECTION_VECTORS.east)
+    expect(controlled.commandSchedules['enemy-0']).toEqual([
+      { atMs: 5_000, direction: SNAKE_DIRECTION_VECTORS.east },
+      { atMs: 5_160, direction: SNAKE_DIRECTION_VECTORS.north },
+      { atMs: 5_340, direction: SNAKE_DIRECTION_VECTORS.south },
+    ])
   })
 
   it('ignores a merely better plan during telegraph but enters recovery when the commitment becomes fatal', () => {
@@ -209,9 +236,33 @@ describe('cyan lightcycle AI controller', () => {
     })
     expect(Math.hypot(firstSafe.commands['enemy-0'].x, firstSafe.commands['enemy-0'].y))
       .toBeCloseTo(0.92, 12)
+    expect(firstSafe.commands['enemy-0']).toEqual({ x: 0.92, y: 0 })
     expect(secondSafe.state.enemies['enemy-0']).toMatchObject({
       phase: 'telegraph', safePlanConfirmations: 0, advertisedHeading: 'north',
     })
+  })
+
+  it('refuses to advertise a newly fatal or response-sealing plan', () => {
+    const profile = cyanLightcycleProfile('cyan-dual-role')
+    const initial = createResourceSnakeAiControllerState(snapshot(5_000))
+    const sealed = {
+      ...plan(5_000, 'north'),
+      score: { ...plan(5_000, 'north').score, responsePathFloor: 0 },
+    }
+    const controlled = advanceResourceSnakeAiController(initial, {
+      snapshot: snapshot(5_000), profile, active: true,
+    }, dependencies([sealed], true))
+
+    expect(controlled.state.enemies['enemy-0']).toMatchObject({
+      phase: 'recover',
+      advertisedHeading: null,
+      safePlanConfirmations: 0,
+    })
+    expect(controlled.telegraphs).toEqual([])
+    expect(Math.hypot(
+      controlled.commands['enemy-0'].x,
+      controlled.commands['enemy-0'].y,
+    )).toBeCloseTo(0.92, 12)
   })
 
   it('plans the entire cyan group once per cadence and marks dead actors defeated', () => {

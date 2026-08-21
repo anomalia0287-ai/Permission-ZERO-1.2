@@ -13,7 +13,11 @@ import type {
 import type { CyanLightcycleProfile } from './resourceSnakeCyanProfile'
 import { nextResourceSnakePlanningAtMs } from './resourceSnakeScheduling'
 import { resourceSnakeHeadingFromVector } from './resourceSnakeTrajectory'
-import type { SnakeEnemyRole, SnakeId } from './resourceSnakeRuntime'
+import type {
+  SnakeEnemyDirectionChange,
+  SnakeEnemyRole,
+  SnakeId,
+} from './resourceSnakeRuntime'
 
 export type ResourceSnakeAiPhase =
   | 'deploy'
@@ -54,6 +58,7 @@ export interface ResourceSnakeTelegraph {
 export interface ResourceSnakeAiControllerResult {
   state: ResourceSnakeAiControllerState
   commands: Record<string, SnakeVector>
+  commandSchedules: Record<string, SnakeEnemyDirectionChange[]>
   telegraphs: ResourceSnakeTelegraph[]
   planned: boolean
   observedPlanningMs: number
@@ -103,6 +108,14 @@ function headingForPlan(
 ): SnakeDirection8 {
   return plan.attackHeading
     ?? resourceSnakeHeadingFromVector(plan.direction, fallback)
+}
+
+function originHeadingForPlan(
+  plan: SnakePlan,
+  fallback: SnakeDirection8,
+): SnakeDirection8 {
+  return plan.originHeading
+    ?? resourceSnakeHeadingFromVector(plan.originVelocity, fallback)
 }
 
 function initialEnemyState(
@@ -158,6 +171,37 @@ function beginTelegraph(
   }
 }
 
+function planReadyForTelegraph(
+  snapshot: SnakePlannerSnapshot,
+  plan: SnakePlan | null,
+  planIsFatal: (snapshot: SnakePlannerSnapshot, plan: SnakePlan) => boolean,
+): plan is SnakePlan {
+  if (
+    !plan
+    || plan.fallback
+    || plan.score.survives !== 1
+    || plan.score.responsePathFloor < 1
+  ) return false
+  try {
+    return !planIsFatal(snapshot, plan)
+  } catch {
+    return false
+  }
+}
+
+function planSafeForRecovery(
+  snapshot: SnakePlannerSnapshot,
+  plan: SnakePlan | null,
+  planIsFatal: (snapshot: SnakePlannerSnapshot, plan: SnakePlan) => boolean,
+): plan is SnakePlan {
+  if (!plan || plan.directions.length === 0 || plan.path.length === 0) return false
+  try {
+    return !planIsFatal(snapshot, plan)
+  } catch {
+    return false
+  }
+}
+
 function timedPhase(
   enemy: ResourceSnakeAiEnemyState,
   atMs: number,
@@ -198,6 +242,40 @@ function commandForEnemy(
     return { ...SNAKE_DIRECTION_VECTORS[heading] }
   }
   return { ...SNAKE_DIRECTION_VECTORS[actorHeading(snapshot, enemy.enemyId)] }
+}
+
+function commandScheduleForEnemy(
+  snapshot: SnakePlannerSnapshot,
+  enemy: ResourceSnakeAiEnemyState,
+  command: SnakeVector,
+): SnakeEnemyDirectionChange[] {
+  const schedule: SnakeEnemyDirectionChange[] = [{
+    atMs: snapshot.simulationMs,
+    direction: { ...command },
+  }]
+  if (
+    (enemy.phase !== 'telegraph' && enemy.phase !== 'commit')
+    || !enemy.plan
+    || !enemy.plan.headingChanges
+  ) return schedule
+  const horizonMs = enemy.plan.plannedAtMs
+    + enemy.plan.path.length * enemy.plan.stepMs
+  for (const change of enemy.plan.headingChanges) {
+    const atMs = enemy.plan.plannedAtMs + change.offsetMs
+    if (
+      atMs <= snapshot.simulationMs + EPSILON
+      || atMs > horizonMs + EPSILON
+    ) continue
+    const direction = SNAKE_DIRECTION_VECTORS[change.heading]
+    schedule.push({
+      atMs,
+      direction: {
+        x: direction.x * enemy.plan.speedScale,
+        y: direction.y * enemy.plan.speedScale,
+      },
+    })
+  }
+  return schedule
 }
 
 function telegraphForEnemy(
@@ -293,34 +371,46 @@ export function advanceResourceSnakeAiController(
       if ((enemy.phase === 'telegraph' || enemy.phase === 'commit') && enemy.plan) {
         if (planIsFatal(snapshot, enemy.plan)) {
           const fallbackHeading = actorHeading(snapshot, actor.id)
+          const replacementReady = planReadyForTelegraph(snapshot, planned, planIsFatal)
+          const recoveryPlan = replacementReady
+            || planSafeForRecovery(snapshot, planned, planIsFatal)
+            ? planned
+            : null
           enemy = {
             ...enemy,
             phase: 'recover',
             phaseStartedAtMs: atMs,
-            plan: planned,
+            plan: recoveryPlan,
             advertisedHeading: null,
-            recoveryHeading: planned
-              ? headingForPlan(planned, fallbackHeading)
+            recoveryHeading: recoveryPlan
+              ? replacementReady
+                ? originHeadingForPlan(recoveryPlan, fallbackHeading)
+                : headingForPlan(recoveryPlan, fallbackHeading)
               : fallbackHeading,
             safePlanConfirmations: 0,
           }
         }
       } else if (enemy.phase === 'cruise' && planned) {
-        if (planned.fallback || planned.score.survives === 0) {
+        if (!planReadyForTelegraph(snapshot, planned, planIsFatal)) {
+          const recoveryPlan = planSafeForRecovery(snapshot, planned, planIsFatal)
+            ? planned
+            : null
           enemy = {
             ...enemy,
             phase: 'recover',
             phaseStartedAtMs: atMs,
-            plan: planned,
+            plan: recoveryPlan,
             advertisedHeading: null,
-            recoveryHeading: headingForPlan(planned, actorHeading(snapshot, actor.id)),
+            recoveryHeading: recoveryPlan
+              ? headingForPlan(recoveryPlan, actorHeading(snapshot, actor.id))
+              : actorHeading(snapshot, actor.id),
             safePlanConfirmations: 0,
           }
         } else {
           enemy = beginTelegraph(enemy, planned, atMs)
         }
       } else if (enemy.phase === 'recover') {
-        const safe = planned && !planned.fallback && planned.score.survives === 1
+        const safe = planReadyForTelegraph(snapshot, planned, planIsFatal)
         if (safe) {
           if (enemy.safePlanConfirmations === 1) {
             enemy = beginTelegraph(enemy, planned, atMs)
@@ -328,7 +418,7 @@ export function advanceResourceSnakeAiController(
             enemy = {
               ...enemy,
               plan: planned,
-              recoveryHeading: headingForPlan(
+              recoveryHeading: originHeadingForPlan(
                 planned,
                 actorHeading(snapshot, actor.id),
               ),
@@ -336,11 +426,16 @@ export function advanceResourceSnakeAiController(
             }
           }
         } else {
+          const recoveryPlan = planSafeForRecovery(snapshot, planned, planIsFatal)
+            ? planned
+            : planSafeForRecovery(snapshot, enemy.plan, planIsFatal)
+              ? enemy.plan
+              : null
           enemy = {
             ...enemy,
-            plan: planned ?? enemy.plan,
-            recoveryHeading: planned
-              ? headingForPlan(planned, actorHeading(snapshot, actor.id))
+            plan: recoveryPlan,
+            recoveryHeading: recoveryPlan
+              ? headingForPlan(recoveryPlan, actorHeading(snapshot, actor.id))
               : enemy.recoveryHeading,
             safePlanConfirmations: 0,
           }
@@ -357,16 +452,21 @@ export function advanceResourceSnakeAiController(
     timingHistoryMs,
   }
   const commands: Record<string, SnakeVector> = {}
+  const commandSchedules: Record<string, SnakeEnemyDirectionChange[]> = {}
   const telegraphs: ResourceSnakeTelegraph[] = []
   for (const enemy of Object.values(enemies)) {
     const command = commandForEnemy(snapshot, enemy)
-    if (command) commands[enemy.enemyId] = command
+    if (command) {
+      commands[enemy.enemyId] = command
+      commandSchedules[enemy.enemyId] = commandScheduleForEnemy(snapshot, enemy, command)
+    }
     const telegraph = telegraphForEnemy(enemy)
     if (telegraph) telegraphs.push(telegraph)
   }
   return {
     state: nextState,
     commands,
+    commandSchedules,
     telegraphs,
     planned: shouldPlan,
     observedPlanningMs,

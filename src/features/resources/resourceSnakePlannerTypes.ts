@@ -76,8 +76,14 @@ export interface SnakePlannerSnapshot {
 
 export interface SnakePlanScore {
   survives: 0 | 1
+  /** Count of locally executable exits at the planned endpoint. */
+  selfEscape: number
+  /** Best remaining local exit count; zero means every advertised player response is closed. */
+  responsePathFloor: number
   reachableArea: number
   allyClearance: number
+  /** Robust progress toward a predicted future intersection. */
+  intersectionLead: number
   playerAreaReduction: number
   cutoffProgress: number
   pressureDistance: number

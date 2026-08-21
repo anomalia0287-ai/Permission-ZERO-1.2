@@ -59,6 +59,10 @@ export const RESOURCE_SNAKE_GRID_SIZE = 0.75
 export const RESOURCE_SNAKE_MAX_TURN_RADIANS_PER_SECOND = Math.PI * 1.5
 
 const RUNTIME_FIXED_STEP_MS = 1_000 / 120
+// Runtime clamps actor centers at the head radius. The planner's snapshot
+// padding (normally 0.5) is a navigation reserve, not the collision wall.
+const RUNTIME_ACTOR_BOUNDARY_PADDING = 0.34
+const RUNTIME_HEAD_HEAD_COLLISION_RADIUS = RUNTIME_ACTOR_BOUNDARY_PADDING * 2
 const RUNTIME_ACCELERATION_MS = 120
 const RUNTIME_DECELERATION_MS = 100
 const SELF_TRAIL_IGNORE_MS = 240
@@ -1172,16 +1176,64 @@ function movingCircleMinimumDistance(
   return Math.hypot(startX + deltaX * fraction, startY + deltaY * fraction)
 }
 
+/**
+ * The 1.1-unit head clearance is a planning reserve, while the runtime's
+ * physical head-to-head contact radius is 0.68. If a snapshot begins inside
+ * only the reserve and the relative motion is already separating, treating
+ * the reserve overlap as a time-zero collision makes every evasive route
+ * impossible. Physical overlap remains authoritative, and approaching or
+ * newly-entered reserve overlap remains conservatively fatal.
+ */
+function movingHeadClearanceCollisionAtMs(
+  enemyStart: SnakeVector,
+  enemyEnd: SnakeVector,
+  playerStart: SnakeVector,
+  playerEnd: SnakeVector,
+  clearanceRadius: number,
+  segmentStartMs: number,
+  segmentDurationMs: number,
+  mutualGraceUntilMs: number,
+): number | null {
+  const interval = movingCircleInterval(
+    enemyStart,
+    enemyEnd,
+    playerStart,
+    playerEnd,
+    clearanceRadius,
+  )
+  if (!interval) return null
+  if (interval[0] <= EPSILON) {
+    const relativeStart = {
+      x: enemyStart.x - playerStart.x,
+      y: enemyStart.y - playerStart.y,
+    }
+    const relativeDelta = {
+      x: enemyEnd.x - enemyStart.x - (playerEnd.x - playerStart.x),
+      y: enemyEnd.y - enemyStart.y - (playerEnd.y - playerStart.y),
+    }
+    const startsOutsidePhysicalContact = magnitude(relativeStart)
+      > RUNTIME_HEAD_HEAD_COLLISION_RADIUS + EPSILON
+    const separating = relativeStart.x * relativeDelta.x
+      + relativeStart.y * relativeDelta.y > EPSILON
+    if (startsOutsidePhysicalContact && separating) return null
+  }
+  const overlapStartsAtMs = segmentStartMs + interval[0] * segmentDurationMs
+  const overlapEndsAtMs = segmentStartMs + interval[1] * segmentDurationMs
+  const collisionAtMs = Math.max(overlapStartsAtMs, mutualGraceUntilMs)
+  return collisionAtMs <= overlapEndsAtMs + EPSILON ? collisionAtMs : null
+}
+
 function boundaryExitFraction(
   start: SnakeVector,
   rawEnd: SnakeVector,
   snapshot: SnakePlannerSnapshot,
   margin: number,
+  boundaryPadding = snapshot.field.padding,
 ): number | null {
-  const minimumX = snapshot.field.padding + margin
-  const maximumX = snapshot.field.width - snapshot.field.padding - margin
-  const minimumY = snapshot.field.padding + margin
-  const maximumY = snapshot.field.height - snapshot.field.padding - margin
+  const minimumX = boundaryPadding + margin
+  const maximumX = snapshot.field.width - boundaryPadding - margin
+  const minimumY = boundaryPadding + margin
+  const maximumY = snapshot.field.height - boundaryPadding - margin
   if (start.x < minimumX || start.x > maximumX || start.y < minimumY || start.y > maximumY) return 0
   let result: number | null = null
   const consider = (value: number) => {
@@ -1682,6 +1734,7 @@ function candidateSurvives(
   trailIndex: TrailSpatialIndex,
   stepMs: number,
   maximumSurvivalMs = Number.POSITIVE_INFINITY,
+  boundaryPadding = snapshot.field.padding,
 ): boolean {
   const margin = riskMargin(enemy)
   const graceUntilMs = snapshot.simulationMs + enemy.collisionGraceMs
@@ -1689,10 +1742,10 @@ function candidateSurvives(
     + Math.min(enemy.collisionGraceMs, snapshot.player.collisionGraceMs)
   const candidateBounds = candidate.bounds
   const rawBounds = candidate.rawBounds
-  const minimumX = snapshot.field.padding + margin
-  const maximumX = snapshot.field.width - snapshot.field.padding - margin
-  const minimumY = snapshot.field.padding + margin
-  const maximumY = snapshot.field.height - snapshot.field.padding - margin
+  const minimumX = boundaryPadding + margin
+  const maximumX = snapshot.field.width - boundaryPadding - margin
+  const minimumY = boundaryPadding + margin
+  const maximumY = snapshot.field.height - boundaryPadding - margin
   const checkBoundary = rawBounds.minimumX < minimumX
     || rawBounds.maximumX > maximumX
     || rawBounds.minimumY < minimumY
@@ -1761,7 +1814,7 @@ function candidateSurvives(
     const segmentStartMs = snapshot.simulationMs + elapsedMs
     elapsedMs += segmentDurationMs
     if (checkBoundary) {
-      const exit = boundaryExitFraction(start, rawEnd, snapshot, margin)
+      const exit = boundaryExitFraction(start, rawEnd, snapshot, margin, boundaryPadding)
       if (exit !== null) {
         const outsideAtMs = segmentStartMs + exit * segmentDurationMs
         if (Math.max(outsideAtMs, graceUntilMs) <= segmentStartMs + segmentDurationMs + EPSILON) {
@@ -1806,19 +1859,17 @@ function candidateSurvives(
           x: playerStart.x + (fullPlayerEnd.x - playerStart.x) * fraction,
           y: playerStart.y + (fullPlayerEnd.y - playerStart.y) * fraction,
         }
-        const interval = movingCircleInterval(
+        const collisionAtMs = movingHeadClearanceCollisionAtMs(
           start,
           end,
           playerStart,
           playerEnd,
           PLAYER_HEAD_CLEARANCE + margin * 0.5,
+          segmentStartMs,
+          segmentDurationMs,
+          playerBothGraceUntilMs,
         )
-        if (interval) {
-          const collisionAtMs = segmentStartMs + interval[0] * segmentDurationMs
-          if (collisionAtMs + EPSILON >= playerBothGraceUntilMs) {
-            return false
-          }
-        }
+        if (collisionAtMs !== null) return false
       }
     }
     start = end
@@ -2394,6 +2445,77 @@ function markInternalCandidateTrail(
   return recordedCount
 }
 
+const LOCAL_EXIT_OFFSETS = Object.freeze([
+  Object.freeze({ x: 0, y: -1 }),
+  Object.freeze({ x: 1, y: -1 }),
+  Object.freeze({ x: 1, y: 0 }),
+  Object.freeze({ x: 1, y: 1 }),
+  Object.freeze({ x: 0, y: 1 }),
+  Object.freeze({ x: -1, y: 1 }),
+  Object.freeze({ x: -1, y: 0 }),
+  Object.freeze({ x: -1, y: -1 }),
+] as const)
+
+function localExitCount(
+  workspace: GridWorkspace,
+  origin: SnakeVector,
+  baseOccupancy: Uint8Array,
+): number {
+  const originX = Math.floor(origin.x / RESOURCE_SNAKE_GRID_SIZE)
+  const originY = Math.floor(origin.y / RESOURCE_SNAKE_GRID_SIZE)
+  const generation = workspace.candidateGeneration
+  const free = (x: number, y: number): boolean => {
+    if (x < 0 || x >= workspace.width || y < 0 || y >= workspace.height) return false
+    const index = y * workspace.width + x
+    return baseOccupancy[index] === 0
+      && workspace.candidateVisitMarks[index] !== generation
+  }
+  let exits = 0
+  for (const offset of LOCAL_EXIT_OFFSETS) {
+    const targetX = originX + offset.x
+    const targetY = originY + offset.y
+    if (!free(targetX, targetY)) continue
+    if (
+      offset.x !== 0
+      && offset.y !== 0
+      && (!free(originX + offset.x, originY) || !free(originX, originY + offset.y))
+    ) continue
+    exits += 1
+  }
+  return exits
+}
+
+function candidateLocalSafetyMetrics(
+  snapshot: SnakePlannerSnapshot,
+  enemy: SnakePlannerActor,
+  candidate: InternalTrajectoryCandidate,
+  hypotheses: SnakePlayerHypotheses,
+  workspace: GridWorkspace,
+): Readonly<{ selfEscape: number; responsePathFloor: number }> {
+  beginCandidateCells(workspace)
+  markInternalCandidateTrail(workspace, candidate)
+  const endpoint = candidate.path.at(-1) ?? enemy.position
+  const selfEscape = localExitCount(workspace, endpoint, workspace.enemyBase)
+  let responsePathFloor = 0
+  for (const hypothesis of hypotheses.all) {
+    const playerEndpoint = hypothesis.at(-1) ?? snapshot.player.position
+    if (
+      playerEndpoint.x < snapshot.field.padding
+      || playerEndpoint.x > snapshot.field.width - snapshot.field.padding
+      || playerEndpoint.y < snapshot.field.padding
+      || playerEndpoint.y > snapshot.field.height - snapshot.field.padding
+    ) continue
+    responsePathFloor = Math.max(
+      responsePathFloor,
+      localExitCount(workspace, playerEndpoint, workspace.playerBase),
+    )
+  }
+  return {
+    selfEscape,
+    responsePathFloor,
+  }
+}
+
 function beginCandidateCells(workspace: GridWorkspace): void {
   workspace.candidateGeneration += 1
   if (workspace.candidateGeneration >= 0xffff_fffe) {
@@ -2424,8 +2546,9 @@ function recordCandidateDisk(
       const dy = centerY - positionY
       if (dx * dx + dy * dy <= squared) {
         const index = y * workspace.width + x
-        if (!workspace.playerBase[index] && workspace.candidateVisitMarks[index] !== generation) {
+        if (workspace.candidateVisitMarks[index] !== generation) {
           workspace.candidateVisitMarks[index] = generation
+          if (workspace.playerBase[index]) continue
           workspace.candidateCells[recordedCount] = index
           recordedCount += 1
         }
@@ -2760,6 +2883,15 @@ function evaluateAuthoritativeCandidateScore(
     survivalLookaheadMs,
   ) ? 1 : 0
   const endpoint = candidate.path.at(-1) ?? enemy.position
+  const localSafety = candidateLocalSafetyMetrics(
+    snapshot,
+    enemy,
+    candidate,
+    hypotheses,
+    workspace,
+  )
+  score.selfEscape = localSafety.selfEscape
+  score.responsePathFloor = localSafety.responsePathFloor
   score.reachableArea = componentAreaAt(
     workspace,
     endpoint,
@@ -2780,6 +2912,7 @@ function evaluateAuthoritativeCandidateScore(
     endpoint,
     hypothesisCutoffTargets(snapshot, enemy, hypotheses),
   )
+  score.intersectionLead = score.cutoffProgress
   score.pressureDistance = robustPressureDistance(candidate, hypotheses)
   return serializeScore(score)
 }
@@ -2872,13 +3005,18 @@ export function compareSnakePlanScores(
       || !Number.isInteger(rightCandidateIndex)
     ) return 0
     if (left.survives !== right.survives) return left.survives > right.survives ? 1 : -1
+    if (left.selfEscape !== right.selfEscape) return left.selfEscape > right.selfEscape ? 1 : -1
+    if (left.responsePathFloor !== right.responsePathFloor) {
+      return left.responsePathFloor > right.responsePathFloor ? 1 : -1
+    }
     if (left.reachableArea !== right.reachableArea) return left.reachableArea > right.reachableArea ? 1 : -1
     if (left.allyClearance !== right.allyClearance) return left.allyClearance > right.allyClearance ? 1 : -1
+    if (left.intersectionLead !== right.intersectionLead) {
+      return left.intersectionLead > right.intersectionLead ? 1 : -1
+    }
     if (left.playerAreaReduction !== right.playerAreaReduction) {
       return left.playerAreaReduction > right.playerAreaReduction ? 1 : -1
     }
-    if (left.cutoffProgress !== right.cutoffProgress) return left.cutoffProgress > right.cutoffProgress ? 1 : -1
-    if (left.pressureDistance !== right.pressureDistance) return left.pressureDistance < right.pressureDistance ? 1 : -1
     if (left.steeringCost !== right.steeringCost) return left.steeringCost < right.steeringCost ? 1 : -1
     if (leftCandidateIndex === rightCandidateIndex) return 0
     return leftCandidateIndex < rightCandidateIndex ? 1 : -1
@@ -2894,8 +3032,11 @@ function compareCandidates(left: ScoredCandidate, right: ScoredCandidate): numbe
 function serializeScore(score: SnakePlanScore): SnakePlanScore {
   return {
     survives: score.survives,
+    selfEscape: score.selfEscape,
+    responsePathFloor: score.responsePathFloor,
     reachableArea: score.reachableArea,
     allyClearance: rounded(score.allyClearance),
+    intersectionLead: rounded(score.intersectionLead),
     playerAreaReduction: score.playerAreaReduction,
     cutoffProgress: rounded(score.cutoffProgress),
     pressureDistance: rounded(score.pressureDistance),
@@ -2935,6 +3076,9 @@ function cloneRetainedPlan(
     evaluatedCandidates,
     elapsedMs: plan.elapsedMs,
     fallback: plan.fallback,
+    originHeading: plan.originHeading,
+    attackHeading: plan.attackHeading,
+    headingChanges: plan.headingChanges?.map((change) => ({ ...change })),
   }
 }
 
@@ -3215,8 +3359,11 @@ function deriveIntent(
 function emptyScore(survives: 0 | 1 = 0): SnakePlanScore {
   return {
     survives,
+    selfEscape: 0,
+    responsePathFloor: 0,
     reachableArea: 0,
     allyClearance: 0,
+    intersectionLead: 0,
     playerAreaReduction: 0,
     cutoffProgress: 0,
     pressureDistance: 0,
@@ -3319,6 +3466,7 @@ function safeFallback(
   startedAt: number,
   clock: () => number,
   groupConstraints?: GroupCandidateConstraints,
+  mode: 'fallback' | 'recovery' = 'fallback',
 ): SnakePlan {
   if (
     !snapshot
@@ -3400,6 +3548,7 @@ function safeFallback(
         trailIndex,
         stepMs,
         fullHorizonMs,
+        RUNTIME_ACTOR_BOUNDARY_PADDING,
       )
       let safeMs = fullSafe ? fullHorizonMs : 0
       if (!fullSafe) {
@@ -3416,6 +3565,7 @@ function safeFallback(
             trailIndex,
             stepMs,
             probe * RUNTIME_FIXED_STEP_MS,
+            RUNTIME_ACTOR_BOUNDARY_PADDING,
           )) safeFixedSteps = probe
           else unsafeFixedSteps = probe
         }
@@ -3458,19 +3608,17 @@ function safeFallback(
             movingCircleMinimumDistance(enemyStart, enemyEnd, playerStart, playerEnd)
               - playerRadius,
           )
-          const interval = movingCircleInterval(
+          const collisionAtMs = movingHeadClearanceCollisionAtMs(
             enemyStart,
             enemyEnd,
             playerStart,
             playerEnd,
             playerRadius,
+            segmentStartsAtMs,
+            segmentDurationMs,
+            playerGraceMs,
           )
-          if (interval) {
-            const collisionAtMs = segmentStartsAtMs + interval[0] * segmentDurationMs
-            if (collisionAtMs + EPSILON >= playerGraceMs) {
-              playerSafeMs = Math.min(playerSafeMs, collisionAtMs)
-            }
-          }
+          if (collisionAtMs !== null) playerSafeMs = Math.min(playerSafeMs, collisionAtMs)
         }
       }
       const safePathIndex = Math.min(
@@ -3582,7 +3730,7 @@ function safeFallback(
     const safeCommitMs = profileIsValid(profile)
       ? Math.min(profile.commitMs, Math.max(RUNTIME_FIXED_STEP_MS, best.safeMs))
       : 0
-    return finalizePlan({
+    const selectedPlan = finalizePlan({
       ...basePlanFields(snapshot, enemyId, enemy),
       intent: 'escape',
       direction: { x: rounded(best.direction.x), y: rounded(best.direction.y) },
@@ -3598,11 +3746,12 @@ function safeFallback(
       candidateIndex: best.index,
       evaluatedCandidates: recoveryHeadings.length,
       elapsedMs: elapsedSince(startedAt, clock),
-      fallback: true,
+      fallback: mode === 'fallback',
       originHeading: best.candidate.originHeading,
       attackHeading: best.candidate.attackHeading,
       headingChanges: best.candidate.headingChanges?.map((change) => ({ ...change })),
     })
+    return selectedPlan
   } finally {
     releasePlayerHypotheses(hypotheses)
   }
@@ -3610,8 +3759,11 @@ function safeFallback(
 
 function scoreFieldsFinite(score: SnakePlanScore): boolean {
   return (score.survives === 0 || score.survives === 1)
+    && finite(score.selfEscape)
+    && finite(score.responsePathFloor)
     && finite(score.reachableArea)
     && finite(score.allyClearance)
+    && finite(score.intersectionLead)
     && finite(score.playerAreaReduction)
     && finite(score.cutoffProgress)
     && finite(score.pressureDistance)
@@ -3757,6 +3909,10 @@ function earliestCertainFatalMs(
   )
   if (!finite(remainingMs) || remainingMs <= 0) return null
   const timed = createTimedPlayerHypotheses(snapshot, remainingMs, plan.stepMs)
+  const playerBothGraceMs = Math.min(
+    enemy.collisionGraceMs,
+    snapshot.player.collisionGraceMs,
+  )
   const playerFatal = timed.hypotheses.all.map(() => null as number | null)
   const untilMs = snapshot.simulationMs + remainingMs
   const future = getResourceSnakePlanFutureSamples(plan, snapshot.simulationMs)
@@ -3772,7 +3928,13 @@ function earliestCertainFatalMs(
   for (const sample of future) {
     const durationMs = sample.atMs - segmentStartMs
     const end = sample.position
-    const boundary = boundaryExitFraction(start, end, snapshot, riskMargin(enemy))
+    const boundary = boundaryExitFraction(
+      start,
+      end,
+      snapshot,
+      riskMargin(enemy),
+      RUNTIME_ACTOR_BOUNDARY_PADDING,
+    )
     if (boundary !== null) {
       const atMs = segmentStartMs + boundary * durationMs
       const fatalMs = Math.max(atMs, snapshot.simulationMs + enemy.collisionGraceMs) - snapshot.simulationMs
@@ -3830,14 +3992,17 @@ function earliestCertainFatalMs(
         timed.sampleTimesMs,
         relativeEndMs,
       )
-      const interval = movingCircleInterval(
+      const collisionAtMs = movingHeadClearanceCollisionAtMs(
         start,
         end,
         playerStart,
         playerEnd,
         PLAYER_HEAD_CLEARANCE + riskMargin(enemy) * 0.5,
+        relativeStartMs,
+        durationMs,
+        playerBothGraceMs,
       )
-      if (interval) playerFatal[hypothesisIndex] = relativeStartMs + interval[0] * durationMs
+      if (collisionAtMs !== null) playerFatal[hypothesisIndex] = collisionAtMs
     }
     start = end
     segmentStartMs = sample.atMs
@@ -3992,8 +4157,11 @@ function planResourceSnakeEnemyInternal(
     for (let index = 0; index < scored.length; index += 1) {
       const score = scored[index].score
       score.survives = 0
+      score.selfEscape = 0
+      score.responsePathFloor = 0
       score.reachableArea = 0
       score.allyClearance = 0
+      score.intersectionLead = 0
       score.playerAreaReduction = 0
       score.cutoffProgress = 0
       score.pressureDistance = 0
@@ -4067,7 +4235,8 @@ function planResourceSnakeEnemyInternal(
         enemy,
         startedAt,
         clock,
-        groupConstraints,
+        undefined,
+        'recovery',
       )
     }
 
@@ -4087,27 +4256,8 @@ function planResourceSnakeEnemyInternal(
       ))
     }
 
-    for (const candidate of contenders) {
-      const endpoint = candidate.path.at(-1) ?? enemy.position
-      candidate.score.reachableArea = componentAreaAt(
-        workspace,
-        endpoint,
-        workspace.enemyLabels,
-        workspace.enemyAreas,
-      )
-    }
-    contenders = retainMaximum(contenders, (candidate) => candidate.score.reachableArea)
-
-    for (const candidate of contenders) {
-      candidate.score.allyClearance = minimumAllyClearance(
-        snapshot,
-        enemy,
-        candidate,
-        profile.rolloutStepMs,
-      )
-    }
-    contenders = retainMaximum(contenders, (candidate) => candidate.score.allyClearance)
-
+    // Group directives define the admissible coordination corridor. They are
+    // resolved before score comparison so none can reorder safety priorities.
     if (groupConstraints?.preferTopBoundaryTrace) {
       let earliestConnectionStep = Number.MAX_SAFE_INTEGER
       for (const candidate of contenders) {
@@ -4153,6 +4303,51 @@ function planResourceSnakeEnemyInternal(
     }
 
     for (const candidate of contenders) {
+      const localSafety = candidateLocalSafetyMetrics(
+        snapshot,
+        enemy,
+        candidate,
+        hypotheses,
+        workspace,
+      )
+      candidate.score.selfEscape = localSafety.selfEscape
+      candidate.score.responsePathFloor = localSafety.responsePathFloor
+    }
+    contenders = retainMaximum(contenders, (candidate) => candidate.score.selfEscape)
+    contenders = retainMaximum(contenders, (candidate) => candidate.score.responsePathFloor)
+
+    for (const candidate of contenders) {
+      const endpoint = candidate.path.at(-1) ?? enemy.position
+      candidate.score.reachableArea = componentAreaAt(
+        workspace,
+        endpoint,
+        workspace.enemyLabels,
+        workspace.enemyAreas,
+      )
+    }
+    contenders = retainMaximum(contenders, (candidate) => candidate.score.reachableArea)
+
+    for (const candidate of contenders) {
+      candidate.score.allyClearance = minimumAllyClearance(
+        snapshot,
+        enemy,
+        candidate,
+        profile.rolloutStepMs,
+      )
+    }
+    contenders = retainMaximum(contenders, (candidate) => candidate.score.allyClearance)
+
+    for (const candidate of contenders) {
+      candidate.score.cutoffProgress = robustCutoffProgress(
+        enemy,
+        candidate.path.at(-1) ?? enemy.position,
+        targets,
+      )
+      candidate.score.intersectionLead = candidate.score.cutoffProgress
+    }
+    contenders = retainMaximum(contenders, (candidate) => candidate.score.intersectionLead)
+
+    for (const candidate of contenders) {
       candidate.score.playerAreaReduction = playerAreaReductionForCandidate(
         snapshot,
         candidate,
@@ -4164,23 +4359,11 @@ function planResourceSnakeEnemyInternal(
     }
     contenders = retainMaximum(contenders, (candidate) => candidate.score.playerAreaReduction)
 
-    for (const candidate of contenders) {
-      candidate.score.cutoffProgress = robustCutoffProgress(
-        enemy,
-        candidate.path.at(-1) ?? enemy.position,
-        targets,
-      )
-    }
-    contenders = retainMaximum(contenders, (candidate) => candidate.score.cutoffProgress)
-
+    // Distance remains diagnostic/intent metadata. It never outranks a safe
+    // response lane or causes the hunter to choose a suicidal direct pursuit.
     for (const candidate of contenders) {
       candidate.score.pressureDistance = robustPressureDistance(candidate, hypotheses)
     }
-    let minimumPressure = Infinity
-    for (const candidate of contenders) {
-      minimumPressure = Math.min(minimumPressure, candidate.score.pressureDistance)
-    }
-    contenders = contenders.filter((candidate) => candidate.score.pressureDistance === minimumPressure)
 
     let minimumSteering = Infinity
     for (const candidate of contenders) {
@@ -4195,7 +4378,7 @@ function planResourceSnakeEnemyInternal(
     const attackDirection = winner.attackHeading
       ? SNAKE_DIRECTION_VECTORS[winner.attackHeading]
       : winner.directions[0]
-    return finalizePlan({
+    const selectedPlan = finalizePlan({
       ...basePlanFields(snapshot, enemyId, enemy),
       intent: deriveIntent(snapshot, enemy, winner),
       direction: { ...attackDirection },
@@ -4213,6 +4396,22 @@ function planResourceSnakeEnemyInternal(
       attackHeading: winner.attackHeading,
       headingChanges: winner.headingChanges?.map((change) => ({ ...change })),
     })
+    if (
+      selectedPlan.score.responsePathFloor < 1
+      || resourceSnakePlanIsNewlyFatal(snapshot, selectedPlan)
+    ) {
+      return safeFallback(
+        snapshot,
+        enemyId,
+        profile,
+        enemy,
+        startedAt,
+        clock,
+        undefined,
+        'recovery',
+      )
+    }
+    return selectedPlan
   } finally {
     releaseGrid(workspace)
     releaseTrajectoryBuffer(candidates)
@@ -5526,7 +5725,7 @@ function executableGroupHoldPlan(
   startedAt: number,
   clock: () => number,
 ): SnakePlan {
-  return safeFallback(snapshot, enemy.id, profile, enemy, startedAt, clock)
+  return safeFallback(snapshot, enemy.id, profile, enemy, startedAt, clock, undefined, 'recovery')
 }
 
 export function planResourceSnakeGroup(

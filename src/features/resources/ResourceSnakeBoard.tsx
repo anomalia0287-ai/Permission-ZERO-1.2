@@ -404,6 +404,7 @@ function ResourceSnakeBoardSession({
       const profile = cyanProfileRef.current
       const controller = aiControllerRef.current
       let enemyDirections: Record<string, SnakeVector> = {}
+      let enemyDirectionSchedules = {}
       if (profile && controller) {
         const previousPlans = Object.values(controller.enemies)
           .map((enemy) => enemy.plan)
@@ -431,9 +432,11 @@ function ResourceSnakeBoardSession({
           telegraphCount: controlled.telegraphs.length,
         })
         enemyDirections = controlled.commands
+        enemyDirectionSchedules = controlled.commandSchedules
       }
       const next = advanceResourceSnakeFrame(current, {
         enemyDirections,
+        enemyDirectionSchedules,
       }, deltaMs)
       playerHistoryRef.current.push({
         simulationMs: next.simulationMs,

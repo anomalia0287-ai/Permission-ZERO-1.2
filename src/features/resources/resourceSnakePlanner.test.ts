@@ -278,8 +278,182 @@ describe('cyan planner decisions', () => {
     expect(plan.score.survives).toBe(1)
     expect(plan.fallback).toBe(false)
     expect(plan.attackHeading).not.toBe('east')
+    expect(plan.score.selfEscape).toBeGreaterThan(0)
+    expect(plan.score.responsePathFloor).toBeGreaterThan(0)
+    expect(Number.isFinite(plan.score.intersectionLead)).toBe(true)
     expect(minimumPathDistance(plan.path.slice(0, 8), wall.map((dot) => dot.position)))
       .toBeGreaterThan(0.5)
+  })
+
+  it('retains at least one advertised player response path in an open intersection', () => {
+    const plan = planResourceSnakeEnemy(snapshot({
+      player: actor('player', { x: 26, y: 12 }, 'north'),
+      enemies: [actor('enemy-0', { x: 12, y: 12 }, 'east', {
+        role: 'pressure',
+        maximumSpeedPerSecond: 12.2,
+        velocity: { x: 12.2, y: 0 },
+      })],
+    }), 'enemy-0', DUAL_PROFILE, null, () => 0)
+
+    expect(plan).toMatchObject({ fallback: false, score: { survives: 1 } })
+    expect(plan.score.selfEscape).toBeGreaterThan(0)
+    expect(plan.score.responsePathFloor).toBeGreaterThanOrEqual(1)
+  })
+
+  it('does not rasterize its own superseded commitment as an ally obstacle', () => {
+    const initial = snapshot({
+      simulationMs: 360,
+      player: actor('player', { x: 25, y: 21 }, 'north', {
+        velocity: { x: 0, y: 0 },
+      }),
+      enemies: [actor('enemy-0', { x: 25, y: 3.5 }, 'south', {
+        role: 'pressure',
+        maximumSpeedPerSecond: 12.2,
+        velocity: { x: 0, y: 0 },
+      })],
+      playerHistory: [],
+    })
+    const priorPlan = planResourceSnakeGroup(
+      initial,
+      ADVANCED_PROFILE,
+      [],
+      [],
+      () => 0,
+    ).plans[0]
+    const state = snapshot({
+      simulationMs: 443.3333333333333,
+      player: actor('player', { x: 25, y: 20 }, 'north'),
+      enemies: [actor('enemy-0', { x: 25, y: 4.52 }, 'south', {
+        role: 'pressure',
+        maximumSpeedPerSecond: 12.2,
+        velocity: { x: 0, y: 12.2 },
+      })],
+      trailDots: [
+        { id: 9_000, ownerId: 'player' as const, position: { x: 25, y: 20.68 }, spawnedAtMs: 393.3333333333333, expiresAtMs: 10_000 },
+        { id: 9_001, ownerId: 'player' as const, position: { x: 25, y: 20.36 }, spawnedAtMs: 426.6666666666667, expiresAtMs: 10_000 },
+        { id: 9_005, ownerId: 'player' as const, position: { x: 25, y: 20.04 }, spawnedAtMs: 443.3333333333333, expiresAtMs: 10_000 },
+        { id: 9_002, ownerId: 'enemy-0' as const, position: { x: 25, y: 3.82 }, spawnedAtMs: 393.3333333333333, expiresAtMs: 10_000 },
+        { id: 9_003, ownerId: 'enemy-0' as const, position: { x: 25, y: 4.14 }, spawnedAtMs: 418.3333333333333, expiresAtMs: 10_000 },
+        { id: 9_004, ownerId: 'enemy-0' as const, position: { x: 25, y: 4.46 }, spawnedAtMs: 443.3333333333333, expiresAtMs: 10_000 },
+      ],
+      playerHistory: [
+        { simulationMs: 360, position: { x: 25, y: 21 }, velocity: { x: 0, y: 0 } },
+        { simulationMs: 385, position: { x: 25, y: 20.7 }, velocity: { x: 0, y: -12 } },
+        { simulationMs: 410, position: { x: 25, y: 20.4 }, velocity: { x: 0, y: -12 } },
+        { simulationMs: 443.3333333333333, position: { x: 25, y: 20 }, velocity: { x: 0, y: -12 } },
+      ],
+    })
+    const baseline = planResourceSnakeGroup(
+      state,
+      ADVANCED_PROFILE,
+      [priorPlan],
+      [],
+      () => 0,
+    ).plans[0]
+    expect(baseline.score.responsePathFloor).toBeGreaterThan(0)
+    const ownCommitment = resourceSnakePlanToCommittedPath(priorPlan, state.simulationMs)
+    expect(ownCommitment).not.toBeNull()
+
+    const withSupersededSelf = planResourceSnakeGroup({
+      ...state,
+      committedAllyPaths: [ownCommitment!],
+    }, ADVANCED_PROFILE, [priorPlan], [], () => 0).plans[0]
+
+    expect(withSupersededSelf).toMatchObject({
+      fallback: baseline.fallback,
+      candidateIndex: baseline.candidateIndex,
+      attackHeading: baseline.attackHeading,
+      score: baseline.score,
+    })
+  })
+
+  it('does not call a separating head contact fatal while mutual grace is active', () => {
+    const state = snapshot({
+      simulationMs: 8_000,
+      player: actor('player', { x: 24.8, y: 12 }, 'west', {
+        velocity: { x: -12, y: 0 },
+        collisionGraceMs: 650,
+      }),
+      enemies: [actor('enemy-0', { x: 25.4, y: 12 }, 'east', {
+        role: 'pressure',
+        maximumSpeedPerSecond: 12.2,
+        velocity: { x: 12.2, y: 0 },
+        collisionGraceMs: 650,
+      })],
+      playerHistory: [],
+    })
+    const separating = planResourceSnakeEnemy(
+      state,
+      'enemy-0',
+      ADVANCED_PROFILE,
+      null,
+      () => 0,
+    )
+
+    expect(separating).toMatchObject({ fallback: false, score: { survives: 1 } })
+    expect(resourceSnakePlanIsNewlyFatal(state, separating)).toBe(false)
+  })
+
+  it('recovers out of a conservative head-clearance overlap without physical contact', () => {
+    const state = snapshot({
+      simulationMs: 8_500,
+      player: actor('player', { x: 23.4444, y: 11.8189 }, 'north-west'),
+      enemies: [actor('enemy-0', { x: 22.5393, y: 12.2618 }, 'south-east', {
+        role: 'pressure',
+        maximumSpeedPerSecond: 12.2,
+        velocity: {
+          x: SNAKE_DIRECTION_VECTORS['south-east'].x * 12.2,
+          y: SNAKE_DIRECTION_VECTORS['south-east'].y * 12.2,
+        },
+      })],
+      playerHistory: [],
+    })
+    const recovery = planResourceSnakeEnemy(
+      state,
+      'enemy-0',
+      INTRO_PROFILE,
+      null,
+      () => 0,
+    )
+
+    expect(Math.hypot(
+      state.player.position.x - state.enemies[0].position.x,
+      state.player.position.y - state.enemies[0].position.y,
+    )).toBeGreaterThan(0.68)
+    expect(recovery).toMatchObject({
+      intent: 'escape',
+      fallback: false,
+      speedScale: 0.92,
+    })
+    expect(resourceSnakePlanIsNewlyFatal(state, recovery)).toBe(false)
+  })
+
+  it('recovers inward from the runtime boundary inside the planner reserve', () => {
+    const state = snapshot({
+      simulationMs: 9_000,
+      player: actor('player', { x: 18, y: 18 }, 'south'),
+      enemies: [actor('enemy-0', { x: 17.34, y: 0.3667 }, 'north', {
+        role: 'pressure',
+        maximumSpeedPerSecond: 12.2,
+        velocity: { x: 0, y: -12.2 },
+      })],
+      playerHistory: [],
+    })
+    const recovery = planResourceSnakeEnemy(
+      state,
+      'enemy-0',
+      DUAL_PROFILE,
+      null,
+      () => 0,
+    )
+
+    expect(recovery).toMatchObject({
+      intent: 'escape',
+      fallback: false,
+      speedScale: 0.92,
+    })
+    expect(recovery.attackHeading).not.toBe('north')
+    expect(resourceSnakePlanIsNewlyFatal(state, recovery)).toBe(false)
   })
 })
 
@@ -334,6 +508,12 @@ describe('cyan group coordination', () => {
       pressureCommitment!.samples.map((sample) => sample.position),
       blockerCommitment!.samples.map((sample) => sample.position),
     )).toBeGreaterThan(0.75)
+    const endpointSector = (plan: SnakePlan) => {
+      const endpoint = plan.path.at(-1)!
+      return `${Math.floor(endpoint.x / 10)}:${Math.floor(endpoint.y / 6)}`
+    }
+    expect(endpointSector(pressure)).not.toBe(endpointSector(blocker))
+    expect(pressure.attackHeading).not.toBe(blocker.attackHeading)
   })
 
   it('reassigns the sole surviving enemy to pressure at the next planning boundary', () => {
@@ -406,8 +586,11 @@ describe('planner prediction, scoring, and timed occupancy', () => {
   it('keeps lexicographic safety and space ahead of offensive tie breakers', () => {
     const base: SnakePlanScore = {
       survives: 1,
+      selfEscape: 6,
+      responsePathFloor: 4,
       reachableArea: 100,
       allyClearance: 5,
+      intersectionLead: 3,
       playerAreaReduction: 4,
       cutoffProgress: 3,
       pressureDistance: 2,
@@ -415,8 +598,10 @@ describe('planner prediction, scoring, and timed occupancy', () => {
     }
 
     expect(compareSnakePlanScores(base, 2, { ...base, survives: 0 }, 1)).toBe(1)
+    expect(compareSnakePlanScores(base, 2, { ...base, selfEscape: 5 }, 1)).toBe(1)
+    expect(compareSnakePlanScores(base, 2, { ...base, responsePathFloor: 3 }, 1)).toBe(1)
     expect(compareSnakePlanScores(base, 2, { ...base, reachableArea: 99 }, 1)).toBe(1)
-    expect(compareSnakePlanScores(base, 2, { ...base, pressureDistance: 3 }, 1)).toBe(1)
+    expect(compareSnakePlanScores(base, 2, { ...base, intersectionLead: 2 }, 1)).toBe(1)
     expect(compareSnakePlanScores(base, 2, { ...base, steeringCost: 2 }, 1)).toBe(1)
     expect(compareSnakePlanScores(base, 1, base, 2)).toBe(1)
   })

@@ -102,6 +102,17 @@ export interface SnakeFrameInput {
   playerIntent?: SnakeVector
   /** Enemy vector magnitude may request the bounded 0.92–1 recovery speed scale. */
   enemyDirections?: Record<string, SnakeVector>
+  /**
+   * Absolute simulation-time AI turns. The fixed-step runtime applies each
+   * change on the first step starting at or after `atMs`, so telegraphs are
+   * never shortened by a coarse render frame.
+   */
+  enemyDirectionSchedules?: Record<string, readonly SnakeEnemyDirectionChange[]>
+}
+
+export interface SnakeEnemyDirectionChange {
+  atMs: number
+  direction: SnakeVector
 }
 
 export type ResourceSnakeEvent =
@@ -931,6 +942,30 @@ function synchronizeInputHeading(
   return Object.freeze({ ...input, heading })
 }
 
+function scheduledEnemyDirection(
+  input: SnakeFrameInput,
+  enemyId: SnakeId,
+  simulationMs: number,
+): SnakeVector | undefined {
+  let selected = input.enemyDirections?.[enemyId]
+  let selectedAtMs = Number.NEGATIVE_INFINITY
+  const schedule = input.enemyDirectionSchedules?.[enemyId]
+  if (!Array.isArray(schedule)) return selected
+  for (const change of schedule) {
+    if (
+      !change
+      || !Number.isFinite(change.atMs)
+      || change.atMs > simulationMs + FIXED_STEP_COMPARISON_EPSILON_MS
+      || !Number.isFinite(change.direction?.x)
+      || !Number.isFinite(change.direction?.y)
+      || change.atMs < selectedAtMs
+    ) continue
+    selected = change.direction
+    selectedAtMs = change.atMs
+  }
+  return selected
+}
+
 function advanceFixedStep(
   state: ResourceSnakeRoundState,
   input: SnakeFrameInput,
@@ -954,13 +989,12 @@ function advanceFixedStep(
     }, playerDirection, stepMs, simulationMs, false)
     playerInput = synchronizeInputHeading(consumed.state, player.heading)
   }
-  const enemyDirections = input.enemyDirections ?? {}
   const enemies = state.enemies.map((enemy) =>
     enemy.phase === 'active'
       ? advanceActor({
         ...enemy,
         collisionGraceMs: Math.max(0, enemy.collisionGraceMs - stepMs),
-      }, enemyDirections[enemy.id], stepMs, simulationMs, true)
+      }, scheduledEnemyDirection(input, enemy.id, state.simulationMs), stepMs, simulationMs, true)
       : enemy,
   )
   let stepped: ResourceSnakeRoundState = {
