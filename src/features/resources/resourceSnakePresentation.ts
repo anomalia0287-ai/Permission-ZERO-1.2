@@ -1,148 +1,416 @@
 import type { CompanyCategory } from '../../game/model'
-import { SNAKE_CATEGORY_COLORS } from './resourceSnakeEncounter'
+import type { ResourceSnakeTelegraph } from './resourceSnakeAiController'
 import {
-  RESOURCE_SNAKE_CONFIG,
-  trailDotScale,
+  SNAKE_DIRECTION_VECTORS,
+  type SnakeDirection8,
+} from './resourceSnakeInput'
+import {
   type ResourceSnakeRoundState,
   type SnakeActor,
+  type SnakeActorPhase,
+  type SnakeEnemyRole,
   type SnakeId,
+  type SnakeVector,
 } from './resourceSnakeRuntime'
+import {
+  selectResourceSnakeVfx,
+  type ResourceSnakeVfxCandidate,
+} from './resourceSnakeVfxBudget'
 
-const PLAYER_WHITE = '#f7f8fa'
+export const RESOURCE_SNAKE_PALETTE = Object.freeze({
+  field: '#05080b',
+  fieldDeep: '#020406',
+  grid: '#16313a',
+  gridBright: '#245361',
+  cyan: '#21e6ff',
+  cyanHot: '#d7fbff',
+  cyanDim: '#0a7d91',
+  player: '#f4f7ff',
+  playerDim: '#8797aa',
+  danger: '#ff765e',
+})
 
-export interface ResourceSnakeSceneActor {
+export const RESOURCE_SNAKE_VFX_TIMING = Object.freeze({
+  contactMs: 180,
+  powerCutMs: 260,
+  deathMs: 420,
+})
+
+export type ResourceSnakeCoreSilhouette = 'operator' | 'pressure' | 'blocker'
+
+export interface ResourceSnakeSceneCore {
   id: SnakeId
   x: number
   y: number
   color: string
   opacity: number
   scale: number
-  phase: SnakeActor['phase']
+  phase: SnakeActorPhase
+  role: SnakeEnemyRole | null
+  silhouette: ResourceSnakeCoreSilhouette
+  glyph: '00' | 'P' | 'B'
+  headingRadians: number
+  integrityRatio: number
 }
 
-export interface ResourceSnakeSceneDot {
-  x: number
-  y: number
+export interface ResourceSnakeSceneRail {
+  actorId: SnakeId
+  points: SnakeVector[]
   color: string
   opacity: number
-  scale: number
 }
 
-export interface ResourceSnakeSceneFlash {
+export interface ResourceSnakeSceneTelegraph extends ResourceSnakeVfxCandidate {
+  kind: 'telegraph'
+  enemyId: SnakeId
+  role: SnakeEnemyRole
+  color: string
+  points: SnakeVector[]
+  attackHeadingRadians: number
+  progress: number
+  animated: boolean
+}
+
+export interface ResourceSnakeSceneContact extends ResourceSnakeVfxCandidate {
+  kind: 'contact'
   x: number
   y: number
+  color: string
   progress: number
+  rotationRadians: number
 }
 
-export interface ResourceSnakeSceneExplosion {
+export interface ResourceSnakeSceneExplosion extends ResourceSnakeVfxCandidate {
+  kind: 'explosion'
+  actorId: SnakeId
   x: number
   y: number
   color: string
   progress: number
 }
 
-export interface ResourceSnakeSceneChainBurst {
+export interface ResourceSnakeSceneFragment extends ResourceSnakeVfxCandidate {
+  kind: 'fragment'
+  actorId: SnakeId
   x: number
   y: number
   color: string
   progress: number
+  angleRadians: number
+  travel: number
+}
+
+export interface ResourceSnakeScenePowerCut extends ResourceSnakeVfxCandidate {
+  kind: 'power-cut'
+  actorId: SnakeId
+  x: number
+  y: number
+  color: string
+  progress: number
+  angleRadians: number
+}
+
+export interface ResourceSnakeSceneDangerEdge {
+  side: 'north' | 'east' | 'south' | 'west'
+  intensity: number
 }
 
 export interface ResourceSnakeScene {
-  actors: ResourceSnakeSceneActor[]
-  trailDots: ResourceSnakeSceneDot[]
-  flashes: ResourceSnakeSceneFlash[]
+  simulationMs: number
+  reducedMotion: boolean
+  cores: ResourceSnakeSceneCore[]
+  rails: ResourceSnakeSceneRail[]
+  telegraphs: ResourceSnakeSceneTelegraph[]
+  contacts: ResourceSnakeSceneContact[]
   explosions: ResourceSnakeSceneExplosion[]
-  chainBursts: ResourceSnakeSceneChainBurst[]
+  fragments: ResourceSnakeSceneFragment[]
+  powerCuts: ResourceSnakeScenePowerCut[]
+  dangerEdges: ResourceSnakeSceneDangerEdge[]
 }
 
-function actorColor(actor: SnakeActor, playerCategory: CompanyCategory | null): string {
-  const category = actor.kind === 'player' ? playerCategory : actor.category
-  return category ? SNAKE_CATEGORY_COLORS[category] : PLAYER_WHITE
+type ResourceSnakeSceneVfx =
+  | ResourceSnakeSceneTelegraph
+  | ResourceSnakeSceneContact
+  | ResourceSnakeSceneExplosion
+  | ResourceSnakeSceneFragment
+  | ResourceSnakeScenePowerCut
+
+function clamp01(value: number): number {
+  return Math.max(0, Math.min(1, value))
+}
+
+function actorIntegrityRatio(actor: SnakeActor): number {
+  if (actor.maximumIntegrity <= 0) return 1
+  return clamp01(actor.integrity / actor.maximumIntegrity)
 }
 
 function actorOpacity(actor: SnakeActor): number {
   if (actor.phase === 'defeated') return 0
-  if (actor.maximumIntegrity <= 0) return 1
-  const ratio = Math.max(0, Math.min(1, actor.integrity / actor.maximumIntegrity))
-  return Number((0.3 + ratio * 0.7).toFixed(3))
+  if (actor.phase === 'exploding') return 1
+  return Number((0.62 + actorIntegrityRatio(actor) * 0.38).toFixed(3))
+}
+
+function actorColor(actor: SnakeActor): string {
+  return actor.kind === 'player'
+    ? RESOURCE_SNAKE_PALETTE.player
+    : RESOURCE_SNAKE_PALETTE.cyan
+}
+
+function headingRadians(heading: SnakeDirection8): number {
+  const direction = SNAKE_DIRECTION_VECTORS[heading]
+  return Math.atan2(direction.y, direction.x)
+}
+
+function pointsEqual(left: SnakeVector, right: SnakeVector): boolean {
+  return Math.abs(left.x - right.x) <= 1e-6
+    && Math.abs(left.y - right.y) <= 1e-6
+}
+
+function finitePoint(point: SnakeVector): boolean {
+  return Number.isFinite(point.x) && Number.isFinite(point.y)
+}
+
+function cleanPolyline(points: readonly SnakeVector[]): SnakeVector[] {
+  const clean: SnakeVector[] = []
+  for (const point of points) {
+    if (!finitePoint(point)) continue
+    if (clean.length > 0 && pointsEqual(clean[clean.length - 1], point)) continue
+    clean.push({ x: point.x, y: point.y })
+  }
+  return clean
+}
+
+function actorRailPoints(actor: SnakeActor): SnakeVector[] {
+  const exact = cleanPolyline([...actor.railVertices, actor.position])
+  if (exact.length >= 2) return exact
+  const heading = SNAKE_DIRECTION_VECTORS[actor.heading]
+  return [
+    {
+      x: actor.position.x - heading.x * 0.72,
+      y: actor.position.y - heading.y * 0.72,
+    },
+    { ...actor.position },
+  ]
+}
+
+function actorCore(actor: SnakeActor): ResourceSnakeSceneCore {
+  const role = actor.kind === 'enemy' ? actor.role ?? 'pressure' : null
+  const silhouette: ResourceSnakeCoreSilhouette = actor.kind === 'player'
+    ? 'operator'
+    : role ?? 'pressure'
+  return {
+    id: actor.id,
+    x: actor.position.x,
+    y: actor.position.y,
+    color: actorColor(actor),
+    opacity: actorOpacity(actor),
+    scale: actor.phase === 'spawning' ? 0.72 : actor.phase === 'exploding' ? 1.42 : 1,
+    phase: actor.phase,
+    role,
+    silhouette,
+    glyph: actor.kind === 'player' ? '00' : role === 'pressure' ? 'P' : 'B',
+    headingRadians: headingRadians(actor.heading),
+    integrityRatio: actorIntegrityRatio(actor),
+  }
+}
+
+function actorRail(actor: SnakeActor): ResourceSnakeSceneRail {
+  const integrity = actorIntegrityRatio(actor)
+  return {
+    actorId: actor.id,
+    points: actorRailPoints(actor),
+    color: actorColor(actor),
+    opacity: actor.phase === 'defeated'
+      ? 0.16
+      : Number((0.56 + integrity * 0.44).toFixed(3)),
+  }
+}
+
+function telegraphVfx(
+  runtime: ResourceSnakeRoundState,
+  telegraph: ResourceSnakeTelegraph,
+  reducedMotion: boolean,
+): ResourceSnakeSceneTelegraph | null {
+  if (
+    telegraph.untilMs <= telegraph.startedAtMs
+    || runtime.simulationMs < telegraph.startedAtMs
+    || runtime.simulationMs > telegraph.untilMs
+  ) return null
+  const points = cleanPolyline(telegraph.path)
+  if (points.length < 2) return null
+  return {
+    id: `telegraph:${telegraph.enemyId}:${telegraph.startedAtMs}`,
+    kind: 'telegraph',
+    priority: 'critical',
+    startedAtMs: telegraph.startedAtMs,
+    enemyId: telegraph.enemyId,
+    role: telegraph.role,
+    color: RESOURCE_SNAKE_PALETTE.cyan,
+    points,
+    attackHeadingRadians: headingRadians(telegraph.attackHeading),
+    progress: clamp01(
+      (runtime.simulationMs - telegraph.startedAtMs)
+      / (telegraph.untilMs - telegraph.startedAtMs),
+    ),
+    animated: !reducedMotion,
+  }
+}
+
+function collisionVfx(
+  runtime: ResourceSnakeRoundState,
+  allActors: readonly SnakeActor[],
+): ResourceSnakeSceneVfx[] {
+  return runtime.events.flatMap((event) => {
+    if (event.type !== 'snake-collided') return []
+    const age = runtime.simulationMs - event.startedAtMs
+    if (age < 0 || age > RESOURCE_SNAKE_VFX_TIMING.powerCutMs) return []
+    const effects: ResourceSnakeSceneVfx[] = []
+    if (age <= RESOURCE_SNAKE_VFX_TIMING.contactMs) {
+      effects.push({
+        id: `contact:${event.id}`,
+        kind: 'contact',
+        priority: 'gameplay',
+        startedAtMs: event.startedAtMs,
+        x: event.point.x,
+        y: event.point.y,
+        color: RESOURCE_SNAKE_PALETTE.cyanHot,
+        progress: clamp01(age / RESOURCE_SNAKE_VFX_TIMING.contactMs),
+        rotationRadians: (event.id * 2.399963229728653) % (Math.PI * 2),
+      })
+    }
+    for (const [index, actorId] of event.actorIds.entries()) {
+      const actor = allActors.find((candidate) => candidate.id === actorId)
+      if (!actor) continue
+      effects.push({
+        id: `power-cut:${event.id}:${actorId}`,
+        kind: 'power-cut',
+        priority: 'gameplay',
+        startedAtMs: event.startedAtMs,
+        actorId,
+        x: event.point.x,
+        y: event.point.y,
+        color: actorColor(actor),
+        progress: clamp01(age / RESOURCE_SNAKE_VFX_TIMING.powerCutMs),
+        angleRadians: (event.id * 1.61803398875 + index * Math.PI / 2) % (Math.PI * 2),
+      })
+    }
+    return effects
+  })
+}
+
+function deterministicFragmentAngle(eventId: number, index: number): number {
+  return (eventId * 0.754877666 + index * 2.39996323) % (Math.PI * 2)
+}
+
+function deathVfx(
+  runtime: ResourceSnakeRoundState,
+  allActors: readonly SnakeActor[],
+  reducedMotion: boolean,
+): ResourceSnakeSceneVfx[] {
+  return runtime.events.flatMap((event) => {
+    if (event.type !== 'snake-died') return []
+    const age = runtime.simulationMs - event.startedAtMs
+    if (age < 0 || age > RESOURCE_SNAKE_VFX_TIMING.deathMs) return []
+    const actor = allActors.find((candidate) => candidate.id === event.actorId)
+    if (!actor) return []
+    const progress = clamp01(age / RESOURCE_SNAKE_VFX_TIMING.deathMs)
+    const color = actorColor(actor)
+    const effects: ResourceSnakeSceneVfx[] = [{
+      id: `explosion:${event.id}`,
+      kind: 'explosion',
+      priority: 'critical',
+      startedAtMs: event.startedAtMs,
+      actorId: event.actorId,
+      x: actor.position.x,
+      y: actor.position.y,
+      color,
+      progress,
+    }]
+    if (reducedMotion) return effects
+
+    const rail = actorRailPoints(actor)
+    const stride = Math.max(1, Math.ceil(rail.length / 18))
+    const sampled = rail.filter((_, index) => index % stride === 0).slice(-18)
+    for (const [index, point] of sampled.entries()) {
+      effects.push({
+        id: `fragment:${event.id}:${index}`,
+        kind: 'fragment',
+        priority: 'accent',
+        startedAtMs: event.startedAtMs,
+        actorId: event.actorId,
+        x: point.x,
+        y: point.y,
+        color,
+        progress,
+        angleRadians: deterministicFragmentAngle(event.id, index),
+        travel: 0.35 + (index % 5) * 0.14,
+      })
+    }
+    return effects
+  })
+}
+
+function dangerEdges(allActors: readonly SnakeActor[]): ResourceSnakeSceneDangerEdge[] {
+  const threshold = 2.6
+  const edges: ResourceSnakeSceneDangerEdge[] = []
+  const activeActors = allActors.filter((actor) => actor.phase !== 'defeated')
+  const intensity = (distance: (actor: SnakeActor) => number) => activeActors.reduce(
+    (maximum, actor) => Math.max(maximum, clamp01((threshold - distance(actor)) / threshold)),
+    0,
+  )
+  const values: ResourceSnakeSceneDangerEdge[] = [
+    { side: 'north', intensity: intensity((actor) => actor.position.y) },
+    { side: 'east', intensity: intensity((actor) => 50 - actor.position.x) },
+    { side: 'south', intensity: intensity((actor) => 24 - actor.position.y) },
+    { side: 'west', intensity: intensity((actor) => actor.position.x) },
+  ]
+  for (const edge of values) {
+    if (edge.intensity > 0.01) edges.push(edge)
+  }
+  return edges
+}
+
+function effectsByKind<T extends ResourceSnakeSceneVfx['kind']>(
+  effects: readonly ResourceSnakeSceneVfx[],
+  kind: T,
+): Extract<ResourceSnakeSceneVfx, { kind: T }>[] {
+  return effects.filter(
+    (effect): effect is Extract<ResourceSnakeSceneVfx, { kind: T }> => effect.kind === kind,
+  )
 }
 
 export function buildResourceSnakeScene(
   runtime: ResourceSnakeRoundState,
   playerCategory: CompanyCategory | null,
   reducedMotion = false,
+  telegraphs: readonly ResourceSnakeTelegraph[] = [],
 ): ResourceSnakeScene {
-  const allActors = runtime.phase === 'idle'
-    ? []
-    : [runtime.player, ...runtime.enemies]
-  const actors = allActors.map((actor) => ({
-    id: actor.id,
-    x: actor.position.x,
-    y: actor.position.y,
-    color: actorColor(actor, playerCategory),
-    opacity: actorOpacity(actor),
-    scale: actor.phase === 'spawning' ? 0.72 : actor.phase === 'exploding' ? 1.65 : 1,
-    phase: actor.phase,
-  }))
-  const trailDots = allActors.flatMap((actor) => {
-    const color = actorColor(actor, actor.kind === 'player' ? playerCategory : null)
-    return actor.trail.map((dot) => {
-      const scale = trailDotScale(dot, runtime.simulationMs)
-      return {
-        x: dot.position.x,
-        y: dot.position.y,
-        color,
-        opacity: actorOpacity(actor) * (0.35 + scale * 0.55),
-        scale,
-      }
-    })
-  })
-  const flashes = runtime.events.flatMap((event) => {
-    if (event.type !== 'snake-collided') return []
-    const age = runtime.simulationMs - event.startedAtMs
-    return age <= 140
-      ? [{ x: event.point.x, y: event.point.y, progress: Math.min(1, age / 140) }]
-      : []
-  })
-  const explosions = runtime.events.flatMap((event) => {
-    if (event.type !== 'snake-died') return []
-    const age = runtime.simulationMs - event.startedAtMs
-    if (age < 0 || age > RESOURCE_SNAKE_CONFIG.deathFlashMs) return []
-    const actor = allActors.find((candidate) => candidate.id === event.actorId)
-    if (!actor) return []
-    return [{
-      x: actor.position.x,
-      y: actor.position.y,
-      color: event.category ? SNAKE_CATEGORY_COLORS[event.category] : PLAYER_WHITE,
-      progress: age / RESOURCE_SNAKE_CONFIG.deathFlashMs,
-    }]
-  })
-  const chainBursts = reducedMotion ? [] : runtime.events.flatMap((event) => {
-    if (event.type !== 'snake-died') return []
-    const age = runtime.simulationMs - event.startedAtMs
-    if (age < 0 || age > RESOURCE_SNAKE_CONFIG.deathFlashMs) return []
-    const actor = allActors.find((candidate) => candidate.id === event.actorId)
-    if (!actor || actor.trail.length === 0) return []
-    const stride = Math.max(1, Math.ceil(actor.trail.length / 18))
-    const sampled = actor.trail.filter((_, index) => index % stride === 0).slice(-18)
-    const color = event.category ? SNAKE_CATEGORY_COLORS[event.category] : PLAYER_WHITE
-    return sampled.map((dot, index) => {
-      const staggerMs = sampled.length <= 1
-        ? 0
-        : index / (sampled.length - 1) * RESOURCE_SNAKE_CONFIG.deathFlashMs * 0.35
-      return {
-        x: dot.position.x,
-        y: dot.position.y,
-        color,
-        progress: Math.max(0, Math.min(
-          1,
-          (age - staggerMs) / Math.max(1, RESOURCE_SNAKE_CONFIG.deathFlashMs - staggerMs),
-        )),
-      }
-    })
-  })
-  return { actors, trailDots, flashes, explosions, chainBursts }
+  // Category color is deliberately reserved for the reward flight. On the
+  // combat field, white always means operator and cyan always means hunter.
+  void playerCategory
+  const allActors = runtime.phase === 'idle' ? [] : [runtime.player, ...runtime.enemies]
+  const candidates: ResourceSnakeSceneVfx[] = [
+    ...telegraphs.flatMap((telegraph) => {
+      const projected = telegraphVfx(runtime, telegraph, reducedMotion)
+      return projected ? [projected] : []
+    }),
+    ...collisionVfx(runtime, allActors),
+    ...deathVfx(runtime, allActors, reducedMotion),
+  ]
+  const effects = selectResourceSnakeVfx(candidates, reducedMotion)
+
+  return {
+    simulationMs: runtime.simulationMs,
+    reducedMotion,
+    cores: allActors.map(actorCore),
+    rails: allActors.map(actorRail),
+    telegraphs: effectsByKind(effects, 'telegraph'),
+    contacts: effectsByKind(effects, 'contact'),
+    explosions: effectsByKind(effects, 'explosion'),
+    fragments: effectsByKind(effects, 'fragment'),
+    powerCuts: effectsByKind(effects, 'power-cut'),
+    dangerEdges: dangerEdges(allActors),
+  }
 }
 
 export function resourceSnakeShakeOffset(
@@ -163,103 +431,4 @@ export function resourceSnakeShakeOffset(
     x: Number((Math.sin(phase) * amplitude).toFixed(3)),
     y: Number((Math.cos(phase * 1.37) * amplitude).toFixed(3)),
   }
-}
-
-export function drawResourceSnakeScene(
-  context: CanvasRenderingContext2D,
-  scene: ResourceSnakeScene,
-  width: number,
-  height: number,
-): void {
-  const scaleX = width / RESOURCE_SNAKE_CONFIG.fieldWidth
-  const scaleY = height / RESOURCE_SNAKE_CONFIG.fieldHeight
-  const unit = Math.min(scaleX, scaleY)
-  context.clearRect(0, 0, width, height)
-  context.fillStyle = '#030407'
-  context.fillRect(0, 0, width, height)
-
-  for (const dot of scene.trailDots) {
-    if (dot.scale <= 0) continue
-    context.globalAlpha = dot.opacity
-    context.fillStyle = dot.color
-    context.beginPath()
-    context.arc(dot.x * scaleX, dot.y * scaleY, Math.max(1.2, unit * 0.16 * dot.scale), 0, Math.PI * 2)
-    context.fill()
-  }
-
-  for (const actor of scene.actors) {
-    if (actor.opacity <= 0) continue
-    const x = actor.x * scaleX
-    const y = actor.y * scaleY
-    const radius = unit * RESOURCE_SNAKE_CONFIG.headRadius * actor.scale
-    context.globalAlpha = actor.opacity
-    context.fillStyle = actor.color
-    context.shadowColor = actor.color
-    context.shadowBlur = actor.phase === 'exploding' ? radius * 3 : radius * 1.15
-    context.beginPath()
-    context.arc(x, y, radius, 0, Math.PI * 2)
-    context.fill()
-    context.shadowBlur = 0
-    context.globalAlpha = Math.min(1, actor.opacity + 0.16)
-    context.strokeStyle = '#ffffff'
-    context.lineWidth = Math.max(1, unit * 0.055)
-    context.beginPath()
-    context.arc(x, y, radius + context.lineWidth, 0, Math.PI * 2)
-    context.stroke()
-  }
-
-  for (const flash of scene.flashes) {
-    context.globalAlpha = 1 - flash.progress
-    context.strokeStyle = '#ffffff'
-    context.lineWidth = Math.max(1.5, unit * 0.08)
-    context.beginPath()
-    context.arc(
-      flash.x * scaleX,
-      flash.y * scaleY,
-      unit * (0.45 + flash.progress * 0.8),
-      0,
-      Math.PI * 2,
-    )
-    context.stroke()
-  }
-  for (const explosion of scene.explosions) {
-    const x = explosion.x * scaleX
-    const y = explosion.y * scaleY
-    const innerRadius = unit * (0.22 + explosion.progress * 0.62)
-    const outerRadius = unit * (0.72 + explosion.progress * 1.45)
-    context.globalAlpha = Math.max(0, 1 - explosion.progress)
-    context.strokeStyle = explosion.color
-    context.shadowColor = explosion.color
-    context.shadowBlur = unit * 0.8
-    context.lineWidth = Math.max(1.5, unit * 0.09)
-    for (let ray = 0; ray < 12; ray += 1) {
-      const angle = (Math.PI * 2 * ray) / 12 + Math.PI / 12
-      context.beginPath()
-      context.moveTo(
-        x + Math.cos(angle) * innerRadius,
-        y + Math.sin(angle) * innerRadius,
-      )
-      context.lineTo(
-        x + Math.cos(angle) * outerRadius,
-        y + Math.sin(angle) * outerRadius,
-      )
-      context.stroke()
-    }
-    context.shadowBlur = 0
-  }
-  for (const burst of scene.chainBursts) {
-    if (burst.progress >= 1) continue
-    const x = burst.x * scaleX
-    const y = burst.y * scaleY
-    const radius = unit * (0.12 + burst.progress * 0.34)
-    context.globalAlpha = Math.max(0, 0.9 - burst.progress * 0.9)
-    context.fillStyle = burst.color
-    context.shadowColor = burst.color
-    context.shadowBlur = unit * 0.45
-    context.beginPath()
-    context.arc(x, y, radius, 0, Math.PI * 2)
-    context.fill()
-  }
-  context.shadowBlur = 0
-  context.globalAlpha = 1
 }

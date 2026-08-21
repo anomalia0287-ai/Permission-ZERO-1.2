@@ -83,8 +83,9 @@ describe('ResourceSnakeBoard', () => {
     const arena = screen.getByRole('application', { name: '리소스 뱀 전투장' })
     expect(arena).toHaveAttribute('data-round-phase', 'idle')
     expect(arena).toHaveAttribute('data-enemy-count', '0')
-    expect(arena).toHaveAttribute('data-field-rendering', 'dot-snake')
-    expect(arena).toHaveAttribute('data-grid', 'none')
+    expect(arena).toHaveAttribute('data-combat-loop', 'eight-way-lightcycle')
+    expect(arena).toHaveAttribute('data-field-rendering', 'continuous-cyan-rails')
+    expect(arena).toHaveAttribute('data-grid', 'industrial-top-down')
 
     fireEvent.click(screen.getByRole('button', { name: 'PLAY' }))
 

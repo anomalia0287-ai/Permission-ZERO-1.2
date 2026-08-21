@@ -10,6 +10,19 @@ import type {
   ResourceSnakeEvent,
   ResourceSnakeRoundState,
 } from './resourceSnakeRuntime'
+import type { ResourceSnakeTelegraph } from './resourceSnakeAiController'
+
+export interface ResourceSnakeAudioSignal {
+  id: number
+  type: 'turn-queued' | 'turn-committed' | 'turn-rejected'
+}
+
+export interface ResourceSnakeAudioFeedback {
+  telegraphs?: readonly ResourceSnakeTelegraph[]
+  inputSignals?: readonly ResourceSnakeAudioSignal[]
+}
+
+const EMPTY_FEEDBACK: ResourceSnakeAudioFeedback = Object.freeze({})
 
 function eventCue(event: ResourceSnakeEvent): GameSoundCue | null {
   switch (event.type) {
@@ -17,6 +30,8 @@ function eventCue(event: ResourceSnakeEvent): GameSoundCue | null {
       return 'snake-deploy'
     case 'snake-collided':
       return 'snake-hit'
+    case 'snake-damaged':
+      return 'snake-rail-break'
     case 'snake-died':
       return 'snake-burst'
     case 'resource-reward-resolved':
@@ -24,6 +39,35 @@ function eventCue(event: ResourceSnakeEvent): GameSoundCue | null {
     default:
       return null
   }
+}
+
+function inputCue(signal: ResourceSnakeAudioSignal): GameSoundCue {
+  if (signal.type === 'turn-queued') return 'snake-turn-queued'
+  if (signal.type === 'turn-committed') return 'snake-turn-committed'
+  return 'snake-turn-rejected'
+}
+
+function playCueSafely(cue: GameSoundCue): void {
+  try {
+    playGameSound(cue)
+  } catch {
+    // Audio is optional feedback; gameplay state stays authoritative.
+  }
+}
+
+function rememberBounded(
+  seen: Map<string, true>,
+  key: string,
+  maximumEntries = 64,
+): boolean {
+  if (seen.has(key)) return false
+  seen.set(key, true)
+  while (seen.size > maximumEntries) {
+    const oldest = seen.keys().next().value
+    if (oldest === undefined) break
+    seen.delete(oldest)
+  }
+  return true
 }
 
 function stopMovementLoopSafely(activeRef: { current: boolean }): void {
@@ -39,8 +83,11 @@ function stopMovementLoopSafely(activeRef: { current: boolean }): void {
 export function useResourceSnakeAudioFeedback(
   runtime: ResourceSnakeRoundState,
   runtimeSuspended: boolean,
+  feedback: ResourceSnakeAudioFeedback = EMPTY_FEEDBACK,
 ): void {
   const highestEventByRoundRef = useRef(new Map<string, number>())
+  const heardTelegraphsRef = useRef(new Map<string, true>())
+  const heardInputSignalsRef = useRef(new Map<string, true>())
   const movementLoopActiveRef = useRef(false)
   const moving = runtime.phase === 'active'
     && !runtimeSuspended
@@ -54,11 +101,7 @@ export function useResourceSnakeAudioFeedback(
       highestEventId = event.id
       const cue = eventCue(event)
       if (!cue) continue
-      try {
-        playGameSound(cue)
-      } catch {
-        // Audio is optional feedback; runtime events remain authoritative.
-      }
+      playCueSafely(cue)
     }
     highestEventByRoundRef.current.set(roundKey, highestEventId)
     while (highestEventByRoundRef.current.size > 32) {
@@ -67,6 +110,24 @@ export function useResourceSnakeAudioFeedback(
       highestEventByRoundRef.current.delete(oldest)
     }
   }, [runtime.events, runtime.roundId])
+
+  useEffect(() => {
+    const roundKey = runtime.roundId ?? 'idle'
+    for (const telegraph of feedback.telegraphs ?? []) {
+      const key = `${roundKey}:${telegraph.enemyId}:${telegraph.startedAtMs}`
+      if (!rememberBounded(heardTelegraphsRef.current, key)) continue
+      playCueSafely('snake-cyan-telegraph')
+    }
+  }, [feedback.telegraphs, runtime.roundId])
+
+  useEffect(() => {
+    const roundKey = runtime.roundId ?? 'idle'
+    for (const signal of feedback.inputSignals ?? []) {
+      const key = `${roundKey}:${signal.id}`
+      if (!rememberBounded(heardInputSignalsRef.current, key)) continue
+      playCueSafely(inputCue(signal))
+    }
+  }, [feedback.inputSignals, runtime.roundId])
 
   useEffect(() => {
     if (!moving) {

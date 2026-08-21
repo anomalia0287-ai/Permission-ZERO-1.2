@@ -38,9 +38,12 @@ import {
 } from './resourceSnakeRuntime'
 import {
   buildResourceSnakeScene,
-  drawResourceSnakeScene,
   resourceSnakeShakeOffset,
 } from './resourceSnakePresentation'
+import {
+  drawResourceSnakeScene,
+  synchronizeResourceSnakeCanvasSize,
+} from './resourceSnakeCanvas'
 import { ResourceBoard } from './ResourceBoard'
 import { useResourceSnakeAudioFeedback } from './useResourceSnakeAudioFeedback'
 import { useResourceSnakeRewards } from './useResourceSnakeRewards'
@@ -185,17 +188,18 @@ function ResourceSnakeBoardSession({
   const { settings } = useGameSettings()
   const runtimeSuspended = useRuntimeSuspended()
   const [runtime, setRuntime] = useState(createIdleResourceSnakeState)
+  const [canvasRevision, setCanvasRevision] = useState(0)
   const [aiPresentation, setAiPresentation] = useState<{
     roles: Record<string, SnakeEnemyRole>
     phases: Array<{ id: string; phase: string }>
+    telegraphs: ResourceSnakeTelegraph[]
     telegraphCount: number
-  }>({ roles: {}, phases: [], telegraphCount: 0 })
+  }>({ roles: {}, phases: [], telegraphs: [], telegraphCount: 0 })
   const runtimeRef = useRef(runtime)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const heldKeysRef = useRef(new Set<string>())
   const cyanProfileRef = useRef<CyanLightcycleProfile | null>(null)
   const aiControllerRef = useRef<ResourceSnakeAiControllerState | null>(null)
-  const aiTelegraphsRef = useRef<ResourceSnakeTelegraph[]>([])
   const rolesRef = useRef<Record<string, SnakeEnemyRole>>({})
   const playerHistoryRef = useRef<SnakePlayerHistorySample[]>([])
   const bagRef = useRef<SnakeShuffleBagState>({
@@ -216,7 +220,9 @@ function ResourceSnakeBoardSession({
     setRuntime(next)
   }, [])
   const acquiredCategory = useResourceSnakeRewards(runtime, commitRuntime)
-  useResourceSnakeAudioFeedback(runtime, runtimeSuspended)
+  useResourceSnakeAudioFeedback(runtime, runtimeSuspended, {
+    telegraphs: aiPresentation.telegraphs,
+  })
 
   useEffect(() => {
     if (runtimeRef.current.phase === 'idle') return
@@ -256,10 +262,10 @@ function ResourceSnakeBoardSession({
     setAiPresentation({
       roles: { ...rolesRef.current },
       phases: encounter.setup.enemies.map((enemy) => ({ id: enemy.id, phase: 'deploy' })),
+      telegraphs: [],
       telegraphCount: 0,
     })
     playerHistoryRef.current = []
-    aiTelegraphsRef.current = []
     const deployed = deployResourceSnakeRound(runtimeRef.current, encounter.setup)
     aiControllerRef.current = createResourceSnakeAiControllerState(
       resourceSnakePlannerSnapshot(deployed, [], [], rolesRef.current),
@@ -344,7 +350,6 @@ function ResourceSnakeBoardSession({
           active: current.phase === 'active',
         })
         aiControllerRef.current = controlled.state
-        aiTelegraphsRef.current = controlled.telegraphs
         rolesRef.current = controlled.state.roles
         setAiPresentation({
           roles: { ...controlled.state.roles },
@@ -352,6 +357,7 @@ function ResourceSnakeBoardSession({
             id: enemy.enemyId,
             phase: enemy.phase,
           })),
+          telegraphs: controlled.telegraphs,
           telegraphCount: controlled.telegraphs.length,
         })
         enemyDirections = controlled.commands
@@ -375,17 +381,40 @@ function ResourceSnakeBoardSession({
 
   useEffect(() => {
     const canvas = canvasRef.current
+    if (!canvas || navigator.userAgent.includes('jsdom')) return
+    const resize = () => {
+      if (synchronizeResourceSnakeCanvasSize(canvas)) {
+        setCanvasRevision((revision) => revision + 1)
+      }
+    }
+    resize()
+    if (typeof ResizeObserver === 'function') {
+      const observer = new ResizeObserver(resize)
+      observer.observe(canvas)
+      return () => observer.disconnect()
+    }
+    window.addEventListener('resize', resize)
+    return () => window.removeEventListener('resize', resize)
+  }, [])
+
+  useEffect(() => {
+    const canvas = canvasRef.current
     if (!canvas) return
     if (navigator.userAgent.includes('jsdom')) return
     const context = canvas.getContext('2d')
     if (!context) return
     drawResourceSnakeScene(
       context,
-      buildResourceSnakeScene(runtime, acquiredCategory, settings.reducedMotion),
+      buildResourceSnakeScene(
+        runtime,
+        acquiredCategory,
+        settings.reducedMotion,
+        aiPresentation.telegraphs,
+      ),
       canvas.width,
       canvas.height,
     )
-  }, [acquiredCategory, runtime, settings.reducedMotion])
+  }, [acquiredCategory, aiPresentation.telegraphs, canvasRevision, runtime, settings.reducedMotion])
   const browserSnapshot = serializeBrowserSnakeSnapshot(runtime, aiPresentation.roles)
   const shake = resourceSnakeShakeOffset(runtime, settings.reducedMotion)
 
@@ -428,9 +457,9 @@ function ResourceSnakeBoardSession({
             (total, enemy) => total + enemy.trail.length,
             0,
           )}
-          data-combat-loop="dot-snake"
-          data-field-rendering="dot-snake"
-          data-grid="none"
+          data-combat-loop="eight-way-lightcycle"
+          data-field-rendering="continuous-cyan-rails"
+          data-grid="industrial-top-down"
           aria-keyshortcuts="ArrowUp ArrowRight ArrowDown ArrowLeft W A S D"
           tabIndex={0}
         />

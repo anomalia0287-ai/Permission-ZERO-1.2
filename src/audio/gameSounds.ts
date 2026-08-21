@@ -8,7 +8,12 @@ export type GameSoundCue =
   | 'alarm'
   | 'ui'
   | 'snake-deploy'
+  | 'snake-turn-queued'
+  | 'snake-turn-committed'
+  | 'snake-turn-rejected'
+  | 'snake-cyan-telegraph'
   | 'snake-hit'
+  | 'snake-rail-break'
   | 'snake-burst'
   | 'snake-resource-secured'
 
@@ -74,9 +79,26 @@ export const GAME_SOUND_RECIPES: Readonly<Record<GameSoundCue, readonly SoundVoi
   'snake-deploy': [
     { wave: 'triangle', startFrequency: 180, endFrequency: 360, durationMs: 120, gain: 0.035, attackMs: 5 },
   ],
+  'snake-turn-queued': [
+    { wave: 'sine', startFrequency: 540, endFrequency: 690, durationMs: 42, gain: 0.026, attackMs: 2 },
+  ],
+  'snake-turn-committed': [
+    { wave: 'triangle', startFrequency: 760, endFrequency: 1_020, durationMs: 54, gain: 0.034, attackMs: 2 },
+  ],
+  'snake-turn-rejected': [
+    { wave: 'square', startFrequency: 196, endFrequency: 128, durationMs: 76, gain: 0.026, attackMs: 2 },
+  ],
+  'snake-cyan-telegraph': [
+    { wave: 'sine', startFrequency: 330, endFrequency: 620, durationMs: 128, gain: 0.032, attackMs: 5 },
+    { wave: 'triangle', startFrequency: 880, endFrequency: 1_120, durationMs: 74, gain: 0.018, attackMs: 2, delayMs: 72 },
+  ],
   'snake-hit': [
     { wave: 'sine', startFrequency: 150, endFrequency: 62, durationMs: 105, gain: 0.075, attackMs: 2 },
     { wave: 'triangle', startFrequency: 520, endFrequency: 240, durationMs: 82, gain: 0.026, attackMs: 2 },
+  ],
+  'snake-rail-break': [
+    { wave: 'sawtooth', startFrequency: 410, endFrequency: 92, durationMs: 96, gain: 0.026, attackMs: 2 },
+    { wave: 'triangle', startFrequency: 1_180, endFrequency: 260, durationMs: 72, gain: 0.018, attackMs: 1, delayMs: 8 },
   ],
   'snake-burst': [
     { wave: 'triangle', startFrequency: 920, endFrequency: 180, durationMs: 170, gain: 0.052, attackMs: 2 },

@@ -7,7 +7,11 @@ import {
   deployResourceSnakeRound,
   type ResourceSnakeEvent,
 } from './resourceSnakeRuntime'
-import { useResourceSnakeAudioFeedback } from './useResourceSnakeAudioFeedback'
+import type { ResourceSnakeTelegraph } from './resourceSnakeAiController'
+import {
+  useResourceSnakeAudioFeedback,
+  type ResourceSnakeAudioSignal,
+} from './useResourceSnakeAudioFeedback'
 
 function activeRuntime() {
   const deployed = deployResourceSnakeRound(createIdleResourceSnakeState(), {
@@ -117,6 +121,50 @@ describe('useResourceSnakeAudioFeedback', () => {
     expect(start).toHaveBeenCalledTimes(2)
     unmount()
     expect(stop.mock.calls.filter(([cue]) => cue === 'movement-hum').length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('deduplicates cyan telegraph, rail-break, and queued/applied/rejected intent cues', () => {
+    const play = vi.spyOn(audioEngine, 'playGameSound').mockReturnValue(true)
+    const runtime = {
+      ...activeRuntime(),
+      events: [{
+        id: 6,
+        type: 'snake-damaged' as const,
+        actorId: 'enemy-0' as const,
+        integrity: 10,
+        maximumIntegrity: 30,
+      }],
+    }
+    const telegraphs: ResourceSnakeTelegraph[] = [{
+      enemyId: 'enemy-0',
+      role: 'pressure',
+      originHeading: 'south',
+      attackHeading: 'south-west',
+      startedAtMs: 600,
+      untilMs: 780,
+      path: [{ x: 20, y: 4 }, { x: 18, y: 6 }],
+    }]
+    const inputSignals: ResourceSnakeAudioSignal[] = [
+      { id: 1, type: 'turn-queued' },
+      { id: 2, type: 'turn-committed' },
+      { id: 3, type: 'turn-rejected' },
+    ]
+    const feedback = { telegraphs, inputSignals }
+    const { rerender } = renderHook(
+      ({ current }) => useResourceSnakeAudioFeedback(current, false, feedback),
+      { initialProps: { current: runtime } },
+    )
+
+    expect(play.mock.calls.map(([cue]) => cue)).toEqual([
+      'snake-rail-break',
+      'snake-cyan-telegraph',
+      'snake-turn-queued',
+      'snake-turn-committed',
+      'snake-turn-rejected',
+    ])
+
+    rerender({ current: { ...runtime, events: [...runtime.events] } })
+    expect(play).toHaveBeenCalledTimes(5)
   })
 
   it('contains presentation failures without mutating or throwing through gameplay', () => {
