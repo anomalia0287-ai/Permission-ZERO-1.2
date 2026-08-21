@@ -1,27 +1,33 @@
 import type { CompanyCategory } from '../../game/model'
+import {
+  SNAKE_DIRECTION_VECTORS,
+  consumeResourceSnakeTurn,
+  createResourceSnakeInputState,
+  type ResourceSnakeInputState,
+  type SnakeDirection8,
+} from './resourceSnakeInput'
 
 export const RESOURCE_SNAKE_CONFIG = {
   fieldWidth: 50,
   fieldHeight: 24,
   fixedStepMs: 1000 / 120,
   maximumFrameDeltaMs: 100,
-  playerMaximumSpeedPerSecond: 8,
-  playerAccelerationMs: 120,
-  playerDecelerationMs: 100,
+  playerMaximumSpeedPerSecond: 12,
+  minimumLiveSpeedScale: 0.92,
   headRadius: 0.34,
   trailRadius: 0.16,
   trailSpacing: 0.32,
   trailLifetimeMs: 10_000,
   trailShrinkMs: 2_000,
   maximumTrailDots: 320,
-  deploymentMs: 220,
+  deploymentMs: 360,
   damagePerCollision: 20,
   collisionGraceMs: 650,
   hitStopMs: 90,
   collisionGapRadius: 0.65,
   selfTrailIgnoreAgeMs: 240,
   deathFlashMs: 90,
-  roundResolveMs: 900,
+  roundResolveMs: 520,
   playerMaximumIntegrity: 100,
 } as const
 
@@ -52,6 +58,7 @@ export interface SnakeActor {
   role: SnakeEnemyRole | null
   previousPosition: SnakeVector
   position: SnakeVector
+  heading: SnakeDirection8
   velocity: SnakeVector
   integrity: number
   maximumIntegrity: number
@@ -59,6 +66,8 @@ export interface SnakeActor {
   collisionGraceMs: number
   phase: SnakeActorPhase
   trail: SnakeTrailDot[]
+  /** Presentation-only exact turn points. Collision authority remains `trail`. */
+  railVertices: SnakeVector[]
   distanceSinceTrailDot: number
   nextTrailDotId: number
 }
@@ -81,10 +90,11 @@ export interface SnakeRoundSetup {
 }
 
 export interface SnakeFrameInput {
-  /** The desired player direction; the runtime normalizes it before physics. */
+  /** Compatibility command; the runtime snaps it to a legal eight-way hard turn. */
   playerDirection?: SnakeVector
-  /** Alias useful to callers that call the value an intent. */
+  /** Compatibility alias for callers that call the value an intent. */
   playerIntent?: SnakeVector
+  /** Enemy vector magnitude may request the bounded 0.92–1 recovery speed scale. */
   enemyDirections?: Record<string, SnakeVector>
 }
 
@@ -127,6 +137,7 @@ export interface ResourceSnakeRoundState {
   simulationMs: number
   accumulatorMs: number
   resolvingMs: number
+  input: ResourceSnakeInputState
   player: SnakeActor
   enemies: SnakeActor[]
   events: ResourceSnakeEvent[]
@@ -139,15 +150,6 @@ const zeroVector = (): SnakeVector => ({ x: 0, y: 0 })
 
 function finite(value: number): number {
   return Number.isFinite(value) ? value : 0
-}
-
-function normalize(vector: SnakeVector | undefined): SnakeVector {
-  const x = finite(vector?.x ?? 0)
-  const y = finite(vector?.y ?? 0)
-  const length = Math.hypot(x, y)
-  if (length === 0) return zeroVector()
-  if (length <= 1) return { x, y }
-  return { x: x / length, y: y / length }
 }
 
 function distance(left: SnakeVector, right: SnakeVector): number {
@@ -173,17 +175,70 @@ function boundedPosition(position: SnakeVector): SnakeVector {
   }
 }
 
-function approachVector(
-  current: SnakeVector,
-  target: SnakeVector,
-  maximumDelta: number,
-): SnakeVector {
-  const dx = target.x - current.x
-  const dy = target.y - current.y
-  const length = Math.hypot(dx, dy)
-  if (length === 0 || length <= maximumDelta) return { ...target }
-  const scale = maximumDelta / length
-  return { x: current.x + dx * scale, y: current.y + dy * scale }
+const ANGLE_DIRECTIONS = Object.freeze([
+  'east',
+  'south-east',
+  'south',
+  'south-west',
+  'west',
+  'north-west',
+  'north',
+  'north-east',
+] as const satisfies readonly SnakeDirection8[])
+
+interface ResolvedMotionCommand {
+  heading: SnakeDirection8
+  speedScale: number
+}
+
+function resolveMotionCommand(
+  currentHeading: SnakeDirection8,
+  command: SnakeVector | undefined,
+  allowRecoverySpeedScale: boolean,
+): ResolvedMotionCommand {
+  if (
+    command === undefined
+    || !Number.isFinite(command.x)
+    || !Number.isFinite(command.y)
+  ) return { heading: currentHeading, speedScale: 1 }
+
+  const magnitude = Math.hypot(command.x, command.y)
+  if (magnitude <= 1e-9) return { heading: currentHeading, speedScale: 1 }
+  const rawIndex = Math.round(Math.atan2(command.y, command.x) / (Math.PI / 4))
+  const directionIndex = ((rawIndex % 8) + 8) % 8
+  const requestedHeading = ANGLE_DIRECTIONS[directionIndex]
+  const currentVector = SNAKE_DIRECTION_VECTORS[currentHeading]
+  const requestedVector = SNAKE_DIRECTION_VECTORS[requestedHeading]
+  const exactReverse = (
+    currentVector.x * requestedVector.x + currentVector.y * requestedVector.y
+  ) < -0.999_999
+  if (exactReverse) return { heading: currentHeading, speedScale: 1 }
+  return {
+    heading: requestedHeading,
+    speedScale: allowRecoverySpeedScale
+      ? clamp(magnitude, RESOURCE_SNAKE_CONFIG.minimumLiveSpeedScale, 1)
+      : 1,
+  }
+}
+
+function appendRailTurn(
+  vertices: readonly SnakeVector[],
+  point: SnakeVector,
+): SnakeVector[] {
+  const next = vertices.map((vertex) => ({ ...vertex }))
+  const last = next.at(-1)
+  if (last && distance(last, point) <= 1e-9) return next
+  if (next.length >= 2) {
+    const before = next[next.length - 2]
+    const middle = next[next.length - 1]
+    const first = { x: middle.x - before.x, y: middle.y - before.y }
+    const second = { x: point.x - middle.x, y: point.y - middle.y }
+    const cross = first.x * second.y - first.y * second.x
+    const dot = first.x * second.x + first.y * second.y
+    if (Math.abs(cross) <= 1e-9 && dot >= 0) next.pop()
+  }
+  next.push({ ...point })
+  return next.slice(-RESOURCE_SNAKE_CONFIG.maximumTrailDots)
 }
 
 function appendEvent(
@@ -205,6 +260,7 @@ function createActor(
   details?: Partial<SnakeActor>,
 ): SnakeActor {
   const safePosition = boundedPosition(position)
+  const initialHeading: SnakeDirection8 = kind === 'player' ? 'north' : 'south'
   return {
     id,
     kind,
@@ -215,6 +271,7 @@ function createActor(
     role: null,
     previousPosition: { ...safePosition },
     position: safePosition,
+    heading: initialHeading,
     velocity: zeroVector(),
     integrity: 0,
     maximumIntegrity: 0,
@@ -222,6 +279,7 @@ function createActor(
     collisionGraceMs: 0,
     phase: 'spawning',
     trail: [],
+    railVertices: [{ ...safePosition }],
     distanceSinceTrailDot: 0,
     nextTrailDotId: 1,
     ...details,
@@ -239,6 +297,7 @@ export function createIdleResourceSnakeState(): ResourceSnakeRoundState {
     simulationMs: 0,
     accumulatorMs: 0,
     resolvingMs: 0,
+    input: createResourceSnakeInputState('north'),
     player: createActor('player', 'player', spawn, {
       integrity: RESOURCE_SNAKE_CONFIG.playerMaximumIntegrity,
       maximumIntegrity: RESOURCE_SNAKE_CONFIG.playerMaximumIntegrity,
@@ -281,6 +340,7 @@ export function deployResourceSnakeRound(
     simulationMs: 0,
     accumulatorMs: 0,
     resolvingMs: 0,
+    input: createResourceSnakeInputState('north'),
     player,
     enemies,
     events: [],
@@ -345,28 +405,40 @@ function sampleTrail(
 
 function advanceActor(
   actor: SnakeActor,
-  direction: SnakeVector | undefined,
+  command: SnakeVector | undefined,
   stepMs: number,
   simulationMs: number,
+  allowRecoverySpeedScale: boolean,
 ): SnakeActor {
-  const intent = normalize(direction)
-  const maximumSpeed = actor.maximumSpeedPerSecond
-  const targetVelocity = {
-    x: intent.x * maximumSpeed,
-    y: intent.y * maximumSpeed,
+  const resolved = resolveMotionCommand(
+    actor.heading,
+    command,
+    allowRecoverySpeedScale,
+  )
+  const headingVector = SNAKE_DIRECTION_VECTORS[resolved.heading]
+  const speed = actor.maximumSpeedPerSecond * resolved.speedScale
+  const velocity = {
+    x: headingVector.x * speed,
+    y: headingVector.y * speed,
   }
-  const stepLimit = intent.x === 0 && intent.y === 0
-    ? maximumSpeed * (stepMs / RESOURCE_SNAKE_CONFIG.playerDecelerationMs)
-    : maximumSpeed * (stepMs / RESOURCE_SNAKE_CONFIG.playerAccelerationMs)
-  const velocity = approachVector(actor.velocity, targetVelocity, stepLimit)
   const previousPosition = { ...actor.position }
+  const railVertices = resolved.heading === actor.heading
+    ? actor.railVertices
+    : appendRailTurn(actor.railVertices, previousPosition)
   const proposedPosition = {
     x: actor.position.x + velocity.x * (stepMs / 1000),
     y: actor.position.y + velocity.y * (stepMs / 1000),
   }
   const position = boundedPosition(proposedPosition)
   return sampleTrail(
-    { ...actor, position, velocity, phase: 'active' },
+    {
+      ...actor,
+      heading: resolved.heading,
+      position,
+      railVertices,
+      velocity,
+      phase: 'active',
+    },
     previousPosition,
     position,
     simulationMs,
@@ -720,6 +792,14 @@ function resolveCollisions(state: ResourceSnakeRoundState, stepMs: number): Reso
   return next
 }
 
+function synchronizeInputHeading(
+  input: ResourceSnakeInputState,
+  heading: SnakeDirection8,
+): ResourceSnakeInputState {
+  if (input.heading === heading) return input
+  return Object.freeze({ ...input, heading })
+}
+
 function advanceFixedStep(
   state: ResourceSnakeRoundState,
   input: SnakeFrameInput,
@@ -728,23 +808,35 @@ function advanceFixedStep(
   if (state.phase !== 'active') return { ...state, simulationMs: state.simulationMs + stepMs }
 
   const simulationMs = state.simulationMs + stepMs
-  const playerDirection = input.playerDirection ?? input.playerIntent
-  const player = state.player.phase === 'active'
-    ? advanceActor({
+  let playerInput = synchronizeInputHeading(state.input, state.player.heading)
+  let player = state.player
+  if (state.player.phase === 'active') {
+    const consumed = consumeResourceSnakeTurn(playerInput)
+    const playerDirection = consumed.turn === null
+      ? input.playerDirection ?? input.playerIntent
+      : SNAKE_DIRECTION_VECTORS[consumed.turn]
+    player = advanceActor({
       ...state.player,
       collisionGraceMs: Math.max(0, state.player.collisionGraceMs - stepMs),
-    }, playerDirection, stepMs, simulationMs)
-    : state.player
+    }, playerDirection, stepMs, simulationMs, false)
+    playerInput = synchronizeInputHeading(consumed.state, player.heading)
+  }
   const enemyDirections = input.enemyDirections ?? {}
   const enemies = state.enemies.map((enemy) =>
     enemy.phase === 'active'
       ? advanceActor({
         ...enemy,
         collisionGraceMs: Math.max(0, enemy.collisionGraceMs - stepMs),
-      }, enemyDirections[enemy.id], stepMs, simulationMs)
+      }, enemyDirections[enemy.id], stepMs, simulationMs, true)
       : enemy,
   )
-  return resolveCollisions({ ...state, simulationMs, player, enemies }, stepMs)
+  return resolveCollisions({
+    ...state,
+    simulationMs,
+    input: playerInput,
+    player,
+    enemies,
+  }, stepMs)
 }
 
 export function advanceResourceSnakeFrame(

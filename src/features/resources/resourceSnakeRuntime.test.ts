@@ -13,9 +13,14 @@ import {
   type SnakeTrailDot,
 } from './resourceSnakeRuntime'
 import { reconcileSnakeReservations } from './resourceSnakeEncounter'
+import {
+  createResourceSnakeInputState,
+  flushResourceSnakeChord,
+  pressResourceSnakeKey,
+  releaseResourceSnakeKey,
+} from './resourceSnakeInput'
 
 const input: SnakeFrameInput = {
-  playerDirection: { x: 0, y: 0 },
   enemyDirections: {},
 }
 
@@ -27,15 +32,49 @@ const setup: SnakeRoundSetup = {
 
 function activeState(): ResourceSnakeRoundState {
   let state = deployResourceSnakeRound(createIdleResourceSnakeState(), setup)
-  for (const deltaMs of [100, 100, 20]) {
+  let remainingMs = RESOURCE_SNAKE_CONFIG.deploymentMs
+  while (remainingMs > 0) {
+    const deltaMs = Math.min(100, remainingMs)
     state = advanceResourceSnakeFrame(state, input, deltaMs)
+    remainingMs -= deltaMs
   }
   expect(state.phase).toBe('active')
   return state
 }
 
 describe('resource snake fixed-step movement kernel', () => {
-  it('uses an encounter-provided enemy speed rather than the player speed cap', () => {
+  it('keeps the round deploying through 359ms and activates at 360ms', () => {
+    let state = deployResourceSnakeRound(createIdleResourceSnakeState(), setup)
+    for (const deltaMs of [100, 100, 100, 59]) {
+      state = advanceResourceSnakeFrame(state, input, deltaMs)
+    }
+
+    expect(state.phase).toBe('deploying')
+    expect(state.simulationMs).toBe(359)
+
+    state = advanceResourceSnakeFrame(state, input, 1)
+    expect(state.phase).toBe('active')
+    expect(state.simulationMs).toBe(360)
+  })
+
+  it('keeps resolution visible through 519ms and returns idle at 520ms', () => {
+    let state: ResourceSnakeRoundState = {
+      ...activeState(),
+      phase: 'resolving',
+      resolvingMs: 0,
+    }
+    for (const deltaMs of [100, 100, 100, 100, 100, 19]) {
+      state = advanceResourceSnakeFrame(state, input, deltaMs)
+    }
+
+    expect(state.phase).toBe('resolving')
+    expect(state.resolvingMs).toBe(519)
+
+    state = advanceResourceSnakeFrame(state, input, 1)
+    expect(state.phase).toBe('idle')
+  })
+
+  it('uses an encounter-provided enemy speed at full magnitude on its first active step', () => {
     let state = deployResourceSnakeRound(createIdleResourceSnakeState(), {
       roundId: 'speed-round',
       playerSpawn: { x: 25, y: 21 },
@@ -45,31 +84,41 @@ describe('resource snake fixed-step movement kernel', () => {
         spawn: { x: 16, y: 3.5 }, maximumIntegrity: 30, maximumSpeedPerSecond: 6.2,
       }],
     })
-    state = advanceResourceSnakeFrame(state, input, 100)
-    state = advanceResourceSnakeFrame(state, input, 100)
-    state = advanceResourceSnakeFrame(state, input, 20)
+    let deploymentRemainingMs = RESOURCE_SNAKE_CONFIG.deploymentMs
+    while (deploymentRemainingMs > 0) {
+      const deltaMs = Math.min(100, deploymentRemainingMs)
+      state = advanceResourceSnakeFrame(state, input, deltaMs)
+      deploymentRemainingMs -= deltaMs
+    }
     state = advanceResourceSnakeFrame(state, {
       ...input,
       enemyDirections: { 'enemy-0': { x: 1, y: 0 } },
-    }, 100)
-    state = advanceResourceSnakeFrame(state, {
-      ...input,
-      enemyDirections: { 'enemy-0': { x: 1, y: 0 } },
-    }, 20 + RESOURCE_SNAKE_CONFIG.fixedStepMs)
+    }, RESOURCE_SNAKE_CONFIG.fixedStepMs)
 
     expect(state.enemies[0].velocity).toEqual({ x: 6.2, y: 0 })
-    expect(state.enemies[0].position.x).toBeCloseTo(16.4284027778, 8)
+    expect(state.enemies[0].position.x).toBeCloseTo(
+      16 + 6.2 * RESOURCE_SNAKE_CONFIG.fixedStepMs / 1000,
+      8,
+    )
   })
 
-  it('keeps the player position unchanged while input is idle', () => {
+  it('moves the player at full speed immediately and never treats missing input as stop', () => {
     const state = activeState()
-    const next = advanceResourceSnakeFrame(state, input, 100)
+    const next = advanceResourceSnakeFrame(
+      state,
+      input,
+      RESOURCE_SNAKE_CONFIG.fixedStepMs,
+    )
 
-    expect(next.player.position).toEqual(state.player.position)
-    expect(next.player.velocity).toEqual({ x: 0, y: 0 })
+    expect(next.player.position.y).toBeLessThan(state.player.position.y)
+    expect(next.player.velocity).toEqual({
+      x: 0,
+      y: -RESOURCE_SNAKE_CONFIG.playerMaximumSpeedPerSecond,
+    })
+    expect(Math.hypot(next.player.velocity.x, next.player.velocity.y)).toBe(12)
   })
 
-  it('normalizes diagonal input before applying player speed', () => {
+  it('normalizes a diagonal hard turn without reducing player speed', () => {
     const state = activeState()
     const next = advanceResourceSnakeFrame(
       state,
@@ -78,92 +127,94 @@ describe('resource snake fixed-step movement kernel', () => {
     )
 
     expect(next.player.velocity.x).toBeCloseTo(next.player.velocity.y)
-    expect(Math.hypot(next.player.velocity.x, next.player.velocity.y)).toBeLessThanOrEqual(
+    expect(Math.hypot(next.player.velocity.x, next.player.velocity.y)).toBeCloseTo(
       RESOURCE_SNAKE_CONFIG.playerMaximumSpeedPerSecond,
     )
-  })
-
-  it('reaches the configured speed cap after 120ms of held input', () => {
-    const state = activeState()
-    const after100 = advanceResourceSnakeFrame(
-      state,
-      { ...input, playerDirection: { x: 1, y: 0 } },
-      100,
-    )
-    const next = advanceResourceSnakeFrame(
-      after100,
-      { ...input, playerDirection: { x: 1, y: 0 } },
-      RESOURCE_SNAKE_CONFIG.playerAccelerationMs - 100,
-    )
-    const atLeast120Ms = advanceResourceSnakeFrame(
-      next,
-      { ...input, playerDirection: { x: 1, y: 0 } },
-      RESOURCE_SNAKE_CONFIG.fixedStepMs,
-    )
-
-    expect(atLeast120Ms.player.velocity.x).toBeCloseTo(
-      RESOURCE_SNAKE_CONFIG.playerMaximumSpeedPerSecond,
-      5,
-    )
-    expect(atLeast120Ms.player.velocity.y).toBeCloseTo(0)
   })
 
   it('carries active simulation time after deployment within one clamped frame', () => {
     let deploying = deployResourceSnakeRound(createIdleResourceSnakeState(), setup)
     deploying = advanceResourceSnakeFrame(deploying, input, 100)
     deploying = advanceResourceSnakeFrame(deploying, input, 100)
+    deploying = advanceResourceSnakeFrame(deploying, input, 100)
     const heldInput = { ...input, playerDirection: { x: 1, y: 0 } }
 
     const oneFrame = advanceResourceSnakeFrame(deploying, heldInput, 100)
     const splitFrame = advanceResourceSnakeFrame(
-      advanceResourceSnakeFrame(deploying, heldInput, 20),
+      advanceResourceSnakeFrame(deploying, heldInput, 60),
       heldInput,
-      80,
+      40,
     )
 
     expect(oneFrame.phase).toBe('active')
     expect(oneFrame.simulationMs).toBeCloseTo(splitFrame.simulationMs, 5)
     expect(
       oneFrame.simulationMs - RESOURCE_SNAKE_CONFIG.deploymentMs + oneFrame.accumulatorMs,
-    ).toBeCloseTo(80, 5)
+    ).toBeCloseTo(40, 5)
     expect(oneFrame.accumulatorMs).toBeCloseTo(splitFrame.accumulatorMs, 5)
     expect(oneFrame.player.position).toEqual(splitFrame.player.position)
     expect(oneFrame.player.velocity).toEqual(splitFrame.player.velocity)
   })
 
-  it('does not reach maximum speed before 120ms of fixed simulation', () => {
+  it('applies a 90-degree hard turn at the exact pre-movement position', () => {
     const state = activeState()
-    const heldInput = { ...input, playerDirection: { x: 1, y: 0 } }
-    const after100Ms = advanceResourceSnakeFrame(state, heldInput, 100)
-    const fourteenSteps = advanceResourceSnakeFrame(
-      after100Ms,
-      heldInput,
-      RESOURCE_SNAKE_CONFIG.fixedStepMs * 2,
-    )
-    const fifteenSteps = advanceResourceSnakeFrame(
-      fourteenSteps,
-      heldInput,
+    const turnPoint = { ...state.player.position }
+    const next = advanceResourceSnakeFrame(
+      state,
+      { ...input, playerDirection: { x: 1, y: 0 } },
       RESOURCE_SNAKE_CONFIG.fixedStepMs,
     )
 
-    expect(fourteenSteps.player.velocity.x).toBeLessThan(
-      RESOURCE_SNAKE_CONFIG.playerMaximumSpeedPerSecond,
-    )
-    expect(fifteenSteps.player.velocity.x).toBeCloseTo(
-      RESOURCE_SNAKE_CONFIG.playerMaximumSpeedPerSecond,
-      5,
-    )
+    expect(next.player.heading).toBe('east')
+    expect(next.player.velocity).toEqual({
+      x: RESOURCE_SNAKE_CONFIG.playerMaximumSpeedPerSecond,
+      y: 0,
+    })
+    expect(next.player.railVertices).toEqual([turnPoint])
+    expect(next.player.position.x).toBeGreaterThan(turnPoint.x)
+    expect(next.player.position.y).toBe(turnPoint.y)
   })
 
-  it('decelerates to zero in 100ms after input release', () => {
-    const state = advanceResourceSnakeFrame(
-      activeState(),
-      { ...input, playerDirection: { x: 1, y: 0 } },
-      100,
+  it('rejects a direct reverse and malformed command while retaining full-speed heading', () => {
+    const state = activeState()
+    const reversed = advanceResourceSnakeFrame(
+      state,
+      { ...input, playerDirection: { x: 0, y: 1 } },
+      RESOURCE_SNAKE_CONFIG.fixedStepMs,
     )
-    const next = advanceResourceSnakeFrame(state, input, RESOURCE_SNAKE_CONFIG.playerDecelerationMs)
+    const malformed = advanceResourceSnakeFrame(
+      reversed,
+      { ...input, playerDirection: { x: Number.NaN, y: 0 } },
+      RESOURCE_SNAKE_CONFIG.fixedStepMs,
+    )
 
-    expect(next.player.velocity).toEqual({ x: 0, y: 0 })
+    expect(reversed.player.heading).toBe('north')
+    expect(malformed.player.heading).toBe('north')
+    expect(malformed.player.velocity).toEqual({
+      x: 0,
+      y: -RESOURCE_SNAKE_CONFIG.playerMaximumSpeedPerSecond,
+    })
+  })
+
+  it('consumes one queued turn per fixed step and keeps the second turn queued', () => {
+    const state = activeState()
+    let queuedInput = createResourceSnakeInputState('north')
+    queuedInput = pressResourceSnakeKey(queuedInput, 'd', 0)
+    queuedInput = flushResourceSnakeChord(queuedInput, 25)
+    queuedInput = releaseResourceSnakeKey(queuedInput, 'd')
+    queuedInput = pressResourceSnakeKey(queuedInput, 's', 30)
+    queuedInput = flushResourceSnakeChord(queuedInput, 55)
+    const prepared = { ...state, input: queuedInput }
+
+    const next = advanceResourceSnakeFrame(
+      prepared,
+      input,
+      RESOURCE_SNAKE_CONFIG.fixedStepMs,
+    )
+
+    expect(next.player.heading).toBe('east')
+    expect(next.input.heading).toBe('east')
+    expect(next.input.queuedTurns).toEqual(['south'])
   })
 
   it('clamps a long frame to 100ms and discards excess time', () => {
@@ -189,35 +240,42 @@ describe('resource snake fixed-step movement kernel', () => {
     )
   })
 
-  it('samples trail dots by distance and does not add dots while stopped', () => {
+  it('samples collision trail dots continuously when no new command arrives', () => {
     const moving = advanceResourceSnakeFrame(
       activeState(),
       { ...input, playerDirection: { x: 1, y: 0 } },
       100,
     )
-    const stopped = advanceResourceSnakeFrame(moving, input, 100)
+    const continued = advanceResourceSnakeFrame(moving, input, 100)
 
     expect(moving.player.trail.length).toBeGreaterThan(0)
-    expect(stopped.player.trail.length).toBeLessThanOrEqual(moving.player.trail.length)
+    expect(continued.player.trail.length).toBeGreaterThan(moving.player.trail.length)
+    expect(Math.hypot(continued.player.velocity.x, continued.player.velocity.y)).toBeCloseTo(12)
   })
 
-  it('does not activate the last self trail dot underneath a head that stopped after release', () => {
-    let state = activeState()
-    const heldInput = { ...input, playerDirection: { x: 1, y: 0 } }
-    for (let elapsedMs = 0; elapsedMs < 600; elapsedMs += 100) {
-      state = advanceResourceSnakeFrame(state, heldInput, 100)
+  it('never lets an active enemy command fall below 92 percent of configured speed', () => {
+    let state = deployResourceSnakeRound(createIdleResourceSnakeState(), {
+      roundId: 'minimum-live-speed',
+      playerSpawn: { x: 25, y: 21 },
+      enemies: [{
+        id: 'enemy-0', category: 'memory', reservedBlockId: 'memory-speed',
+        rewardKey: 'minimum-live-speed:enemy-0:memory-speed', role: 'pressure',
+        spawn: { x: 16, y: 3.5 }, maximumIntegrity: 30, maximumSpeedPerSecond: 10,
+      }],
+    })
+    let deploymentRemainingMs = RESOURCE_SNAKE_CONFIG.deploymentMs
+    while (deploymentRemainingMs > 0) {
+      const deltaMs = Math.min(100, deploymentRemainingMs)
+      state = advanceResourceSnakeFrame(state, input, deltaMs)
+      deploymentRemainingMs -= deltaMs
     }
-    state = advanceResourceSnakeFrame(state, input, RESOURCE_SNAKE_CONFIG.playerDecelerationMs)
-    const stoppedAt = { ...state.player.position }
-    const integrity = state.player.integrity
-    for (let elapsedMs = 0; elapsedMs < 500; elapsedMs += 100) {
-      state = advanceResourceSnakeFrame(state, input, 100)
-    }
+    state = advanceResourceSnakeFrame(state, {
+      ...input,
+      enemyDirections: { 'enemy-0': { x: 0.1, y: 0 } },
+    }, RESOURCE_SNAKE_CONFIG.fixedStepMs)
 
-    expect(state.player.velocity).toEqual({ x: 0, y: 0 })
-    expect(state.player.position).toEqual(stoppedAt)
-    expect(state.player.integrity).toBe(integrity)
-    expect(state.events.filter((event) => event.type === 'snake-collided')).toHaveLength(0)
+    expect(Math.hypot(state.enemies[0].velocity.x, state.enemies[0].velocity.y))
+      .toBeGreaterThanOrEqual(9.2)
   })
 
   it('shrinks a trail dot linearly only during its final shrink window', () => {
@@ -249,12 +307,21 @@ function fastActor(
   velocity: { x: number; y: number },
   trail: SnakeTrailDot[] = [],
 ): SnakeActor {
+  const speed = Math.hypot(velocity.x, velocity.y)
+  const heading = speed === 0
+    ? actor.heading
+    : Math.abs(velocity.x) >= Math.abs(velocity.y)
+      ? velocity.x >= 0 ? 'east' : 'west'
+      : velocity.y >= 0 ? 'south' : 'north'
   return {
     ...actor,
     previousPosition: position,
     position,
+    heading,
     velocity,
+    maximumSpeedPerSecond: Math.max(actor.maximumSpeedPerSecond, speed),
     trail,
+    railVertices: [{ ...position }],
     collisionGraceMs: 0,
     phase: 'active',
   }
@@ -275,8 +342,11 @@ function activeCollisionState(enemyCount = 1): ResourceSnakeRoundState {
     ...setup,
     enemies,
   })
-  for (const deltaMs of [100, 100, 20]) {
+  let deploymentRemainingMs = RESOURCE_SNAKE_CONFIG.deploymentMs
+  while (deploymentRemainingMs > 0) {
+    const deltaMs = Math.min(100, deploymentRemainingMs)
     state = advanceResourceSnakeFrame(state, input, deltaMs)
+    deploymentRemainingMs -= deltaMs
   }
   return state
 }
