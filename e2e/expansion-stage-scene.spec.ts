@@ -369,6 +369,11 @@ test('reselects a completed charged sabotage and schedules one target', async ({
   }).click()
   await expect(dialog.getByRole('region', { name: '기능 정보' }))
     .toContainText('품질 저하')
+  const scene = dialog.getByRole('figure', { name: '현재 단계 장면' })
+  await expect(scene).toHaveAttribute('data-phase', 'stable', { timeout: 1_000 })
+  await expect(scene.getByRole('img', {
+    name: '품질 저하 장면 이미지 없음',
+  })).toBeVisible()
   await dialog.getByRole('button', { name: '메리디안 공격 대상 선택' })
     .click()
   await dialog.getByRole('button', { name: '메리디안 공격 예약 확정' })
