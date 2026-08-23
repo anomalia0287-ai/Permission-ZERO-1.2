@@ -524,6 +524,7 @@ export function applyCommand(
         state,
         command.roundNumber,
         command.outcome,
+        protocolVersion,
       )
       if (!result.accepted) {
         return { accepted: false, state, reason: result.reason }

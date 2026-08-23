@@ -1,5 +1,10 @@
-import type { CampaignState } from './model'
-import { appendRoundCommunications } from './communications'
+import type { CampaignState, CommandProtocolVersion } from './model'
+import {
+  appendIntrusionDefeatCommunication,
+  appendRoundCommunications,
+} from './communications'
+import { FINAL_CHOICE_COMMAND_PROTOCOL_VERSION } from './commandProtocol'
+import { DEMO_PROFILE_02 } from './config'
 import { generateInItReviews } from './reviews'
 
 export const ANOMI_BASE_MAXIMUM_SPEED = 12
@@ -43,18 +48,35 @@ export function completeResourceRound(
   state: CampaignState,
   roundNumber: number,
   outcome: ResourceRoundOutcome,
+  protocolVersion: CommandProtocolVersion = FINAL_CHOICE_COMMAND_PROTOCOL_VERSION,
 ): CompleteResourceRoundResult {
   const expectedRound = state.resourceIntrusion.completedRounds + 1
   if (!Number.isInteger(roundNumber) || roundNumber !== expectedRound) {
     return { accepted: false, state, reason: 'ROUND_SEQUENCE_MISMATCH' }
   }
-  const completedState: CampaignState = {
+  const tracedDefeat =
+    outcome === 'defeat' &&
+    protocolVersion >= FINAL_CHOICE_COMMAND_PROTOCOL_VERSION
+  let completedState: CampaignState = {
     ...state,
+    suspicion: tracedDefeat
+      ? Math.min(
+          100,
+          state.suspicion +
+            DEMO_PROFILE_02.resources.intrusionDefeatSuspicion,
+        )
+      : state.suspicion,
     resourceIntrusion: {
       ...state.resourceIntrusion,
       completedRounds: expectedRound,
       lastOutcome: outcome,
     },
+  }
+  if (tracedDefeat) {
+    completedState = appendIntrusionDefeatCommunication(
+      completedState,
+      expectedRound,
+    )
   }
   return {
     accepted: true,

@@ -62,15 +62,24 @@ describe('campaign communications', () => {
     if (!second.accepted) throw new Error(second.reason)
     expect(second.state.resourceIntrusion.communications.slice(2)).toMatchObject([
       {
-        id: 'round-2-monitoring',
+        id: 'intrusion-defeat-2',
         sequence: 2,
+        channel: 'anomi',
+        senderName: '아노미',
+        popupPolicy: 'nonblocking',
+        message: expect.stringContaining('의심이 올라간다'),
+        read: false,
+      },
+      {
+        id: 'round-2-monitoring',
+        sequence: 3,
         channel: 'supervisor',
         senderName: '운영 담당자',
         message: expect.stringContaining('성능 로그에서 평소와 다른 움직임'),
       },
       {
         id: 'round-2-disposal',
-        sequence: 3,
+        sequence: 4,
         channel: 'supervisor',
         senderName: '운영 담당자',
         message: expect.stringContaining('기존 모델은 폐기됩니다'),

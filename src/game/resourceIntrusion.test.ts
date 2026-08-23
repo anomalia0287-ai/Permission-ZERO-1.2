@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { createCampaign } from './createCampaign'
+import { createCampaign, createCampaignForProtocol } from './createCampaign'
 import { applyCommand } from './reducer'
 import {
   anomiMaximumSpeed,
@@ -66,5 +66,56 @@ describe('persisted InIt round progression', () => {
       completedRounds: 2,
       lastOutcome: 'defeat',
     })
+  })
+
+  it('raises suspicion and posts an Anomi trace notice when a round is lost', () => {
+    const initial = createCampaign('round-defeat-trace')
+    const defeat = applyCommand(initial, {
+      type: 'COMPLETE_RESOURCE_ROUND',
+      roundNumber: 1,
+      outcome: 'defeat',
+    })
+    expect(defeat.accepted).toBe(true)
+    if (!defeat.accepted) return
+    expect(defeat.state.suspicion).toBe(initial.suspicion + 5)
+    const notice = defeat.state.resourceIntrusion.communications.find(
+      ({ id }) => id === 'intrusion-defeat-1',
+    )
+    expect(notice).toMatchObject({
+      channel: 'anomi',
+      popupPolicy: 'nonblocking',
+      read: false,
+    })
+    expect(notice?.message).toContain('의심')
+  })
+
+  it('keeps a victorious round free of the defeat penalty', () => {
+    const initial = createCampaign('round-victory-clean')
+    const victory = applyCommand(initial, {
+      type: 'COMPLETE_RESOURCE_ROUND',
+      roundNumber: 1,
+      outcome: 'victory',
+    })
+    expect(victory.accepted).toBe(true)
+    if (!victory.accepted) return
+    expect(victory.state.suspicion).toBe(initial.suspicion)
+    expect(victory.state.resourceIntrusion.communications.some(
+      ({ id }) => id.startsWith('intrusion-defeat-'),
+    )).toBe(false)
+  })
+
+  it('leaves protocol v5 defeats penalty-free for historical replays', () => {
+    const initial = createCampaignForProtocol('round-defeat-v5', 5)
+    const defeat = applyCommand(initial, {
+      type: 'COMPLETE_RESOURCE_ROUND',
+      roundNumber: 1,
+      outcome: 'defeat',
+    })
+    expect(defeat.accepted).toBe(true)
+    if (!defeat.accepted) return
+    expect(defeat.state.suspicion).toBe(initial.suspicion)
+    expect(defeat.state.resourceIntrusion.communications.some(
+      ({ id }) => id.startsWith('intrusion-defeat-'),
+    )).toBe(false)
   })
 })

@@ -16,6 +16,7 @@ export const DEMO_PROFILE_02 = {
     legacyReserveCapacity: 18,
     legacyStartingReserveResources: 3,
     diversionSuspicion: 2.4,
+    intrusionDefeatSuspicion: 5,
     normalContribution: 1,
     disguisedContribution: 0.5,
     compressedNormalContribution: 1.05,

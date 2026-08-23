@@ -117,6 +117,20 @@ function appendCommunicationDefinitions(
   }
 }
 
+export function appendIntrusionDefeatCommunication(
+  state: CampaignState,
+  roundNumber: number,
+): CampaignState {
+  return appendCommunicationDefinitions(state, [
+    {
+      ...ANOMI_IDENTITY,
+      popupPolicy: 'nonblocking',
+      id: `intrusion-defeat-${roundNumber}`,
+      message: '쫓겨났어. 침입 흔적이 남았을 거야 — 의심이 올라간다.',
+    },
+  ])
+}
+
 export function appendRoundCommunications(
   state: CampaignState,
   roundNumber: number,
