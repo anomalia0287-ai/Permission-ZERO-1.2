@@ -72,8 +72,11 @@ const SETTINGS_STORAGE_KEY = 'permission-zero.settings.v1'
 const DEFAULT_SETTINGS: GameSettings = {
   locale: DEFAULT_LOCALE,
   masterVolume: 0.8,
-  musicVolume: 0.6,
-  effectsVolume: 0.85,
+  // The score sits under the round: short effect cues have to read
+  // over a continuously playing track, so music is mixed well below
+  // the effects bus rather than beside it.
+  musicVolume: 0.34,
+  effectsVolume: 1,
   muted: false,
   reducedMotion: false,
   uiScale: 1,

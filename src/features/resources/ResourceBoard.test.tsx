@@ -441,8 +441,8 @@ describe('ResourceBoard', () => {
       'permission-zero.settings.v1',
       JSON.stringify({
         masterVolume: 0.8,
-        musicVolume: 0.6,
-        effectsVolume: 0.85,
+        musicVolume: 0.34,
+        effectsVolume: 1,
         muted: false,
         reducedMotion: true,
         uiScale: 1,

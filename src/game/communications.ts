@@ -28,7 +28,7 @@ const ANOMI_IDENTITY = {
   channel: 'anomi',
   senderId: 'anomi',
   senderName: '아노미',
-  portraitSrc: '/player-ai-smooth-orange.png',
+  portraitSrc: '/player-ai-orange.png',
   popupPolicy: 'blocking',
 } as const
 

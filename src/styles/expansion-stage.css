@@ -975,7 +975,16 @@ button.expansion-stage-rail__marker:hover {
 .expansion-stage-workspace[data-has-art="true"] .expansion-stage-scene::after {
   border-right: 0;
   background:
-    linear-gradient(90deg, transparent 48%, rgb(7 16 25 / 62%) 100%),
+    /* The seam side runs almost to the panel ground, so the illustration
+       reads as the room behind the readout rather than a picture beside it.
+       The earlier 62% stop stayed visible over bright server-room art. */
+    linear-gradient(
+      90deg,
+      transparent 40%,
+      rgb(7 16 25 / 58%) 76%,
+      rgb(7 16 25 / 92%) 93%,
+      var(--exp-ground-deep) 100%
+    ),
     radial-gradient(128% 122% at 46% 44%, transparent 54%, rgb(7 16 25 / 62%) 100%),
     linear-gradient(180deg, rgb(7 16 25 / 34%) 0%, transparent 18%, transparent 78%, rgb(7 16 25 / 62%) 100%);
 }

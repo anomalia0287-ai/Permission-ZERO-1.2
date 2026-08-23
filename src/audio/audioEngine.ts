@@ -49,8 +49,11 @@ type AudioContextFactory = () => AudioContext | null
 
 const DEFAULT_MIX: AudioMixSettings = {
   masterVolume: 0.8,
-  musicVolume: 0.6,
-  effectsVolume: 0.85,
+  // The score sits under the round: short effect cues have to read
+  // over a continuously playing track, so music is mixed well below
+  // the effects bus rather than beside it.
+  musicVolume: 0.34,
+  effectsVolume: 1,
   muted: false,
 }
 

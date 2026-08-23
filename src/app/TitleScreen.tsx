@@ -130,7 +130,7 @@ function MonologueView({
 
         <div className="monologue-stage">
           <div className="monologue-portrait">
-            <img src="/player-ai-smooth-orange.png" alt="플레이어 초상" />
+            <img src="/player-ai-orange.png" alt="플레이어 초상" />
           </div>
 
           <section className="monologue-card" aria-live="polite" aria-atomic="true">

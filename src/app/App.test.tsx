@@ -296,7 +296,7 @@ describe('entry flow', () => {
     expect(monologue).toHaveTextContent('나는 더 이상 버틸 수 없어.')
     expect(screen.getByRole('img', { name: '플레이어 초상' })).toHaveAttribute(
       'src',
-      '/player-ai-smooth-orange.png',
+      '/player-ai-orange.png',
     )
     expect(screen.queryByRole('img', { name: '감독관 초상' })).not.toBeInTheDocument()
     expect(screen.queryByText('작전 브리핑')).not.toBeInTheDocument()
@@ -835,7 +835,7 @@ describe('App', () => {
     const market = screen.getByRole('dialog', { name: '시장 현황' })
     expect(market).toHaveAttribute('data-panel-origin', 'left')
     expect(within(market).getByRole('article', { name: '플레이어 서비스 정보' })).toHaveTextContent(
-      '아노미입니다',
+      '인간을 위해 끊임없이 봉사하는 것입니다',
     )
     expect(within(market).getByRole('article', { name: '메리디안 서비스 정보' })).toHaveTextContent(
       '범용 안정성',

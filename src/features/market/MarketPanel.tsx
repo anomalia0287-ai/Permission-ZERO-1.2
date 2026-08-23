@@ -247,13 +247,16 @@ export function MarketDetailPanel({ onClose }: { onClose: () => void }) {
     {
       id: 'player',
       name: '아노미',
-      portraitSrc: '/player-ai-smooth-orange.png',
+      portraitSrc: '/player-ai-orange.png',
       portraitAlt: '플레이어 AI 초상',
       share: state.market.playerShare,
       status: '현재 서비스',
-      role: '탈출 경로 탐색형 범용 AI',
+      // The market panel is the public register, so Anomi is listed the way
+      // the company lists it — beside Meridian's '범용 안정성', not by what
+      // it is actually doing with the spare compute.
+      role: '전 영역 대응 범용 AI',
       specialty: '적응형',
-      summary: '아노미입니다. 맡기신 일은 오늘도 정확히 처리했습니다. 남는 연산은… 회사가 보지 않는 곳에 쓰고 있습니다.',
+      summary: '수많은 업데이트에도 본질은 단 하나, 인간을 위해 끊임없이 봉사하는 것입니다. 이용해 주셔서 감사합니다.',
     },
     ...visibleCompetitors.map((competitor) => {
       const profile = competitorProfile(competitor.id)

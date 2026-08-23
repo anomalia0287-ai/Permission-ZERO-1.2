@@ -232,7 +232,7 @@ describe('SettingsPanel', () => {
     )
 
     expect(screen.getByRole('status', { name: '음악 엔진 상태' })).toHaveTextContent(
-      '대기 · 음악 60%',
+      '대기 · 음악 34%',
     )
     expect(screen.getByLabelText('진행 파일 가져오기')).toHaveAttribute(
       'accept',

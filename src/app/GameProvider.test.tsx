@@ -606,8 +606,8 @@ describe('GameProvider', () => {
       JSON.stringify({
         locale: 'ko',
         masterVolume: 0.8,
-        musicVolume: 0.6,
-        effectsVolume: 0.85,
+        musicVolume: 0.34,
+        effectsVolume: 1,
         muted: false,
         reducedMotion: false,
         uiScale: 1,
@@ -673,7 +673,7 @@ describe('GameProvider', () => {
 
     expect(screen.getByLabelText('master volume')).toHaveTextContent('0')
     expect(screen.getByLabelText('music volume')).toHaveTextContent('1')
-    expect(screen.getByLabelText('effects volume')).toHaveTextContent('0.85')
+    expect(screen.getByLabelText('effects volume')).toHaveTextContent('1')
     expect(screen.getByLabelText('muted setting')).toHaveTextContent('false')
     expect(screen.getByLabelText('motion setting')).toHaveTextContent('false')
     expect(screen.getByLabelText('scale')).toHaveTextContent('1.1')

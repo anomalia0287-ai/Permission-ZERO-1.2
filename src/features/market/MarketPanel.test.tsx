@@ -83,7 +83,7 @@ describe('MarketPanel', () => {
 
     expect(screen.getByRole('img', { name: '플레이어 AI 초상' })).toHaveAttribute(
       'src',
-      '/player-ai-smooth-orange.png',
+      '/player-ai-orange.png',
     )
     expect(screen.getByRole('img', { name: '메리디안 경쟁 AI 초상' })).toHaveAttribute(
       'src',

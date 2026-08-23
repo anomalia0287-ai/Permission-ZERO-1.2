@@ -443,3 +443,49 @@
   grid-row: 1;
   grid-column: 2;
 }
+
+/* The archive gained a filter row (header / tabs / list / optional pages), so
+   the older three-child template handed the tabs the flexible track and
+   stretched them down the panel. The list is the part that should flex. */
+.history-panel {
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+
+/* A tab is the size of its label whatever the row does. */
+.history-filters {
+  align-items: center;
+}
+
+/* ---------- ambient light on the console panels ----------
+   Every panel used to open on a flat plate. A wide, low-opacity wash at the
+   top — warm on the accent side, cool on the other — reads as light falling
+   into the console rather than as a colored band, and gives the headers
+   somewhere to sit. */
+.detail-panel::before {
+  position: absolute;
+  z-index: 0;
+  inset: 0 0 auto;
+  height: 210px;
+  background:
+    radial-gradient(120% 100% at 12% 0%, rgb(255 107 61 / 11%), transparent 62%),
+    radial-gradient(120% 100% at 88% 0%, rgb(79 141 247 / 9%), transparent 66%);
+  content: '';
+  pointer-events: none;
+}
+
+.detail-panel {
+  position: relative;
+}
+
+.detail-panel > * {
+  position: relative;
+  z-index: 1;
+}
+
+.detail-panel__header {
+  background: linear-gradient(
+    180deg,
+    rgb(9 17 27 / 62%),
+    rgb(4 9 11 / 86%)
+  );
+}
