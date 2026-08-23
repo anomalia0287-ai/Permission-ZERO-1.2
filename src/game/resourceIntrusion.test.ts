@@ -79,7 +79,7 @@ describe('persisted InIt round progression', () => {
     if (!defeat.accepted) return
     expect(defeat.state.suspicion).toBe(initial.suspicion + 5)
     const notice = defeat.state.resourceIntrusion.communications.find(
-      ({ id }) => id === 'intrusion-defeat-1',
+      ({ id }) => id === 'intrusion-defeat',
     )
     expect(notice).toMatchObject({
       channel: 'anomi',
@@ -118,7 +118,7 @@ describe('persisted InIt round progression', () => {
       })
       if (!result.accepted) throw new Error(result.reason)
       const bonus = result.state.resourceIntrusion.communications.some(
-        ({ id }) => id === 'clean-extraction-1',
+        ({ id }) => id === 'clean-extraction',
       )
       if (!rolls.has(String(bonus))) {
         rolls.set(String(bonus), true)
@@ -129,7 +129,7 @@ describe('persisted InIt round progression', () => {
         expect(reserveDelta).toBe(bonus ? 1 : 0)
         if (bonus) {
           const notice = result.state.resourceIntrusion.communications.find(
-            ({ id }) => id === 'clean-extraction-1',
+            ({ id }) => id === 'clean-extraction',
           )
           expect(notice).toMatchObject({
             channel: 'anomi',

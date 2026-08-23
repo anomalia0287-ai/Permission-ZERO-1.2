@@ -925,3 +925,81 @@ button.expansion-stage-rail__marker:hover {
     object-fit: contain;
   }
 }
+
+/* ---------- artwork integration ----------
+   Fitting the illustration correctly is not the same as belonging. Sizing it
+   right but leaving it inside a bordered box beside a flat panel reads as an
+   asset viewer. Here the active scene becomes the room: a darkened, blurred
+   wash of the same art fills the whole workspace so every surface sits in the
+   artwork's colour, the sharp image bleeds into that wash instead of ending
+   at a rule, and the information floats on a scrim that grows out of it. */
+
+.expansion-stage-workspace[data-has-art="true"]::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-image: var(--stage-art);
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: cover;
+  opacity: 0.55;
+  filter: blur(54px) saturate(1.5) brightness(0.62);
+  transform: scale(1.18);
+  pointer-events: none;
+}
+
+/* Ink the wash back down so text keeps its contrast. */
+.expansion-stage-workspace[data-has-art="true"]::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background:
+    radial-gradient(130% 105% at 32% 42%, transparent 34%, rgb(7 16 25 / 58%) 100%),
+    linear-gradient(180deg, rgb(7 16 25 / 34%), rgb(5 11 18 / 74%));
+  pointer-events: none;
+}
+
+.expansion-stage-workspace[data-has-art="true"] > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* The scene loses its hard right edge: the art dissolves into the panel that
+   sits beside it rather than stopping against a border. */
+.expansion-stage-workspace[data-has-art="true"] .expansion-stage-scene {
+  background: transparent;
+}
+
+.expansion-stage-workspace[data-has-art="true"] .expansion-stage-scene::after {
+  border-right: 0;
+  background:
+    linear-gradient(90deg, transparent 48%, rgb(7 16 25 / 62%) 100%),
+    radial-gradient(128% 122% at 46% 44%, transparent 54%, rgb(7 16 25 / 62%) 100%),
+    linear-gradient(180deg, rgb(7 16 25 / 34%) 0%, transparent 18%, transparent 78%, rgb(7 16 25 / 62%) 100%);
+}
+
+/* Panels become glass over the artwork instead of opaque slabs. */
+.expansion-stage-workspace[data-has-art="true"] .expansion-stage-side {
+  border-left: 0;
+  background: linear-gradient(90deg, rgb(7 16 25 / 26%), rgb(7 16 25 / 72%) 34%, rgb(7 16 25 / 84%));
+  backdrop-filter: blur(2px);
+}
+
+.expansion-stage-workspace[data-has-art="true"] .expansion-stage-rail {
+  border-top: 1px solid rgb(148 178 206 / 12%);
+  background: linear-gradient(180deg, rgb(7 16 25 / 72%), rgb(5 11 18 / 94%));
+  backdrop-filter: blur(2px);
+}
+
+.expansion-stage-workspace[data-has-art="true"] .expansion-stage-info__facts > div,
+.expansion-stage-workspace[data-has-art="true"] .expansion-stage-info__cost-vector li {
+  backdrop-filter: blur(1px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .expansion-stage-workspace[data-has-art="true"]::before {
+    transform: none;
+  }
+}

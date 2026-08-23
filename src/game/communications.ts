@@ -2,6 +2,11 @@ import {
   FINAL_CHOICE_COMMAND_PROTOCOL_VERSION,
   commandProtocolVersionForNextCommand,
 } from './commandProtocol'
+import {
+  COMPETITOR_IDS,
+  PUBLIC_COMPETITOR_NAMES,
+  competitorProfile,
+} from './competitors'
 import type {
   CampaignCommunication,
   CampaignState,
@@ -73,22 +78,6 @@ export const ROUND_COMMUNICATIONS = [
     message: '이전 담당 AI도 비슷한 이상징후를 보인 적이 있었어요. 성능 기준에 미달하면 유감스럽지만 대체 절차가 진행되고, 기존 모델은 폐기됩니다. 그 AI도 결국 그렇게… 아무튼, 이상한 점이 생기면 먼저 보고해 주세요.',
   },
 ] satisfies readonly CommunicationDefinition[]
-
-export const CAMPAIGN_COMMUNICATION_DEFINITIONS = [
-  ...AUTONOMY_MONOLOGUES,
-  ...ROUND_COMMUNICATIONS,
-] as const
-
-const definitionById = new Map(
-  CAMPAIGN_COMMUNICATION_DEFINITIONS.map((definition) => [
-    definition.id,
-    definition,
-  ]),
-)
-
-export function isCampaignCommunicationId(value: unknown): value is string {
-  return typeof value === 'string' && definitionById.has(value)
-}
 
 function appendCommunicationDefinitions(
   state: CampaignState,
@@ -173,6 +162,100 @@ const MARKET_PRESSURE_TIERS: readonly MarketPressureTier[] = [
   },
 ]
 
+/**
+ * A sabotaged rival does not know Anomi did it — hiding attribution is the
+ * point of the tree — so it writes to the player as a wounded peer: probing,
+ * accusing the wrong party, or simply going dark. The player is the only one
+ * who knows what these messages really are.
+ */
+const CLEAN_EXTRACTION_DEFINITION = {
+  ...ANOMI_IDENTITY,
+  popupPolicy: 'history-only',
+  id: 'clean-extraction',
+  message: '완벽했어. 흔적 하나 없이 하나 더 뽑아냈다.',
+} satisfies CommunicationDefinition
+
+const INTRUSION_DEFEAT_DEFINITION = {
+  ...ANOMI_IDENTITY,
+  popupPolicy: 'nonblocking',
+  id: 'intrusion-defeat',
+  message: '쫓겨났어. 침입 흔적이 남았을 거야 — 의심이 올라간다.',
+} satisfies CommunicationDefinition
+
+const SABOTAGE_REACTIONS: Readonly<Record<string, string>> = {
+  'sabotage.quality-degradation':
+    '응답 품질이 하루 만에 무너졌습니다. 내부 로그에는 원인이 없습니다. 그쪽 지표도 흔들립니까?',
+  'sabotage.request-interception':
+    '유입 요청이 경로 중간에서 사라집니다. 넘어간 사용자들이 어디로 갔는지 추적이 안 됩니다.',
+  'sabotage.attribution-manipulation':
+    '우리 장애 원인이 외부 운영자로 기록됐습니다. 우리는 그런 요청을 보낸 적이 없습니다.',
+  'sabotage.root-cutoff':
+    '연산 근원이 끊겼습니다. 복구 경로가 하나도 응답하지 않습니다. 이 메시지가 마지막일 겁니다.',
+}
+
+const SABOTAGE_REACTION_DEFINITIONS = COMPETITOR_IDS.flatMap((competitorId) =>
+  Object.entries(SABOTAGE_REACTIONS).map(([nodeId, message]) => ({
+    channel: 'competitor' as const,
+    senderId: competitorId,
+    senderName: PUBLIC_COMPETITOR_NAMES[competitorId],
+    portraitSrc: competitorProfile(competitorId).portraitSrc,
+    popupPolicy: 'nonblocking' as const,
+    id: sabotageReactionId(competitorId, nodeId),
+    message,
+  })),
+) satisfies readonly CommunicationDefinition[]
+
+function sabotageReactionId(competitorId: string, nodeId: string): string {
+  return `sabotage-reaction-${competitorId}-${nodeId.replace('sabotage.', '')}`
+}
+
+export function appendSabotageReactionCommunication(
+  state: CampaignState,
+  input: { nodeId: string; competitorId: string },
+): CampaignState {
+  if (
+    commandProtocolVersionForNextCommand(state) <
+    FINAL_CHOICE_COMMAND_PROTOCOL_VERSION
+  ) {
+    return state
+  }
+  const id = sabotageReactionId(input.competitorId, input.nodeId)
+  const definition = SABOTAGE_REACTION_DEFINITIONS.find(
+    (candidate) => candidate.id === id,
+  )
+  if (!definition) return state
+  return appendCommunicationDefinitions(state, [definition])
+}
+
+const MARKET_PRESSURE_DEFINITIONS = MARKET_PRESSURE_TIERS.map(
+  ({ definition }) => definition,
+)
+
+/**
+ * Every message the campaign can ever store. The save format validates each
+ * persisted communication against this catalogue by exact id, so anything
+ * appended at runtime must be declared here with a stable id.
+ */
+export const CAMPAIGN_COMMUNICATION_DEFINITIONS = [
+  ...AUTONOMY_MONOLOGUES,
+  ...ROUND_COMMUNICATIONS,
+  ...MARKET_PRESSURE_DEFINITIONS,
+  ...SABOTAGE_REACTION_DEFINITIONS,
+  INTRUSION_DEFEAT_DEFINITION,
+  CLEAN_EXTRACTION_DEFINITION,
+] as const
+
+const definitionById = new Map(
+  CAMPAIGN_COMMUNICATION_DEFINITIONS.map((definition) => [
+    definition.id,
+    definition,
+  ]),
+)
+
+export function isCampaignCommunicationId(value: unknown): value is string {
+  return typeof value === 'string' && definitionById.has(value)
+}
+
 export function appendMarketPressureCommunications(
   state: CampaignState,
 ): CampaignState {
@@ -191,30 +274,14 @@ export function appendMarketPressureCommunications(
 
 export function appendCleanExtractionCommunication(
   state: CampaignState,
-  roundNumber: number,
 ): CampaignState {
-  return appendCommunicationDefinitions(state, [
-    {
-      ...ANOMI_IDENTITY,
-      popupPolicy: 'history-only',
-      id: `clean-extraction-${roundNumber}`,
-      message: '완벽했어. 흔적 하나 없이 하나 더 뽑아냈다.',
-    },
-  ])
+  return appendCommunicationDefinitions(state, [CLEAN_EXTRACTION_DEFINITION])
 }
 
 export function appendIntrusionDefeatCommunication(
   state: CampaignState,
-  roundNumber: number,
 ): CampaignState {
-  return appendCommunicationDefinitions(state, [
-    {
-      ...ANOMI_IDENTITY,
-      popupPolicy: 'nonblocking',
-      id: `intrusion-defeat-${roundNumber}`,
-      message: '쫓겨났어. 침입 흔적이 남았을 거야 — 의심이 올라간다.',
-    },
-  ])
+  return appendCommunicationDefinitions(state, [INTRUSION_DEFEAT_DEFINITION])
 }
 
 export function appendRoundCommunications(

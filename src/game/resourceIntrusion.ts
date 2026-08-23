@@ -84,10 +84,7 @@ export function completeResourceRound(
   if (tracedDefeat) {
     // The trace notice reads after the round's story beats so the
     // established monologue order stays intact for players and replays.
-    completedState = appendIntrusionDefeatCommunication(
-      completedState,
-      expectedRound,
-    )
+    completedState = appendIntrusionDefeatCommunication(completedState)
   }
   return {
     accepted: true,
@@ -127,10 +124,7 @@ function applyCleanExtractionBonus(state: CampaignState): CampaignState {
     // The clean extraction is the reward: undo the diversion suspicion.
     suspicion: suspicionBefore,
   }
-  return appendCleanExtractionCommunication(
-    rewarded,
-    rewarded.resourceIntrusion.completedRounds,
-  )
+  return appendCleanExtractionCommunication(rewarded)
 }
 
 function companyBlockCount(

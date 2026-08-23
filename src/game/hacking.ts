@@ -9,6 +9,7 @@ import {
   FINAL_CHOICE_COMMAND_PROTOCOL_VERSION,
   commandProtocolVersionForNextCommand,
 } from './commandProtocol'
+import { appendSabotageReactionCommunication } from './communications'
 import { DEMO_PROFILE_02 } from './config'
 import { appendEvent, createGameEvent } from './events'
 import {
@@ -1119,6 +1120,11 @@ export function resolveScheduledSabotage(
       rootCutoffTargetIds,
     },
   }
+
+  candidate = appendSabotageReactionCommunication(candidate, {
+    nodeId: node.id,
+    competitorId: target.id,
+  })
 
   const protocolVersion = commandProtocolVersionForNextCommand(state)
   const recordsFirstChain =

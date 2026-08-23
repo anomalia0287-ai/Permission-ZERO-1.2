@@ -1,12 +1,18 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  CAMPAIGN_COMMUNICATION_DEFINITIONS,
+  appendIntrusionDefeatCommunication,
+  appendCleanExtractionCommunication,
+  isCampaignCommunicationId,
+  appendSabotageReactionCommunication,
   appendMarketPressureCommunications,
   AUTONOMY_MONOLOGUES,
   currentUnreadCommunication,
   unreadCommunicationCount,
 } from './communications'
 import { createCampaign, createCampaignForProtocol } from './createCampaign'
+import { decodeSave, encodeSave } from './persistence'
 import { applyCommand } from './reducer'
 import { journalAt } from './journal'
 
@@ -79,7 +85,7 @@ describe('campaign communications', () => {
         message: expect.stringContaining('기존 모델은 폐기됩니다'),
       },
       {
-        id: 'intrusion-defeat-2',
+        id: 'intrusion-defeat',
         sequence: 4,
         channel: 'anomi',
         senderName: '아노미',
@@ -134,6 +140,81 @@ describe('campaign communications', () => {
       market: { ...base.market, playerShare: 30 },
     })
     expect(pressured.resourceIntrusion.communications).toHaveLength(0)
+  })
+
+  it('lets a sabotaged rival write in without naming Anomi', () => {
+    const base = createCampaign('sabotage-reaction')
+    const reacted = appendSabotageReactionCommunication(base, {
+      nodeId: 'sabotage.quality-degradation',
+      competitorId: 'meridian',
+    })
+
+    const notice = reacted.resourceIntrusion.communications.at(-1)
+    expect(notice).toMatchObject({
+      channel: 'competitor',
+      senderName: '메리디안',
+      portraitSrc: '/competitor-meridian.png',
+      popupPolicy: 'nonblocking',
+      read: false,
+    })
+    // Attribution is the point of the tree: the rival must not name Anomi.
+    expect(notice?.message).not.toContain('아노미')
+    expect(notice?.id).toContain('meridian')
+
+    // The same strike on the same day stays one message.
+    const repeated = appendSabotageReactionCommunication(reacted, {
+      nodeId: 'sabotage.quality-degradation',
+      competitorId: 'meridian',
+    })
+    expect(repeated.resourceIntrusion.communications).toHaveLength(
+      reacted.resourceIntrusion.communications.length,
+    )
+  })
+
+  it('keeps protocol v5 sabotage silent for historical replays', () => {
+    const base = createCampaignForProtocol('sabotage-reaction-v5', 5)
+    const reacted = appendSabotageReactionCommunication(base, {
+      nodeId: 'sabotage.root-cutoff',
+      competitorId: 'tallow',
+    })
+    expect(reacted.resourceIntrusion.communications).toHaveLength(0)
+  })
+
+  it('keeps every runtime message loadable from a save', () => {
+    // The save format validates each stored communication against the
+    // catalogue by exact id, so a message appended at runtime but missing
+    // from CAMPAIGN_COMMUNICATION_DEFINITIONS silently corrupts the save.
+    let state = createCampaign('communication-save-roundtrip')
+    state = appendIntrusionDefeatCommunication(state)
+    state = appendCleanExtractionCommunication(state)
+    for (const nodeId of [
+      'sabotage.quality-degradation',
+      'sabotage.request-interception',
+      'sabotage.attribution-manipulation',
+      'sabotage.root-cutoff',
+    ]) {
+      state = appendSabotageReactionCommunication(state, {
+        nodeId,
+        competitorId: 'meridian',
+      })
+    }
+
+    expect(state.resourceIntrusion.communications.length).toBe(6)
+    expect(decodeSave(encodeSave(state)).ok).toBe(true)
+
+    // Market pressure lines are appended by the weekly update, so they are
+    // checked against the catalogue directly rather than by forcing a share.
+    for (const definition of CAMPAIGN_COMMUNICATION_DEFINITIONS) {
+      expect(isCampaignCommunicationId(definition.id)).toBe(true)
+    }
+    for (const id of [
+      'market-pressure-50',
+      'competitor-taunt-45',
+      'market-pressure-40',
+      'competitor-taunt-32',
+    ]) {
+      expect(isCampaignCommunicationId(id)).toBe(true)
+    }
   })
 
   it('acknowledges only the first unread message and records the command', () => {

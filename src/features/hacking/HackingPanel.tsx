@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import * as audioEngine from '../../audio/audioEngine'
@@ -310,6 +311,14 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
           className="expansion-stage-workspace"
           data-scene-orientation={
             presentation.activeVisual?.orientation ?? 'landscape'
+          }
+          data-has-art={presentation.activeVisual ? 'true' : 'false'}
+          style={
+            presentation.activeVisual
+              ? ({
+                  '--stage-art': `url("${presentation.activeVisual.imageUrl}")`,
+                } as CSSProperties)
+              : undefined
           }
         >
           <ExpansionStageScene
