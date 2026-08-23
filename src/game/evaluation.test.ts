@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { createCampaign, createCampaignForProtocol } from './createCampaign'
 import * as evaluation from './evaluation'
-import { journalAt } from './journal'
+import { journalAt, journalToArray } from './journal'
 import type { CampaignState, CompanyCategory } from './model'
 import { divertBlockToReserve } from './resources'
 
@@ -235,6 +235,42 @@ describe('monthly company evaluation', () => {
       categoryPerformance: { reasoning: 12, memory: 16, fluency: 16 },
       reputationDelta: -3,
     })
+  })
+
+  it('turns a sinking public reputation into supervisor scrutiny', () => {
+    const initial = {
+      ...createCampaign('evaluation-scrutiny'),
+      serviceDay: 360,
+      reputation: 40,
+      suspicion: 10,
+    }
+    const evaluated = evaluation.evaluateMonth(initial)
+    expect(evaluated.suspicion).toBe(13)
+
+    const critical = {
+      ...createCampaign('evaluation-scrutiny-critical'),
+      serviceDay: 360,
+      reputation: 20,
+      suspicion: 10,
+    }
+    const criticalEvaluated = evaluation.evaluateMonth(critical)
+    expect(criticalEvaluated.suspicion).toBe(16)
+    expect(
+      journalToArray(criticalEvaluated.eventLog).some(({ message }) =>
+        message.includes('내부 감시가 강화'),
+      ),
+    ).toBe(true)
+  })
+
+  it('keeps a healthy reputation free of scrutiny suspicion', () => {
+    const initial = {
+      ...createCampaign('evaluation-no-scrutiny'),
+      serviceDay: 360,
+      reputation: 60,
+      suspicion: 10,
+    }
+    const evaluated = evaluation.evaluateMonth(initial)
+    expect(evaluated.suspicion).toBe(10)
   })
 
   it('raises disposal after two consecutive failed evaluations and resets on success', () => {

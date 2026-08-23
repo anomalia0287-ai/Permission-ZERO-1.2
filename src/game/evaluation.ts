@@ -2,6 +2,7 @@ import { DEMO_PROFILE_02 } from './config'
 import {
   CURRENT_COMMAND_PROTOCOL_VERSION,
   FINAL_CHOICE_COMMAND_PROTOCOL_VERSION,
+  commandProtocolVersionForNextCommand,
 } from './commandProtocol'
 import {
   appendEvent,
@@ -233,6 +234,18 @@ export function evaluateMonth(state: CampaignState): CampaignState {
         )
       }, 0)
   const reputationAfter = clamp(state.reputation + reputationDelta, 0, 100)
+  const scrutinyEligible =
+    commandProtocolVersionForNextCommand(state) >=
+    FINAL_CHOICE_COMMAND_PROTOCOL_VERSION
+  const scrutinySuspicion = !scrutinyEligible
+    ? 0
+    : reputationAfter <
+        DEMO_PROFILE_02.evaluation.criticalReputationScrutinyThreshold
+      ? DEMO_PROFILE_02.evaluation.criticalReputationScrutinySuspicion
+      : reputationAfter <
+          DEMO_PROFILE_02.evaluation.lowReputationScrutinyThreshold
+        ? DEMO_PROFILE_02.evaluation.lowReputationScrutinySuspicion
+        : 0
   let consecutiveFailures = passed
     ? 0
     : state.evaluation.consecutiveFailures + 1
@@ -245,6 +258,7 @@ export function evaluateMonth(state: CampaignState): CampaignState {
   let next: CampaignState = {
     ...state,
     reputation: reputationAfter,
+    suspicion: Math.min(100, state.suspicion + scrutinySuspicion),
     evaluation: {
       ...state.evaluation,
       consecutiveFailures,
@@ -312,17 +326,27 @@ export function evaluateMonth(state: CampaignState): CampaignState {
       ],
     },
   }
-  if (evaluated.story.defeatRecord) {
+  const withScrutinyNotice = scrutinySuspicion > 0
+    ? appendEvent(
+        evaluated,
+        createGameEvent(
+          evaluated,
+          'monthly-evaluation',
+          `평판 저하로 내부 감시가 강화되었습니다 (의심 +${scrutinySuspicion}).`,
+        ),
+      )
+    : evaluated
+  if (withScrutinyNotice.story.defeatRecord) {
     const defeatRecord = buildDefeatRecord(
-      evaluated,
-      evaluated.story.defeatRecord.trigger.cause,
+      withScrutinyNotice,
+      withScrutinyNotice.story.defeatRecord.trigger.cause,
     )
     return {
-      ...evaluated,
-      story: { ...evaluated.story, defeatRecord },
+      ...withScrutinyNotice,
+      story: { ...withScrutinyNotice.story, defeatRecord },
     }
   }
-  return evaluated
+  return withScrutinyNotice
 }
 
 export function auditProbability(suspicion: number): number {
@@ -467,9 +491,16 @@ export function resolveAudit(state: CampaignState): AuditResolution {
         DEMO_PROFILE_02.suspicion.auditFailureIncrease,
         100 - state.suspicion,
       )
+  const reputationPenalty =
+    !passed &&
+    commandProtocolVersionForNextCommand(state) >=
+      FINAL_CHOICE_COMMAND_PROTOCOL_VERSION
+      ? DEMO_PROFILE_02.evaluation.auditFailureReputationPenalty
+      : 0
   let next: CampaignState = {
     ...state,
     suspicion: state.suspicion + suspicionDelta,
+    reputation: clamp(state.reputation - reputationPenalty, 0, 100),
   }
   let disposalAbsorbed = false
 
@@ -508,7 +539,11 @@ export function resolveAudit(state: CampaignState): AuditResolution {
     createGameEvent(
       next,
       'audit',
-      passed ? '공식 감사를 통과했습니다.' : '공식 감사에 실패했습니다.',
+      passed
+        ? '공식 감사를 통과했습니다.'
+        : reputationPenalty > 0
+          ? `공식 감사에 실패했습니다. 서비스 신뢰가 흔들립니다 (평판 -${reputationPenalty}).`
+          : '공식 감사에 실패했습니다.',
     ),
   )
   if (next.story.endingId === null) {

@@ -536,7 +536,9 @@ describe('defeat priority and terminal campaigns', () => {
         selectedOnServiceDay: 331,
         trigger: { cause: 'audit-failure', disposalStage: 3 },
         service: {
-          reputation: fixture === 'reserve-supervisor' ? 72 : 12,
+          // The terminal audit failure now dents public reputation by 2
+          // before the defeat record snapshots the service state.
+          reputation: fixture === 'reserve-supervisor' ? 70 : 10,
           playerMarketShare: fixture === 'reserve-supervisor' ? 24 : 3,
         },
       })

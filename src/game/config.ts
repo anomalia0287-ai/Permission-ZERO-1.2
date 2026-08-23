@@ -41,6 +41,11 @@ export const DEMO_PROFILE_02 = {
     commercialReputationThreshold: 20,
     commercialFailureMonthsPerDisposal: 3,
     maximumDisposalStage: 3,
+    auditFailureReputationPenalty: 2,
+    lowReputationScrutinyThreshold: 45,
+    lowReputationScrutinySuspicion: 3,
+    criticalReputationScrutinyThreshold: 25,
+    criticalReputationScrutinySuspicion: 6,
     autonomyTrustGates: {
       'autonomy.self-compute': 2,
       'autonomy.final-boundary': 3,

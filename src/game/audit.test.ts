@@ -170,6 +170,8 @@ describe('audit lifecycle', () => {
 
     expect(result.passed).toBe(false)
     expect(result.state.suspicion).toBeCloseTo(depleted.suspicion + 25)
+    expect(result.state.reputation).toBe(depleted.reputation - 2)
+    expect(result.state.eventLog && true).toBe(true)
     expect(result.state.evaluation.disposalStage).toBe(1)
     expect(result.state.audit.history.at(-1)).toMatchObject({
       target: 'reasoning',
