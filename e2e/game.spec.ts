@@ -662,18 +662,26 @@ test('moves continuously and preserves tap, chord, reverse, and stalled-input se
   await openFreshCampaign(page)
 
   const canvas = await startSnakeRound(page)
+  // Movement is asserted by polling the condition instead of assuming a fixed
+  // wall-clock window: a loaded machine drops frames, and "140ms elapsed" is
+  // not the product contract. "the snake keeps moving north" is.
+  await expect.poll(
+    async () => (await readSnakeSnapshot(canvas)).player.y,
+    { timeout: 1_500 },
+  ).toBeLessThan(21)
   const initial = await readSnakeSnapshot(canvas)
   expect(initial.phase).toBe('active')
   expect(initial.player).toMatchObject({ x: 25, integrity: 100, heading: 'north' })
-  expect(initial.player.y).toBeLessThan(21)
   expect(initial.enemies).toHaveLength(1)
   await expect(canvas).toHaveAttribute('data-enemy-planner', 'cyan-readable-hunter')
   await expect(canvas).toHaveAttribute('data-control-model', 'tap-to-turn')
 
-  await page.waitForTimeout(140)
+  await expect.poll(
+    async () => (await readSnakeSnapshot(canvas)).player.y,
+    { timeout: 1_500 },
+  ).toBeLessThan(initial.player.y - 1)
   const automatic = await readSnakeSnapshot(canvas)
   expect(automatic.player.x).toBeCloseTo(initial.player.x, 1)
-  expect(automatic.player.y).toBeLessThan(initial.player.y - 1)
   expect(Math.hypot(automatic.player.velocity.x, automatic.player.velocity.y))
     .toBeCloseTo(automatic.player.maximumSpeedPerSecond, 1)
 
@@ -681,9 +689,11 @@ test('moves continuously and preserves tap, chord, reverse, and stalled-input se
   await expect.poll(async () => (await readSnakeSnapshot(canvas)).player.heading)
     .toBe('east')
   const afterTap = await readSnakeSnapshot(canvas)
-  await page.waitForTimeout(160)
+  await expect.poll(
+    async () => (await readSnakeSnapshot(canvas)).player.x,
+    { timeout: 1_500 },
+  ).toBeGreaterThan(afterTap.player.x + 1)
   const afterRelease = await readSnakeSnapshot(canvas)
-  expect(afterRelease.player.x).toBeGreaterThan(afterTap.player.x + 1)
   expect(afterRelease.input.pressedKeys).toEqual([])
   expect(afterRelease.player.trailDots).toBeGreaterThan(0)
 
@@ -951,6 +961,11 @@ test('reserves exactly one bot resource and returns it on player defeat', async 
   expect(playerDefeat.events).toContainEqual(expect.objectContaining({
     type: 'player-defeated',
   }))
+  // A lost round raises the defeat trace notice first, then the campaign's
+  // round-one story beats queue behind it.
+  const popup = page.getByRole('dialog', { name: '독백 · 아노미' })
+  await expect(popup).toContainText('의심이 올라간다')
+  await popup.getByRole('button', { name: '메시지 확인' }).click()
   await confirmFirstRoundMonologues(page)
   await page.screenshot({ path: 'artifacts/cyan-lightcycle/player-death-1366x650.png' })
   await expect(canvas).toHaveAttribute('data-round-phase', 'idle', { timeout: 5_000 })

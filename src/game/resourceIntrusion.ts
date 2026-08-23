@@ -77,21 +77,21 @@ export function completeResourceRound(
       lastOutcome: outcome,
     },
   }
+  if (outcome === 'victory' && currentEra) {
+    completedState = applyCleanExtractionBonus(completedState)
+  }
+  completedState = appendRoundCommunications(completedState, expectedRound)
   if (tracedDefeat) {
+    // The trace notice reads after the round's story beats so the
+    // established monologue order stays intact for players and replays.
     completedState = appendIntrusionDefeatCommunication(
       completedState,
       expectedRound,
     )
   }
-  if (outcome === 'victory' && currentEra) {
-    completedState = applyCleanExtractionBonus(completedState)
-  }
   return {
     accepted: true,
-    state: generateInItReviews(
-      appendRoundCommunications(completedState, expectedRound),
-      expectedRound,
-    ),
+    state: generateInItReviews(completedState, expectedRound),
   }
 }
 

@@ -322,15 +322,13 @@ test('keeps a light retro-future instrument shell around the dark game fields', 
   await waitForFiniteAnimations(
     page.locator('.detail-layer--hacking .detail-layer__content'),
   )
-  expect(await minimumRgbChannel(hacking.locator('.hacking-panel'))).toBeGreaterThan(230)
-  expect(await minimumRgbChannel(hacking.locator('.expansion-stage-info')))
-    .toBeGreaterThan(230)
-  expect(await minimumRgbChannel(hacking.locator('.expansion-stage-operations')))
-    .toBeGreaterThan(230)
-  expect(await minimumRgbChannel(hacking.locator('.expansion-stage-rail')))
-    .toBeGreaterThan(230)
+  // The expansion overlay commits to the approved dark operations console:
+  // every chrome surface shares the illustration's ink-navy ground.
+  expect(await maximumRgbChannel(hacking.locator('.hacking-panel'))).toBeLessThan(45)
+  expect(await maximumRgbChannel(hacking.locator('.expansion-stage-rail')))
+    .toBeLessThan(45)
   expect(await maximumRgbChannel(hacking.locator('.expansion-stage-scene')))
-    .toBeLessThan(40)
+    .toBeLessThan(45)
   await expect(hacking.locator('.expansion-stage-scene img')).toHaveCount(1)
   await expect(hacking.locator('.hack-node')).toHaveCount(0)
   await page.screenshot({
@@ -342,7 +340,7 @@ test('keeps a light retro-future instrument shell around the dark game fields', 
   expect(errors).toEqual([])
 })
 
-test('presents the full-screen expansion as a four-zone paper stage workspace', async ({
+test('presents the full-screen expansion as a four-zone dark console workspace', async ({
   page,
 }) => {
   await openFreshCampaign(page)
@@ -376,14 +374,16 @@ test('presents the full-screen expansion as a four-zone paper stage workspace', 
     hacking.getByRole('tab', { selected: true }),
     'backgroundColor',
   )
-  const currentStageSurface = await rgbChannels(
+  const currentStageBorder = await rgbChannels(
     rail.locator('[data-stage-status="current"] .expansion-stage-rail__marker'),
-    'backgroundColor',
+    'borderTopColor',
   )
-  expect(Math.min(activeTabColor.red, activeTabColor.green, activeTabColor.blue))
-    .toBeGreaterThanOrEqual(230)
-  expect(Math.min(currentStageSurface.red, currentStageSurface.green, currentStageSurface.blue))
-    .toBeGreaterThanOrEqual(230)
+  // Active surfaces carry the Anomi orange accent on the dark console.
+  expect(activeTabColor.red).toBeGreaterThan(200)
+  expect(activeTabColor.blue).toBeLessThan(120)
+  expect(currentStageBorder.red).toBeGreaterThan(200)
+  expect(currentStageBorder.blue).toBeLessThan(120)
+  expect(await maximumRgbChannel(rail)).toBeLessThan(45)
 
   await expect(rail.locator('[data-stage-status]')).toHaveCount(9)
   await expect(rail.getByRole('img', { name: '자율성 1단계 현재 단계' })).toBeVisible()
