@@ -135,8 +135,7 @@ export function IntroTutorialOverlay({
 
     const targets = [
       document.querySelector('[data-tutorial-target="resource-field"]'),
-      document.querySelector('[data-tutorial-target="play-button"]'),
-      document.querySelector('[data-tutorial-target="secured-resources"]'),
+      document.querySelector('[data-tutorial-target="intrusion-targets"]'),
       document.querySelector('[data-tutorial-target="hacking-button"]'),
       document.querySelector('[data-tutorial-target="statistics-button"]'),
       document.querySelector('[data-tutorial-target="autonomy-status"]'),

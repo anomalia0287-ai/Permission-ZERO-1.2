@@ -58,21 +58,6 @@ describe('intro tutorial', () => {
     })
     root.append(cards)
 
-    const secured = document.createElement('section')
-    secured.dataset.tutorialTarget = 'secured-resources'
-    secured.getBoundingClientRect = () => ({
-      ...CANVAS_RECT,
-      left: 1160,
-      right: 1280,
-      top: 80,
-      bottom: 250,
-      width: 120,
-      height: 170,
-      x: 1160,
-      y: 80,
-    })
-    root.append(secured)
-
     const hacking = document.createElement('button')
     hacking.dataset.tutorialTarget = 'hacking-button'
     hacking.getBoundingClientRect = () => ({

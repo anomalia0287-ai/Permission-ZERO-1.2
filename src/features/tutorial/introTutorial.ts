@@ -131,12 +131,12 @@ export function resolveIntroTutorialTarget(
     return targetFromRects([canvasRect])
   }
 
-  const secured = cards
-    ?? root.querySelector('[data-tutorial-target="secured-resources"]')
+  // Legacy saves can still carry the retired 'deposit' step; the secured
+  // counts it pointed at now live on the intrusion cards.
   if (stepId === 'deposit') {
     return targetFromRects([
       canvasRect,
-      ...(secured ? [rectOf(secured)] : []),
+      ...(cards ? [rectOf(cards)] : []),
     ])
   }
 

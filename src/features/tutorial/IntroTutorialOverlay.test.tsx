@@ -67,7 +67,6 @@ function TutorialHarness({ enabled = true }: { enabled?: boolean }) {
           data-tutorial-resource-y="5"
         />
         <section data-tutorial-target="intrusion-targets">침투 대상 선택</section>
-        <section data-tutorial-target="secured-resources">확보 자원</section>
         <button type="button" data-tutorial-target="hacking-button">
           확장
         </button>
@@ -104,11 +103,8 @@ beforeEach(() => {
       if (this.dataset.tutorialTarget === 'resource-field') {
         return elementRect(canvasLeft, 50, 1000, 480)
       }
-      if (this.dataset.tutorialTarget === 'play-button') {
+      if (this.dataset.tutorialTarget === 'intrusion-targets') {
         return elementRect(canvasLeft + 440, 440, 120, 44)
-      }
-      if (this.dataset.tutorialTarget === 'secured-resources') {
-        return elementRect(1140, 80, 120, 170)
       }
       if (this.dataset.tutorialTarget === 'hacking-button') {
         return elementRect(1140, 420, 120, 68)
