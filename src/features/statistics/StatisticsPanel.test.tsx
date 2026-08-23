@@ -6,7 +6,8 @@ import { StateContext } from '../../app/GameContext'
 import { createCampaign } from '../../game/createCampaign'
 import { encodeSave, SAVE_STORAGE_KEY } from '../../game/persistence'
 import { MemoryStorage } from '../../test/fixtures'
-import { performanceChartRange, StatisticsPanel } from './StatisticsPanel'
+import { StatisticsPanel } from './StatisticsPanel'
+import { performanceChartRange } from './performanceChartRange'
 
 describe('StatisticsPanel', () => {
   it('draws an exact labeled market history and exposes the same values as a table', () => {
