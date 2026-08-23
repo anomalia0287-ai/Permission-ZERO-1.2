@@ -287,9 +287,9 @@ describe('HackingPanel stage-scene expansion UI', () => {
     const requirements = screen.getByRole('list', {
       name: '자율성 1단계 분야별 요구량',
     })
-    expect(requirements).toHaveTextContent('빨강 · 추론 1')
-    expect(requirements).toHaveTextContent('파랑 · 기억 0')
-    expect(requirements).toHaveTextContent('노랑 · 유창성 0')
+    expect(requirements).toHaveTextContent('추론 1')
+    expect(requirements).toHaveTextContent('기억 0')
+    expect(requirements).toHaveTextContent('유창성 0')
     expect(within(requirements).queryByRole('button')).not.toBeInTheDocument()
     expect(requirements.querySelector('[draggable="true"]')).not.toBeInTheDocument()
   })

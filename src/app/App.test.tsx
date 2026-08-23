@@ -333,9 +333,10 @@ describe('entry flow', () => {
     if (!canvas) throw new Error('튜토리얼 자원 필드가 없습니다.')
     const startX = Number(canvas.dataset.playerX)
     expect(canvas).toHaveAttribute('data-combat-loop', 'eight-way-dot-lightcycle')
-    expect(document.querySelector('.resource-snake-board__play')).toBeInTheDocument()
+    // The intrusion cards are both the round entry point and the home of the
+    // secured counts, so the tutorial anchors on them.
     expect(
-      document.querySelector('[data-tutorial-target="secured-resources"]'),
+      document.querySelector('[data-tutorial-target="intrusion-targets"]'),
     ).toBeInTheDocument()
     expect(
       document.querySelector('[data-tutorial-target="hacking-button"]'),
@@ -409,7 +410,6 @@ function renderAndContinueCampaign() {
 }
 
 async function startMemoryIntrusionRound() {
-  fireEvent.click(screen.getByRole('button', { name: /^InIt$/ }))
   const targets = await screen.findByRole(
     'region',
     { name: '침투 대상 선택' },
@@ -483,9 +483,10 @@ describe('App', () => {
     expect(screen.queryByLabelText(/미확인 메시지/)).not.toBeInTheDocument()
     expect(screen.queryByRole('region', { name: '최근 감독 메시지' })).not.toBeInTheDocument()
     expect(screen.queryByLabelText('자원 색상 범례')).not.toBeInTheDocument()
-    expect(screen.getByRole('region', { name: '확보 자원' })).toHaveTextContent('추론0')
-    expect(screen.getByRole('region', { name: '확보 자원' })).toHaveTextContent('기억0')
-    expect(screen.getByRole('region', { name: '확보 자원' })).toHaveTextContent('유창성0')
+    const cards = screen.getByRole('region', { name: '침투 대상 선택' })
+    expect(cards).toHaveTextContent('추론')
+    expect(cards).toHaveTextContent('기억')
+    expect(cards).toHaveTextContent('유창성')
     expect(screen.queryByRole('button', { name: /회수/ })).not.toBeInTheDocument()
     expect(screen.queryByLabelText('조작 안내')).not.toBeInTheDocument()
   })
@@ -507,7 +508,7 @@ describe('App', () => {
     expect(canvas).toHaveAttribute('data-player-shape', 'circle')
     expect(canvas).toHaveAttribute('data-round-phase', 'idle')
     expect(canvas).toHaveAttribute('data-player-integrity', '100')
-    expect(screen.getByRole('button', { name: /^InIt$/ })).toBeEnabled()
+    expect(screen.getByRole('region', { name: '침투 대상 선택' })).toBeInTheDocument()
   })
 
   it('moves from an ordinary focused control without requiring a canvas click', async () => {
@@ -550,7 +551,7 @@ describe('App', () => {
 
     expect(canvas).toHaveAttribute('data-round-phase', 'idle')
     expect(canvas).toHaveAttribute('data-player-x', initialX)
-    expect(screen.getByRole('button', { name: /^InIt$/ })).toBeEnabled()
+    expect(screen.getByRole('region', { name: '침투 대상 선택' })).toBeInTheDocument()
   })
 
   it('starts one quiet movement loop when the always-moving round becomes active', async () => {

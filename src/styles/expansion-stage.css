@@ -901,3 +901,27 @@ button.expansion-stage-rail__marker:hover {
     transition: none;
   }
 }
+
+/* Portrait scene art (sabotage) gets a narrower stage so the illustration
+   fills its frame; the freed width goes to the information column instead of
+   sitting as two black bars beside a floating picture. */
+.expansion-stage-workspace[data-scene-orientation="portrait"] {
+  grid-template-columns: minmax(0, 0.92fr) minmax(360px, 1fr);
+}
+
+.expansion-stage-workspace[data-scene-orientation="portrait"]
+  .expansion-stage-scene img {
+  object-fit: cover;
+  object-position: center top;
+}
+
+@media (max-width: 900px) {
+  .expansion-stage-workspace[data-scene-orientation="portrait"] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .expansion-stage-workspace[data-scene-orientation="portrait"]
+    .expansion-stage-scene img {
+    object-fit: contain;
+  }
+}

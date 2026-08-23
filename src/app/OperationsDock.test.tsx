@@ -22,7 +22,7 @@ function divertOne(
 }
 
 describe('OperationsDock', () => {
-  it('uses the freed identity space for secured resource counts and keeps three labeled tools', () => {
+  it('keeps three labeled tools and leaves secured counts to the intrusion cards', () => {
     const handlers = {
       onOpenMessages: vi.fn(),
       onOpenStatistics: vi.fn(),
@@ -53,17 +53,9 @@ describe('OperationsDock', () => {
     expect(screen.queryByRole('img', { name: '플레이어 지성체 초상' })).not.toBeInTheDocument()
     expect(screen.queryByText(/의심 \d+단계/)).not.toBeInTheDocument()
 
-    const inventory = screen.getByRole('region', { name: '확보 자원' })
-    expect(inventory).toHaveAttribute('data-tutorial-target', 'secured-resources')
-    expect(inventory).toHaveTextContent('추론2')
-    expect(inventory).toHaveTextContent('기억1')
-    expect(inventory).toHaveTextContent('유창성0')
-    expect(inventory.querySelector('[data-resource-category="reasoning"]'))
-      .toHaveAttribute('data-has-resource', 'true')
-    expect(inventory.querySelector('[data-resource-category="memory"]'))
-      .toHaveAttribute('data-has-resource', 'true')
-    expect(inventory.querySelector('[data-resource-category="fluency"]'))
-      .toHaveAttribute('data-has-resource', 'false')
+    // Secured counts now live on the intrusion cards, beside the action that
+    // changes them, instead of being mirrored in a separate rail.
+    expect(screen.queryByRole('region', { name: '확보 자원' })).not.toBeInTheDocument()
 
     for (const [name, handler] of buttons) {
       const button = screen.getByRole('button', { name })

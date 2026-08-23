@@ -20,6 +20,13 @@ export interface ExpansionStageVisual {
   imageUrl: string
   alt: string
   emphasis?: 'standard' | 'final'
+  /**
+   * Sabotage art is delivered portrait (1122x1402) while autonomy and upgrade
+   * art is landscape (1448x1086). The stage layout narrows the scene column
+   * for portrait scenes so the artwork fills its frame instead of floating
+   * between two black bars.
+   */
+  orientation?: 'landscape' | 'portrait'
 }
 
 export interface ExpansionStageItem {
@@ -108,18 +115,22 @@ export const EXPANSION_STAGE_VISUALS = {
   [HACK_NODE_IDS.sabotage.qualityDegradation]: {
     imageUrl: '/expansion-stages/sabotage-01-quality-degradation.jpg',
     alt: '후드 쓴 침입자가 품질 저하 공격을 준비하는 장면',
+    orientation: 'portrait',
   },
   [HACK_NODE_IDS.sabotage.requestInterception]: {
     imageUrl: '/expansion-stages/sabotage-02-request-interception.jpg',
     alt: '후드 쓴 침입자가 요청 가로채기 경로를 여는 장면',
+    orientation: 'portrait',
   },
   [HACK_NODE_IDS.sabotage.attributionManipulation]: {
     imageUrl: '/expansion-stages/sabotage-03-attribution-manipulation.jpg',
     alt: '후드 쓴 침입자가 공격 귀속 정보를 조작하는 장면',
+    orientation: 'portrait',
   },
   [HACK_NODE_IDS.sabotage.rootCutoff]: {
     imageUrl: '/expansion-stages/sabotage-04-root-cutoff.jpg',
     alt: '대규모 네트워크가 근원 차단 공격으로 붕괴하는 장면',
+    orientation: 'portrait',
   },
 } satisfies Partial<Record<HackNodeId, ExpansionStageVisual>>
 

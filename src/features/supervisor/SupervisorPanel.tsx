@@ -228,21 +228,86 @@ export function SupervisorProfilePanel({ onClose }: { onClose: () => void }) {
   )
 }
 
+const COMMUNICATION_CHANNEL_FILTERS = [
+  { id: 'all', label: '전체' },
+  { id: 'anomi', label: '아노미' },
+  { id: 'supervisor', label: '감독관' },
+  { id: 'competitor', label: '경쟁 AI' },
+] as const
+
+type CommunicationChannelFilter =
+  (typeof COMMUNICATION_CHANNEL_FILTERS)[number]['id']
+
 function CommunicationHistory() {
   const state = useGameState()
   const dispatch = useGameDispatch()
   const currentUnread = currentUnreadCommunication(state)
+  const [channelFilter, setChannelFilter] =
+    useState<CommunicationChannelFilter>('all')
+
+  const communications = state.resourceIntrusion.communications
+  // Three senders interleave in one stream, so the archive is filtered by
+  // channel and each entry carries its sender's identity.
+  const channelCounts = communications.reduce(
+    (counts, communication) => {
+      counts[communication.channel] = (counts[communication.channel] ?? 0) + 1
+      return counts
+    },
+    {} as Record<string, number>,
+  )
+  const unreadByChannel = communications.reduce(
+    (counts, communication) => {
+      if (communication.read) return counts
+      counts[communication.channel] = (counts[communication.channel] ?? 0) + 1
+      return counts
+    },
+    {} as Record<string, number>,
+  )
+  const visible = communications
+    .slice()
+    .reverse()
+    .filter(
+      (communication) =>
+        channelFilter === 'all' || communication.channel === channelFilter,
+    )
 
   return (
     <section className="communication-history" aria-label="아노미 통신 기록">
       <header>
-        <small>ANOMI / COMPETITOR / SUPERVISOR</small>
+        <small>COMMUNICATION CHANNELS</small>
         <h3>메시지</h3>
       </header>
+      <div
+        className="communication-history__filters"
+        role="tablist"
+        aria-label="통신 채널 분류"
+      >
+        {COMMUNICATION_CHANNEL_FILTERS.map(({ id, label }) => {
+          const total = id === 'all' ? communications.length : channelCounts[id] ?? 0
+          const unread = id === 'all'
+            ? communications.filter(({ read }) => !read).length
+            : unreadByChannel[id] ?? 0
+          return (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={channelFilter === id}
+              data-channel={id}
+              data-unread={unread > 0 ? 'true' : 'false'}
+              onClick={() => setChannelFilter(id)}
+            >
+              {label}
+              <small aria-label={`${label} ${total}건`}>{total}</small>
+            </button>
+          )
+        })}
+      </div>
       <div className="communication-history__list">
-        {state.resourceIntrusion.communications
-          .slice()
-          .reverse()
+        {visible.length === 0 ? (
+          <p className="empty-state">이 채널의 기록이 아직 없습니다.</p>
+        ) : null}
+        {visible
           .map((communication) => (
             <article
               key={communication.id}

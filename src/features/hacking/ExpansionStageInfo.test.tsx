@@ -25,9 +25,9 @@ describe('ExpansionStageInfo', () => {
       '현재 단계',
       '첫 자율성 신호를 유지합니다.',
       '총 리소스 1',
-      '빨강 · 추론 1',
-      '파랑 · 기억 0',
-      '노랑 · 유창성 0',
+      '추론 1',
+      '기억 0',
+      '유창성 0',
       '선행 단계 없음',
     ]
     const positions = orderedCopy.map((entry) => copy.indexOf(entry))

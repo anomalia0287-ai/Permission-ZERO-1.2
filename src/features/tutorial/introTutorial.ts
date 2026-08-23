@@ -116,8 +116,12 @@ export function resolveIntroTutorialTarget(
     return targetFromRects([autonomy ? rectOf(autonomy) : canvasRect])
   }
 
+  // The round now starts from the intrusion cards, and the secured counts
+  // live on those same cards, so both steps point at them.
+  const cards = root.querySelector('[data-tutorial-target="intrusion-targets"]')
   if (stepId === 'base') {
-    const play = root.querySelector('[data-tutorial-target="play-button"]')
+    const play = cards
+      ?? root.querySelector('[data-tutorial-target="play-button"]')
     return targetFromRects([play ? rectOf(play) : canvasRect])
   }
 
@@ -129,7 +133,8 @@ export function resolveIntroTutorialTarget(
     return targetFromRects([canvasRect])
   }
 
-  const secured = root.querySelector('[data-tutorial-target="secured-resources"]')
+  const secured = cards
+    ?? root.querySelector('[data-tutorial-target="secured-resources"]')
   if (stepId === 'deposit') {
     return targetFromRects([
       canvasRect,

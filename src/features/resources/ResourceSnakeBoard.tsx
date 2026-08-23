@@ -7,7 +7,7 @@ import {
   useRuntimeSuspended,
 } from '../../app/GameContext'
 import { playGameSound, unlockGameAudio } from '../../audio/audioEngine'
-import { speedUpgradeLevel } from '../../game/hacking'
+import { reserveOriginCounts, speedUpgradeLevel } from '../../game/hacking'
 import type { CompanyCategory } from '../../game/model'
 import {
   ResourceIntrusionTargetCards,
@@ -266,11 +266,15 @@ function resourceSnakePlannerSnapshot(
 
 function ResourceSnakeBoardSession() {
   const gameState = useGameState()
+  const securedCounts = reserveOriginCounts(gameState)
   const dispatch = useGameDispatch()
   const { settings } = useGameSettings()
   const runtimeSuspended = useRuntimeSuspended()
   const [runtime, setRuntime] = useState(createIdleResourceSnakeState)
-  const [boardPhase, setBoardPhase] = useState<ResourceIntrusionBoardPhase>('ready')
+  // The board opens on the target cards. The old circular InIt gate was a
+  // one-time click that carried no decision, so it only delayed the first
+  // round; the cards themselves are the entry point.
+  const [boardPhase, setBoardPhase] = useState<ResourceIntrusionBoardPhase>('choosing')
   const [selectedCategory, setSelectedCategory] = useState<CompanyCategory | null>(null)
   const [canvasRevision, setCanvasRevision] = useState(0)
   const [renderTimingRing] = useState(createResourceSnakeRenderTimingRing)
@@ -776,6 +780,7 @@ function ResourceSnakeBoardSession() {
         ) ? (
           <ResourceIntrusionTargetCards
             candidates={candidates}
+            securedCounts={securedCounts}
             phase={visibleBoardPhase}
             selectedCategory={visibleBoardPhase === 'launching' ? selectedCategory : null}
             reducedMotion={settings.reducedMotion}

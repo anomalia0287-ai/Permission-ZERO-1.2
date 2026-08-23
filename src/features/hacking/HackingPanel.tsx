@@ -306,7 +306,12 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
       >
         <HackTreeNavigator activeTree={activeTree} onChange={changeTree} />
 
-        <div className="expansion-stage-workspace">
+        <div
+          className="expansion-stage-workspace"
+          data-scene-orientation={
+            presentation.activeVisual?.orientation ?? 'landscape'
+          }
+        >
           <ExpansionStageScene
             item={presentation.activeItem}
             visual={presentation.activeVisual}

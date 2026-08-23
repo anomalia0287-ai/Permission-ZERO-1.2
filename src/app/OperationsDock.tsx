@@ -1,8 +1,5 @@
 import { useGameState } from './GameContext'
 import { pendingSupervisorMessageCount } from './useSupervisorMessagePresentation'
-import { CATEGORY_LABELS } from '../game/config'
-import { reserveOriginCounts } from '../game/hacking'
-import { COMPANY_CATEGORIES } from '../game/model'
 import { unreadCommunicationCount } from '../game/communications'
 
 type DockAction = (trigger: HTMLButtonElement) => void
@@ -51,7 +48,6 @@ export function OperationsDock({
   const state = useGameState()
   const messageCount =
     pendingSupervisorMessageCount(state) + unreadCommunicationCount(state)
-  const securedResources = reserveOriginCounts(state)
   const tools = [
     { id: 'messages', label: '메시지 열기', shortLabel: '메시지', icon: <MessageIcon />, action: onOpenMessages },
     { id: 'statistics', label: '상세 통계 열기', shortLabel: '통계', icon: <StatisticsIcon />, action: onOpenStatistics },
@@ -64,32 +60,6 @@ export function OperationsDock({
       aria-label="운영 도구"
       data-surface="charcoal"
     >
-      <section
-        className="operations-dock__inventory"
-        aria-label="확보 자원"
-        data-tutorial-target="secured-resources"
-      >
-        <header>
-          <span aria-hidden="true" />
-          <strong>확보 자원</strong>
-        </header>
-        <div className="operations-dock__inventory-list">
-          {COMPANY_CATEGORIES.map((category) => (
-            <div
-              key={category}
-              data-resource-category={category}
-              data-has-resource={securedResources[category] > 0 ? 'true' : 'false'}
-            >
-              <i aria-hidden="true" />
-              <span>{CATEGORY_LABELS[category]}</span>
-              <output aria-label={`${CATEGORY_LABELS[category]} ${securedResources[category]}개`}>
-                {securedResources[category]}
-              </output>
-            </div>
-          ))}
-        </div>
-      </section>
-
       <div className="operations-dock__tools">
       {tools.map(({ id, label, shortLabel, icon, action }) => (
         <button

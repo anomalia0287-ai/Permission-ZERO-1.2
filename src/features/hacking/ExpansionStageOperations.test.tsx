@@ -109,7 +109,7 @@ describe('ExpansionStageOperations', () => {
       name: '자율성 1단계 필요 리소스 부족',
     })
     expect(disabledSpend).toBeDisabled()
-    expect(operations).toHaveTextContent('빨강 · 추론 1개 부족')
+    expect(operations).toHaveTextContent('추론 1개 부족')
     fireEvent.click(disabledSpend)
     expect(callbacks.onPurchase).not.toHaveBeenCalled()
   })

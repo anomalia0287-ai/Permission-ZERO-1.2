@@ -254,3 +254,79 @@
 .game-shell[data-ui-shell="aurora-black"] .operations-dock__inventory-list strong {
   color: var(--console-ink-strong);
 }
+
+/* ---------- communication archive ---------- */
+
+/* Three senders share one stream, so the archive filters by channel and each
+   entry keeps its sender's colour on the leading edge. */
+.communication-history__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.communication-history__filters button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 11px;
+  border: 1px solid var(--console-line, rgb(148 178 206 / 16%));
+  border-radius: 2px;
+  color: var(--console-muted, #8da0af);
+  background: transparent;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    color 140ms ease,
+    border-color 140ms ease,
+    background-color 140ms ease;
+}
+
+.communication-history__filters button:hover {
+  color: var(--console-ink, #dfe7ee);
+  border-color: var(--console-line-strong, rgb(148 178 206 / 28%));
+}
+
+.communication-history__filters button[aria-selected="true"] {
+  color: #f4f8fb;
+  border-color: var(--console-accent, #ff6b3d);
+  background: var(--console-accent-dim, rgb(255 107 61 / 14%));
+}
+
+.communication-history__filters button small {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgb(148 178 206 / 16%);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* An unread channel announces itself without needing to be opened. */
+.communication-history__filters button[data-unread="true"] small {
+  color: #fff7f2;
+  background: var(--console-accent, #ff6b3d);
+}
+
+.communication-history__list article {
+  color: var(--console-ink, #dfe7ee);
+  border-color: rgb(148 178 206 / 16%);
+  background: rgb(255 255 255 / 4%);
+}
+
+.communication-history__list article[data-read="false"] {
+  background: rgb(255 255 255 / 7%);
+}
+
+.communication-history__list article[data-communication-channel="supervisor"] {
+  border-left-color: #7fa8d8;
+}
+
+.communication-history__list article > header strong {
+  color: var(--console-ink-strong, #f4f8fb);
+}
+
+.communication-history__list article > header time,
+.communication-history__list article p {
+  color: var(--console-muted, #8da0af);
+}

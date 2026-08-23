@@ -27,6 +27,7 @@ describe('ResourceIntrusionTargetCards', () => {
           candidate('reasoning', 'reasoning-01'),
           candidate('reasoning', 'reasoning-02'),
         ]}
+        securedCounts={{ reasoning: 2, memory: 1, fluency: 0 }}
         phase="choosing"
         selectedCategory={null}
         reducedMotion={false}
@@ -54,7 +55,14 @@ describe('ResourceIntrusionTargetCards', () => {
     )
     expect(screen.getByRole('button', { name: '파랑 기억 침투' })).toBeEnabled()
     expect(screen.getByRole('button', { name: '노랑 유창성 대상 없음' })).toBeDisabled()
-    expect(screen.getByText('대상 2')).toBeInTheDocument()
+    // The cube already carries the color, so the card shows the two numbers a
+    // choice needs: what is held and what can be taken this round.
+    expect(screen.getByLabelText('추론 대상 2개')).toHaveTextContent('2')
+    expect(screen.getByLabelText('추론 확보 2개')).toHaveTextContent('2')
+    expect(screen.getByLabelText('기억 확보 1개')).toHaveTextContent('1')
+    expect(screen.queryByText('파랑')).not.toBeInTheDocument()
+    expect(screen.queryByText('빨강')).not.toBeInTheDocument()
+    expect(screen.queryByText('노랑')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '빨강 추론 침투' }))
     expect(onSelect).toHaveBeenCalledTimes(1)
@@ -69,6 +77,7 @@ describe('ResourceIntrusionTargetCards', () => {
           candidate('reasoning', 'reasoning-01'),
           candidate('fluency', 'fluency-01'),
         ]}
+        securedCounts={{ reasoning: 2, memory: 1, fluency: 0 }}
         phase="launching"
         selectedCategory="reasoning"
         reducedMotion

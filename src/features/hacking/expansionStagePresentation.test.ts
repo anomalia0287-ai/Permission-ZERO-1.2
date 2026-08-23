@@ -24,6 +24,7 @@ const VISUAL_CASES: readonly {
   imageUrl: string
   alt: string
   emphasis?: 'final'
+  orientation?: 'portrait'
 }[] = [
   ...AUTONOMY_STAGE_IDS.map((_, index) => ({
     tree: 'autonomy' as const,
@@ -88,6 +89,8 @@ const VISUAL_CASES: readonly {
       '후드 쓴 침입자가 공격 귀속 정보를 조작하는 장면',
       '대규모 네트워크가 근원 차단 공격으로 붕괴하는 장면',
     ][index],
+    // Sabotage art is portrait, so the stage narrows its scene column.
+    orientation: 'portrait' as const,
   })),
 ]
 
@@ -157,7 +160,7 @@ describe('selectExpansionStagePresentation', () => {
 
   it.each(VISUAL_CASES)(
     'maps $tree stage $stage to its approved single scene',
-    ({ tree, nodeIds, stage, imageUrl, alt, emphasis }) => {
+    ({ tree, nodeIds, stage, imageUrl, alt, emphasis, orientation }) => {
       const state = createCampaign(`expansion-stage-${tree}-${stage}-visual`)
       state.hacking.purchasedNodeIds = [...nodeIds.slice(0, stage - 1)]
 
@@ -168,6 +171,7 @@ describe('selectExpansionStagePresentation', () => {
         imageUrl,
         alt,
         ...(emphasis ? { emphasis } : {}),
+        ...(orientation ? { orientation } : {}),
       })
     },
   )

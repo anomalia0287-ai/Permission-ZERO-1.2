@@ -12,6 +12,7 @@ export type ResourceIntrusionTargetPhase = 'choosing' | 'launching'
 
 interface ResourceIntrusionTargetCardsProps {
   candidates: readonly SnakeResourceCandidate[]
+  securedCounts: Readonly<Record<CompanyCategory, number>>
   phase: ResourceIntrusionTargetPhase
   selectedCategory: CompanyCategory | null
   reducedMotion: boolean
@@ -25,6 +26,7 @@ type TargetCardStyle = CSSProperties & {
 
 export function ResourceIntrusionTargetCards({
   candidates,
+  securedCounts,
   phase,
   selectedCategory,
   reducedMotion,
@@ -42,6 +44,7 @@ export function ResourceIntrusionTargetCards({
     >
       {RESOURCE_INTRUSION_TARGETS.map((target, index) => {
         const count = counts[target.category]
+        const secured = securedCounts[target.category]
         const available = count > 0
         const selected = selectedCategory === target.category
         const actionLabel = available
@@ -71,9 +74,23 @@ export function ResourceIntrusionTargetCards({
               <span aria-hidden="true">{String(index + 1).padStart(2, '0')}</span>
             </div>
             <div className="resource-intrusion-target-card__copy">
-              <span>{target.colorName}</span>
               <strong>{target.resourceName}</strong>
-              <small>{available ? `대상 ${count}` : '확보 가능한 리소스 없음'}</small>
+              <dl className="resource-intrusion-target-card__stats">
+                <div data-stat="secured">
+                  <dt>확보</dt>
+                  <dd
+                    aria-label={`${target.resourceName} 확보 ${secured}개`}
+                  >
+                    {secured}
+                  </dd>
+                </div>
+                <div data-stat="targets">
+                  <dt>대상</dt>
+                  <dd aria-label={`${target.resourceName} 대상 ${count}개`}>
+                    {count}
+                  </dd>
+                </div>
+              </dl>
             </div>
             <button
               type="button"

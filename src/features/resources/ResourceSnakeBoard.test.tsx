@@ -90,8 +90,6 @@ function dispatchTimedKeyboardEvent(
 function startTargetedResourceRound(
   targetName = '파랑 기억 침투',
 ): void {
-  fireEvent.click(screen.getByRole('button', { name: /^InIt$/ }))
-  act(() => vi.advanceTimersByTime(2_000))
   fireEvent.click(screen.getByRole('button', { name: targetName }))
   act(() => vi.advanceTimersByTime(240))
 }
@@ -167,10 +165,9 @@ describe('ResourceSnakeBoard', () => {
     expect(canvas).toHaveAttribute('height', '480')
   })
 
-  it('opens target cards from a circular InIt before deploying the selected color', () => {
+  it('opens directly on the intrusion cards before deploying the selected color', () => {
     vi.useFakeTimers()
-    const playSound = vi.spyOn(audioEngineModule, 'playGameSound')
-      .mockReturnValue(true)
+    vi.spyOn(audioEngineModule, 'playGameSound').mockReturnValue(true)
     render(
       <GameProvider storage={new MemoryStorage()} initialSeed="snake-board-target-cards">
         <ResourceSnakeBoard />
@@ -178,19 +175,8 @@ describe('ResourceSnakeBoard', () => {
     )
 
     const arena = screen.getByRole('application', { name: '리소스 뱀 전투장' })
-    const init = screen.getByRole('button', { name: /^InIt$/ })
-    expect(init).toHaveClass('resource-snake-board__play--round')
-    expect(screen.queryByRole('region', { name: '침투 대상 선택' }))
-      .not.toBeInTheDocument()
-
-    fireEvent.click(init)
-    expect(init).toHaveAttribute('aria-busy', 'true')
-    expect(playSound).toHaveBeenCalledWith('snake-init-suction')
-
-    act(() => vi.advanceTimersByTime(1_999))
-    expect(screen.queryByRole('region', { name: '침투 대상 선택' }))
-      .not.toBeInTheDocument()
-    act(() => vi.advanceTimersByTime(1))
+    // The cards are the entry point; there is no separate gate to click first.
+    expect(screen.queryByRole('button', { name: /^InIt$/ })).not.toBeInTheDocument()
     expect(screen.getByRole('region', { name: '침투 대상 선택' }))
       .toBeInTheDocument()
 
@@ -223,7 +209,7 @@ describe('ResourceSnakeBoard', () => {
     expect(screen.getAllByRole('button', { name: /침투$/ })).toHaveLength(3)
   })
 
-  it('deploys a real snake round when InIt is pressed', () => {
+  it('deploys a real snake round when an intrusion card is chosen', () => {
     vi.useFakeTimers()
     render(
       <GameProvider storage={new MemoryStorage()} initialSeed="snake-board-play">
@@ -241,8 +227,7 @@ describe('ResourceSnakeBoard', () => {
     expect(arena).toHaveAttribute('data-player-silhouette', 'circle')
     expect(arena).toHaveAttribute('data-speed-scale', '0.500')
 
-    const initButton = screen.getByRole('button', { name: /^InIt$/ })
-    expect(initButton).toHaveTextContent(/^InIt$/)
+    expect(screen.getByRole('region', { name: '침투 대상 선택' })).toBeInTheDocument()
     startTargetedResourceRound()
 
     expect(arena).toHaveAttribute('data-round-phase', 'deploying')

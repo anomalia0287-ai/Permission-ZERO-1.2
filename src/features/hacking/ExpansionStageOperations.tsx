@@ -131,7 +131,6 @@ export function ExpansionStageOperations(
                 const categoryPresentation = RESOURCE_PRESENTATION[category]
                 return (
                   <li data-category={category} key={category}>
-                    {categoryPresentation.colorName} ·{' '}
                     {categoryPresentation.label} {missing}개 부족
                   </li>
                 )

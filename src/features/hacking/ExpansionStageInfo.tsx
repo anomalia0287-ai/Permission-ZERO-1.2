@@ -19,12 +19,6 @@ export function ExpansionStageInfo({ item }: ExpansionStageInfoProps) {
     : status === 'current'
       ? '현재 단계'
       : '잠김'
-  const colorNames = {
-    reasoning: '빨강',
-    memory: '파랑',
-    fluency: '노랑',
-  } as const
-
   return (
     <section className="expansion-stage-info" aria-label="기능 정보">
       <h3>기능 정보</h3>
@@ -64,8 +58,7 @@ export function ExpansionStageInfo({ item }: ExpansionStageInfoProps) {
         >
           {COMPANY_CATEGORIES.map((category) => (
             <li data-category={category} key={category}>
-              {colorNames[category]} · {CATEGORY_LABELS[category]}{' '}
-              {node.costVector[category]}
+              {CATEGORY_LABELS[category]} {node.costVector[category]}
             </li>
           ))}
         </ul>

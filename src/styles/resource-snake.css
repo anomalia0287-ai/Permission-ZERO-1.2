@@ -431,31 +431,60 @@
 
 .resource-intrusion-target-card__copy {
   display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 3px 8px;
-  align-items: baseline;
+  gap: 8px;
+  align-content: start;
   min-height: 64px;
-  padding: 10px 12px;
+  padding: 11px 12px 12px;
   border-top: 1px solid color-mix(in srgb, var(--target-card-color) 40%, transparent);
   background: #070a0e;
 }
 
-.resource-intrusion-target-card__copy > span {
-  color: var(--target-card-color);
-  font: 700 0.58rem/1 var(--font-mono, monospace);
-  letter-spacing: 0.08em;
-}
-
 .resource-intrusion-target-card__copy > strong {
   color: inherit;
-  font: 740 clamp(0.86rem, 1.1vw, 1.08rem)/1 var(--font-sans, sans-serif);
+  font: 740 clamp(0.95rem, 1.2vw, 1.16rem)/1 var(--font-sans, sans-serif);
 }
 
-.resource-intrusion-target-card__copy > small {
-  grid-column: 1 / -1;
-  color: rgba(215, 224, 234, 0.66);
-  font: 600 0.55rem/1.2 var(--font-mono, monospace);
-  letter-spacing: 0.03em;
+/* Two numbers, because a raid needs both: what is already held, and what can
+   be taken this round. The held count is the running total the expansion
+   spends, so it carries the card's color. */
+.resource-intrusion-target-card__stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin: 0;
+}
+
+.resource-intrusion-target-card__stats > div {
+  display: grid;
+  gap: 2px;
+  padding: 6px 8px;
+  border: 1px solid rgba(148, 178, 206, 0.16);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.resource-intrusion-target-card__stats dt {
+  color: rgba(215, 224, 234, 0.6);
+  font: 650 0.62rem/1 var(--font-mono, monospace);
+  letter-spacing: 0.06em;
+}
+
+.resource-intrusion-target-card__stats dd {
+  margin: 0;
+  font: 760 1.12rem/1 var(--font-sans, sans-serif);
+  font-variant-numeric: tabular-nums;
+}
+
+.resource-intrusion-target-card__stats [data-stat="secured"] dd {
+  color: var(--target-card-color);
+}
+
+.resource-intrusion-target-card__stats [data-stat="targets"] dd {
+  color: rgba(228, 236, 244, 0.92);
+}
+
+.resource-intrusion-target-card[data-available="false"]
+  .resource-intrusion-target-card__stats [data-stat="targets"] dd {
+  color: rgba(215, 224, 234, 0.38);
 }
 
 .resource-intrusion-target-card > button {
