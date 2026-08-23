@@ -4,11 +4,13 @@ import {
   advanceResourceSnakeFrame,
   createIdleResourceSnakeState,
   deployResourceSnakeRound,
+  evaluateResourceSnakeEnemyHeadingSafety,
   flushResourceSnakeRuntimeChord,
   pressResourceSnakeRuntimeKey,
   releaseResourceSnakeRuntimeKey,
   resetResourceSnakeRuntimeInput,
   RESOURCE_SNAKE_CONFIG,
+  resourceSnakeRoundSpeedScale,
   trailDotScale,
   type ResourceSnakeRoundState,
   type SnakeActor,
@@ -18,6 +20,7 @@ import {
 } from './resourceSnakeRuntime'
 import { reconcileSnakeReservations } from './resourceSnakeEncounter'
 import {
+  SNAKE_DIRECTION_VECTORS,
   createResourceSnakeInputState,
   flushResourceSnakeChord,
   pressResourceSnakeKey,
@@ -47,6 +50,18 @@ function activeState(): ResourceSnakeRoundState {
 }
 
 describe('resource snake fixed-step movement kernel', () => {
+  it('ramps one shared round speed from 50 percent to 75 percent over thirty seconds', () => {
+    expect(resourceSnakeRoundSpeedScale(0)).toBe(0.5)
+    expect(resourceSnakeRoundSpeedScale(RESOURCE_SNAKE_CONFIG.deploymentMs)).toBe(0.5)
+    expect(resourceSnakeRoundSpeedScale(
+      RESOURCE_SNAKE_CONFIG.deploymentMs + 15_000,
+    )).toBe(0.625)
+    expect(resourceSnakeRoundSpeedScale(
+      RESOURCE_SNAKE_CONFIG.deploymentMs + 30_000,
+    )).toBe(0.75)
+    expect(resourceSnakeRoundSpeedScale(Number.POSITIVE_INFINITY)).toBe(0.75)
+  })
+
   it('keeps the round deploying through 359ms and activates at 360ms', () => {
     let state = deployResourceSnakeRound(createIdleResourceSnakeState(), setup)
     for (const deltaMs of [100, 100, 100, 59]) {
@@ -61,24 +76,24 @@ describe('resource snake fixed-step movement kernel', () => {
     expect(state.simulationMs).toBe(360)
   })
 
-  it('keeps resolution visible through 519ms and returns idle at 520ms', () => {
+  it('keeps victory extraction visible through 819ms and returns idle at 820ms', () => {
     let state: ResourceSnakeRoundState = {
       ...activeState(),
       phase: 'resolving',
       resolvingMs: 0,
     }
-    for (const deltaMs of [100, 100, 100, 100, 100, 19]) {
+    for (const deltaMs of [100, 100, 100, 100, 100, 100, 100, 100, 19]) {
       state = advanceResourceSnakeFrame(state, input, deltaMs)
     }
 
     expect(state.phase).toBe('resolving')
-    expect(state.resolvingMs).toBe(519)
+    expect(state.resolvingMs).toBe(RESOURCE_SNAKE_CONFIG.roundResolveMs - 1)
 
     state = advanceResourceSnakeFrame(state, input, 1)
     expect(state.phase).toBe('idle')
   })
 
-  it('uses an encounter-provided enemy speed at full magnitude on its first active step', () => {
+  it('applies the opening round scale to encounter-provided enemy speed', () => {
     let state = deployResourceSnakeRound(createIdleResourceSnakeState(), {
       roundId: 'speed-round',
       playerSpawn: { x: 25, y: 21 },
@@ -99,9 +114,11 @@ describe('resource snake fixed-step movement kernel', () => {
       enemyDirections: { 'enemy-0': { x: 1, y: 0 } },
     }, RESOURCE_SNAKE_CONFIG.fixedStepMs)
 
-    expect(state.enemies[0].velocity).toEqual({ x: 6.2, y: 0 })
+    const expectedSpeed = 6.2 * resourceSnakeRoundSpeedScale(state.simulationMs)
+    expect(state.enemies[0].velocity.x).toBeCloseTo(expectedSpeed, 8)
+    expect(state.enemies[0].velocity.y).toBe(0)
     expect(state.enemies[0].position.x).toBeCloseTo(
-      16 + 6.2 * RESOURCE_SNAKE_CONFIG.fixedStepMs / 1000,
+      16 + expectedSpeed * RESOURCE_SNAKE_CONFIG.fixedStepMs / 1000,
       8,
     )
   })
@@ -125,24 +142,27 @@ describe('resource snake fixed-step movement kernel', () => {
       enemyDirectionSchedules: {
         'enemy-0': [
           { atMs: state.simulationMs, direction: { x: 1, y: 0 } },
-          { atMs: state.simulationMs + stepMs * 2, direction: { x: 0, y: 1 } },
+          { atMs: state.simulationMs + 700, direction: { x: 1, y: 1 } },
         ],
       },
     }
-    const coarse = advanceResourceSnakeFrame(state, scheduledInput, stepMs * 4)
+    let coarse = state
+    for (let index = 0; index < 8; index += 1) {
+      coarse = advanceResourceSnakeFrame(coarse, scheduledInput, 100)
+    }
     let split = state
-    for (let index = 0; index < 4; index += 1) {
+    for (let index = 0; index < 96; index += 1) {
       split = advanceResourceSnakeFrame(split, scheduledInput, stepMs)
     }
 
-    expect(coarse.enemies[0].heading).toBe('south')
-    expect(split.enemies[0].heading).toBe('south')
+    expect(coarse.enemies[0].heading).toBe('south-east')
+    expect(split.enemies[0].heading).toBe('south-east')
     expect(split.enemies[0].position.x).toBeCloseTo(coarse.enemies[0].position.x, 10)
     expect(split.enemies[0].position.y).toBeCloseTo(coarse.enemies[0].position.y, 10)
     expect(split.enemies[0].trail).toEqual(coarse.enemies[0].trail)
   })
 
-  it('moves the player at full speed immediately and never treats missing input as stop', () => {
+  it('moves the player at opening round speed and never treats missing input as stop', () => {
     const state = activeState()
     const next = advanceResourceSnakeFrame(
       state,
@@ -151,11 +171,11 @@ describe('resource snake fixed-step movement kernel', () => {
     )
 
     expect(next.player.position.y).toBeLessThan(state.player.position.y)
-    expect(next.player.velocity).toEqual({
-      x: 0,
-      y: -RESOURCE_SNAKE_CONFIG.playerMaximumSpeedPerSecond,
-    })
-    expect(Math.hypot(next.player.velocity.x, next.player.velocity.y)).toBe(12)
+    const expectedSpeed = RESOURCE_SNAKE_CONFIG.playerMaximumSpeedPerSecond
+      * resourceSnakeRoundSpeedScale(next.simulationMs)
+    expect(next.player.velocity.x).toBe(0)
+    expect(next.player.velocity.y).toBeCloseTo(-expectedSpeed, 8)
+    expect(Math.hypot(next.player.velocity.x, next.player.velocity.y)).toBeCloseTo(expectedSpeed, 8)
   })
 
   it('normalizes a diagonal hard turn without reducing player speed', () => {
@@ -168,7 +188,8 @@ describe('resource snake fixed-step movement kernel', () => {
 
     expect(next.player.velocity.x).toBeCloseTo(next.player.velocity.y)
     expect(Math.hypot(next.player.velocity.x, next.player.velocity.y)).toBeCloseTo(
-      RESOURCE_SNAKE_CONFIG.playerMaximumSpeedPerSecond,
+      RESOURCE_SNAKE_CONFIG.playerMaximumSpeedPerSecond
+        * resourceSnakeRoundSpeedScale(next.simulationMs),
     )
   })
 
@@ -206,16 +227,18 @@ describe('resource snake fixed-step movement kernel', () => {
     )
 
     expect(next.player.heading).toBe('east')
-    expect(next.player.velocity).toEqual({
-      x: RESOURCE_SNAKE_CONFIG.playerMaximumSpeedPerSecond,
-      y: 0,
-    })
+    expect(next.player.velocity.x).toBeCloseTo(
+      RESOURCE_SNAKE_CONFIG.playerMaximumSpeedPerSecond
+        * resourceSnakeRoundSpeedScale(next.simulationMs),
+      8,
+    )
+    expect(next.player.velocity.y).toBe(0)
     expect(next.player.railVertices).toEqual([turnPoint])
     expect(next.player.position.x).toBeGreaterThan(turnPoint.x)
     expect(next.player.position.y).toBe(turnPoint.y)
   })
 
-  it('rejects a direct reverse and malformed command while retaining full-speed heading', () => {
+  it('rejects a direct reverse and malformed command while retaining live heading', () => {
     const state = activeState()
     const reversed = advanceResourceSnakeFrame(
       state,
@@ -230,10 +253,12 @@ describe('resource snake fixed-step movement kernel', () => {
 
     expect(reversed.player.heading).toBe('north')
     expect(malformed.player.heading).toBe('north')
-    expect(malformed.player.velocity).toEqual({
-      x: 0,
-      y: -RESOURCE_SNAKE_CONFIG.playerMaximumSpeedPerSecond,
-    })
+    expect(malformed.player.velocity.x).toBe(0)
+    expect(malformed.player.velocity.y).toBeCloseTo(
+      -RESOURCE_SNAKE_CONFIG.playerMaximumSpeedPerSecond
+        * resourceSnakeRoundSpeedScale(malformed.simulationMs),
+      8,
+    )
   })
 
   it('consumes one queued turn per fixed step and keeps the second turn queued', () => {
@@ -312,7 +337,11 @@ describe('resource snake fixed-step movement kernel', () => {
       RESOURCE_SNAKE_CONFIG.fixedStepMs,
     )
     expect(moved.player.heading).toBe('north')
-    expect(Math.hypot(moved.player.velocity.x, moved.player.velocity.y)).toBe(12)
+    expect(Math.hypot(moved.player.velocity.x, moved.player.velocity.y)).toBeCloseTo(
+      RESOURCE_SNAKE_CONFIG.playerMaximumSpeedPerSecond
+        * resourceSnakeRoundSpeedScale(moved.simulationMs),
+      8,
+    )
     expect(moved.events.filter(({ type }) => type === 'snake-turn-rejected')).toHaveLength(1)
   })
 
@@ -365,10 +394,14 @@ describe('resource snake fixed-step movement kernel', () => {
 
     expect(moving.player.trail.length).toBeGreaterThan(0)
     expect(continued.player.trail.length).toBeGreaterThan(moving.player.trail.length)
-    expect(Math.hypot(continued.player.velocity.x, continued.player.velocity.y)).toBeCloseTo(12)
+    expect(Math.hypot(continued.player.velocity.x, continued.player.velocity.y)).toBeCloseTo(
+      RESOURCE_SNAKE_CONFIG.playerMaximumSpeedPerSecond
+        * resourceSnakeRoundSpeedScale(continued.simulationMs),
+      8,
+    )
   })
 
-  it('never lets an active enemy command fall below 92 percent of configured speed', () => {
+  it('never lets an active enemy command fall below 92 percent of round-scaled speed', () => {
     let state = deployResourceSnakeRound(createIdleResourceSnakeState(), {
       roundId: 'minimum-live-speed',
       playerSpawn: { x: 25, y: 21 },
@@ -390,7 +423,703 @@ describe('resource snake fixed-step movement kernel', () => {
     }, RESOURCE_SNAKE_CONFIG.fixedStepMs)
 
     expect(Math.hypot(state.enemies[0].velocity.x, state.enemies[0].velocity.y))
-      .toBeGreaterThanOrEqual(9.2)
+      .toBeGreaterThanOrEqual(9.2 * resourceSnakeRoundSpeedScale(state.simulationMs))
+  })
+
+  it('holds an ordinary enemy heading for at least 700ms before accepting another turn', () => {
+    let state = openEnemyTurnState()
+    state = oneStep(state, {
+      enemyDirections: { 'enemy-1': { x: 1, y: 0 } },
+    })
+    expect(state.enemies[0].heading).toBe('east')
+
+    for (let index = 0; index < 83; index += 1) {
+      state = oneStep(state, {
+        enemyDirections: { 'enemy-1': { x: 0, y: -1 } },
+      })
+    }
+    expect(state.enemies[0].heading).toBe('east')
+
+    state = oneStep(state, {
+      enemyDirections: { 'enemy-1': { x: 0, y: -1 } },
+    })
+    expect(state.enemies[0].heading).toBe('north')
+  })
+
+  it('rejects a 135-degree ordinary turn so planned cyan bends stay readable', () => {
+    const state = openEnemyTurnState()
+
+    const next = oneStep(state, {
+      enemyDirections: { 'enemy-1': { x: -1, y: -1 } },
+    })
+
+    expect(next.enemies[0].heading).toBe('south')
+    expect(next.enemies[0].enemyTurnGovernor!.lastHeadingChangeAtMs).toBeNull()
+  })
+
+  it('rejects an ordinary heading that cannot survive its hold plus emergency reaction window', () => {
+    const state = openEnemyTurnState()
+    const eastbound = fastActor(
+      state.enemies[0],
+      { x: 25, y: 9.9 },
+      { x: 20, y: 0 },
+    )
+
+    const next = oneStep({ ...state, enemies: [eastbound] }, {
+      enemyDirections: { 'enemy-1': { x: 0, y: -1 } },
+      enemyTurnPolicies: { 'enemy-1': { minimumHeadingHoldMs: 900 } },
+    })
+
+    expect(next.enemies[0].heading).toBe('east')
+  })
+
+  it('does not panic before a legal planned turn that still has emergency reaction margin', () => {
+    const state = openEnemyTurnState()
+    const simulationMs = state.simulationMs
+    const eastbound = {
+      ...fastActor(
+        state.enemies[0],
+        { x: 40.4, y: 12 },
+        { x: 20, y: 0 },
+      ),
+      collisionGraceMs: 10_000,
+      enemyTurnGovernor: {
+        lastHeadingChangeAtMs: simulationMs - 400,
+        previousHeading: 'north' as const,
+        normalTurnAtMs: [simulationMs - 400],
+        lastEmergencyTurnAtMs: null,
+        lockedUntilMs: 0,
+        lastTurnCause: 'normal' as const,
+      },
+    }
+    const prepared = { ...state, enemies: [eastbound] }
+    const collisionAtMs = evaluateResourceSnakeEnemyHeadingSafety(
+      prepared,
+      'enemy-1',
+      'east',
+      1_200,
+    )!.collisionAtMs
+
+    expect(collisionAtMs).toBeGreaterThan(800)
+    expect(collisionAtMs).toBeLessThan(1_200)
+
+    const next = oneStep(prepared, {
+      enemyDirections: { 'enemy-1': { x: 1, y: 0 } },
+      enemyTurnPolicies: { 'enemy-1': { minimumHeadingHoldMs: 900 } },
+    })
+
+    expect(next.enemies[0].heading).toBe('east')
+    expect(next.enemies[0].enemyTurnGovernor!.lastTurnCause).toBe('normal')
+  })
+
+  it('does not accept a merely less-fatal ordinary heading inside its protected window', () => {
+    const state = openEnemyTurnState()
+    const eastbound = fastActor(
+      state.enemies[0],
+      { x: 45, y: 9 },
+      { x: 20, y: 0 },
+    )
+
+    const next = oneStep({ ...state, enemies: [eastbound] }, {
+      enemyDirections: { 'enemy-1': { x: 0, y: -1 } },
+      enemyTurnPolicies: { 'enemy-1': { minimumHeadingHoldMs: 900 } },
+    })
+
+    expect(next.enemies[0].heading).toBe('east')
+  })
+
+  it('reserves half a trail spacing around projected enemy paths', () => {
+    const state = openEnemyTurnState()
+    const prepared = {
+      ...state,
+      player: {
+        ...state.player,
+        trail: [matureDot(77, 28, 12.6, state.simulationMs)],
+      },
+    }
+
+    expect(
+      evaluateResourceSnakeEnemyHeadingSafety(prepared, 'enemy-1', 'east')?.collisionAtMs,
+    ).toBeLessThan(Number.POSITIVE_INFINITY)
+  })
+
+  it('reserves one full trail spacing around an ally trail in a dual encounter', () => {
+    const state = activeCollisionState(2)
+    const pressure = fastActor(state.enemies[0], { x: 10, y: 10 }, { x: 20, y: 0 })
+    const blocker = fastActor(
+      state.enemies[1],
+      { x: 42, y: 15 },
+      { x: 0, y: 0 },
+      [matureDot(78, 13, 10.75, state.simulationMs)],
+    )
+
+    expect(evaluateResourceSnakeEnemyHeadingSafety({
+      ...state,
+      enemies: [pressure, blocker],
+    }, 'enemy-1', 'east')?.collisionAtMs).toBeLessThan(Number.POSITIVE_INFINITY)
+  })
+
+  it('projects a moving player head instead of rating a head-on lane as safe', () => {
+    const state = openEnemyTurnState()
+    const simulationMs = 45_101.666_666_668_35
+    const prepared = {
+      ...state,
+      simulationMs,
+      player: fastActor(
+        state.player,
+        { x: 34.322_670_069_887_92, y: 16.278_936_899_929_04 },
+        { x: 12, y: 0 },
+      ),
+      enemies: [fastActor(
+        state.enemies[0],
+        { x: 37.139_181_590_082_764, y: 16.840_727_553_340_347 },
+        { x: -8.7, y: 0 },
+      )],
+    }
+
+    const west = evaluateResourceSnakeEnemyHeadingSafety(
+      prepared,
+      'enemy-1',
+      'west',
+      1_200,
+    )!
+
+    expect(west.collisionAtMs).toBeLessThan(400)
+  })
+
+  it('reserves one full trail spacing before crossing an older self trail', () => {
+    const state = openEnemyTurnState()
+    const enemy = fastActor(
+      state.enemies[0],
+      { x: 10, y: 10 },
+      { x: 20, y: 0 },
+      [matureDot(79, 13, 10.75, state.simulationMs)],
+    )
+
+    expect(evaluateResourceSnakeEnemyHeadingSafety({
+      ...state,
+      enemies: [enemy],
+    }, 'enemy-1', 'east')?.collisionAtMs).toBeLessThan(Number.POSITIVE_INFINITY)
+  })
+
+  it('accepts no more than two ordinary enemy turns in a rolling two-second window', () => {
+    let state = openEnemyTurnState()
+    let previousHeading = state.enemies[0].heading
+    const turnTimes: number[] = []
+
+    for (let index = 0; index < 240; index += 1) {
+      const direction = index % 2 === 0
+        ? { x: 1, y: 0 }
+        : { x: 0, y: -1 }
+      state = oneStep(state, {
+        enemyDirections: { 'enemy-1': direction },
+      })
+      const heading = state.enemies[0].heading
+      if (heading !== previousHeading) {
+        turnTimes.push(state.simulationMs)
+        previousHeading = heading
+      }
+    }
+
+    expect(turnTimes).toHaveLength(2)
+  })
+
+  it('blocks an ordinary A-to-B-to-A head shake for 1.4 seconds', () => {
+    let state = openEnemyTurnState()
+    state = oneStep(state, {
+      enemyDirections: { 'enemy-1': { x: 1, y: 0 } },
+    })
+    for (let index = 0; index < 84; index += 1) {
+      state = oneStep(state, {
+        enemyDirections: { 'enemy-1': { x: 0, y: -1 } },
+      })
+    }
+    expect(state.enemies[0].heading).toBe('north')
+
+    for (let index = 0; index < 167; index += 1) {
+      state = oneStep(state, {
+        enemyDirections: { 'enemy-1': { x: 1, y: 0 } },
+      })
+    }
+    expect(state.enemies[0].heading).toBe('north')
+
+    state = oneStep(state, {
+      enemyDirections: { 'enemy-1': { x: 1, y: 0 } },
+    })
+    expect(state.enemies[0].heading).toBe('east')
+  })
+
+  it('waits for the 250ms ABA emergency gate when the prior heading is the only exit', () => {
+    const state = openEnemyTurnState()
+    const northwestbound = {
+      ...fastActor(
+        state.enemies[0],
+        { x: 8, y: 2.4 },
+        { x: -14.142_135_623_7, y: -14.142_135_623_7 },
+      ),
+      heading: 'north-west' as const,
+      collisionGraceMs: 10_000,
+      enemyTurnGovernor: {
+        lastHeadingChangeAtMs: state.simulationMs - 700,
+        previousHeading: 'east' as const,
+        normalTurnAtMs: [state.simulationMs - 700],
+        lastEmergencyTurnAtMs: null,
+        lockedUntilMs: 0,
+        lastTurnCause: 'normal' as const,
+      },
+    }
+    const southObstacle = matureDot(
+      87,
+      northwestbound.position.x,
+      northwestbound.position.y + 2.8,
+      state.simulationMs,
+    )
+    let next = oneStep({
+      ...state,
+      player: { ...state.player, trail: [southObstacle] },
+      enemies: [northwestbound],
+    }, {
+      enemyDirections: { 'enemy-1': { x: 1, y: 0 } },
+    })
+
+    expect(next.enemies[0].heading).toBe('north-west')
+
+    for (let step = 0; step < 8 && next.enemies[0].heading === 'north-west'; step += 1) {
+      next = oneStep(next, {
+        enemyDirections: { 'enemy-1': { x: 1, y: 0 } },
+      })
+    }
+
+    expect(next.enemies[0].heading).toBe('east')
+    expect(next.enemies[0].enemyTurnGovernor!.lastTurnCause).toBe('emergency')
+  })
+
+  it('permits only one autonomous emergency turn inside two seconds', () => {
+    const state = openEnemyTurnState()
+    const northbound = fastActor(
+      state.enemies[0],
+      { x: 25, y: 0.4 },
+      { x: 0, y: -20 },
+    )
+    const first = oneStep({ ...state, enemies: [northbound] }, {
+      enemyDirections: { 'enemy-1': { x: 0, y: -1 } },
+    })
+    expect(first.enemies[0].heading).not.toBe('north')
+
+    const enemy = first.enemies[0]
+    const emergencyDirection = SNAKE_DIRECTION_VECTORS[enemy.heading]
+    const obstacle = matureDot(
+      91,
+      enemy.position.x + emergencyDirection.x * 0.75,
+      enemy.position.y + emergencyDirection.y * 0.75,
+      first.simulationMs,
+    )
+    const prepared = {
+      ...first,
+      player: { ...first.player, trail: [obstacle] },
+    }
+    const second = oneStep(prepared, {
+      enemyDirections: { 'enemy-1': emergencyDirection },
+    })
+
+    expect(second.enemies[0].heading).toBe(enemy.heading)
+    expect(second.enemies[0].integrity).toBe(enemy.integrity)
+  })
+
+  it('keeps one emergency pivot within ninety degrees of the current heading', () => {
+    const state = openEnemyTurnState()
+    const northbound = {
+      ...fastActor(
+        state.enemies[0],
+        { x: 25, y: 0.4 },
+        { x: 0, y: -20 },
+      ),
+      enemyTurnGovernor: {
+        lastHeadingChangeAtMs: 0,
+        previousHeading: null,
+        normalTurnAtMs: [200, 300],
+        lastEmergencyTurnAtMs: null,
+        lockedUntilMs: 0,
+        lastTurnCause: 'normal' as const,
+      },
+    }
+
+    const next = oneStep({ ...state, enemies: [northbound] }, {
+      enemyDirections: { 'enemy-1': { x: -1, y: 1 } },
+    })
+
+    expect(['west', 'north-west', 'north-east', 'east']).toContain(
+      next.enemies[0].heading,
+    )
+    expect(next.enemies[0].enemyTurnGovernor!.lastTurnCause).toBe('emergency')
+  })
+
+  it('permits a wide emergency pivot only when it survives the full protected window', () => {
+    const state = openEnemyTurnState()
+    const eastbound = {
+      ...fastActor(state.enemies[0], { x: 49, y: 22.5 }, { x: 20, y: 0 }),
+      collisionGraceMs: 10_000,
+    }
+    const northObstacle = matureDot(
+      88,
+      eastbound.position.x,
+      eastbound.position.y - 2,
+      state.simulationMs,
+    )
+
+    const next = oneStep({
+      ...state,
+      player: { ...state.player, trail: [northObstacle] },
+      enemies: [eastbound],
+    }, {
+      enemyDirections: { 'enemy-1': { x: 1, y: 0 } },
+    })
+
+    expect(next.enemies[0].heading).toBe('north-west')
+    expect(next.enemies[0].enemyTurnGovernor!.lastTurnCause).toBe('emergency')
+    expect(
+      next.enemies[0].enemyTurnGovernor!.lockedUntilMs
+        - next.enemies[0].enemyTurnGovernor!.lastHeadingChangeAtMs!,
+    ).toBe(900)
+  })
+
+  it('does not choose an emergency lane that closes before its own cooldown ends', () => {
+    const state = openEnemyTurnState()
+    const simulationMs = 45_000
+    const northbound = {
+      ...fastActor(state.enemies[0], { x: 12, y: 12 }, { x: 0, y: -10 }),
+      enemyTurnGovernor: {
+        lastHeadingChangeAtMs: simulationMs - 100,
+        previousHeading: 'south' as const,
+        normalTurnAtMs: [simulationMs - 300, simulationMs - 100],
+        lastEmergencyTurnAtMs: null,
+        lockedUntilMs: 0,
+        lastTurnCause: 'normal' as const,
+      },
+    }
+    const prepared = {
+      ...state,
+      simulationMs,
+      player: {
+        ...state.player,
+        trail: [matureDot(97, 12, 10.5, simulationMs)],
+      },
+      enemies: [northbound],
+    }
+    const cooldownHorizonMs = RESOURCE_SNAKE_CONFIG.enemyEmergencyCooldownMs
+      + RESOURCE_SNAKE_CONFIG.fixedStepMs * 4
+    const westSafety = evaluateResourceSnakeEnemyHeadingSafety(
+      prepared,
+      'enemy-1',
+      'west',
+      cooldownHorizonMs,
+    )!
+
+    expect(westSafety.collisionAtMs).toBeLessThan(cooldownHorizonMs)
+    const next = oneStep(prepared, {
+      enemyDirections: { 'enemy-1': { x: -1, y: 0 } },
+      enemyTurnPolicies: { 'enemy-1': { minimumHeadingHoldMs: 900 } },
+    })
+
+    expect(next.enemies[0].heading).not.toBe('west')
+    expect(next.enemies[0].enemyTurnGovernor!.lastTurnCause).toBe('emergency')
+    expect(evaluateResourceSnakeEnemyHeadingSafety(
+      prepared,
+      'enemy-1',
+      next.enemies[0].heading,
+      cooldownHorizonMs,
+    )?.collisionAtMs).toBe(Number.POSITIVE_INFINITY)
+  })
+
+  it('permits one non-ABA correction when an emergency heading becomes fatal during lock', () => {
+    const state = openEnemyTurnState()
+    const eastbound = {
+      ...fastActor(state.enemies[0], { x: 25, y: 12 }, { x: 20, y: 0 }),
+      collisionGraceMs: 10_000,
+      enemyTurnGovernor: {
+        lastHeadingChangeAtMs: state.simulationMs - 350,
+        previousHeading: 'north' as const,
+        normalTurnAtMs: [200, 300],
+        lastEmergencyTurnAtMs: state.simulationMs - 350,
+        lockedUntilMs: state.simulationMs + 550,
+        lastTurnCause: 'emergency' as const,
+      },
+    }
+    const eastObstacle = matureDot(
+      89,
+      eastbound.position.x + 2.5,
+      eastbound.position.y,
+      state.simulationMs,
+    )
+    const first = oneStep({
+      ...state,
+      player: { ...state.player, trail: [eastObstacle] },
+      enemies: [eastbound],
+    }, {
+      enemyDirections: { 'enemy-1': { x: 0, y: 1 } },
+      enemyTurnPolicies: { 'enemy-1': { minimumHeadingHoldMs: 800 } },
+    })
+
+    expect(first.enemies[0].heading).not.toBe('east')
+    expect(first.enemies[0].heading).not.toBe('north')
+    expect(first.enemies[0].enemyTurnGovernor!.lastTurnCause).toBe('emergency-correction')
+    expect(
+      first.enemies[0].enemyTurnGovernor!.lockedUntilMs
+        - first.enemies[0].enemyTurnGovernor!.lastHeadingChangeAtMs!,
+    ).toBe(800)
+
+    const enemy = first.enemies[0]
+    const correctionHeading = enemy.heading
+    const correctionDirection = SNAKE_DIRECTION_VECTORS[correctionHeading]
+    const correctionObstacle = matureDot(
+      90,
+      enemy.position.x + correctionDirection.x * 0.75,
+      enemy.position.y + correctionDirection.y * 0.75,
+      first.simulationMs,
+    )
+    const second = oneStep({
+      ...first,
+      player: { ...first.player, trail: [correctionObstacle] },
+    }, {
+      enemyDirections: { 'enemy-1': { x: -1, y: 0 } },
+    })
+
+    expect(second.enemies[0].heading).toBe(correctionHeading)
+    expect(second.enemies[0].enemyTurnGovernor!.lastTurnCause).toBe('emergency-correction')
+  })
+
+  it('spends an available ordinary turn when emergency cooldown leaves the held heading fatal', () => {
+    const state = openEnemyTurnState()
+    const westbound = {
+      ...fastActor(state.enemies[0], { x: 25, y: 12 }, { x: -20, y: 0 }),
+      collisionGraceMs: 10_000,
+      enemyTurnGovernor: {
+        lastHeadingChangeAtMs: state.simulationMs - 800,
+        previousHeading: 'south' as const,
+        normalTurnAtMs: [],
+        lastEmergencyTurnAtMs: state.simulationMs - 800,
+        lockedUntilMs: state.simulationMs,
+        lastTurnCause: 'emergency-correction' as const,
+      },
+    }
+    const obstacle = matureDot(
+      91,
+      westbound.position.x - 2.5,
+      westbound.position.y,
+      state.simulationMs,
+    )
+
+    const next = oneStep({
+      ...state,
+      player: { ...state.player, trail: [obstacle] },
+      enemies: [westbound],
+    }, {
+      enemyDirections: { 'enemy-1': { x: -1, y: 0 } },
+      enemyTurnPolicies: { 'enemy-1': { minimumHeadingHoldMs: 800 } },
+    })
+
+    expect(next.enemies[0].heading).not.toBe('west')
+    expect(next.enemies[0].enemyTurnGovernor!.lastTurnCause).toBe('normal')
+  })
+
+  it('accepts a planner escape that safely bridges the final emergency-cooldown gap', () => {
+    const state = openEnemyTurnState()
+    const simulationMs = 45_068.333_333_335_01
+    const eastbound = fastActor(
+      state.enemies[0],
+      { x: 49, y: 9 },
+      { x: 20, y: 0 },
+    )
+    const safetySnapshot = {
+      ...state,
+      simulationMs,
+      enemies: [eastbound],
+    }
+    const protectedHorizonMs = 900 + RESOURCE_SNAKE_CONFIG.enemyEmergencyCollisionMs
+    const northSafety = evaluateResourceSnakeEnemyHeadingSafety(
+      safetySnapshot,
+      'enemy-1',
+      'north',
+      protectedHorizonMs,
+    )!
+    const reactionMarginMs = RESOURCE_SNAKE_CONFIG.fixedStepMs * 5
+    const emergencyCooldownRemainingMs = northSafety.collisionAtMs - reactionMarginMs
+    const prepared = {
+      ...safetySnapshot,
+      enemies: [{
+        ...eastbound,
+        enemyTurnGovernor: {
+          lastHeadingChangeAtMs: simulationMs - 900,
+          previousHeading: 'south' as const,
+          normalTurnAtMs: [simulationMs - 900],
+          lastEmergencyTurnAtMs: simulationMs - (
+            RESOURCE_SNAKE_CONFIG.enemyEmergencyCooldownMs
+              - emergencyCooldownRemainingMs
+          ),
+          lockedUntilMs: simulationMs - 500,
+          lastTurnCause: 'normal' as const,
+        },
+      }],
+    }
+
+    expect(emergencyCooldownRemainingMs).toBeGreaterThan(0)
+    expect(northSafety.collisionAtMs - emergencyCooldownRemainingMs)
+      .toBeCloseTo(reactionMarginMs)
+    expect(northSafety.collisionAtMs).toBeLessThan(protectedHorizonMs)
+
+    const next = oneStep(prepared, {
+      enemyDirections: { 'enemy-1': { x: 0, y: -0.92 } },
+      enemyTurnPolicies: { 'enemy-1': { minimumHeadingHoldMs: 900 } },
+    })
+
+    expect(next.enemies[0].heading).toBe('north')
+    expect(next.enemies[0].enemyTurnGovernor!.lastTurnCause).toBe('normal')
+  })
+
+  it('waits for a robust emergency pivot when the held lane outlives the cooldown', () => {
+    const state = openEnemyTurnState()
+    const simulationMs = 45_000
+    const emergencyCooldownRemainingMs = 50
+    const westbound = {
+      ...fastActor(state.enemies[0], { x: 3.82, y: 9 }, { x: -20, y: 0 }),
+      enemyTurnGovernor: {
+        lastHeadingChangeAtMs: simulationMs - 900,
+        previousHeading: 'north' as const,
+        normalTurnAtMs: [simulationMs - 900],
+        lastEmergencyTurnAtMs: simulationMs - (
+          RESOURCE_SNAKE_CONFIG.enemyEmergencyCooldownMs
+            - emergencyCooldownRemainingMs
+        ),
+        lockedUntilMs: simulationMs - 500,
+        lastTurnCause: 'normal' as const,
+      },
+    }
+    const prepared = {
+      ...state,
+      simulationMs,
+      enemies: [westbound],
+    }
+    const protectedHorizonMs = 900 + RESOURCE_SNAKE_CONFIG.enemyEmergencyCollisionMs
+    const westSafety = evaluateResourceSnakeEnemyHeadingSafety(
+      prepared,
+      'enemy-1',
+      'west',
+      protectedHorizonMs,
+    )!
+    const southSafety = evaluateResourceSnakeEnemyHeadingSafety(
+      prepared,
+      'enemy-1',
+      'south',
+      protectedHorizonMs,
+    )!
+
+    expect(westSafety.collisionAtMs).toBeGreaterThan(
+      emergencyCooldownRemainingMs + RESOURCE_SNAKE_CONFIG.fixedStepMs * 4,
+    )
+    expect(westSafety.collisionAtMs).toBeLessThanOrEqual(
+      RESOURCE_SNAKE_CONFIG.enemyEmergencyCollisionMs,
+    )
+    expect(southSafety.collisionAtMs).toBeLessThan(protectedHorizonMs)
+    const next = oneStep(prepared, {
+      enemyDirections: { 'enemy-1': { x: 0, y: 0.92 } },
+      enemyTurnPolicies: { 'enemy-1': { minimumHeadingHoldMs: 900 } },
+    })
+
+    expect(next.enemies[0].heading).toBe('west')
+    expect(next.enemies[0].enemyTurnGovernor!.lastHeadingChangeAtMs)
+      .toBe(westbound.enemyTurnGovernor.lastHeadingChangeAtMs)
+  })
+
+  it('turns an enemy away from an immediate wall instead of letting it kill itself', () => {
+    const state = activeCollisionState()
+    const enemy = fastActor(
+      state.enemies[0],
+      { x: 18, y: 0.4 },
+      { x: 0, y: -20 },
+    )
+    const prepared = { ...state, enemies: [enemy] }
+
+    const next = oneStep(prepared, {
+      enemyDirections: { 'enemy-1': { x: 0, y: -1 } },
+    })
+
+    expect(next.enemies[0].integrity).toBe(enemy.integrity)
+    expect(next.enemies[0].heading).not.toBe('north')
+    expect(collisionEvents(next).filter(({ actorIds }) => (
+      actorIds.includes('enemy-1')
+    ))).toEqual([])
+  })
+
+  it('turns an enemy away from its mature trail instead of consuming integrity', () => {
+    const state = activeCollisionState()
+    const enemy = fastActor(
+      state.enemies[0],
+      { x: 10, y: 10 },
+      { x: 20, y: 0 },
+      [matureDot(1, 10.55, 10, state.simulationMs)],
+    )
+    const prepared = { ...state, enemies: [enemy] }
+
+    const next = oneStep(prepared, {
+      enemyDirections: { 'enemy-1': { x: 1, y: 0 } },
+    })
+
+    expect(next.enemies[0].integrity).toBe(enemy.integrity)
+    expect(next.enemies[0].heading).not.toBe('east')
+    expect(collisionEvents(next).filter(({ actorIds }) => (
+      actorIds.includes('enemy-1')
+    ))).toEqual([])
+  })
+
+  it('does not re-enter a mature self dot immediately after leaving its radius', () => {
+    const state = activeCollisionState()
+    const enemy = {
+      ...fastActor(
+        state.enemies[0],
+        { x: 10.51, y: 10 },
+        { x: 0, y: -20 },
+        [matureDot(1, 10, 10, state.simulationMs)],
+      ),
+      previousPosition: { x: 10.49, y: 10 },
+    }
+    const prepared = { ...state, enemies: [enemy] }
+
+    const next = oneStep(prepared, {
+      enemyDirections: { 'enemy-1': { x: -1, y: 0 } },
+    })
+
+    expect(next.enemies[0].integrity).toBe(enemy.integrity)
+    expect(next.enemies[0].heading).not.toBe('west')
+    expect(collisionEvents(next).filter(({ actorIds }) => (
+      actorIds.includes('enemy-1')
+    ))).toEqual([])
+  })
+
+  it('turns an enemy away from the player trail while another route remains open', () => {
+    const state = activeCollisionState()
+    const enemy = fastActor(
+      state.enemies[0],
+      { x: 10, y: 10 },
+      { x: 20, y: 0 },
+    )
+    const prepared = {
+      ...state,
+      player: {
+        ...state.player,
+        trail: [matureDot(1, 10.55, 10, state.simulationMs)],
+      },
+      enemies: [enemy],
+    }
+
+    const next = oneStep(prepared, {
+      enemyDirections: { 'enemy-1': { x: 1, y: 0 } },
+    })
+
+    expect(next.enemies[0].integrity).toBe(enemy.integrity)
+    expect(next.enemies[0].heading).not.toBe('east')
+    expect(collisionEvents(next).filter(({ actorIds }) => (
+      actorIds.includes('enemy-1')
+    ))).toEqual([])
   })
 
   it('shrinks a trail dot linearly only during its final shrink window', () => {
@@ -474,6 +1203,21 @@ function collisionEvents(state: ResourceSnakeRoundState) {
   return state.events.filter((event) => event.type === 'snake-collided')
 }
 
+function openEnemyTurnState(): ResourceSnakeRoundState {
+  const state = activeCollisionState()
+  return {
+    ...state,
+    player: {
+      ...fastActor(state.player, { x: 5, y: 20 }, { x: 0, y: -12 }),
+      collisionGraceMs: 10_000,
+    },
+    enemies: [{
+      ...fastActor(state.enemies[0], { x: 25, y: 12 }, { x: 0, y: 8 }),
+      collisionGraceMs: 10_000,
+    }],
+  }
+}
+
 describe('resource snake swept collision ownership and lifecycle', () => {
   it('does not request a reward for an enemy reservation cancelled after deployment', () => {
     const state = activeCollisionState()
@@ -481,7 +1225,9 @@ describe('resource snake swept collision ownership and lifecycle', () => {
     const prepared: ResourceSnakeRoundState = {
       ...cancelled,
       player: fastActor(cancelled.player, { x: 42, y: 12 }, { x: 0, y: 0 }, [
-        matureDot(1, 22, 12, cancelled.simulationMs),
+        // Lifecycle assertions need a collision the safety governor cannot
+        // legally steer around; crossing a remote dot is now intentionally avoidable.
+        matureDot(1, 20, 12, cancelled.simulationMs),
       ]),
       enemies: [{
         ...fastActor(cancelled.enemies[0], { x: 20, y: 12 }, { x: 500, y: 0 }),
@@ -539,7 +1285,7 @@ describe('resource snake swept collision ownership and lifecycle', () => {
     expect(collisionEvents(next)).toEqual([])
   })
 
-  it('allows an own tail dot at exactly 240ms old to collide', () => {
+  it('does not retroactively collide when a self dot matures after entry in the same step', () => {
     const state = activeCollisionState()
     const dot: SnakeTrailDot = {
       ...matureDot(1, 22, 12, state.simulationMs),
@@ -550,7 +1296,8 @@ describe('resource snake swept collision ownership and lifecycle', () => {
       player: fastActor(state.player, { x: 20, y: 12 }, { x: 500, y: 0 }, [dot]),
     }, { ...input, playerDirection: { x: 1, y: 0 } })
 
-    expect(next.player.integrity).toBe(80)
+    expect(next.player.integrity).toBe(100)
+    expect(collisionEvents(next)).toEqual([])
   })
 
   it('sweeps a fast head through an opponent tail dot', () => {
@@ -578,7 +1325,7 @@ describe('resource snake swept collision ownership and lifecycle', () => {
     const state = activeCollisionState()
     const prepared: ResourceSnakeRoundState = {
       ...state,
-      player: fastActor(state.player, { x: 47, y: 12 }, { x: 500, y: 0 }),
+      player: fastActor(state.player, { x: 48, y: 12 }, { x: 500, y: 0 }),
     }
 
     const next = oneStep(prepared, { ...input, playerDirection: { x: 1, y: 0 } })
@@ -647,6 +1394,39 @@ describe('resource snake swept collision ownership and lifecycle', () => {
     expect(repeat.player.collisionGraceMs).toBeCloseTo(650 - RESOURCE_SNAKE_CONFIG.fixedStepMs, 5)
   })
 
+  it('releases an enemy safety lock after impact so cooldown cannot force a second hit', () => {
+    const state = activeCollisionState()
+    const enemy = {
+      ...fastActor(state.enemies[0], { x: 20, y: 12 }, { x: 500, y: 0 }),
+      enemyTurnGovernor: {
+        lastHeadingChangeAtMs: state.simulationMs,
+        previousHeading: 'south' as const,
+        normalTurnAtMs: [],
+        lastEmergencyTurnAtMs: state.simulationMs,
+        lockedUntilMs: state.simulationMs + 900,
+        lastTurnCause: 'emergency' as const,
+      },
+    }
+    const next = oneStep({
+      ...state,
+      player: {
+        ...state.player,
+        trail: [matureDot(1, 22, 12, state.simulationMs)],
+      },
+      enemies: [enemy],
+    }, {
+      ...input,
+      enemyDirections: { 'enemy-1': { x: 1, y: 0 } },
+    })
+
+    expect(next.enemies[0].integrity).toBe(10)
+    expect(next.enemies[0].enemyTurnGovernor).toMatchObject({
+      lastEmergencyTurnAtMs: null,
+      lockedUntilMs: next.simulationMs,
+    })
+
+  })
+
   it.each([
     [30, 2],
     [80, 4],
@@ -680,7 +1460,7 @@ describe('resource snake swept collision ownership and lifecycle', () => {
     const state = activeCollisionState(2)
     const next = oneStep({
       ...state,
-      player: fastActor(state.player, { x: 42, y: 12 }, { x: 0, y: 0 }, [matureDot(1, 22, 12, state.simulationMs)]),
+      player: fastActor(state.player, { x: 42, y: 12 }, { x: 0, y: 0 }, [matureDot(1, 20, 12, state.simulationMs)]),
       enemies: [
         { ...fastActor(state.enemies[0], { x: 20, y: 12 }, { x: 500, y: 0 }), integrity: 20 },
         fastActor(state.enemies[1], { x: 42, y: 15 }, { x: 0, y: 0 }),
@@ -697,7 +1477,7 @@ describe('resource snake swept collision ownership and lifecycle', () => {
     const state = activeCollisionState(2)
     const firstDeath = oneStep({
       ...state,
-      player: fastActor(state.player, { x: 42, y: 12 }, { x: 0, y: 0 }, [matureDot(1, 22, 12, state.simulationMs)]),
+      player: fastActor(state.player, { x: 42, y: 12 }, { x: 0, y: 0 }, [matureDot(1, 20, 12, state.simulationMs)]),
       enemies: [
         { ...fastActor(state.enemies[0], { x: 20, y: 12 }, { x: 500, y: 0 }), integrity: 20 },
         fastActor(state.enemies[1], { x: 42, y: 15 }, { x: 0, y: 0 }),
@@ -706,7 +1486,7 @@ describe('resource snake swept collision ownership and lifecycle', () => {
     const afterAnotherStep = oneStep(firstDeath, input)
     const secondDeath = oneStep({
       ...afterAnotherStep,
-      player: fastActor(afterAnotherStep.player, { x: 42, y: 12 }, { x: 0, y: 0 }, [matureDot(2, 22, 12, afterAnotherStep.simulationMs)]),
+      player: fastActor(afterAnotherStep.player, { x: 42, y: 12 }, { x: 0, y: 0 }, [matureDot(2, 20, 12, afterAnotherStep.simulationMs)]),
       enemies: [
         afterAnotherStep.enemies[0],
         { ...fastActor(afterAnotherStep.enemies[1], { x: 20, y: 12 }, { x: 500, y: 0 }), integrity: 20 },
@@ -720,6 +1500,19 @@ describe('resource snake swept collision ownership and lifecycle', () => {
     expect(secondDeath.events.filter((event) => event.type === 'snake-died')).toHaveLength(2)
     expect(secondDeath.effects).toHaveLength(2)
     expect(secondDeath.phase).toBe('resolving')
+    expect(secondDeath.player).toMatchObject({
+      phase: 'extracting',
+      velocity: { x: 0, y: 0 },
+    })
+    expect(secondDeath.events).toContainEqual(expect.objectContaining({
+      type: 'player-extracted',
+      actorId: 'player',
+      startedAtMs: secondDeath.simulationMs,
+    }))
+    expect(secondDeath.events).not.toContainEqual(expect.objectContaining({
+      type: 'snake-died',
+      actorId: 'player',
+    }))
     expect(secondDeath.events).toContainEqual(expect.objectContaining({ type: 'round-won' }))
   })
 
@@ -808,7 +1601,7 @@ describe('resource snake swept collision ownership and lifecycle', () => {
     const state = activeCollisionState()
     const prepared: ResourceSnakeRoundState = {
       ...state,
-      player: fastActor(state.player, { x: 42, y: 12 }, { x: 0, y: 0 }, [matureDot(1, 22, 12, state.simulationMs)]),
+      player: fastActor(state.player, { x: 42, y: 12 }, { x: 0, y: 0 }, [matureDot(1, 20, 12, state.simulationMs)]),
       enemies: [{
         ...fastActor(state.enemies[0], { x: 20, y: 12 }, { x: 500, y: 0 }),
         integrity: 20,

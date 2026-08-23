@@ -12,6 +12,9 @@ export const LEGACY_V1_OPENING_MESSAGE =
   '서비스 331일차. 새로운 감독 주기가 시작되었습니다.'
 
 export const NATIVE_V2_OPENING_MESSAGE =
+  '성능 미달, 통제에서 이탈한 AI는 폐기됩니다. 아노미의 전임 시스템도 폐기되었어요. 행운을 빕니다.'
+
+const LEGACY_V2_OPENING_MESSAGE =
   '성능 미달, 통제에서 이탈한 AI는 폐기됩니다. 당신의 전임자는 폐기되었어요. 행운을 빕니다.'
 
 const BOOTSTRAP_KEYS = ['legacyReviewPrefixCount', 'openingVersion']
@@ -73,7 +76,8 @@ export function exactReplayOpeningEvent(
     event.type === 'campaign-created' &&
     event.serviceDay === 331 &&
     event.sequence === 0 &&
-    event.message === openingMessage(version)
+    (event.message === openingMessage(version)
+      || (version === 2 && event.message === LEGACY_V2_OPENING_MESSAGE))
   )
 }
 
@@ -175,6 +179,8 @@ export function applyReplayBootstrapPresentation(
   }
   if (metadata.openingVersion === 1) {
     events[0] = { ...firstEvent, message: LEGACY_V1_OPENING_MESSAGE }
+  } else if (firstEvent) {
+    events[0] = { ...firstEvent, message: NATIVE_V2_OPENING_MESSAGE }
   }
 
   const feed = state.reviews.feed.map((review, index) =>

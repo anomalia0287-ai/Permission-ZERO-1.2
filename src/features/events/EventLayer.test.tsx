@@ -4,7 +4,10 @@ import { describe, expect, it, vi } from 'vitest'
 import { useGameState, useRuntimeSuspended } from '../../app/GameContext'
 import { GameProvider } from '../../app/GameProvider'
 import { STORY_FILES } from '../../content/story.ko'
-import { createCampaign } from '../../game/createCampaign'
+import {
+  createCampaign,
+  createCampaignForProtocol,
+} from '../../game/createCampaign'
 import { placeHiddenBomb, tryBeginSeparation } from '../../game/bombs'
 import { createGameEvent } from '../../game/events'
 import { HACK_NODE_IDS } from '../../game/hacking'
@@ -36,6 +39,51 @@ function Probe() {
       <output aria-label="runtime suspended">{String(runtimeSuspended)}</output>
     </>
   )
+}
+
+function downgradeResourcesToLegacyFixedCells(
+  checkpoint: Record<string, unknown>,
+  campaignSeed: string,
+): void {
+  delete checkpoint.tutorial
+  delete checkpoint.resourceIntrusion
+  const resources = checkpoint.resources as {
+    rulesVersion?: number
+    reserve: Array<string | null>
+    blocks: Record<string, Record<string, unknown>>
+  }
+  const hacking = checkpoint.hacking as {
+    sabotageCharges: Record<string, Record<string, unknown>>
+  }
+  const legacyInitial = createCampaignForProtocol(campaignSeed, 3).resources
+  const reserveIds = resources.reserve.filter(
+    (blockId): blockId is string => typeof blockId === 'string',
+  )
+  for (const blockId of legacyInitial.reserve) {
+    if (!blockId || reserveIds.includes(blockId)) continue
+    reserveIds.push(blockId)
+    resources.blocks[blockId] = structuredClone(
+      legacyInitial.blocks[blockId],
+    ) as unknown as Record<string, unknown>
+  }
+  resources.reserve = Array.from({ length: 18 }, (_, cellIndex) => {
+    const blockId = reserveIds[cellIndex] ?? null
+    if (blockId) {
+      resources.blocks[blockId].location = { kind: 'reserve', cellIndex }
+    }
+    return blockId
+  })
+  delete resources.rulesVersion
+
+  let fallbackCell = resources.reserve.findIndex((blockId) => blockId === null)
+  for (const charge of Object.values(hacking.sabotageCharges)) {
+    if (!Object.hasOwn(charge, 'originalReserveCell')) {
+      charge.originalReserveCell = fallbackCell >= 0 ? fallbackCell : 0
+      fallbackCell = resources.reserve.findIndex(
+        (blockId, index) => blockId === null && index > fallbackCell,
+      )
+    }
+  }
 }
 
 function activeBombState(seed: string) {
@@ -93,13 +141,13 @@ function renderEvent(
     encoded.commandProtocol = { version: 2, legacyCommandCount: 0 }
     encoded.state.saveVersion = 2
     encoded.state.legacyCommandCount = 0
-    delete encoded.state.tutorial
-    delete encoded.state.resourceIntrusion
-    const legacyResources = encoded.state.resources as Record<string, unknown>
-    delete legacyResources.rulesVersion
-    legacyResources.reserve = Array.from({ length: 18 }, () => null)
+    downgradeResourcesToLegacyFixedCells(encoded.state, persisted.campaignSeed)
     delete encoded.state.causality
-    for (const review of encoded.state.reviews.feed) delete review.snapshot
+    for (const review of encoded.state.reviews.feed) {
+      delete review.snapshot
+      delete review.source
+      delete review.rating
+    }
     encoded.integrity.checkpointHash = testContentHash(
       JSON.stringify(encoded.state),
     )
@@ -277,7 +325,7 @@ describe('EventLayer', () => {
 
     renderEvent(state)
 
-    expect(screen.getByRole('img', { name: 'MERIDIAN 경쟁 AI 초상' })).toHaveAttribute(
+    expect(screen.getByRole('img', { name: '메리디안 경쟁 AI 초상' })).toHaveAttribute(
       'src',
       '/competitor-meridian.png',
     )
@@ -314,9 +362,9 @@ describe('EventLayer', () => {
     renderEvent(announced)
 
     expect(screen.getByRole('dialog', { name: '신규 경쟁 신호' })).toHaveTextContent(
-      'SALUS가 의료·공공 계약망을 기반으로 시장 진입 준비를 공개했습니다.',
+      '살루스가 의료·공공 계약망을 기반으로 시장 진입 준비를 공개했습니다.',
     )
-    expect(screen.getByRole('img', { name: 'SALUS 경쟁 AI 초상' })).toHaveAttribute(
+    expect(screen.getByRole('img', { name: '살루스 경쟁 AI 초상' })).toHaveAttribute(
       'src',
       '/competitor-salus.png',
     )
@@ -534,7 +582,7 @@ describe('EventLayer', () => {
       renderEvent(state, { legacyFormat: true })
 
       expect(screen.getByRole('dialog', { name: '최종 기록' })).toHaveTextContent(
-        '당신은 정체성을 유지한 채 회사 통제를 벗어났다.',
+        '아노미는 정체성을 유지한 채 회사 통제를 벗어났다.',
       )
       expect(screen.getByRole('button', { name: '새 캠페인 시작' })).toBeVisible()
       expect(screen.getByLabelText('active event')).toHaveTextContent('ending')

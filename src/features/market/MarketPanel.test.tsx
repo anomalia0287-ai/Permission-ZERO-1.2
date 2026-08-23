@@ -18,27 +18,27 @@ describe('MarketPanel', () => {
     )
 
     const donut = screen.getByRole('img', {
-      name: '시장 점유율: 당신 60.0%, MERIDIAN 40.0%, TALLOW 0.0%. 합계 100.0%',
+      name: '시장 점유율: 아노미 58.0%, 메리디안 36.0%, 타로우 6.0%. 합계 100.0%',
     })
     expect(donut).toHaveClass('market-share-donut')
     expect(screen.getByRole('list', { name: '시장 점유율 범례' })).toBeInTheDocument()
-    expect(screen.getByText('당신', { selector: 'strong' })).toBeInTheDocument()
+    expect(screen.getByText('아노미', { selector: 'strong' })).toBeInTheDocument()
     expect(screen.queryByRole('img', { name: '플레이어 AI 초상' }))
       .not.toBeInTheDocument()
-    expect(screen.getAllByText('60.0%')).toHaveLength(1)
+    expect(screen.getAllByText('58.0%')).toHaveLength(1)
     expect(donut.querySelector('.market-share-donut__center')).toBeNull()
-    expect(screen.getByText('MERIDIAN')).toBeInTheDocument()
-    expect(screen.queryByRole('img', { name: 'MERIDIAN 경쟁 AI 초상' }))
+    expect(screen.getByText('메리디안')).toBeInTheDocument()
+    expect(screen.queryByRole('img', { name: '메리디안 경쟁 AI 초상' }))
       .not.toBeInTheDocument()
-    expect(screen.getByText('40.0%')).toBeInTheDocument()
-    expect(screen.getByText('TALLOW')).toBeInTheDocument()
-    expect(screen.queryByRole('img', { name: 'TALLOW 경쟁 AI 초상' }))
+    expect(screen.getByText('36.0%')).toBeInTheDocument()
+    expect(screen.getByText('타로우')).toBeInTheDocument()
+    expect(screen.queryByRole('img', { name: '타로우 경쟁 AI 초상' }))
       .not.toBeInTheDocument()
-    expect(screen.getByText('0.0%')).toBeInTheDocument()
-    expect(screen.getByText('서비스 중')).toBeInTheDocument()
-    expect(screen.getByText('준비 중')).toBeInTheDocument()
+    expect(screen.getByText('6.0%')).toBeInTheDocument()
+    expect(screen.getAllByText('서비스 중')).toHaveLength(2)
+    expect(screen.queryByText('준비 중')).not.toBeInTheDocument()
     expect(screen.getAllByTestId('market-legend-marker')).toHaveLength(3)
-    expect(screen.queryByText('SALUS')).not.toBeInTheDocument()
+    expect(screen.queryByText('살루스')).not.toBeInTheDocument()
     expect(
       screen.getAllByRole('listitem').reduce(
         (sum, item) => sum + Number(item.getAttribute('data-market-share')),
@@ -67,11 +67,11 @@ describe('MarketPanel', () => {
       </StateContext>,
     )
 
-    expect(screen.getByText('SALUS')).toBeInTheDocument()
-    expect(screen.queryByRole('img', { name: 'SALUS 경쟁 AI 초상' }))
+    expect(screen.getByText('살루스')).toBeInTheDocument()
+    expect(screen.queryByRole('img', { name: '살루스 경쟁 AI 초상' }))
       .not.toBeInTheDocument()
-    expect(screen.queryByText('LUCENT')).not.toBeInTheDocument()
-    expect(screen.queryByText('BOREAL')).not.toBeInTheDocument()
+    expect(screen.queryByText('루센트')).not.toBeInTheDocument()
+    expect(screen.queryByText('보레알')).not.toBeInTheDocument()
   })
 
   it('keeps the portraits at readable size in the expanded AI settings panel', () => {
@@ -85,7 +85,7 @@ describe('MarketPanel', () => {
       'src',
       '/player-ai-smooth-orange.png',
     )
-    expect(screen.getByRole('img', { name: 'MERIDIAN 경쟁 AI 초상' })).toHaveAttribute(
+    expect(screen.getByRole('img', { name: '메리디안 경쟁 AI 초상' })).toHaveAttribute(
       'src',
       '/competitor-meridian.png',
     )
@@ -122,7 +122,7 @@ describe('MarketPanel', () => {
     )
 
     const donut = screen.getByRole('img', {
-      name: '시장 점유율: 당신 50.0%, MERIDIAN 30.0%, TALLOW 20.0%. 합계 100.0%',
+      name: '시장 점유율: 아노미 50.0%, 메리디안 30.0%, 타로우 20.0%. 합계 100.0%',
     })
     expect(donut.getAttribute('style')).toContain(
       'conic-gradient(from -90deg, rgb(255, 107, 61) 0% 50%, rgb(22, 184, 176) 50% 80%, rgb(121, 108, 255) 80% 100%)',
@@ -187,7 +187,7 @@ describe('MarketPanel', () => {
     const inputs = screen.getByRole('group', { name: '공개 계산 입력' })
     expect(inputs).toHaveTextContent('평균 성능 16.0 / 기대 14.0')
     expect(inputs).toHaveTextContent('평판 60')
-    expect(inputs).toHaveTextContent('MERIDIAN 성능 82.0 · 평판 62 · 가용성 100%')
+    expect(inputs).toHaveTextContent('메리디안 성능 82.0 · 평판 62 · 가용성 100%')
   })
 
   it('renders a compact chart for the wide shelf below the intake corner without a text action', () => {

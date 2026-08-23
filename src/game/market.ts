@@ -2,6 +2,7 @@ import { DEMO_PROFILE_02 } from './config'
 import {
   COMPETITOR_IDS,
   competitorProfile,
+  publicCompetitorName,
   type CompetitorId,
 } from './competitors'
 import { expectedPerformance, serviceMonthForDay } from './evaluation'
@@ -21,8 +22,70 @@ export interface MarketShares {
 
 export type MarketCadence = 'weekly' | 'monthly'
 
+const ACTIVE_MARKET_STATUSES: ReadonlySet<CompetitorStatus> = new Set([
+  'active',
+  'weakened',
+  'critical',
+])
+
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value))
+}
+
+/**
+ * Promote a legacy zero-share TALLOW checkpoint into the approved shared
+ * opening market. Historical snapshots remain byte-for-byte untouched.
+ */
+export function normalizeCurrentTallowMarket(
+  state: CampaignState,
+): CampaignState {
+  const tallow = state.market.competitors.find(({ id }) => id === 'tallow')
+  if (
+    !tallow ||
+    tallow.status !== 'preparing' ||
+    tallow.marketShare !== 0
+  ) {
+    return state
+  }
+
+  const donorCompetitors = state.market.competitors.filter(
+    (competitor) =>
+      competitor.id !== 'tallow' &&
+      ACTIVE_MARKET_STATUSES.has(competitor.status) &&
+      competitor.marketShare > 0,
+  )
+  const donorTotal =
+    state.market.playerShare +
+    donorCompetitors.reduce(
+      (sum, competitor) => sum + competitor.marketShare,
+      0,
+    )
+  if (donorTotal < 6) return state
+
+  const scale = (donorTotal - 6) / donorTotal
+  const donorIds = new Set(donorCompetitors.map(({ id }) => id))
+  return {
+    ...state,
+    market: {
+      ...state.market,
+      playerShare: state.market.playerShare * scale,
+      competitors: state.market.competitors.map((competitor) => {
+        if (competitor.id === 'tallow') {
+          return {
+            ...competitor,
+            status: 'active',
+            marketShare: 6,
+            availability: competitorProfile('tallow').launchAvailability,
+            researchProgress: 1,
+            launchServiceDay: state.serviceDay,
+          }
+        }
+        return donorIds.has(competitor.id)
+          ? { ...competitor, marketShare: competitor.marketShare * scale }
+          : competitor
+      }),
+    },
+  }
 }
 
 function publicStatus(serviceScore: number): CompetitorStatus {
@@ -43,14 +106,14 @@ export function publicMarketCalculationInputs(state: CampaignState): string[] {
     .filter(({ status }) => status !== 'prelaunch')
     .map(
     (competitor) =>
-      `${competitor.name} 성능 ${competitor.serviceScore.toFixed(1)} · 평판 ${competitor.reputation.toFixed(0)} · 가용성 ${(competitor.availability * 100).toFixed(0)}%`,
+      `${publicCompetitorName(competitor.id)} 성능 ${competitor.serviceScore.toFixed(1)} · 평판 ${competitor.reputation.toFixed(0)} · 가용성 ${(competitor.availability * 100).toFixed(0)}%`,
     )
   const interceptionInputs = Object.entries(state.market.interceptionRoutes)
     .sort(([left], [right]) => left.localeCompare(right))
     .flatMap(([competitorId, percentagePoints]) => {
       const competitor = state.market.competitors.find(({ id }) => id === competitorId)
       return competitor && percentagePoints > 0
-        ? [`${competitor.name} 요청 가로채기 +${percentagePoints.toFixed(1)}%p`]
+        ? [`${publicCompetitorName(competitor.id)} 요청 가로채기 +${percentagePoints.toFixed(1)}%p`]
         : []
     })
 

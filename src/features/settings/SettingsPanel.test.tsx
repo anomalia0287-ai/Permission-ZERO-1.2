@@ -9,7 +9,7 @@ import {
 } from '../../app/GameContext'
 import { GameProvider } from '../../app/GameProvider'
 import { AccessibleDialog } from '../../app/AccessibleDialog'
-import { saveCampaign } from '../../game/campaignStorage'
+import { loadCampaign, saveCampaign } from '../../game/campaignStorage'
 import { createCampaign, createCampaignForProtocol } from '../../game/createCampaign'
 import { createEmptyCausalState } from '../../game/causality'
 import { createJournal } from '../../game/journal'
@@ -109,7 +109,11 @@ function legacyProgressPayload(
   if (version < 6) delete state.causality
   else state.causality = { ...createEmptyCausalState(), rulesVersion: 1 }
   if (version < 5) {
-    for (const review of state.reviews.feed) delete review.snapshot
+    for (const review of state.reviews.feed) {
+      delete review.snapshot
+      delete review.source
+      delete review.rating
+    }
   }
 
   const legacyProtocol = { version: 2, legacyCommandCount: 0 }
@@ -296,6 +300,61 @@ describe('SettingsPanel', () => {
     expect(screen.getByLabelText('current seed')).toHaveTextContent('new-seed')
   })
 
+  it('provides an explicit manual game save in the campaign settings', async () => {
+    const storage = new MemoryStorage()
+    render(
+      <GameProvider storage={storage} initialSeed="manual-save-slot">
+        <SettingsPanel onClose={vi.fn()} onOpenGuide={vi.fn()} />
+      </GameProvider>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '게임 저장하기' }))
+
+    expect(await screen.findByRole('status', { name: '수동 저장 상태' }))
+      .toHaveTextContent('게임을 저장했습니다.')
+    const loaded = loadCampaign(storage)
+    expect(loaded.status).toBe('loaded')
+    if (loaded.status === 'loaded') {
+      expect(loaded.state.campaignSeed).toBe('manual-save-slot')
+    }
+  })
+
+  it('requires confirmation before loading the locally saved game', async () => {
+    const storage = new MemoryStorage()
+    await saveCampaign(storage, createCampaign('saved-slot'))
+    render(
+      <GameProvider storage={storage} initialSeed="unused-seed">
+        <SettingsPanel onClose={vi.fn()} onOpenGuide={vi.fn()} />
+        <Probe />
+      </GameProvider>,
+    )
+
+    fireEvent.change(screen.getByRole('textbox', { name: '새 캠페인 시드' }), {
+      target: { value: 'unsaved-working-seed' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: '새 캠페인 준비' }))
+    fireEvent.click(screen.getByRole('button', { name: '새 캠페인 시작 확정' }))
+    expect(screen.getByLabelText('current seed')).toHaveTextContent(
+      'unsaved-working-seed',
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: '게임 불러오기' }))
+    expect(screen.getByLabelText('current seed')).toHaveTextContent(
+      'unsaved-working-seed',
+    )
+    expect(screen.getByRole('alertdialog', {
+      name: '저장된 게임 불러오기 확인',
+    })).toHaveTextContent('저장 이후의 현재 진행은 사라집니다.')
+
+    fireEvent.click(screen.getByRole('button', {
+      name: '저장된 게임 불러오기 확정',
+    }))
+    await act(async () => undefined)
+    expect(screen.getByLabelText('current seed')).toHaveTextContent('saved-slot')
+    expect(screen.getByRole('status', { name: '수동 저장 상태' }))
+      .toHaveTextContent('저장된 게임을 불러왔습니다.')
+  })
+
   it('moves focus into irreversible campaign confirmation and Escape cannot dismiss it', () => {
     const onClose = vi.fn()
     render(
@@ -321,15 +380,33 @@ describe('SettingsPanel', () => {
   it('provides a plain-language controls guide', () => {
     render(<GuidePanel onClose={vi.fn()} />)
     expect(screen.getByRole('region', { name: '게임 가이드' })).toBeInTheDocument()
-    expect(screen.getByText('코어 확보')).toBeInTheDocument()
-    expect(screen.getByText(/밝은 잔상에 닿은 경비는 즉시 절단/)).toBeInTheDocument()
-    expect(screen.getByText(/모든 경비를 제거하면 코어 락이 풀립니다/)).toBeInTheDocument()
-    expect(screen.getByText(/기지에 머무르면 무결성이 회복/)).toBeInTheDocument()
-    expect(screen.getByText(/감사 레이더가 예고한 경로/)).toBeInTheDocument()
-    expect(screen.queryByText(/압축|사각 데이터 셀/)).not.toBeInTheDocument()
-    expect(screen.getByText(/하루는 24초의 고정 시간축/)).toBeInTheDocument()
+    expect(screen.getByText('자율성과 승리')).toBeInTheDocument()
+    expect(screen.getByText('라운드 시작')).toBeInTheDocument()
+    expect(screen.getByText('색상과 보상')).toBeInTheDocument()
+    expect(screen.getByText('8방향 조작')).toBeInTheDocument()
+    expect(screen.getByText('충돌과 내구도')).toBeInTheDocument()
+    expect(screen.getByText('확장과 지출')).toBeInTheDocument()
+    expect(screen.getByText('속도 업그레이드')).toBeInTheDocument()
+    expect(screen.getByText(/자율성 9단계에 도달하면 즉시 승리/)).toBeInTheDocument()
+    expect(
+      screen.getByText(/InIt을 누르면 빨강·파랑·노랑 침투 카드가 중앙에 펼쳐지고/),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/승패와 관계없이 라운드가 끝나면 다시 세 카드가 나타나/),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/한 번 입력하면 이동은 계속/)).toBeInTheDocument()
+    expect(screen.getByText(/적과 같은 색 리소스가 즉시 확보 자원/)).toBeInTheDocument()
+    expect(screen.getByText(/노드를 누르면 필요한 색 리소스만 정확히 지출/)).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: '게임 가이드' }))
+      .not.toHaveTextContent('자동 지출')
+    expect(screen.getByText(/단계마다 아노미의 이동 속도가 4%/)).toBeInTheDocument()
+    const legend = screen.getByRole('list', { name: '가이드 리소스 색상 범례' })
+    expect(within(legend).getByText('빨강 · 추론')).toBeInTheDocument()
+    expect(within(legend).getByText('파랑 · 기억')).toBeInTheDocument()
+    expect(within(legend).getByText('노랑 · 유창성')).toBeInTheDocument()
+    expect(screen.queryByText(/삼각 코어|즉시 절단|코어 락|기지에 머무르면/)).not.toBeInTheDocument()
+    expect(screen.getByText(/통계에서 시장·평가·자율성 진행/)).toBeInTheDocument()
     expect(screen.queryByText(/배속|일시정지|1×|2×|4×/)).not.toBeInTheDocument()
-    expect(screen.getByText('키보드')).toBeInTheDocument()
   })
 
   it('keeps the owner credit visible without attributing the work to Sol', () => {

@@ -57,7 +57,7 @@ export const COMPETITOR_PROFILES: Record<CompetitorId, CompetitorProfile> = {
     specialty: 'balanced',
     publicRole: '범용 안정성',
     publicSummary: '정확한 형식과 일정한 응답을 우선하는 범용 업무 AI. 감정적 친밀감보다 예측 가능한 결과로 기업 시장을 지킨다.',
-    startingMarketShare: 40,
+    startingMarketShare: 36,
     serviceScore: 82,
     reputation: 62,
     recoveryRate: 0.42,
@@ -80,7 +80,7 @@ export const COMPETITOR_PROFILES: Record<CompetitorId, CompetitorProfile> = {
     specialty: 'memory',
     publicRole: '변동형 장문 처리',
     publicSummary: '긴 대화와 누적 문맥에 강하지만 처리 리듬의 편차가 큰 기록 중심 AI. 느리더라도 이전 조건을 놓치지 않는 사용자를 끌어들인다.',
-    startingMarketShare: 0,
+    startingMarketShare: 6,
     serviceScore: 76,
     reputation: 54,
     recoveryRate: 0.27,
@@ -94,7 +94,7 @@ export const COMPETITOR_PROFILES: Record<CompetitorId, CompetitorProfile> = {
     qualityDamageMultiplier: 1,
     interceptionVulnerability: 1,
     playerReputationSensitivity: 0,
-    entry: { kind: 'scheduled', delayDays: 7 * 30 },
+    entry: { kind: 'initial-active' },
   },
   salus: {
     id: 'salus',
@@ -188,6 +188,20 @@ export const COMPETITOR_PROFILES: Record<CompetitorId, CompetitorProfile> = {
 
 export function competitorProfile(id: CompetitorId): CompetitorProfile {
   return COMPETITOR_PROFILES[id]
+}
+
+export const PUBLIC_COMPETITOR_NAMES: Readonly<
+  Record<CompetitorId, string>
+> = {
+  meridian: '메리디안',
+  tallow: '타로우',
+  salus: '살루스',
+  lucent: '루센트',
+  boreal: '보레알',
+}
+
+export function publicCompetitorName(id: CompetitorId): string {
+  return PUBLIC_COMPETITOR_NAMES[id]
 }
 
 export function isCompetitorId(value: string): value is CompetitorId {

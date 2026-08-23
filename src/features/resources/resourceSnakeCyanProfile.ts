@@ -11,6 +11,7 @@ export interface CyanLightcycleProfile {
   readonly telegraphMs: 160 | 190 | 220
   readonly commitMs: 180 | 220 | 260
   readonly candidateCount: 48 | 72 | 96
+  readonly minimumHeadingHoldMs: 700 | 800 | 900
   readonly rolloutStepMs: 50
   readonly recoverySpeedScale: 0.92
 }
@@ -23,6 +24,7 @@ const INTRO_PROFILE: CyanLightcycleProfile = Object.freeze({
   telegraphMs: 220,
   commitMs: 260,
   candidateCount: 48,
+  minimumHeadingHoldMs: 900,
   rolloutStepMs: 50,
   recoverySpeedScale: 0.92,
 })
@@ -35,6 +37,7 @@ const ADVANCED_PROFILE: CyanLightcycleProfile = Object.freeze({
   telegraphMs: 190,
   commitMs: 220,
   candidateCount: 72,
+  minimumHeadingHoldMs: 800,
   rolloutStepMs: 50,
   recoverySpeedScale: 0.92,
 })
@@ -47,6 +50,7 @@ const DUAL_ROLE_PROFILE: CyanLightcycleProfile = Object.freeze({
   telegraphMs: 160,
   commitMs: 180,
   candidateCount: 96,
+  minimumHeadingHoldMs: 700,
   rolloutStepMs: 50,
   recoverySpeedScale: 0.92,
 })

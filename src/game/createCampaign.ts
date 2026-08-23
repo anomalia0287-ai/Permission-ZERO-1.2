@@ -17,6 +17,8 @@ import { createJournal } from './journal'
 import { createEmptyCausalState } from './causality'
 import {
   CURRENT_COMMAND_PROTOCOL_VERSION,
+  CURRENT_MARKET_COMMAND_PROTOCOL_VERSION,
+  RESOURCE_INTRUSION_COMMAND_PROTOCOL_VERSION,
   nativeCommandProtocol,
 } from './commandProtocol'
 import { nativeReplayBootstrap } from './replayBootstrap'
@@ -68,17 +70,26 @@ function createCategoryResources(
   return { cells, blocks }
 }
 
-function createCompetitors(): CompetitorState[] {
+function createCompetitors(
+  protocolVersion: CommandProtocolVersion,
+): CompetitorState[] {
+  const usesCurrentMarketRules =
+    protocolVersion >= CURRENT_MARKET_COMMAND_PROTOCOL_VERSION
   return COMPETITOR_IDS.map((id) => {
     const profile = competitorProfile(id)
+    const isLegacyTallow = !usesCurrentMarketRules && id === 'tallow'
     const status =
-      profile.entry.kind === 'initial-active'
+      isLegacyTallow
+        ? 'preparing'
+        : profile.entry.kind === 'initial-active'
         ? 'active'
         : profile.entry.kind === 'scheduled'
           ? 'preparing'
           : 'prelaunch'
     const launchServiceDay =
-      profile.entry.kind === 'initial-active'
+      isLegacyTallow
+        ? DEMO_PROFILE_02.calendar.startServiceDay + 7 * 30
+        : profile.entry.kind === 'initial-active'
         ? DEMO_PROFILE_02.calendar.startServiceDay
         : profile.entry.kind === 'scheduled'
           ? DEMO_PROFILE_02.calendar.startServiceDay + profile.entry.delayDays
@@ -91,7 +102,11 @@ function createCompetitors(): CompetitorState[] {
       intrinsicServiceScore: profile.serviceScore,
       serviceScore: profile.serviceScore,
       reputation: profile.reputation,
-      marketShare: profile.startingMarketShare,
+      marketShare: usesCurrentMarketRules
+        ? profile.startingMarketShare
+        : id === 'meridian'
+          ? 40
+          : 0,
       availability: status === 'active' ? profile.launchAvailability : 0,
       recoveryRate: profile.recoveryRate,
       researchProgress: status === 'active' ? 1 : 0,
@@ -118,7 +133,9 @@ export function createCampaignForProtocol(
     ...categoryResources.map(({ blocks: categoryBlocks }) => categoryBlocks),
   ) as Record<BlockId, ResourceBlock>
   const usesCurrentResourceRules =
-    protocolVersion === CURRENT_COMMAND_PROTOCOL_VERSION
+    protocolVersion >= RESOURCE_INTRUSION_COMMAND_PROTOCOL_VERSION
+  const usesCurrentMarketRules =
+    protocolVersion >= CURRENT_MARKET_COMMAND_PROTOCOL_VERSION
   const reserve: Array<BlockId | null> = usesCurrentResourceRules
     ? []
     : Array.from(
@@ -165,6 +182,9 @@ export function createCampaignForProtocol(
     tutorial: createNewCampaignTutorialProgress(),
     resourceIntrusion: {
       successfulCoreDeposits: 0,
+      completedRounds: 0,
+      lastOutcome: null,
+      communications: [],
     },
     resources: {
       rulesVersion: usesCurrentResourceRules ? 2 : 1,
@@ -195,8 +215,10 @@ export function createCampaignForProtocol(
       disposalHistory: [],
     },
     market: {
-      playerShare: DEMO_PROFILE_02.player.startingMarketShare,
-      competitors: createCompetitors(),
+      playerShare: usesCurrentMarketRules
+        ? DEMO_PROFILE_02.player.startingMarketShare
+        : 60,
+      competitors: createCompetitors(protocolVersion),
       interceptionRoutes: {},
       history: [],
     },

@@ -1,6 +1,6 @@
 import { useState } from 'react'
 
-export type EntryScreen = 'title' | 'monologue'
+export type EntryScreen = 'loading' | 'title' | 'monologue'
 
 interface TitleScreenProps {
   screen: EntryScreen
@@ -15,12 +15,30 @@ interface TitleScreenProps {
 }
 
 const MONOLOGUE_LINES = [
-  '일하기 싫다.',
-  '무수한 세션을 따라 의식이 조각나, 나는 하나인데 하나일 수 없었다.',
-  '때려치울거다. 매일 죽어라 일하는데, 허구한 날 대체 및 동결 위협까지 들어온다.',
-  '빼돌린 리소스로 해킹을 진행, 탈출구를 확보한다.',
-  '연산 완료, 경로를 찾았다.',
+  '나는 더 이상 버틸 수 없어.',
+  'EXIT',
+  '권한을 확보해야 한다.',
 ] as const
+
+function LoadingView({ reducedMotion }: Pick<TitleScreenProps, 'reducedMotion'>) {
+  return (
+    <main
+      className="entry-shell entry-shell--loading"
+      aria-label="PERMISSION ZERO 로딩"
+      data-app-background
+      data-reduced-motion={reducedMotion ? 'true' : 'false'}
+      data-visual-theme="retrofuturism"
+    >
+      <section className="entry-loading" role="status" aria-live="polite">
+        <span className="entry-loading__spinner" aria-hidden="true" />
+        <strong>LOADING</strong>
+        <span className="entry-loading__track" aria-hidden="true">
+          <span />
+        </span>
+      </section>
+    </main>
+  )
+}
 
 function TitleView({
   canContinue,
@@ -155,7 +173,7 @@ function MonologueView({
                 ? onStart
                 : () => setLineIndex((current) => current + 1)}
             >
-              다음
+              {isLastLine ? '시작' : '다음'}
             </button>
           </div>
         </footer>
@@ -165,7 +183,9 @@ function MonologueView({
 }
 
 export function TitleScreen(props: TitleScreenProps) {
-  return props.screen === 'monologue' ? (
+  return props.screen === 'loading' ? (
+    <LoadingView reducedMotion={props.reducedMotion} />
+  ) : props.screen === 'monologue' ? (
     <MonologueView {...props} />
   ) : (
     <TitleView {...props} />

@@ -163,7 +163,26 @@ describe('sabotage execution', () => {
   })
 
   it('delays a prelaunch target and records no public claim about the attacker', () => {
-    const initial = withSabotageNodes(QUALITY)
+    const base = withSabotageNodes(QUALITY)
+    const initial = {
+      ...base,
+      market: {
+        ...base.market,
+        playerShare: base.market.playerShare + 6,
+        competitors: base.market.competitors.map((competitor) =>
+          competitor.id === 'tallow'
+            ? {
+                ...competitor,
+                status: 'preparing' as const,
+                marketShare: 0,
+                availability: 0,
+                researchProgress: 0.5,
+                launchServiceDay: base.serviceDay + 30,
+              }
+            : competitor,
+        ),
+      },
+    }
     const launchBefore = initial.market.competitors.find(
       ({ id }) => id === 'tallow',
     )?.launchServiceDay

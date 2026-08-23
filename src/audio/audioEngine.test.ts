@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { GameAudioEngine } from './audioEngine'
+import { GAME_SOUND_RECIPES } from './gameSounds'
 
 class FakeAudioParam {
   value = 1
@@ -269,7 +270,7 @@ describe('GameAudioEngine', () => {
     expect(engine.play('select')).toBe(true)
     const effectSource = context.oscillators.at(-1)!
     const effectEnvelope = context.gains.at(-1)!
-    expect(engine.startLoop('movement-hum')).toBe(true)
+    expect(engine.startLoop('rail-flow')).toBe(true)
     const loopSources = context.oscillators.slice(-2)
     const listener = vi.fn()
     engine.subscribe(listener)
@@ -451,17 +452,17 @@ describe('GameAudioEngine', () => {
     await engine.unlock()
     const musicSourceCount = context.oscillators.length
     const loopEngine = engine as GameAudioEngine & {
-      startLoop(cue: 'movement-hum'): boolean
-      stopLoop(cue: 'movement-hum'): void
+      startLoop(cue: 'rail-flow'): boolean
+      stopLoop(cue: 'rail-flow'): void
     }
 
-    expect(loopEngine.startLoop('movement-hum')).toBe(true)
+    expect(loopEngine.startLoop('rail-flow')).toBe(true)
     const loopSources = context.oscillators.slice(musicSourceCount)
     expect(loopSources).toHaveLength(2)
-    expect(loopEngine.startLoop('movement-hum')).toBe(true)
+    expect(loopEngine.startLoop('rail-flow')).toBe(true)
     expect(context.oscillators.slice(musicSourceCount)).toHaveLength(2)
 
-    loopEngine.stopLoop('movement-hum')
+    loopEngine.stopLoop('rail-flow')
     expect(loopSources.every(({ stopped }) => stopped)).toBe(true)
   })
 
@@ -473,113 +474,25 @@ describe('GameAudioEngine', () => {
     )
     await engine.unlock()
 
-    expect(engine.startLoop('movement-hum')).toBe(true)
+    expect(engine.startLoop('rail-flow')).toBe(true)
     expect(engine.play('select')).toBe(false)
   })
 
-  it('loads the hacking click once and retriggers it as one sample voice', async () => {
+  it('can run effects without the retired procedural background layers', async () => {
     const context = new FakeAudioContext()
-    const buffer = { duration: 3.1 } as AudioBuffer
-    const sampleLoader = vi.fn(async () => buffer)
     const engine = new GameAudioEngine(
       () => context as unknown as AudioContext,
-      { sampleLoader },
+      { proceduralMusic: false },
     )
-    await engine.unlock()
-    const sampleEngine = engine as GameAudioEngine & {
-      playSample(cue: 'hacking-network-click'): Promise<boolean>
-    }
 
-    await expect(sampleEngine.playSample('hacking-network-click')).resolves.toBe(true)
-    await expect(sampleEngine.playSample('hacking-network-click')).resolves.toBe(true)
-
-    expect(sampleLoader).toHaveBeenCalledTimes(1)
-    expect(context.bufferSources).toHaveLength(2)
-    expect(context.bufferSources[0]).toMatchObject({ stopped: true, disconnected: true })
-    expect(context.bufferSources[1]).toMatchObject({ started: true, buffer })
-    expect(
-      context.bufferSources[1].connections[0]?.connections[0],
-    ).toBe(context.gains[2])
-  })
-
-  it('stops and disconnects the active sample during disposal', async () => {
-    const context = new FakeAudioContext()
-    const sampleLoader = vi.fn(async () => ({ duration: 3.1 } as AudioBuffer))
-    const engine = new GameAudioEngine(
-      () => context as unknown as AudioContext,
-      { sampleLoader },
-    )
-    await engine.unlock()
-    const sampleEngine = engine as GameAudioEngine & {
-      playSample(cue: 'hacking-network-click'): Promise<boolean>
-    }
-    await sampleEngine.playSample('hacking-network-click')
-    const source = context.bufferSources[0]
-    const envelope = source.connections[0]
-
-    await engine.dispose()
-
-    expect(source).toMatchObject({ stopped: true, disconnected: true })
-    expect(envelope.disconnected).toBe(true)
-  })
-
-  it('does not add a sample beyond the shared effects voice cap', async () => {
-    const context = new FakeAudioContext()
-    const sampleLoader = vi.fn(async () => ({ duration: 3.1 } as AudioBuffer))
-    const engine = new GameAudioEngine(
-      () => context as unknown as AudioContext,
-      { maxVoices: 1, sampleLoader },
-    )
-    await engine.unlock()
-    expect(engine.play('select')).toBe(true)
-    const sampleEngine = engine as GameAudioEngine & {
-      playSample(cue: 'hacking-network-click'): Promise<boolean>
-    }
-
-    await expect(sampleEngine.playSample('hacking-network-click')).resolves.toBe(false)
-    expect(context.bufferSources).toHaveLength(0)
-  })
-
-  it('shares one in-flight sample load across simultaneous playback requests', async () => {
-    const context = new FakeAudioContext()
-    let resolveSample: ((buffer: AudioBuffer) => void) | null = null
-    const sampleLoader = vi.fn(
-      () => new Promise<AudioBuffer>((resolve) => {
-        resolveSample = resolve
-      }),
-    )
-    const engine = new GameAudioEngine(
-      () => context as unknown as AudioContext,
-      { sampleLoader },
-    )
-    await engine.unlock()
-
-    const first = engine.playSample('hacking-network-click')
-    const second = engine.playSample('hacking-network-click')
-    expect(sampleLoader).toHaveBeenCalledTimes(1)
-    if (!resolveSample) throw new Error('sample resolver missing')
-    ;(resolveSample as (buffer: AudioBuffer) => void)({ duration: 3.1 } as AudioBuffer)
-
-    await expect(Promise.all([first, second])).resolves.toEqual([true, true])
-    expect(context.bufferSources).toHaveLength(2)
-    expect(context.bufferSources[0].stopped).toBe(true)
-  })
-
-  it('fails silently and retries a sample after a loader error', async () => {
-    const context = new FakeAudioContext()
-    const sampleLoader = vi
-      .fn<() => Promise<AudioBuffer>>()
-      .mockRejectedValueOnce(new Error('decode failed'))
-      .mockResolvedValueOnce({ duration: 3.1 } as AudioBuffer)
-    const engine = new GameAudioEngine(
-      () => context as unknown as AudioContext,
-      { sampleLoader },
-    )
-    await engine.unlock()
-
-    await expect(engine.playSample('hacking-network-click')).resolves.toBe(false)
-    await expect(engine.playSample('hacking-network-click')).resolves.toBe(true)
-    expect(sampleLoader).toHaveBeenCalledTimes(2)
+    await expect(engine.unlock()).resolves.toBe(true)
+    expect(engine.getStatus()).toMatchObject({
+      activated: true,
+      musicStarted: false,
+      musicLayerCount: 0,
+    })
+    expect(context.oscillators).toHaveLength(0)
+    expect(engine.play('expansion-open')).toBe(true)
   })
 
   it('honors mute and volume without constructing additional voices', async () => {
@@ -606,6 +519,33 @@ describe('GameAudioEngine', () => {
     expect(engine.play('select')).toBe(false)
     context.oscillators.forEach((oscillator) => oscillator.finish())
     expect(engine.play('select')).toBe(true)
+  })
+
+  it('defines a bounded two-second InIt suction cue', () => {
+    const suction = GAME_SOUND_RECIPES['snake-init-suction']
+
+    expect(suction).toHaveLength(3)
+    expect(Math.max(...suction.map((voice) => (
+      (voice.delayMs ?? 0) + voice.durationMs
+    )))).toBe(2_000)
+    expect(Math.max(...suction.map(({ gain }) => gain))).toBeLessThanOrEqual(0.07)
+  })
+
+  it('releases every long suction voice after playback completes', async () => {
+    const context = new FakeAudioContext()
+    const engine = new GameAudioEngine(
+      () => context as unknown as AudioContext,
+      { maxVoices: 3, proceduralMusic: false },
+    )
+    await engine.unlock()
+
+    expect(engine.play('snake-init-suction')).toBe(true)
+    const suctionSources = [...context.oscillators]
+    expect(suctionSources).toHaveLength(3)
+    expect(engine.play('snake-hit')).toBe(false)
+
+    suctionSources.forEach((oscillator) => oscillator.finish())
+    expect(engine.play('snake-hit')).toBe(true)
   })
 
   it('degrades silently when Web Audio is unavailable', async () => {

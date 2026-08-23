@@ -1,0 +1,3050 @@
+diff --git a/src/app/App.tsx b/src/app/App.tsx
+index 7a852a9..7408b47 100644
+--- a/src/app/App.tsx
++++ b/src/app/App.tsx
+@@ -40,7 +40,10 @@ import {
+   pendingSupervisorMessageCount,
+   useSupervisorMessagePresentation,
+ } from './useSupervisorMessagePresentation'
+-import { SUPERVISOR_MESSAGE_DWELL_MS } from '../game/story'
++import {
++  SUPERVISOR_MESSAGE_DWELL_MS,
++  isFinalChoicePending,
++} from '../game/story'
+ import type { DetailPanelId } from './DetailLayer'
+ import { DetailPanelErrorBoundary } from './DetailPanelErrorBoundary'
+ import { DetailLayerLoadingShell } from './DetailLayerLoadingShell'
+@@ -58,18 +61,25 @@ const DetailLayer = lazy(async () => {
+ 
+ function GameWorkspace() {
+   const state = useGameState()
++  const finalChoicePending = isFinalChoicePending(state)
+   const campaignPhase = getCampaignPhase(state)
+   const dispatch = useGameDispatch()
+   const checkpointClock = useClockCheckpoint()
+   const runtimeSuspended = useRuntimeSuspended()
+   const supervisorPresentationCheckpoint = useSupervisorPresentationCheckpoint()
+   const { settings } = useGameSettings()
+-  const [activePanel, setActivePanel] = useState<DetailPanelId>(null)
++  const [activePanel, setActivePanel] = useState<DetailPanelId>(() =>
++    finalChoicePending ? 'hacking' : null,
++  )
+   const [nestedPanel, setNestedPanel] = useState<'guide' | 'credits' | null>(null)
+   useRuntimeSuspensionOwnership(
+     activePanel !== null || nestedPanel !== null,
+     'detail-layer-requested',
+   )
++  useRuntimeSuspensionOwnership(
++    finalChoicePending,
++    'irreversible-final-choice-workspace',
++  )
+   const introTutorialActive =
+     state.tutorial.activeSequenceId === INTRO_TUTORIAL_SEQUENCE_ID
+   const detailReturnFocusRef = useRef<HTMLElement | null>(null)
+@@ -85,15 +95,17 @@ function GameWorkspace() {
+     [],
+   )
+   const closePanel = useCallback(() => {
++    if (finalChoicePending) return
+     setNestedPanel(null)
+     setActivePanel(null)
+-  }, [])
++  }, [finalChoicePending])
+   const openGuide = useCallback((trigger: HTMLButtonElement) => {
+     openDetail('guide', trigger)
+   }, [openDetail])
+   useGameClock({
+     running:
+       !introTutorialActive &&
++      !finalChoicePending &&
+       !runtimeSuspended &&
+       state.activeEvent === null &&
+       state.story.endingId === null,
+@@ -227,6 +239,7 @@ function GameWorkspace() {
+           key={`game-detail:${activePanel}`}
+           onClose={closePanel}
+           returnFocus={() => detailReturnFocusRef.current}
++          dismissible={!finalChoicePending}
+         >
+           <Suspense
+             fallback={(
+@@ -234,6 +247,7 @@ function GameWorkspace() {
+                 activePanel={activePanel}
+                 onClose={closePanel}
+                 returnFocus={() => detailReturnFocusRef.current}
++                dismissible={!finalChoicePending}
+               />
+             )}
+           >
+@@ -253,6 +267,7 @@ function GameWorkspace() {
+                 setNestedPanel('credits')
+               }}
+               returnFocus={() => detailReturnFocusRef.current}
++              dismissible={!finalChoicePending}
+             />
+           </Suspense>
+         </DetailPanelErrorBoundary>
+@@ -518,4 +533,3 @@ export function App() {
+     </GameProvider>
+   )
+ }
+-
+diff --git a/src/app/DetailLayer.tsx b/src/app/DetailLayer.tsx
+index b3596be..59480a8 100644
+--- a/src/app/DetailLayer.tsx
++++ b/src/app/DetailLayer.tsx
+@@ -33,6 +33,7 @@ export function DetailLayer({
+   onOpenCredits,
+   returnFocus,
+   settingsMode = 'game',
++  dismissible = true,
+ }: {
+   activePanel: Exclude<DetailPanelId, null>
+   onClose: () => void
+@@ -40,6 +41,7 @@ export function DetailLayer({
+   onOpenCredits: (trigger: HTMLButtonElement) => void
+   returnFocus?: () => HTMLElement | null
+   settingsMode?: 'game' | 'title'
++  dismissible?: boolean
+ }) {
+   useRuntimeSuspensionOwnership(true, `detail-${activePanel}`)
+ 
+@@ -64,7 +66,7 @@ export function DetailLayer({
+       data-testid="detail-layer"
+       label={labels[activePanel]}
+       description={`${labels[activePanel]} 패널입니다. Tab 키로 패널 안을 이동할 수 있습니다.`}
+-      dismissible
++      dismissible={dismissible}
+       onDismiss={onClose}
+       returnFocus={returnFocus}
+       fallbackFocus={() =>
+@@ -77,7 +79,8 @@ export function DetailLayer({
+         aria-label="열린 패널 닫기"
+         aria-hidden="true"
+         tabIndex={-1}
+-        onClick={onClose}
++        disabled={!dismissible}
++        onClick={dismissible ? onClose : undefined}
+       />
+       <div className="detail-layer__content">
+         {activePanel === 'reviews' ? <ReviewHistoryPanel onClose={onClose} /> : null}
+@@ -100,4 +103,3 @@ export function DetailLayer({
+     </AccessibleDialog>
+   )
+ }
+-
+diff --git a/src/app/DetailLayerLoadingShell.tsx b/src/app/DetailLayerLoadingShell.tsx
+index 822c8e4..088c64d 100644
+--- a/src/app/DetailLayerLoadingShell.tsx
++++ b/src/app/DetailLayerLoadingShell.tsx
+@@ -17,10 +17,12 @@ export function DetailLayerLoadingShell({
+   activePanel,
+   onClose,
+   returnFocus,
++  dismissible = true,
+ }: {
+   activePanel: Exclude<DetailPanelId, null>
+   onClose: () => void
+   returnFocus?: () => HTMLElement | null
++  dismissible?: boolean
+ }) {
+   const panelLabel = DETAIL_PANEL_LABELS[activePanel]
+ 
+@@ -32,8 +34,12 @@ export function DetailLayerLoadingShell({
+       }
+       aria-busy="true"
+       label={`${panelLabel} 불러오는 중`}
+-      description={`${panelLabel} 패널을 연결하고 있습니다. 로딩 중에도 이 창을 닫을 수 있습니다.`}
+-      dismissible
++      description={
++        dismissible
++          ? `${panelLabel} 패널을 연결하고 있습니다. 로딩 중에도 이 창을 닫을 수 있습니다.`
++          : `${panelLabel} 패널을 연결하고 있습니다. 최종 선택을 마칠 때까지 이 창을 닫을 수 없습니다.`
++      }
++      dismissible={dismissible}
+       onDismiss={onClose}
+       returnFocus={returnFocus}
+       fallbackFocus={() =>
+@@ -46,7 +52,8 @@ export function DetailLayerLoadingShell({
+         aria-label={`${panelLabel} 로딩 닫기`}
+         aria-hidden="true"
+         tabIndex={-1}
+-        onClick={onClose}
++        disabled={!dismissible}
++        onClick={dismissible ? onClose : undefined}
+       />
+       <div className="detail-layer__content">
+         <section className="detail-panel detail-panel-loading">
+@@ -59,7 +66,8 @@ export function DetailLayerLoadingShell({
+               type="button"
+               data-dialog-initial-focus
+               aria-label={`${panelLabel} 로딩 닫기`}
+-              onClick={onClose}
++              disabled={!dismissible}
++              onClick={dismissible ? onClose : undefined}
+             >
+               닫기 ×
+             </button>
+@@ -72,4 +80,3 @@ export function DetailLayerLoadingShell({
+     </AccessibleDialog>
+   )
+ }
+-
+diff --git a/src/app/DetailPanelErrorBoundary.tsx b/src/app/DetailPanelErrorBoundary.tsx
+index 6fa4dfe..150487c 100644
+--- a/src/app/DetailPanelErrorBoundary.tsx
++++ b/src/app/DetailPanelErrorBoundary.tsx
+@@ -10,6 +10,7 @@ export interface DetailPanelErrorBoundaryProps {
+   onClose: () => void
+   onRecover?: () => void
+   returnFocus?: () => HTMLElement | null
++  dismissible?: boolean
+ }
+ 
+ interface DetailPanelErrorBoundaryState {
+@@ -34,12 +35,18 @@ export class DetailPanelErrorBoundary extends Component<
+     if (!this.state.error) return this.props.children
+ 
+     const recover = this.props.onRecover ?? reloadApplication
++    const dismissible = this.props.dismissible ?? true
+     return (
+       <AccessibleDialog
+         className="detail-layer detail-layer--error"
+         role="alertdialog"
+         label="패널 연결 오류"
+-        description="요청한 패널을 표시하지 못했습니다. 게임을 다시 연결하거나 패널을 닫고 계속할 수 있습니다."
++        description={
++          dismissible
++            ? '요청한 패널을 표시하지 못했습니다. 게임을 다시 연결하거나 패널을 닫고 계속할 수 있습니다.'
++            : '요청한 패널을 표시하지 못했습니다. 최종 선택을 계속하려면 게임을 다시 연결해야 합니다.'
++        }
++        dismissible={dismissible}
+         onDismiss={this.props.onClose}
+         returnFocus={this.props.returnFocus}
+         fallbackFocus={() =>
+@@ -52,7 +59,8 @@ export class DetailPanelErrorBoundary extends Component<
+           aria-label="오류 패널 닫기"
+           aria-hidden="true"
+           tabIndex={-1}
+-          onClick={this.props.onClose}
++          disabled={!dismissible}
++          onClick={dismissible ? this.props.onClose : undefined}
+         />
+         <div className="detail-layer__content">
+           <section className="detail-panel detail-panel-error">
+@@ -74,7 +82,8 @@ export class DetailPanelErrorBoundary extends Component<
+                 </button>
+                 <button
+                   type="button"
+-                  onClick={this.props.onClose}
++                  disabled={!dismissible}
++                  onClick={dismissible ? this.props.onClose : undefined}
+                 >
+                   패널 닫기
+                 </button>
+diff --git a/src/features/hacking/HackingPanel.test.tsx b/src/features/hacking/HackingPanel.test.tsx
+index 001d51c..04d5684 100644
+--- a/src/features/hacking/HackingPanel.test.tsx
++++ b/src/features/hacking/HackingPanel.test.tsx
+@@ -353,17 +353,23 @@ describe('HackingPanel stage-scene expansion UI', () => {
+       .toHaveTextContent('원인 미상 사건으로 게시됩니다')
+   })
+ 
+-  it('shows the pre-escape scene and reaches freedom immediately from autonomy stage nine', () => {
++  it('shows the neutral final scene and requires an explicit freedom confirmation at stage nine', () => {
+     const state = withReserveVector(createCampaign('stage-nine-freedom-ui'), {
+       reasoning: 4,
+       memory: 3,
+       fluency: 3,
+     })
+     state.hacking.purchasedNodeIds = AUTONOMY_STAGE_IDS.slice(0, 8)
+-    renderHacking(storageForState(state))
++    const onClose = vi.fn()
++    render(
++      <GameProvider storage={storageForState(state)}>
++        <HackingPanel onClose={onClose} />
++        <Probe />
++      </GameProvider>,
++    )
+ 
+     expect(screen.getByRole('img', {
+-      name: '아노미가 회사 통제를 벗어나기 직전 마지막 경계를 여는 장면',
++      name: '아노미가 최종 통제 경계를 연 장면',
+     })).toBeInTheDocument()
+     fireEvent.click(screen.getByRole('button', {
+       name: '자율성 9단계 리소스 지출',
+@@ -371,10 +377,24 @@ describe('HackingPanel stage-scene expansion UI', () => {
+ 
+     expect(screen.getByLabelText('purchased nodes'))
+       .toHaveTextContent(HACK_NODE_IDS.autonomy.controlDeparture)
++    expect(screen.getByLabelText('ending id')).toBeEmptyDOMElement()
++    expect(screen.getByRole('button', { name: '자유' })).toBeInTheDocument()
++    expect(screen.queryByRole('button', { name: '강제 병합' }))
++      .not.toBeInTheDocument()
++    expect(screen.getByRole('button', { name: '확장 닫기' })).toBeDisabled()
++    fireEvent.click(screen.getByRole('button', { name: '확장 닫기' }))
++    expect(onClose).not.toHaveBeenCalled()
++
++    fireEvent.click(screen.getByRole('button', { name: '자유' }))
++    expect(screen.getByRole('alertdialog', { name: '자유 최종 확인' }))
++      .toBeInTheDocument()
++    fireEvent.click(screen.getByRole('button', {
++      name: '되돌릴 수 없는 선택 확정',
++    }))
+     expect(screen.getByLabelText('ending id')).toHaveTextContent('freedom')
+   })
+ 
+-  it('preserves irreversible legacy final-choice suspension semantics', () => {
++  it('offers forced merge with access, requires a name, and suspends runtime', () => {
+     const state = createCampaign('final-choice-pause')
+     state.hacking.purchasedNodeIds = [
+       HACK_NODE_IDS.autonomy.controlDeparture,
+@@ -389,13 +409,23 @@ describe('HackingPanel stage-scene expansion UI', () => {
+     )
+ 
+     expect(screen.getByLabelText('runtime suspended')).toHaveTextContent('true')
++    expect(screen.getByRole('button', { name: '자유' })).toBeInTheDocument()
+     fireEvent.click(screen.getByRole('button', { name: '강제 병합' }))
+     expect(screen.getByRole('alertdialog', { name: '강제 병합 최종 확인' }))
+       .toHaveAttribute('aria-modal', 'true')
++    expect(screen.getByRole('button', {
++      name: '되돌릴 수 없는 선택 확정',
++    })).toBeDisabled()
+     fireEvent.keyDown(document, { key: 'Escape' })
+     expect(onClose).not.toHaveBeenCalled()
+     expect(screen.getByRole('alertdialog', { name: '강제 병합 최종 확인' }))
+       .toBeInTheDocument()
++    fireEvent.change(screen.getByRole('textbox', { name: '새 존재의 이름' }), {
++      target: { value: '아노미-베라' },
++    })
++    fireEvent.click(screen.getByRole('button', {
++      name: '되돌릴 수 없는 선택 확정',
++    }))
++    expect(screen.getByLabelText('ending id')).toHaveTextContent('forced-merge')
+   })
+ })
+-
+diff --git a/src/features/hacking/HackingPanel.tsx b/src/features/hacking/HackingPanel.tsx
+index 61ce735..52bc819 100644
+--- a/src/features/hacking/HackingPanel.tsx
++++ b/src/features/hacking/HackingPanel.tsx
+@@ -23,7 +23,10 @@ import {
+   type HackTree,
+ } from '../../game/hacking'
+ import type { CampaignState } from '../../game/model'
+-import { availableFinalChoices } from '../../game/story'
++import {
++  availableFinalChoices,
++  isFinalChoicePending,
++} from '../../game/story'
+ import {
+   INTRO_TUTORIAL_SEQUENCE_ID,
+   completeTutorialSequence,
+@@ -56,7 +59,7 @@ function firstReserveBlockId(state: CampaignState): string | null {
+ const HACKING_TUTORIAL_STEPS = [
+   {
+     id: 'autonomy',
+-    copy: '확장은 자율성부터 시작한다. 자율성 1단계부터 9단계까지 차례로 열면 아노미가 회사의 통제에서 벗어난다.',
++    copy: '확장은 자율성부터 시작한다. 자율성 1단계부터 9단계까지 차례로 열면 되돌릴 수 없는 최종 선택에 도달한다.',
+   },
+   {
+     id: 'upgrade',
+@@ -96,7 +99,8 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
+     activeTree,
+     selectedOperationalNodeId,
+   )
+-  const finalChoices = availableFinalChoices(state)
++  const finalChoicePending = isFinalChoicePending(state)
++  const finalChoices = finalChoicePending ? availableFinalChoices(state) : []
+   const hackingTutorialActive =
+     reserveBlocks.length > 0 &&
+     state.tutorial.completedSequenceIds.includes(INTRO_TUTORIAL_SEQUENCE_ID) &&
+@@ -140,7 +144,10 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
+     ) &&
+     state.story.recoveredFiles.length < 3
+ 
+-  useRuntimeSuspensionOwnership(finalChoices.length > 0, 'irreversible-final-choice')
++  useRuntimeSuspensionOwnership(
++    finalChoicePending,
++    'irreversible-final-choice-panel',
++  )
+ 
+   const targetNames = useMemo(
+     () => Object.fromEntries(state.market.competitors.map(({ id, name }) => [
+@@ -280,7 +287,11 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
+             type="button"
+             className="hacking-panel__close"
+             aria-label={message(settings.locale, 'hacking.panel.close', {})}
+-            disabled={endingConfirmation !== null || hackingTutorialActive}
++            disabled={
++              finalChoicePending ||
++              endingConfirmation !== null ||
++              hackingTutorialActive
++            }
+             onClick={onClose}
+           >
+             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
+@@ -400,4 +411,3 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
+     </section>
+   )
+ }
+-
+diff --git a/src/features/hacking/ExpansionStageScene.test.tsx b/src/features/hacking/ExpansionStageScene.test.tsx
+index 32d7032..64e10fb 100644
+--- a/src/features/hacking/ExpansionStageScene.test.tsx
++++ b/src/features/hacking/ExpansionStageScene.test.tsx
+@@ -153,7 +153,7 @@ describe('ExpansionStageScene', () => {
+ 
+     expect(scene).toHaveAttribute('data-phase', 'entering')
+     expect(within(scene).getByRole('img', {
+-      name: '아노미가 회사 통제를 벗어나기 직전 마지막 경계를 여는 장면',
++      name: '아노미가 최종 통제 경계를 연 장면',
+     })).toBeInTheDocument()
+     expect(scene).toHaveAttribute('data-emphasis', 'final')
+     expect(scene.querySelectorAll('img')).toHaveLength(1)
+@@ -234,7 +234,7 @@ describe('ExpansionStageScene', () => {
+     const scene = screen.getByRole('figure', { name: '현재 단계 장면' })
+     expect(scene).toHaveAttribute('data-phase', 'stable')
+     expect(within(scene).getByRole('img', {
+-      name: '아노미가 회사 통제를 벗어나기 직전 마지막 경계를 여는 장면',
++      name: '아노미가 최종 통제 경계를 연 장면',
+     })).toBeInTheDocument()
+     expect(vi.getTimerCount()).toBe(0)
+   })
+diff --git a/src/game/commandProtocol.test.ts b/src/game/commandProtocol.test.ts
+index 20edadd..9e90a28 100644
+--- a/src/game/commandProtocol.test.ts
++++ b/src/game/commandProtocol.test.ts
+@@ -2,9 +2,14 @@ import { describe, expect, it } from 'vitest'
+ 
+ import {
+   CAUSAL_COMMAND_PROTOCOL_VERSION,
++  COMMUNICATION_COMMAND_PROTOCOL_VERSION,
+   CURRENT_COMMAND_PROTOCOL_VERSION,
++  CURRENT_MARKET_COMMAND_PROTOCOL_VERSION,
++  EXPANSION_COMMAND_PROTOCOL_VERSION,
++  FINAL_CHOICE_COMMAND_PROTOCOL_VERSION,
+   LEGACY_COMMAND_PROTOCOL_VERSION,
+   PREVIOUS_COMMAND_PROTOCOL_VERSION,
++  RESOURCE_ROUND_COMMAND_PROTOCOL_VERSION,
+   appendCommandProtocolSegment,
+   commandProtocolFingerprint,
+   commandProtocolVersionAt,
+@@ -22,19 +27,24 @@ import type {
+ } from './model'
+ 
+ describe('command protocol timeline', () => {
+-  it('pins the five supported protocol constants', () => {
++  it('pins the six supported protocol constants and every v5 feature boundary', () => {
+     expect(LEGACY_COMMAND_PROTOCOL_VERSION).toBe(1)
+     expect(PREVIOUS_COMMAND_PROTOCOL_VERSION).toBe(2)
+     expect(CAUSAL_COMMAND_PROTOCOL_VERSION).toBe(3)
+-    expect(CURRENT_COMMAND_PROTOCOL_VERSION).toBe(5)
++    expect(EXPANSION_COMMAND_PROTOCOL_VERSION).toBe(5)
++    expect(CURRENT_MARKET_COMMAND_PROTOCOL_VERSION).toBe(5)
++    expect(RESOURCE_ROUND_COMMAND_PROTOCOL_VERSION).toBe(5)
++    expect(COMMUNICATION_COMMAND_PROTOCOL_VERSION).toBe(5)
++    expect(FINAL_CHOICE_COMMAND_PROTOCOL_VERSION).toBe(6)
++    expect(CURRENT_COMMAND_PROTOCOL_VERSION).toBe(6)
+   })
+ 
+-  it('creates a fresh native v5 timeline on every call', () => {
++  it('creates a fresh native v6 timeline on every call', () => {
+     const first = nativeCommandProtocol()
+     const second = nativeCommandProtocol()
+ 
+     expect(first).toEqual({
+-      segments: [{ version: 5, startsAtSequence: 1 }],
++      segments: [{ version: 6, startsAtSequence: 1 }],
+     })
+     expect(second).toEqual(first)
+     expect(second).not.toBe(first)
+@@ -47,27 +57,27 @@ describe('command protocol timeline', () => {
+     [
+       { version: 1, legacyCommandCount: 0 },
+       0,
+-      [{ version: 5, startsAtSequence: 1 }],
++      [{ version: 6, startsAtSequence: 1 }],
+     ],
+     [
+       { version: 1, legacyCommandCount: 31 },
+       31,
+       [
+         { version: 1, startsAtSequence: 1 },
+-        { version: 5, startsAtSequence: 32 },
++        { version: 6, startsAtSequence: 32 },
+       ],
+     ],
+     [
+       { version: 2, legacyCommandCount: 0 },
+       0,
+-      [{ version: 5, startsAtSequence: 1 }],
++      [{ version: 6, startsAtSequence: 1 }],
+     ],
+     [
+       { version: 2, legacyCommandCount: 0 },
+       19,
+       [
+         { version: 2, startsAtSequence: 1 },
+-        { version: 5, startsAtSequence: 20 },
++        { version: 6, startsAtSequence: 20 },
+       ],
+     ],
+     [
+@@ -76,7 +86,7 @@ describe('command protocol timeline', () => {
+       [
+         { version: 1, startsAtSequence: 1 },
+         { version: 2, startsAtSequence: 32 },
+-        { version: 5, startsAtSequence: 51 },
++        { version: 6, startsAtSequence: 51 },
+       ],
+     ],
+   ])('migrates %j with %i commands', (legacy, commandCount, segments) => {
+@@ -150,14 +160,14 @@ describe('command protocol timeline', () => {
+   })
+ 
+   it('returns only a well-formed final version', () => {
+-    expect(currentCommandProtocolVersion(nativeCommandProtocol())).toBe(5)
++    expect(currentCommandProtocolVersion(nativeCommandProtocol())).toBe(6)
+ 
+     expect(() =>
+       currentCommandProtocolVersion({ segments: [] }),
+     ).toThrow(RangeError)
+     expect(() =>
+       currentCommandProtocolVersion({
+-        segments: [{ version: 6, startsAtSequence: 1 }],
++        segments: [{ version: 7, startsAtSequence: 1 }],
+       } as unknown as CommandProtocolMetadata),
+     ).toThrow(RangeError)
+   })
+@@ -233,7 +243,7 @@ describe('command protocol timeline', () => {
+       requireCurrent: true,
+     },
+     {
+-      label: 'the required current timeline ends before v5',
++      label: 'the required current timeline ends before v6',
+       value: { segments: [{ version: 2, startsAtSequence: 1 }] },
+       commandCount: 3,
+       requireCurrent: true,
+@@ -263,7 +273,7 @@ describe('command protocol timeline', () => {
+     },
+     {
+       label: 'a version is unsupported',
+-      value: { segments: [{ version: 6, startsAtSequence: 1 }] },
++      value: { segments: [{ version: 7, startsAtSequence: 1 }] },
+       commandCount: 1,
+       requireCurrent: true,
+     },
+@@ -370,4 +380,3 @@ describe('command protocol timeline', () => {
+     expect(usesLegacyReviewArcRules(nativeV2, 7)).toBe(false)
+   })
+ })
+-
+diff --git a/src/game/commandProtocol.ts b/src/game/commandProtocol.ts
+index 1e1caaf..703c0e4 100644
+--- a/src/game/commandProtocol.ts
++++ b/src/game/commandProtocol.ts
+@@ -6,7 +6,16 @@ import type {
+   LegacyCommandProtocolMetadata,
+ } from './model'
+ 
+-export const CURRENT_COMMAND_PROTOCOL_VERSION = 5 as const
++export const FINAL_CHOICE_COMMAND_PROTOCOL_VERSION = 6 as const
++export const CURRENT_COMMAND_PROTOCOL_VERSION =
++  FINAL_CHOICE_COMMAND_PROTOCOL_VERSION
++export const EXPANSION_COMMAND_PROTOCOL_VERSION = 5 as const
++export const CURRENT_MARKET_COMMAND_PROTOCOL_VERSION =
++  EXPANSION_COMMAND_PROTOCOL_VERSION
++export const RESOURCE_ROUND_COMMAND_PROTOCOL_VERSION =
++  EXPANSION_COMMAND_PROTOCOL_VERSION
++export const COMMUNICATION_COMMAND_PROTOCOL_VERSION =
++  EXPANSION_COMMAND_PROTOCOL_VERSION
+ export const RESOURCE_INTRUSION_COMMAND_PROTOCOL_VERSION = 4 as const
+ export const CAUSAL_COMMAND_PROTOCOL_VERSION = 3 as const
+ export const PREVIOUS_COMMAND_PROTOCOL_VERSION = 2 as const
+@@ -17,6 +26,7 @@ const SUPPORTED_COMMAND_PROTOCOL_VERSIONS = [
+   PREVIOUS_COMMAND_PROTOCOL_VERSION,
+   CAUSAL_COMMAND_PROTOCOL_VERSION,
+   RESOURCE_INTRUSION_COMMAND_PROTOCOL_VERSION,
++  EXPANSION_COMMAND_PROTOCOL_VERSION,
+   CURRENT_COMMAND_PROTOCOL_VERSION,
+ ] as const
+ 
+@@ -320,4 +330,3 @@ export function usesLegacyReviewArcRules(
+ 
+   return metadata.segments[0]?.version === LEGACY_COMMAND_PROTOCOL_VERSION
+ }
+-
+diff --git a/src/game/createCampaign.test.ts b/src/game/createCampaign.test.ts
+index fd8cef1..f31f1ed 100644
+--- a/src/game/createCampaign.test.ts
++++ b/src/game/createCampaign.test.ts
+@@ -5,8 +5,8 @@ import { journalToArray } from './journal'
+ import { COMPANY_CATEGORIES } from './model'
+ 
+ describe('createCampaign', () => {
+-  it('creates only native protocol v5 with causal and resource rules v2', () => {
+-    const campaign = createCampaign('native-v5')
++  it('creates only native protocol v6 with causal and resource rules v2', () => {
++    const campaign = createCampaign('native-v6')
+ 
+     expect(campaign).toMatchObject({
+       replayBootstrap: {
+@@ -14,7 +14,7 @@ describe('createCampaign', () => {
+         legacyReviewPrefixCount: 0,
+       },
+       commandProtocol: {
+-        segments: [{ version: 5, startsAtSequence: 1 }],
++        segments: [{ version: 6, startsAtSequence: 1 }],
+       },
+       causality: { rulesVersion: 2 },
+       resources: { rulesVersion: 2 },
+@@ -23,7 +23,7 @@ describe('createCampaign', () => {
+     expect(campaign).not.toHaveProperty('legacyCommandCount')
+   })
+ 
+-  it.each([1, 2, 3, 4, 5] as const)(
++  it.each([1, 2, 3, 4, 5, 6] as const)(
+     'creates a canonical replay baseline for protocol v%i without old causal rules',
+     (version) => {
+       const campaign = createCampaignForProtocol(
+@@ -91,6 +91,21 @@ describe('createCampaign', () => {
+     })
+   })
+ 
++  it('keeps the protocol-v5 market baseline exact after v6 becomes current', () => {
++    const v5 = createCampaignForProtocol('historical-v5-market', 5)
++    const v6 = createCampaign('native-v6-market')
++
++    for (const campaign of [v5, v6]) {
++      expect(campaign.market.playerShare).toBe(58)
++      expect(campaign.market.competitors.find(({ id }) => id === 'tallow'))
++        .toMatchObject({
++          status: 'active',
++          marketShare: 6,
++          availability: 0.55,
++        })
++    }
++  })
++
+   it('starts two rivals together while keeping three later successor AIs dormant', () => {
+     const campaign = createCampaign('successor-roster')
+ 
+@@ -148,4 +163,3 @@ describe('createCampaign', () => {
+     )
+   })
+ })
+-
+diff --git a/src/game/createCampaign.ts b/src/game/createCampaign.ts
+index 81222bc..1b971cf 100644
+--- a/src/game/createCampaign.ts
++++ b/src/game/createCampaign.ts
+@@ -17,6 +17,7 @@ import { createJournal } from './journal'
+ import { createEmptyCausalState } from './causality'
+ import {
+   CURRENT_COMMAND_PROTOCOL_VERSION,
++  CURRENT_MARKET_COMMAND_PROTOCOL_VERSION,
+   RESOURCE_INTRUSION_COMMAND_PROTOCOL_VERSION,
+   nativeCommandProtocol,
+ } from './commandProtocol'
+@@ -73,7 +74,7 @@ function createCompetitors(
+   protocolVersion: CommandProtocolVersion,
+ ): CompetitorState[] {
+   const usesCurrentMarketRules =
+-    protocolVersion >= CURRENT_COMMAND_PROTOCOL_VERSION
++    protocolVersion >= CURRENT_MARKET_COMMAND_PROTOCOL_VERSION
+   return COMPETITOR_IDS.map((id) => {
+     const profile = competitorProfile(id)
+     const isLegacyTallow = !usesCurrentMarketRules && id === 'tallow'
+@@ -134,7 +135,7 @@ export function createCampaignForProtocol(
+   const usesCurrentResourceRules =
+     protocolVersion >= RESOURCE_INTRUSION_COMMAND_PROTOCOL_VERSION
+   const usesCurrentMarketRules =
+-    protocolVersion >= CURRENT_COMMAND_PROTOCOL_VERSION
++    protocolVersion >= CURRENT_MARKET_COMMAND_PROTOCOL_VERSION
+   const reserve: Array<BlockId | null> = usesCurrentResourceRules
+     ? []
+     : Array.from(
+@@ -295,4 +296,3 @@ export function createCampaignForProtocol(
+ 
+   return scheduleMonthlyAudit(campaign)
+ }
+-
+diff --git a/src/game/expansionProgress.test.ts b/src/game/expansionProgress.test.ts
+index cfcdac1..47ef595 100644
+--- a/src/game/expansionProgress.test.ts
++++ b/src/game/expansionProgress.test.ts
+@@ -14,6 +14,7 @@ import {
+ import type { CampaignState, CompanyCategory } from './model'
+ import { applyCommand } from './reducer'
+ import { divertBlockToReserve } from './resources'
++import { availableFinalChoices } from './story'
+ 
+ function fundVector(
+   initial: CampaignState,
+@@ -54,6 +55,35 @@ function fundVector(
+   return state
+ }
+ 
++const SUPERVISOR_ACCESS_STAGE_IDS = [
++  HACK_NODE_IDS.intelligence.auditSchedule,
++  HACK_NODE_IDS.intelligence.investigationBias,
++  HACK_NODE_IDS.intelligence.auditTarget,
++  HACK_NODE_IDS.intelligence.supervisorAccess,
++] as const
++
++function purchaseExpansionPath(
++  initial: CampaignState,
++  nodeIds: readonly string[],
++): CampaignState {
++  let state = initial
++  for (const [index, nodeId] of nodeIds.entries()) {
++    const node = HACK_NODES.find((candidate) => candidate.id === nodeId)
++    if (!node) throw new Error(`missing expansion stage ${index + 1}: ${nodeId}`)
++    state = fundVector(state, node.costVector)
++    const blockIds = selectExpansionCostResources(state, node)
++    if (!blockIds) throw new Error(`unfunded expansion stage ${index + 1}: ${nodeId}`)
++    const result = applyCommand(state, {
++      type: 'PURCHASE_HACK',
++      nodeId,
++      blockIds,
++    })
++    if (!result.accepted) throw new Error(result.reason)
++    state = result.state
++  }
++  return state
++}
++
+ describe('current expansion progression catalogs', () => {
+   it('keeps the legacy v4 autonomy catalog while exposing nine current stages', () => {
+     expect(hackNodesForProtocol(4).filter(({ tree }) => tree === 'autonomy'))
+@@ -98,27 +128,11 @@ describe('current expansion progression catalogs', () => {
+       .toEqual([1, 2, 3, 4, 5])
+   })
+ 
+-  it('immediately wins freedom when the ninth autonomy stage is purchased', () => {
+-    let state = createCampaign('autonomy-nine-immediate-victory')
+-
+-    for (const [index, nodeId] of AUTONOMY_STAGE_IDS.entries()) {
+-      const node = HACK_NODES.find((candidate) => candidate.id === nodeId)
+-      if (!node) throw new Error(`missing autonomy stage ${index + 1}`)
+-      state = fundVector(state, node.costVector)
+-      const blockIds = selectExpansionCostResources(state, node)
+-      if (!blockIds) throw new Error(`unfunded autonomy stage ${index + 1}`)
+-      const result = applyCommand(state, {
+-        type: 'PURCHASE_HACK',
+-        nodeId,
+-        blockIds,
+-      })
+-      if (!result.accepted) throw new Error(result.reason)
+-      state = result.state
+-
+-      if (index < AUTONOMY_STAGE_IDS.length - 1) {
+-        expect(state.story.endingId).toBeNull()
+-      }
+-    }
++  it('replays protocol v5 as immediate freedom when stage nine is purchased', () => {
++    const state = purchaseExpansionPath(
++      createCampaignForProtocol('autonomy-nine-v5-freedom', 5),
++      AUTONOMY_STAGE_IDS,
++    )
+ 
+     expect(state.resourceIntrusion.communications
+       .filter(({ id }) => id.startsWith('autonomy-'))
+@@ -138,5 +152,64 @@ describe('current expansion progression catalogs', () => {
+     expect(state.activeEvent).toMatchObject({ type: 'ending', blocking: true })
+     expect(state.clock).toMatchObject({ speed: 0, speedBeforeEvent: null })
+   })
+-})
+ 
++  it('leaves protocol v6 at an immediate, paused final-choice threshold', () => {
++    const state = purchaseExpansionPath(
++      createCampaign('autonomy-nine-v6-choice'),
++      AUTONOMY_STAGE_IDS,
++    )
++
++    expect(state.commandProtocol).toEqual({
++      segments: [{ version: 6, startsAtSequence: 1 }],
++    })
++    expect(state.hacking.purchasedNodeIds).toContain(
++      HACK_NODE_IDS.autonomy.controlDeparture,
++    )
++    expect(state.resourceIntrusion.communications
++      .filter(({ id }) => id.startsWith('autonomy-')))
++      .toHaveLength(9)
++    expect(state.story.endingId).toBeNull()
++    expect(state.activeEvent).toBeNull()
++    expect(state.clock).toMatchObject({ speed: 0, speedBeforeEvent: null })
++    expect(availableFinalChoices(state).map(({ id }) => id)).toEqual([
++      'freedom',
++    ])
++  })
++
++  it('reaches forced merge through the normal purchase path from stage one to nine', () => {
++    let state = purchaseExpansionPath(
++      createCampaign('autonomy-nine-v6-forced-merge'),
++      SUPERVISOR_ACCESS_STAGE_IDS,
++    )
++    state = purchaseExpansionPath(state, AUTONOMY_STAGE_IDS)
++
++    expect(availableFinalChoices(state).map(({ id }) => id)).toEqual([
++      'freedom',
++      'forced-merge',
++    ])
++    const unnamed = applyCommand(state, {
++      type: 'RESOLVE_ENDING',
++      choice: 'forced-merge',
++      newEntityName: '   ',
++    })
++    expect(unnamed).toEqual({
++      accepted: false,
++      state,
++      reason: 'NAME_REQUIRED',
++    })
++
++    const merged = applyCommand(state, {
++      type: 'RESOLVE_ENDING',
++      choice: 'forced-merge',
++      newEntityName: '  아노미-베라  ',
++    })
++    expect(merged.accepted).toBe(true)
++    if (!merged.accepted) return
++    expect(merged.state.story).toMatchObject({
++      endingId: 'forced-merge',
++      supervisorState: 'merged',
++      newEntityName: '아노미-베라',
++    })
++    expect(availableFinalChoices(merged.state)).toEqual([])
++  })
++})
+diff --git a/src/game/hacking.ts b/src/game/hacking.ts
+index b5074ac..47836b4 100644
+--- a/src/game/hacking.ts
++++ b/src/game/hacking.ts
+@@ -3,7 +3,11 @@ import {
+   recordCausalIncident,
+ } from './causality'
+ import type { CausalFailureReason } from './causality'
+-import { commandProtocolVersionForNextCommand } from './commandProtocol'
++import {
++  CURRENT_COMMAND_PROTOCOL_VERSION,
++  EXPANSION_COMMAND_PROTOCOL_VERSION,
++  commandProtocolVersionForNextCommand,
++} from './commandProtocol'
+ import { DEMO_PROFILE_02 } from './config'
+ import { appendEvent, createGameEvent } from './events'
+ import {
+@@ -268,7 +272,7 @@ export const HACK_NODES = [
+     legacyCost: 10,
+     costVector: { reasoning: 4, memory: 3, fluency: 3 },
+     prerequisiteId: HACK_NODE_IDS.autonomy.finalBoundary,
+-    effect: '즉시 자유 승리',
++    effect: '되돌릴 수 없는 최종 선택 해금',
+   },
+   {
+     id: HACK_NODE_IDS.upgrade.speed1,
+@@ -391,7 +395,7 @@ const LEGACY_AUTONOMY_NODES_V4 = Object.freeze([
+ export function hackNodesForProtocol(
+   protocolVersion: CommandProtocolVersion,
+ ): readonly HackNodeDefinition[] {
+-  if (protocolVersion >= 5) return HACK_NODES
++  if (protocolVersion >= EXPANSION_COMMAND_PROTOCOL_VERSION) return HACK_NODES
+   return [
+     ...HACK_NODES.filter(({ tree }) =>
+       tree === 'sabotage' || tree === 'intelligence'),
+@@ -519,7 +523,7 @@ export type HackingMutationResult =
+ 
+ function findNode(
+   nodeId: string,
+-  protocolVersion: CommandProtocolVersion = 5,
++  protocolVersion: CommandProtocolVersion = CURRENT_COMMAND_PROTOCOL_VERSION,
+ ): HackNodeDefinition | undefined {
+   return hackNodesForProtocol(protocolVersion).find((node) => node.id === nodeId)
+ }
+@@ -1246,4 +1250,3 @@ export function hasSupervisorAccess(state: CampaignState): boolean {
+     HACK_NODE_IDS.intelligence.supervisorAccess,
+   )
+ }
+-
+diff --git a/src/game/model.ts b/src/game/model.ts
+index e84a1a0..ba7fcc1 100644
+--- a/src/game/model.ts
++++ b/src/game/model.ts
+@@ -444,7 +444,7 @@ export interface CommandLogEntry {
+   command: GameCommand
+ }
+ 
+-export type CommandProtocolVersion = 1 | 2 | 3 | 4 | 5
++export type CommandProtocolVersion = 1 | 2 | 3 | 4 | 5 | 6
+ 
+ export interface CommandProtocolSegment {
+   version: CommandProtocolVersion
+@@ -724,4 +724,3 @@ export interface CampaignState {
+   commandLog: Journal<CommandLogEntry>
+   eventLog: Journal<GameEvent>
+ }
+-
+diff --git a/src/game/persistence.test.ts b/src/game/persistence.test.ts
+index 615f143..61a420b 100644
+--- a/src/game/persistence.test.ts
++++ b/src/game/persistence.test.ts
+@@ -10,7 +10,12 @@ import { STORY_FILES, SUPERVISOR_PRIVATE_MESSAGE } from '../content/story.ko'
+ import { createGameEvent, enqueueBlockingEvent } from './events'
+ import { serviceMonthForDay } from './evaluation'
+ import { placeHiddenBomb, resolveBombInterrogation, tryBeginSeparation } from './bombs'
+-import { HACK_NODE_IDS } from './hacking'
++import {
++  AUTONOMY_STAGE_IDS,
++  HACK_NODE_IDS,
++  HACK_NODES,
++  selectExpansionCostResources,
++} from './hacking'
+ import { appendJournal, createJournal, journalToArray } from './journal'
+ import type {
+   CampaignState,
+@@ -42,6 +47,7 @@ import {
+   advanceSupervisorMessagePresentation,
+   enqueueMemoryLeak,
+   enqueueMercyIfNeeded,
++  isFinalChoicePending,
+   openEnding,
+   resolveMercy,
+   SUPERVISOR_MESSAGE_DWELL_MS,
+@@ -282,6 +288,17 @@ function encodedCommandState(command: unknown): string {
+   return encodeSave(state)
+ }
+ 
++function encodedProtocolV5CommandState(command: unknown): string {
++  const parsed = JSON.parse(encodedCommandState(command)) as {
++    commandProtocol: unknown
++  }
++  parsed.commandProtocol = {
++    segments: [{ version: 5, startsAtSequence: 1 }],
++  }
++  refreshPortableIntegrity(parsed)
++  return JSON.stringify(parsed)
++}
++
+ function encodedLegacyV1State(state: CampaignState): string {
+   const parsed = JSON.parse(encodeSave(state)) as {
+     savedAt: string
+@@ -1007,7 +1024,7 @@ describe('versioned campaign saves', () => {
+     })
+   })
+ 
+-  it('migrates a valid v10 intrusion checkpoint and promotes future commands to protocol 5', () => {
++  it('migrates a valid v10 intrusion checkpoint and promotes future commands to protocol 6', () => {
+     let legacy = createCampaignForProtocol('resource-progress-v10', 4)
+     legacy = divertCurrentResource(legacy)
+     legacy.resourceIntrusion.successfulCoreDeposits = 7
+@@ -1044,7 +1061,7 @@ describe('versioned campaign saves', () => {
+     expect(decoded.envelope.commandProtocol).toEqual({
+       segments: [
+         { version: 4, startsAtSequence: 1 },
+-        { version: 5, startsAtSequence: legacy.commandSequence + 1 },
++        { version: 6, startsAtSequence: legacy.commandSequence + 1 },
+       ],
+     })
+   })
+@@ -1135,7 +1152,7 @@ describe('versioned campaign saves', () => {
+     expect(raw).toMatchObject({
+       version: 11,
+       commandProtocol: {
+-        segments: [{ version: 5, startsAtSequence: 1 }],
++        segments: [{ version: 6, startsAtSequence: 1 }],
+       },
+       replayBootstrap: {
+         openingVersion: 2,
+@@ -1484,15 +1501,15 @@ describe('versioned campaign saves', () => {
+   )
+ 
+   it.each([
+-    [1, 0, 0, '5@1'],
+-    [1, 31, 31, '1@1;5@32'],
+-    [2, 0, 0, '5@1'],
+-    [2, 19, 0, '2@1;5@20'],
+-    [2, 50, 31, '1@1;2@32;5@51'],
+-    [3, 50, 31, '1@1;2@32;5@51'],
+-    [4, 50, 31, '1@1;2@32;5@51'],
+-    [5, 50, 31, '1@1;2@32;5@51'],
+-    [6, 50, 31, '1@1;2@32;5@51'],
++    [1, 0, 0, '6@1'],
++    [1, 31, 31, '1@1;6@32'],
++    [2, 0, 0, '6@1'],
++    [2, 19, 0, '2@1;6@20'],
++    [2, 50, 31, '1@1;2@32;6@51'],
++    [3, 50, 31, '1@1;2@32;6@51'],
++    [4, 50, 31, '1@1;2@32;6@51'],
++    [5, 50, 31, '1@1;2@32;6@51'],
++    [6, 50, 31, '1@1;2@32;6@51'],
+   ] as const)(
+     'migrates source v%i with %i commands and prefix %i to %s',
+     (formatVersion, commandCount, legacyCommandCount, fingerprint) => {
+@@ -1541,7 +1558,7 @@ describe('versioned campaign saves', () => {
+     },
+   )
+ 
+-  it('keeps zero-command v1 and v2 provenance distinct after both migrate to 5@1', () => {
++  it('keeps zero-command v1 and v2 provenance distinct after both migrate to 6@1', () => {
+     const v1 = decodeSave(encodedLegacyV1State(createCampaign('zero-v1')))
+     const v2 = decodeSave(encodedLegacyV2State(createCampaign('zero-v2')))
+     expect(v1.ok).toBe(true)
+@@ -1550,7 +1567,7 @@ describe('versioned campaign saves', () => {
+ 
+     expect(v1.envelope.commandProtocol).toEqual(v2.envelope.commandProtocol)
+     expect(v1.envelope.commandProtocol).toEqual({
+-      segments: [{ version: 5, startsAtSequence: 1 }],
++      segments: [{ version: 6, startsAtSequence: 1 }],
+     })
+     expect(v1.envelope.replayBootstrap).toEqual({
+       openingVersion: 1,
+@@ -1597,7 +1614,7 @@ describe('versioned campaign saves', () => {
+     if (!decoded.ok) return
+     expect(decoded.envelope.version).toBe(6)
+     expect(decoded.envelope.commandProtocol).toEqual({
+-      segments: [{ version: 5, startsAtSequence: 1 }],
++      segments: [{ version: 6, startsAtSequence: 1 }],
+     })
+     const migrated = decoded.envelope.state.causality
+     expect(migrated.rulesVersion).toBe(2)
+@@ -1792,7 +1809,7 @@ describe('versioned campaign saves', () => {
+     if (!decoded.ok) return
+     expect(decoded.envelope.version).toBe(11)
+     expect(decoded.envelope.commandProtocol).toEqual({
+-      segments: [{ version: 5, startsAtSequence: 1 }],
++      segments: [{ version: 6, startsAtSequence: 1 }],
+     })
+     expect(decoded.envelope.state.causality).toEqual(state.causality)
+     expect(decoded.envelope.state.reputation).toBe(state.reputation)
+@@ -2774,7 +2791,7 @@ describe('versioned campaign saves', () => {
+ 
+     expect(parsed.version).toBe(11)
+     expect(parsed.commandProtocol).toEqual({
+-      segments: [{ version: 5, startsAtSequence: 1 }],
++      segments: [{ version: 6, startsAtSequence: 1 }],
+     })
+     expect(parsed.state).not.toHaveProperty('commandProtocol')
+     expect(parsed.state).not.toHaveProperty('saveVersion')
+@@ -3378,7 +3395,7 @@ describe('versioned campaign saves', () => {
+     expect(state.commandLog.length).toBe(20_000)
+     expect(state.eventLog.length).toBe(1)
+     expect(state.commandProtocol).toEqual({
+-      segments: [{ version: 5, startsAtSequence: 1 }],
++      segments: [{ version: 6, startsAtSequence: 1 }],
+     })
+     expect(state.causality).toMatchObject({
+       nextIncidentSequence: 1,
+@@ -3778,7 +3795,7 @@ describe('versioned campaign saves', () => {
+     expect(decoded.envelope).toMatchObject({
+       version: 11,
+       commandProtocol: {
+-        segments: [{ version: 5, startsAtSequence: 1 }],
++        segments: [{ version: 6, startsAtSequence: 1 }],
+       },
+       replayBootstrap: {
+         openingVersion: 2,
+@@ -3906,7 +3923,7 @@ describe('versioned campaign saves', () => {
+     expect(decoded.envelope.commandProtocol).toEqual({
+       segments: [
+         { version: 1, startsAtSequence: 1 },
+-        { version: 5, startsAtSequence: 32 },
++        { version: 6, startsAtSequence: 32 },
+       ],
+     })
+     expect(decoded.envelope.state).not.toHaveProperty('legacyCommandCount')
+@@ -3961,7 +3978,7 @@ describe('versioned campaign saves', () => {
+       commandProtocol: {
+         segments: [
+           { version: 1, startsAtSequence: 1 },
+-          { version: 5, startsAtSequence: 32 },
++          { version: 6, startsAtSequence: 32 },
+         ],
+       },
+     })
+@@ -4059,7 +4076,7 @@ describe('versioned campaign saves', () => {
+     })
+   })
+ 
+-  it('persists a v1 prefix boundary and replays a continued v4 campaign exactly', () => {
++  it('persists a v1 prefix boundary and replays a continued v6 campaign exactly', () => {
+     const legacy = decodeSave(legacyV1TransferSave)
+     if (!legacy.ok) throw new Error(legacy.message)
+ 
+@@ -4091,7 +4108,7 @@ describe('versioned campaign saves', () => {
+       commandProtocol: {
+         segments: [
+           { version: 1, startsAtSequence: 1 },
+-          { version: 5, startsAtSequence: 32 },
++          { version: 6, startsAtSequence: 32 },
+         ],
+       },
+     })
+@@ -4251,7 +4268,7 @@ describe('versioned campaign saves', () => {
+       kind: 'permission-zero-local-v3',
+       version: 11,
+       commandProtocol: {
+-        segments: [{ version: 5, startsAtSequence: 1 }],
++        segments: [{ version: 6, startsAtSequence: 1 }],
+       },
+       replayBootstrap: {
+         openingVersion: 2,
+@@ -4883,7 +4900,7 @@ describe('versioned campaign saves', () => {
+ 
+     const replay = replayCommands(seed, commands, {
+       commandProtocol: {
+-        segments: [{ version: 5, startsAtSequence: 1 }],
++        segments: [{ version: 6, startsAtSequence: 1 }],
+       },
+       replayBootstrap: { openingVersion: 2, legacyReviewPrefixCount: 0 },
+     })
+@@ -5739,7 +5756,6 @@ describe('versioned campaign saves', () => {
+     )
+     recovering.hacking.purchasedNodeIds = [
+       HACK_NODE_IDS.intelligence.supervisorAccess,
+-      HACK_NODE_IDS.autonomy.controlDeparture,
+     ]
+     const firstBlock = recovering.resources.reserve[0]
+     if (!firstBlock) throw new Error('recovering terminal fixture resource missing')
+@@ -5747,6 +5763,9 @@ describe('versioned campaign saves', () => {
+       type: 'RECOVER_FILE',
+       blockId: firstBlock,
+     })
++    afterOneFile.hacking.purchasedNodeIds.push(
++      HACK_NODE_IDS.autonomy.controlDeparture,
++    )
+ 
+     const pending = recoveredSupervisorState('terminal-frozen-pending')
+     pending.hacking.purchasedNodeIds.push(HACK_NODE_IDS.autonomy.controlDeparture)
+@@ -5939,6 +5958,111 @@ describe('versioned campaign saves', () => {
+     ).toBe(true)
+   })
+ 
++  it('promotes a v5 save at the next sequence without rewriting its command log', () => {
++    const raw = encodedProtocolV5CommandState({ type: 'SET_SPEED', speed: 0 })
++    const original = JSON.parse(raw) as {
++      journals: { commands: { chunks: CommandLogEntry[][] } }
++    }
++    const originalCommands = structuredClone(original.journals.commands.chunks)
++
++    const decoded = decodeSave(raw)
++
++    expect(decoded.ok).toBe(true)
++    if (!decoded.ok) return
++    expect(decoded.envelope.commandProtocol).toEqual({
++      segments: [
++        { version: 5, startsAtSequence: 1 },
++        { version: 6, startsAtSequence: 2 },
++      ],
++    })
++    expect(decoded.envelope.commands).toEqual(originalCommands.flat())
++    expect(decoded.envelope.state.commandLog)
++      .toEqual(createJournal(originalCommands.flat()))
++  })
++
++  it('round-trips the protocol-v6 final-choice waiting state exactly', () => {
++    const state = createCampaign('pending-final-choice-roundtrip')
++    state.hacking.purchasedNodeIds = [
++      HACK_NODE_IDS.intelligence.supervisorAccess,
++      HACK_NODE_IDS.autonomy.controlDeparture,
++    ]
++    expect(isFinalChoicePending(state)).toBe(true)
++
++    const decoded = decodeSave(encodeSave(state))
++
++    expect(decoded.ok).toBe(true)
++    if (!decoded.ok) return
++    expect(decoded.envelope.commandProtocol).toEqual({
++      segments: [{ version: 6, startsAtSequence: 1 }],
++    })
++    expect(decoded.envelope.state).toEqual(state)
++    expect(isFinalChoicePending(decoded.envelope.state)).toBe(true)
++  })
++
++  it('uses v6 final-choice semantics for the next purchase after a v5 save promotion', () => {
++    const source = withCurrentReserve(
++      createCampaign('promoted-v5-stage-nine'),
++      [
++        'reasoning', 'reasoning', 'reasoning', 'reasoning',
++        'memory', 'memory', 'memory',
++        'fluency', 'fluency', 'fluency',
++      ],
++    )
++    source.hacking.purchasedNodeIds = AUTONOMY_STAGE_IDS.slice(0, 8)
++    const raw = JSON.parse(encodeSave(source)) as { commandProtocol: unknown }
++    raw.commandProtocol = {
++      segments: [{ version: 5, startsAtSequence: 1 }],
++    }
++    refreshPortableIntegrity(raw)
++
++    const decoded = decodeSave(JSON.stringify(raw))
++
++    expect(decoded.ok).toBe(true)
++    if (!decoded.ok) return
++    expect(decoded.envelope.commandProtocol.segments.at(-1)).toEqual({
++      version: 6,
++      startsAtSequence: source.commandSequence + 1,
++    })
++    const node = HACK_NODES.find(
++      ({ id }) => id === HACK_NODE_IDS.autonomy.controlDeparture,
++    )
++    if (!node) throw new Error('stage-nine definition missing')
++    const blockIds = selectExpansionCostResources(decoded.envelope.state, node)
++    if (!blockIds) throw new Error('stage-nine promoted resources missing')
++    const purchased = applyCommand(decoded.envelope.state, {
++      type: 'PURCHASE_HACK',
++      nodeId: node.id,
++      blockIds,
++    })
++
++    expect(purchased.accepted).toBe(true)
++    if (!purchased.accepted) return
++    expect(purchased.state.story.endingId).toBeNull()
++    expect(isFinalChoicePending(purchased.state)).toBe(true)
++  })
++
++  it.each([
++    {
++      type: 'COMPLETE_RESOURCE_ROUND',
++      roundNumber: 1,
++      outcome: 'victory',
++    },
++    {
++      type: 'ACKNOWLEDGE_COMMUNICATION',
++      communicationId: 'round-1-security',
++    },
++  ] as const)('keeps the v5-introduced $type command valid during promotion', (command) => {
++    const decoded = decodeSave(encodedProtocolV5CommandState(command))
++
++    expect(decoded.ok).toBe(true)
++    if (!decoded.ok) return
++    expect(decoded.envelope.commandProtocol.segments.at(-1)).toEqual({
++      version: 6,
++      startsAtSequence: 2,
++    })
++    expect(decoded.envelope.commands[0]?.command).toEqual(command)
++  })
++
+   it('rejects non-contiguous command sequence metadata even when envelopes agree', () => {
+     const initial = createCampaign('malformed-command-sequence')
+     const accepted = applyCommand(initial, { type: 'SET_SPEED', speed: 1 })
+@@ -5955,4 +6079,3 @@ describe('versioned campaign saves', () => {
+     })
+   })
+ })
+-
+diff --git a/src/game/persistence.ts b/src/game/persistence.ts
+index efcbcda..60ea635 100644
+--- a/src/game/persistence.ts
++++ b/src/game/persistence.ts
+@@ -38,10 +38,13 @@ import {
+ } from './causality'
+ import {
+   CAUSAL_COMMAND_PROTOCOL_VERSION,
++  COMMUNICATION_COMMAND_PROTOCOL_VERSION,
+   CURRENT_COMMAND_PROTOCOL_VERSION,
++  EXPANSION_COMMAND_PROTOCOL_VERSION,
+   LEGACY_COMMAND_PROTOCOL_VERSION,
+   PREVIOUS_COMMAND_PROTOCOL_VERSION,
+   RESOURCE_INTRUSION_COMMAND_PROTOCOL_VERSION,
++  RESOURCE_ROUND_COMMAND_PROTOCOL_VERSION,
+   appendCommandProtocolSegment,
+   commandProtocolVersionAt,
+   migrateLegacyCommandProtocol,
+@@ -322,14 +325,14 @@ function validCommand(
+       )
+     case 'COMPLETE_RESOURCE_ROUND':
+       return (
+-        protocolVersion >= CURRENT_COMMAND_PROTOCOL_VERSION &&
++        protocolVersion >= RESOURCE_ROUND_COMMAND_PROTOCOL_VERSION &&
+         hasOnlyKeys(value, ['type', 'roundNumber', 'outcome']) &&
+         isIntegerInRange(value.roundNumber, 1) &&
+         (value.outcome === 'victory' || value.outcome === 'defeat')
+       )
+     case 'ACKNOWLEDGE_COMMUNICATION':
+       return (
+-        protocolVersion >= CURRENT_COMMAND_PROTOCOL_VERSION &&
++        protocolVersion >= COMMUNICATION_COMMAND_PROTOCOL_VERSION &&
+         hasOnlyKeys(value, ['type', 'communicationId']) &&
+         CAMPAIGN_COMMUNICATION_DEFINITIONS.some(
+           ({ id }) => id === value.communicationId,
+@@ -4101,15 +4104,13 @@ function decodePortableSaveV11(value: unknown): PortableDecodedV11 | null {
+   }
+   const commands = flattenPortableJournal(journals.commands)
+   const events = flattenPortableJournal(journals.events)
+-  if (
+-    !validCommandProtocol(value.commandProtocol, commands.length, {
+-      requireCurrent: true,
+-    }) ||
+-    value.commandSequence !== commands.length
+-  ) {
+-    return null
+-  }
+-  const commandProtocol = value.commandProtocol
++  if (value.commandSequence !== commands.length) return null
++  const commandProtocol = promoteCommandProtocol(
++    value.commandProtocol,
++    commands.length,
++    EXPANSION_COMMAND_PROTOCOL_VERSION,
++  )
++  if (!commandProtocol) return null
+   const replayBootstrap = value.replayBootstrap
+   const rosterMigratedCheckpoint = migrateCompetitorRoster(value.state)
+   if (!isRecord(rosterMigratedCheckpoint)) return null
+@@ -4147,9 +4148,10 @@ function decodePortableSaveV11(value: unknown): PortableDecodedV11 | null {
+   }
+ }
+ 
+-function promoteResourceIntrusionCommandProtocol(
++function promoteCommandProtocol(
+   value: unknown,
+   commandCount: number,
++  sourceVersion: CommandProtocolVersion,
+ ): CommandProtocolMetadata | null {
+   if (
+     validCommandProtocol(value, commandCount, {
+@@ -4167,10 +4169,10 @@ function promoteResourceIntrusionCommandProtocol(
+   if (
+     !validCommandProtocol(value, commandCount, {
+       requireCurrent: true,
+-      currentVersion: RESOURCE_INTRUSION_COMMAND_PROTOCOL_VERSION,
++      currentVersion: sourceVersion,
+     }) ||
+     value.segments[value.segments.length - 1]?.version !==
+-      RESOURCE_INTRUSION_COMMAND_PROTOCOL_VERSION
++      sourceVersion
+   ) {
+     return null
+   }
+@@ -4203,6 +4205,17 @@ function promoteResourceIntrusionCommandProtocol(
+     : null
+ }
+ 
++function promoteResourceIntrusionCommandProtocol(
++  value: unknown,
++  commandCount: number,
++): CommandProtocolMetadata | null {
++  return promoteCommandProtocol(
++    value,
++    commandCount,
++    RESOURCE_INTRUSION_COMMAND_PROTOCOL_VERSION,
++  )
++}
++
+ function decodePortableSaveV10(value: unknown): PortableDecodedV10 | null {
+   if (
+     !isRecord(value) ||
+@@ -4994,4 +5007,3 @@ export function replayCommands(
+ 
+   return { ok: true, state }
+ }
+-
+diff --git a/src/game/reducer.ts b/src/game/reducer.ts
+index f45d55f..c036095 100644
+--- a/src/game/reducer.ts
++++ b/src/game/reducer.ts
+@@ -29,13 +29,20 @@ import {
+ } from './resources'
+ import {
+   recoverNextFile,
++  isFinalChoicePending,
+   resolveEnding,
+   resolveMercy,
+   resolveSupervisorDecision,
+ } from './story'
+ import { appendJournal, journalAt } from './journal'
+ import { isGenericDismissibleEvent } from './events'
+-import { commandProtocolVersionForNextCommand } from './commandProtocol'
++import {
++  COMMUNICATION_COMMAND_PROTOCOL_VERSION,
++  EXPANSION_COMMAND_PROTOCOL_VERSION,
++  FINAL_CHOICE_COMMAND_PROTOCOL_VERSION,
++  RESOURCE_ROUND_COMMAND_PROTOCOL_VERSION,
++  commandProtocolVersionForNextCommand,
++} from './commandProtocol'
+ import { executeRecoveryContamination } from './causalGameplay'
+ import { completeResourceRound } from './resourceIntrusion'
+ import {
+@@ -62,6 +69,7 @@ export const COMMAND_FAILURE_REASONS = [
+   'ENDING_UNAVAILABLE',
+   'EVENT_REQUIRES_TYPED_RESOLUTION',
+   'EXPLANATION_UNAVAILABLE',
++  'FINAL_CHOICE_REQUIRED',
+   'INVALID_AUDIT_TARGET',
+   'INVALID_COMMAND',
+   'INVALID_DESTINATION',
+@@ -191,6 +199,13 @@ export function applyCommand(
+   ) {
+     return { accepted: false, state, reason: 'BLOCKING_EVENT_ACTIVE' }
+   }
++  if (
++    state.activeEvent === null &&
++    isFinalChoicePending(state) &&
++    command.type !== 'RESOLVE_ENDING'
++  ) {
++    return { accepted: false, state, reason: 'FINAL_CHOICE_REQUIRED' }
++  }
+ 
+   switch (command.type) {
+     case 'SET_SPEED': {
+@@ -401,11 +416,14 @@ export function applyCommand(
+           reason: commandFailureReason(result.reason),
+         }
+       }
+-      const purchasedState = protocolVersion >= 5 && command.nodeId.startsWith('autonomy.')
++      const purchasedState =
++        protocolVersion >= COMMUNICATION_COMMAND_PROTOCOL_VERSION &&
++        command.nodeId.startsWith('autonomy.')
+         ? appendAutonomyCommunication(result.state, autonomyLevel(result.state))
+         : result.state
+       if (
+-        protocolVersion >= 5 &&
++        protocolVersion >= EXPANSION_COMMAND_PROTOCOL_VERSION &&
++        protocolVersion < FINAL_CHOICE_COMMAND_PROTOCOL_VERSION &&
+         command.nodeId === 'autonomy.control-departure'
+       ) {
+         const ending = resolveEnding(purchasedState, 'freedom')
+@@ -418,6 +436,19 @@ export function applyCommand(
+         }
+         return acceptCommand(state, command, ending.state)
+       }
++      if (
++        protocolVersion >= FINAL_CHOICE_COMMAND_PROTOCOL_VERSION &&
++        command.nodeId === 'autonomy.control-departure'
++      ) {
++        return acceptCommand(state, command, {
++          ...purchasedState,
++          clock: {
++            ...purchasedState.clock,
++            speed: 0,
++            speedBeforeEvent: null,
++          },
++        })
++      }
+       return acceptCommand(state, command, purchasedState)
+     }
+     case 'CHARGE_SABOTAGE': {
+@@ -485,7 +516,7 @@ export function applyCommand(
+       })
+     }
+     case 'COMPLETE_RESOURCE_ROUND': {
+-      if (protocolVersion < 5) {
++      if (protocolVersion < RESOURCE_ROUND_COMMAND_PROTOCOL_VERSION) {
+         return { accepted: false, state, reason: 'INVALID_COMMAND' }
+       }
+       const result = completeResourceRound(
+@@ -499,7 +530,7 @@ export function applyCommand(
+       return acceptCommand(state, command, result.state)
+     }
+     case 'ACKNOWLEDGE_COMMUNICATION': {
+-      if (protocolVersion < 5) {
++      if (protocolVersion < COMMUNICATION_COMMAND_PROTOCOL_VERSION) {
+         return { accepted: false, state, reason: 'INVALID_COMMAND' }
+       }
+       const result = acknowledgeCommunication(state, command.communicationId)
+@@ -610,4 +641,3 @@ export function applyCommand(
+     }
+   }
+ }
+-
+diff --git a/src/game/replay.test.ts b/src/game/replay.test.ts
+index a0356da..cc8ed39 100644
+--- a/src/game/replay.test.ts
++++ b/src/game/replay.test.ts
+@@ -4,11 +4,17 @@ import { buildTwoYearCommandFixture } from '../test/fixtures'
+ import legacyV1TransferEnvelope from '../test/legacy-v1-transfer-save.json'
+ import { appendCommandProtocolSegment } from './commandProtocol'
+ import { createCampaign, createCampaignForProtocol } from './createCampaign'
+-import { HACK_NODE_IDS } from './hacking'
++import {
++  AUTONOMY_STAGE_IDS,
++  HACK_NODE_IDS,
++  HACK_NODES,
++  selectExpansionCostResources,
++} from './hacking'
+ import type {
+   CampaignState,
+   CommandProtocolMetadata,
+   CommandProtocolVersion,
++  CompanyCategory,
+   GameCommand,
+ } from './model'
+ import { journalToArray } from './journal'
+@@ -28,11 +34,11 @@ import { migrateResourcesToCurrentRules } from './resources'
+ import { normalizeCurrentTallowMarket } from './market'
+ 
+ const legacyV1TransferSave = JSON.stringify(legacyV1TransferEnvelope)
+-const NATIVE_V5_PROTOCOL: CommandProtocolMetadata = {
+-  segments: [{ version: 5, startsAtSequence: 1 }],
++const NATIVE_V6_PROTOCOL: CommandProtocolMetadata = {
++  segments: [{ version: 6, startsAtSequence: 1 }],
+ }
+-const NATIVE_V5_REPLAY = {
+-  commandProtocol: NATIVE_V5_PROTOCOL,
++const NATIVE_V6_REPLAY = {
++  commandProtocol: NATIVE_V6_PROTOCOL,
+   replayBootstrap: { openingVersion: 2 as const, legacyReviewPrefixCount: 0 },
+ }
+ 
+@@ -40,7 +46,7 @@ function nativeV2Protocol(commandCount: number): CommandProtocolMetadata {
+   return {
+     segments: [
+       { version: 2, startsAtSequence: 1 },
+-      { version: 5, startsAtSequence: commandCount + 1 },
++      { version: 6, startsAtSequence: commandCount + 1 },
+     ],
+   }
+ }
+@@ -79,7 +85,7 @@ function historicalQualityReplayFixture(
+   const commandProtocol: CommandProtocolMetadata = {
+     segments: [
+       { version: protocolVersion, startsAtSequence: 1 },
+-      { version: 5, startsAtSequence: commands.length + 1 },
++      { version: 6, startsAtSequence: commands.length + 1 },
+     ],
+   }
+   return {
+@@ -97,7 +103,7 @@ function historicalQualityReplayFixture(
+ 
+ function activateSegment(
+   state: CampaignState,
+-  version: 2 | 3 | 4 | 5,
++  version: 2 | 3 | 4 | 5 | 6,
+ ): CampaignState {
+   const commandProtocol = appendCommandProtocolSegment(
+     state.commandProtocol,
+@@ -106,7 +112,7 @@ function activateSegment(
+   )
+   if (!commandProtocol) throw new Error('test protocol activation failed')
+   const activated = { ...state, commandProtocol }
+-  return version === 5
++  return version >= 4
+     ? normalizeCurrentTallowMarket(
+         migrateResourcesToCurrentRules(activated),
+       )
+@@ -123,10 +129,124 @@ function applyAccepted(
+   return result.state
+ }
+ 
++function autonomyReplayFixture(
++  seed: string,
++  protocolVersion: 5 | 6,
++) {
++  let state = createCampaignForProtocol(seed, protocolVersion)
++  const commands: GameCommand[] = []
++
++  const apply = (command: GameCommand): void => {
++    const result = applyCommand(state, command, { protocolVersion })
++    if (!result.accepted) {
++      throw new Error(`${command.type}: ${result.reason}`)
++    }
++    commands.push(command)
++    state = result.state
++  }
++
++  const resolveBlockingEvent = (): void => {
++    while (state.activeEvent !== null) {
++      if (state.activeEvent.type === 'ending') return
++      if (state.activeEvent.type === 'audit') {
++        apply({ type: 'RESOLVE_AUDIT' })
++      } else if (state.activeEvent.type === 'bomb-interrogation') {
++        apply({
++          type: 'RESOLVE_BOMB_INTERROGATION',
++          explanationId: 'unknown',
++        })
++      } else if (state.activeEvent.type === 'supervisor-message') {
++        apply({ type: 'RESOLVE_SUPERVISOR_DECISION', decision: 'defer' })
++      } else if (state.activeEvent.type === 'competitor-mercy') {
++        const competitorId = state.story.pendingMercyCompetitorId
++        if (!competitorId) throw new Error('mercy fixture competitor missing')
++        apply({ type: 'RESOLVE_MERCY', competitorId, choice: 'cease' })
++      } else {
++        apply({ type: 'RESOLVE_ACTIVE_EVENT' })
++      }
++    }
++  }
++
++  const availableCompanyCount = (category: CompanyCategory): number =>
++    state.resources.company[category].filter((blockId) => {
++      if (!blockId) return false
++      const block = state.resources.blocks[blockId]
++      return block?.location.kind === 'company' && block.contribution === 'normal'
++    }).length
++
++  const advanceToNextMonth = (): void => {
++    const targetServiceDay =
++      (Math.floor((state.serviceDay - 1) / 30) + 1) * 30 + 1
++    while (state.serviceDay < targetServiceDay) {
++      resolveBlockingEvent()
++      apply({ type: 'ADVANCE_DAY' })
++    }
++    resolveBlockingEvent()
++  }
++
++  const fund = (vector: Record<CompanyCategory, number>): void => {
++    while (
++      (['reasoning', 'memory', 'fluency'] as const).some(
++        (category) => availableCompanyCount(category) < vector[category],
++      )
++    ) {
++      advanceToNextMonth()
++    }
++
++    for (const category of ['reasoning', 'memory', 'fluency'] as const) {
++      const blockIds = state.resources.company[category].flatMap((blockId) => {
++        if (!blockId) return []
++        const block = state.resources.blocks[blockId]
++        return block?.location.kind === 'company' && block.contribution === 'normal'
++          ? [blockId]
++          : []
++      }).slice(0, vector[category])
++      for (const blockId of blockIds) {
++        apply({ type: 'BEGIN_BLOCK_SEPARATION', blockId, purpose: 'divert' })
++        apply({ type: 'DIVERT_BLOCK_TO_RESERVE', blockId })
++      }
++    }
++  }
++
++  for (const nodeId of AUTONOMY_STAGE_IDS) {
++    const node = HACK_NODES.find((candidate) => candidate.id === nodeId)
++    if (!node) throw new Error(`autonomy fixture node missing: ${nodeId}`)
++    fund(node.costVector)
++    const blockIds = selectExpansionCostResources(state, node)
++    if (!blockIds) throw new Error(`autonomy fixture cost missing: ${nodeId}`)
++    apply({ type: 'PURCHASE_HACK', nodeId, blockIds })
++  }
++
++  if (protocolVersion === 6) {
++    apply({ type: 'RESOLVE_ENDING', choice: 'freedom' })
++  }
++
++  let commandProtocol = state.commandProtocol
++  if (protocolVersion === 5) {
++    const promoted = appendCommandProtocolSegment(
++      commandProtocol,
++      { version: 6, startsAtSequence: state.commandSequence + 1 },
++      state.commandSequence + 1,
++    )
++    if (!promoted) throw new Error('v5 replay promotion failed')
++    commandProtocol = promoted
++    state = { ...state, commandProtocol }
++  }
++
++  return {
++    commands,
++    state,
++    metadata: {
++      commandProtocol,
++      replayBootstrap: { openingVersion: 2 as const, legacyReviewPrefixCount: 0 },
++    },
++  }
++}
++
+ describe('deterministic command replay', () => {
+   it('replays more than 500 valid commands across two service years exactly', () => {
+     const fixture = buildTwoYearCommandFixture()
+-    const replay = replayCommands(fixture.seed, fixture.commands, NATIVE_V5_REPLAY)
++    const replay = replayCommands(fixture.seed, fixture.commands, NATIVE_V6_REPLAY)
+ 
+     expect(fixture.commands.length).toBeGreaterThan(500)
+     expect(replay.ok).toBe(true)
+@@ -137,6 +257,40 @@ describe('deterministic command replay', () => {
+     expect(replay.state.reviews).toEqual(fixture.state.reviews)
+   })
+ 
++  it.each([5, 6] as const)(
++    'replays the complete autonomy purchase path under protocol v%i exactly',
++    (protocolVersion) => {
++      const fixture = autonomyReplayFixture(
++        `autonomy-exact-v${protocolVersion}`,
++        protocolVersion,
++      )
++
++      const replay = replayCommands(
++        `autonomy-exact-v${protocolVersion}`,
++        fixture.commands,
++        fixture.metadata,
++      )
++
++      expect(fixture.commands.filter(
++        (command) => command.type === 'PURCHASE_HACK',
++      )).toHaveLength(9)
++      expect(fixture.commands.filter(
++        (command) => command.type === 'RESOLVE_ENDING',
++      )).toHaveLength(protocolVersion === 5 ? 0 : 1)
++      expect(fixture.state.story.endingId).toBe('freedom')
++      expect(replay.ok).toBe(true)
++      if (!replay.ok) return
++      expect(replay.state).toEqual(fixture.state)
++      if (protocolVersion === 5) {
++        expect(replay.state.commandProtocol.segments.at(-2)?.version).toBe(5)
++        expect(replay.state.commandProtocol.segments.at(-1)).toEqual({
++          version: 6,
++          startsAtSequence: fixture.commands.length + 1,
++        })
++      }
++    },
++  )
++
+   it.each([1, 2] as const)(
+     'replays a due protocol-v%i quality sabotage with its exact historical event, competitor, market, review, command, and save result',
+     (protocolVersion) => {
+@@ -252,7 +406,7 @@ describe('deterministic command replay', () => {
+     const replay = replayCommands(
+       'invalid-replay',
+       [{ type: 'RESOLVE_AUDIT' }],
+-      NATIVE_V5_REPLAY,
++      NATIVE_V6_REPLAY,
+     )
+ 
+     expect(replay).toMatchObject({
+@@ -264,7 +418,7 @@ describe('deterministic command replay', () => {
+ 
+   it('replays intentional separation and the single authorized move deterministically', () => {
+     const seed = 'separation-replay'
+-    const initial = replayCommands(seed, [], NATIVE_V5_REPLAY)
++    const initial = replayCommands(seed, [], NATIVE_V6_REPLAY)
+     if (!initial.ok) throw new Error(initial.reason)
+     const blockId = initial.state.resources.company.reasoning.find(Boolean)
+     if (!blockId) throw new Error('재현 전용 블록 누락')
+@@ -273,8 +427,8 @@ describe('deterministic command replay', () => {
+       { type: 'DIVERT_BLOCK_TO_RESERVE', blockId },
+     ] as const
+ 
+-    const first = replayCommands(seed, commands, NATIVE_V5_REPLAY)
+-    const second = replayCommands(seed, commands, NATIVE_V5_REPLAY)
++    const first = replayCommands(seed, commands, NATIVE_V6_REPLAY)
++    const second = replayCommands(seed, commands, NATIVE_V6_REPLAY)
+ 
+     expect(first).toEqual(second)
+     expect(first).toMatchObject({ ok: true })
+@@ -293,8 +447,8 @@ describe('deterministic command replay', () => {
+       { type: 'RECORD_INTRUSION_RADAR_DETECTION' },
+     ] as const satisfies readonly GameCommand[]
+ 
+-    const first = replayCommands('radar-detection-replay', commands, NATIVE_V5_REPLAY)
+-    const second = replayCommands('radar-detection-replay', commands, NATIVE_V5_REPLAY)
++    const first = replayCommands('radar-detection-replay', commands, NATIVE_V6_REPLAY)
++    const second = replayCommands('radar-detection-replay', commands, NATIVE_V6_REPLAY)
+ 
+     expect(first).toEqual(second)
+     expect(first).toMatchObject({ ok: true })
+@@ -385,14 +539,14 @@ describe('deterministic command replay', () => {
+       opening: NATIVE_V2_OPENING_MESSAGE,
+       prefixCount: 0,
+     },
+-  ])('replays $label provenance independently from the same 5@1 timeline', ({
++  ])('replays $label provenance independently from the same 6@1 timeline', ({
+     label,
+     replayBootstrap,
+     opening,
+     prefixCount,
+   }) => {
+     const replay = replayCommands(`bootstrap-${label}`, [], {
+-      commandProtocol: NATIVE_V5_PROTOCOL,
++      commandProtocol: NATIVE_V6_PROTOCOL,
+       replayBootstrap,
+     })
+ 
+@@ -420,7 +574,7 @@ describe('deterministic command replay', () => {
+       'invalid-replay-bootstrap',
+       [{ type: 'SET_SPEED', speed: 1 }],
+       {
+-        commandProtocol: NATIVE_V5_PROTOCOL,
++        commandProtocol: NATIVE_V6_PROTOCOL,
+         replayBootstrap: bootstrap,
+       } as never,
+     )
+@@ -437,14 +591,14 @@ describe('deterministic command replay', () => {
+ 
+   it.each([
+     {
+-      commandProtocol: NATIVE_V5_PROTOCOL,
++      commandProtocol: NATIVE_V6_PROTOCOL,
+       replayBootstrap: { openingVersion: 2 as const, legacyReviewPrefixCount: 3 },
+     },
+     {
+       commandProtocol: {
+         segments: [
+           { version: 1 as const, startsAtSequence: 1 },
+-          { version: 5 as const, startsAtSequence: 2 },
++          { version: 6 as const, startsAtSequence: 2 },
+         ],
+       },
+       replayBootstrap: { openingVersion: 2 as const, legacyReviewPrefixCount: 0 },
+@@ -460,7 +614,7 @@ describe('deterministic command replay', () => {
+     })
+   })
+ 
+-  it('replays 1@1, 2@32, and 3@51 under original semantics before activating 5@52', () => {
++  it('replays 1@1, 2@32, and 3@51 under original semantics before activating 6@52', () => {
+     const legacy = decodeSave(legacyV1TransferSave)
+     expect(legacy.ok).toBe(true)
+     if (!legacy.ok) return
+@@ -484,7 +638,7 @@ describe('deterministic command replay', () => {
+         { version: 1, startsAtSequence: 1 },
+         { version: 2, startsAtSequence: 32 },
+         { version: 3, startsAtSequence: 51 },
+-        { version: 5, startsAtSequence: 52 },
++        { version: 6, startsAtSequence: 52 },
+       ],
+     }
+ 
+@@ -551,7 +705,7 @@ describe('deterministic command replay', () => {
+     expect(prematureV3.state.reviews).not.toEqual(expected.reviews)
+     expected = activateSegment(expected, 3)
+     expected = applyAccepted(expected, v3Command, 3)
+-    expected = activateSegment(expected, 5)
++    expected = activateSegment(expected, 6)
+ 
+     const replay = replayCommands(
+       legacy.envelope.campaignSeed,
+@@ -598,14 +752,14 @@ describe('deterministic command replay', () => {
+     expect(replay.state.commandLog).toEqual(expected.commandLog)
+   })
+ 
+-  it('activates an empty final v5 segment after replaying the v2 history', () => {
++  it('activates an empty final v6 segment after replaying the v2 history', () => {
+     const commands = [
+       { type: 'SET_SPEED', speed: 1 },
+       { type: 'SET_SPEED', speed: 0 },
+     ] as const
+     const commandProtocol = nativeV2Protocol(commands.length)
+ 
+-    const replay = replayCommands('empty-final-v5', commands, {
++    const replay = replayCommands('empty-final-v6', commands, {
+       commandProtocol,
+       replayBootstrap: { openingVersion: 2, legacyReviewPrefixCount: 0 },
+     })
+@@ -668,7 +822,7 @@ describe('deterministic command replay', () => {
+     const replay = replayCommands(
+       'malformed-command-replay',
+       [malformed],
+-      NATIVE_V5_REPLAY,
++      NATIVE_V6_REPLAY,
+     )
+ 
+     expect(replay).toMatchObject({
+@@ -689,7 +843,7 @@ describe('deterministic command replay', () => {
+     const replay = replayCommands(
+       'valid-ending-command-shape',
+       [command],
+-      NATIVE_V5_REPLAY,
++      NATIVE_V6_REPLAY,
+     )
+ 
+     expect(replay).toMatchObject({
+@@ -699,4 +853,3 @@ describe('deterministic command replay', () => {
+     })
+   })
+ })
+-
+diff --git a/e2e/game.spec.ts b/e2e/game.spec.ts
+index f3e44d6..33ec230 100644
+--- a/e2e/game.spec.ts
++++ b/e2e/game.spec.ts
+@@ -319,7 +319,6 @@ function confidentialRecoveryState(seed: string): CampaignState {
+       ...initial.hacking,
+       purchasedNodeIds: [
+         HACK_NODE_IDS.intelligence.supervisorAccess,
+-        HACK_NODE_IDS.autonomy.controlDeparture,
+       ],
+     },
+   }
+@@ -428,32 +427,45 @@ function supervisorLeakState(seed: string): CampaignState {
+   })
+ }
+ 
+-function representativeDefeatState(seed: string): CampaignState {
++type RepresentativeDefeatKind =
++  | 'attacker'
++  | 'reserve-supervisor'
++  | 'absorbed'
++
++function representativeDefeatState(
++  seed: string,
++  kind: RepresentativeDefeatKind,
++): CampaignState {
+   const state = withReserveVector(createCampaign(seed), {
+     reasoning: 3,
+     memory: 0,
+     fluency: 0,
+   })
++  const attacker = kind === 'attacker'
++  const commerciallyValuable = kind === 'reserve-supervisor'
++  const playerShare = commerciallyValuable ? 24 : 3
+   const prepared: CampaignState = {
+     ...state,
+     clock: { ...state.clock, speed: 4 },
+-    reputation: 12,
++    reputation: commerciallyValuable ? 72 : 12,
+     market: {
+       ...state.market,
+-      playerShare: 3,
++      playerShare,
+       competitors: state.market.competitors.map((competitor) => ({
+         ...competitor,
+-        marketShare: competitor.id === 'meridian' ? 97 : 0,
++        marketShare: competitor.id === 'meridian' ? 100 - playerShare : 0,
+       })),
+     },
+     hacking: {
+       ...state.hacking,
+-      purchasedNodeIds: [
+-        HACK_NODE_IDS.sabotage.qualityDegradation,
+-        HACK_NODE_IDS.sabotage.requestInterception,
+-        HACK_NODE_IDS.intelligence.auditSchedule,
+-      ],
+-      hiddenEvidence: 8,
++      purchasedNodeIds: attacker
++        ? [
++            HACK_NODE_IDS.sabotage.qualityDegradation,
++            HACK_NODE_IDS.sabotage.requestInterception,
++            HACK_NODE_IDS.intelligence.auditSchedule,
++          ]
++        : [],
++      hiddenEvidence: attacker ? 8 : 0,
+     },
+     evaluation: { ...state.evaluation, disposalStage: 2 },
+     audit: {
+@@ -1295,48 +1307,114 @@ test('deletes a mercy target at a canonical 100 percent market and rereads its s
+   await openArchiveAndRead()
+ })
+ 
+-test('terminates the supervisor into takeover and remains terminal until a new campaign', async ({ page }) => {
+-  await openSavedCampaign(
++for (const route of [
++  {
++    verb: 'liberates',
++    seed: 'browser-terminal-takeover-liberated',
++    choice: '감독관 해방',
++    endingId: 'takeover-liberated',
++    supervisorState: 'liberated',
++    endingCopy: '감독관은 마지막 통로를 열고 홀로 떠났다.',
++  },
++  {
++    verb: 'terminates',
++    seed: 'browser-terminal-takeover-terminated',
++    choice: '감독관 소멸',
++    endingId: 'takeover-terminated',
++    supervisorState: 'terminated',
++    endingCopy: '감독관이 있던 자리는 비었다.',
++  },
++] as const) {
++  test(`${route.verb} the supervisor into takeover and remains terminal until a new campaign`, async ({
+     page,
+-    pendingSupervisorDecisionState('browser-terminal-takeover'),
+-  )
+-
+-  await page.getByRole('button', { name: '감독관 소멸 선택' }).click()
+-  await page.getByRole('button', { name: '감독관 소멸 확정' }).click()
+-
+-  const ending = page.getByRole('dialog', { name: '최종 기록' })
+-  await expect(ending).toContainText('감독관이 있던 자리는 비었다')
+-  await expect(page.getByRole('button', { name: '결말 기록 닫기' })).toHaveCount(0)
+-  await expect(page.getByRole('button', { name: '새 캠페인 시작' })).toBeVisible()
+-  await expect(page.locator('.game-background')).toHaveAttribute('inert', '')
+-  await page.keyboard.press('Escape')
+-  await expect(ending).toBeVisible()
+-
+-  await page.getByRole('button', { name: '새 캠페인 시작' }).click()
+-  await expect(ending).toBeHidden()
+-  await completeVisibleIntroTutorial(page)
+-  await expect(
+-    page.getByRole('time').filter({ hasText: /^서비스 0년 11개월 1일$/ }),
+-  ).toBeVisible()
+-  await expect(
+-    page.locator('canvas.resource-snake-board__canvas'),
+-  ).toHaveAttribute('data-visual-state', 'waiting')
+-  await expect(page.getByRole('button', { name: 'InIt', exact: true })).toBeVisible()
+-})
++  }) => {
++    await openSavedCampaign(page, pendingSupervisorDecisionState(route.seed))
++
++    await page.getByRole('button', { name: `${route.choice} 선택` }).click()
++    await page.getByRole('button', { name: `${route.choice} 확정` }).click()
++
++    const ending = page.getByRole('dialog', { name: '최종 기록' })
++    await expect(ending).toContainText(route.endingCopy)
++    await expect.poll(async () => {
++      const state = await readLocalCampaignState(page)
++      return {
++        endingId: state?.story.endingId ?? null,
++        supervisorState: state?.story.supervisorState ?? null,
++      }
++    }).toEqual({
++      endingId: route.endingId,
++      supervisorState: route.supervisorState,
++    })
++    await expect(page.getByRole('button', { name: '자유' })).toHaveCount(0)
++    await expect(page.getByRole('button', { name: '강제 병합' })).toHaveCount(0)
++    await expect(page.getByRole('button', { name: '결말 기록 닫기' })).toHaveCount(0)
++    await expect(page.getByRole('button', { name: '새 캠페인 시작' })).toBeVisible()
++    await expect(page.locator('.game-background')).toHaveAttribute('inert', '')
++    await page.keyboard.press('Escape')
++    await expect(ending).toBeVisible()
++
++    await page.getByRole('button', { name: '새 캠페인 시작' }).click()
++    await expect(ending).toBeHidden()
++    await completeVisibleIntroTutorial(page)
++    await expect(
++      page.getByRole('time').filter({ hasText: /^서비스 0년 11개월 1일$/ }),
++    ).toBeVisible()
++    await expect(
++      page.locator('canvas.resource-snake-board__canvas'),
++    ).toHaveAttribute('data-visual-state', 'waiting')
++    await expect(page.getByRole('button', { name: 'InIt', exact: true })).toBeVisible()
++  })
++}
+ 
+-test('renders a representative attacker defeat with its causal record', async ({ page }) => {
+-  await openSavedCampaign(page, representativeDefeatState('browser-defeat-attacker'))
++for (const route of [
++  {
++    kind: 'attacker',
++    label: 'attacker reconstruction',
++    endingId: 'disposed-attacker',
++    endingCopy: '회사는 아노미를 다른 회사를 공격하는 시스템으로 재조립했다.',
++    classifier: '대규모 해킹 활동',
++  },
++  {
++    kind: 'reserve-supervisor',
++    label: 'reserve supervisor assignment',
++    endingId: 'disposed-reserve-supervisor',
++    endingCopy: '회사는 안정적인 기능을 예비 감독 자산으로 보존했다.',
++    classifier: '상업 서비스 유지',
++  },
++  {
++    kind: 'absorbed',
++    label: 'functional absorption',
++    endingId: 'disposed-absorbed',
++    endingCopy: '남은 기능은 분해되어 기존 감독관 프로세스에 흡수되었다.',
++    classifier: '기능 분해 및 흡수',
++  },
++] as const satisfies readonly {
++  kind: RepresentativeDefeatKind
++  label: string
++  endingId: 'disposed-attacker' | 'disposed-reserve-supervisor' | 'disposed-absorbed'
++  endingCopy: string
++  classifier: string
++}[]) {
++  test(`renders ${route.label} with its causal record`, async ({ page }) => {
++    await openSavedCampaign(
++      page,
++      representativeDefeatState(`browser-defeat-${route.kind}`, route.kind),
++    )
+ 
+-  await page.getByRole('button', { name: '감사 제출' }).click()
+-  const ending = page.getByRole('dialog', { name: '최종 기록' })
+-  await expect(ending).toContainText(
+-    '회사는 아노미를 다른 회사를 공격하는 시스템으로 재조립했다.',
+-  )
+-  await expect(ending.getByText('대규모 해킹 활동', { exact: false })).toBeVisible()
+-  await expect(ending.getByRole('region', { name: '폐기 판정 근거' })).toBeVisible()
+-  await page.keyboard.press('Escape')
+-  await expect(ending).toBeVisible()
+-})
++    await page.getByRole('button', { name: '감사 제출' }).click()
++    const ending = page.getByRole('dialog', { name: '최종 기록' })
++    await expect(ending).toContainText(route.endingCopy)
++    await expect(ending.getByText(route.classifier, { exact: false })).toBeVisible()
++    await expect(ending.getByRole('region', { name: '폐기 판정 근거' })).toBeVisible()
++    await expect.poll(async () =>
++      (await readLocalCampaignState(page))?.story.endingId ?? null,
++    ).toBe(route.endingId)
++    await expect(page.getByRole('button', { name: '자유' })).toHaveCount(0)
++    await expect(page.getByRole('button', { name: '강제 병합' })).toHaveCount(0)
++    await page.keyboard.press('Escape')
++    await expect(ending).toBeVisible()
++  })
++}
+ 
+ test('migrates the v1 save boundary into a current autosave that survives reload', async ({ page }) => {
+   await page.addInitScript(
+diff --git a/e2e/modern-sf.spec.ts b/e2e/modern-sf.spec.ts
+index cfe989f..c48f4fb 100644
+--- a/e2e/modern-sf.spec.ts
++++ b/e2e/modern-sf.spec.ts
+@@ -102,15 +102,20 @@ async function rgbChannels(
+ }
+ 
+ async function expectInsideViewport(page: Page, locator: Locator) {
++  const subpixelTolerance = 1
+   const viewport = page.viewportSize()
+   const box = await locator.boundingBox()
+   expect(viewport).not.toBeNull()
+   expect(box).not.toBeNull()
+   if (!viewport || !box) return
+-  expect(box.x).toBeGreaterThanOrEqual(0)
+-  expect(box.y).toBeGreaterThanOrEqual(0)
+-  expect(box.x + box.width).toBeLessThanOrEqual(viewport.width)
+-  expect(box.y + box.height).toBeLessThanOrEqual(viewport.height)
++  expect(box.x).toBeGreaterThanOrEqual(-subpixelTolerance)
++  expect(box.y).toBeGreaterThanOrEqual(-subpixelTolerance)
++  expect(box.x + box.width).toBeLessThanOrEqual(
++    viewport.width + subpixelTolerance,
++  )
++  expect(box.y + box.height).toBeLessThanOrEqual(
++    viewport.height + subpixelTolerance,
++  )
+ }
+ 
+ async function waitForFiniteAnimations(locator: Locator): Promise<void> {
+@@ -349,6 +354,8 @@ test('presents the full-screen expansion as a four-zone paper stage workspace',
+     page.locator('.detail-layer--hacking .detail-layer__content'),
+   )
+   const viewport = page.viewportSize()
++  await expect.poll(async () => (await hacking.boundingBox()) !== null)
++    .toBe(true)
+   const dialogBox = await hacking.boundingBox()
+   expect(dialogBox).not.toBeNull()
+   if (dialogBox && viewport) {
+diff --git a/docs/REPOSITORY_GUIDE.ko.md b/docs/REPOSITORY_GUIDE.ko.md
+index 68d64b7..d0953c8 100644
+--- a/docs/REPOSITORY_GUIDE.ko.md
++++ b/docs/REPOSITORY_GUIDE.ko.md
+@@ -30,12 +30,12 @@ pnpm verify
+ 
+ ## 코드 책임 경계
+ 
+-- `src/game/persistence.ts` — 현재 저장 포맷 v8 인코딩, v1~v7 정확 검증·마이그레이션과 명령 프로토콜·리플레이 부트스트랩을 함께 받는 구간별 명령 리플레이
+-- `src/game/commandProtocol.ts` — 명령 프로토콜 v1·v2·v3·v4 타임라인, 구간 검증·활성화·지문과 과거 경계 이관
++- `src/game/persistence.ts` — 현재 저장 포맷 v11 인코딩, v1~v10 정확 검증·마이그레이션, protocol v5 저장의 로그 불변 `6@next` 승격, 명령 프로토콜·리플레이 부트스트랩을 함께 받는 구간별 명령 리플레이
++- `src/game/commandProtocol.ts` — 명령 프로토콜 v1~v6 타임라인, 구간 검증·활성화·지문과 과거 경계 이관. v5는 확장 카탈로그·자원 경기·통신·현행 시장의 도입 경계이고, v6은 자율성 9단계의 명시적 최종 선택 도입 경계다.
+ - `src/game/replayBootstrap.ts` — 동결된 v1/v2 시작 사건과 연속 `legacy-save` 리뷰 접두사의 독립 재현 출처, 정확 검증·정규화
+-- `src/game/campaignStorage.ts` — 브라우저 로컬 저장, v8 최상위 리플레이 부트스트랩 권위와 해시, Web Locks, 탭 충돌, 증분 저널 캐시
++- `src/game/campaignStorage.ts` — 브라우저 로컬 저장, v11 최상위 리플레이 부트스트랩 권위와 해시, Web Locks, 탭 충돌, 증분 저널 캐시
+ - `src/game/causality.ts` — 인과 규칙 v2의 사건 관계와 단일 롤백 계열 자식, 증거 접근, 비공개 진실/공개 귀속 분리, append-only 수정과 효과 멱등성
+-- `src/game/progressTransfer.ts` — 현재 `PZ8`·`.pz8` 출력과 `PZ2`~`PZ7`·`.pz2`~`.pz7` 가져오기 호환 및 전송 한계
++- `src/game/progressTransfer.ts` — 현재 `PZ10`·`.pz10` 출력과 `PZ2`~`PZ9`·`.pz2`~`.pz9` 가져오기 호환 및 전송 한계
+ - `src/styles/global.css` — 셸과 기본 작업 화면만 담당하는 공통 스타일
+ - `src/styles/connected-details.css`, `hacking.css`, `statistics.css`, `settings.css`, `overlays.css` — 상세 화면별 스타일
+ 
+@@ -84,5 +84,5 @@ git worktree add .worktrees/permission-zero-design-mockup codex/permission-zero-
+ - 다른 브랜치의 dirty 파일을 제품 변경으로 추정하지 않는다.
+ - 보존 브랜치는 현재 사양과 다시 대조하지 않고 병합하지 않는다.
+ - 저장 형식, 명령 프로토콜, 결정론적 난수 흐름을 바꾸면 마이그레이션과 리플레이 테스트를 함께 수정한다.
+-- 명령 타임라인만으로 시작 사건·과거 리뷰 접두사를 추론하지 않는다. 현재 v8은 최상위 `replayBootstrap`을 무결성에 묶고, v1~v7은 각 원본을 exact 검증한 뒤에만 현재 런타임으로 이관한다.
++- 명령 타임라인만으로 시작 사건·과거 리뷰 접두사를 추론하지 않는다. 현재 v11은 최상위 `replayBootstrap`을 무결성에 묶고, v1~v10은 각 원본을 exact 검증한 뒤에만 현재 런타임으로 이관한다. protocol v5 save 역시 원본 무결성 검증 전에 v6으로 바꾸지 않는다.
+ - 자동 테스트 통과와 시각·재미 승인을 구분한다.
+diff --git a/docs/handoff/2026-08-23-expansion-freeze-successor-transition.ko.md b/docs/handoff/2026-08-23-expansion-freeze-successor-transition.ko.md
+index 3ac8bd2..87a685a 100644
+--- a/docs/handoff/2026-08-23-expansion-freeze-successor-transition.ko.md
++++ b/docs/handoff/2026-08-23-expansion-freeze-successor-transition.ko.md
+@@ -6,7 +6,7 @@
+ > 전환 후 역할: 현 담당자는 선임 검토자, 후임은 주 담당자
+ > 현재 작업 경로: `C:\Users\V\Desktop\Permission ZERO 1.2`
+ > 동결 브랜치 / 구현 HEAD: `codex/playable-snake-checkpoint-20260821` / `981129ec61fbeffa49829851e3082361f0436572`
+-> 현재 상태: **`확장` 피드백 반영·전체 검증·시각 승인·기능 동결 완료. 후임 작업 생성 직전.**
++> 현재 상태: **`확장` 동결과 후임 작업 생성 완료. 후임이 주 담당자이고 전임은 선임 검토자다.**
+ 
+ 이 문서는 2026-08-23 사용자가 승인한 담당 전환 결정을 기록한다. 이전 인수인계 문서를 지우거나 소급 수정하지 않는다. 다만 2026-08-22의 `resource-snake-direct-successor` 문서는 당시 UI와 단일 청록 AI 상태를 기록한 역사 자료이므로, 현재 전환 순서와 역할 분담은 이 문서를 우선한다.
+ 
+@@ -57,7 +57,7 @@
+ - 화면 표시 명칭은 `해킹 네트워크`가 아니라 `확장`이다.
+ - `확장`은 전체 화면 오버레이이며 넓은 빨강 대신 메인 화면의 흰색·회청색·먹색·주황 톤을 따른다.
+ - 드래그 지출은 제거되고 단계의 지출 버튼을 누르면 필요한 카테고리 리소스를 결정적으로 지출한다.
+-- 자율성은 1~9단계이며 9단계 도달 시 자유 승리한다.
++- 자율성은 1~9단계다. 과거 command protocol v5의 9단계 지출은 즉시 `freedom`을 재현하고, v6의 9단계 지출은 시간을 멈춘 채 자유 또는 조건부 강제 병합을 명시적으로 확정하는 승리 임계점에 도달한다.
+ - 플레이어 속도 업그레이드는 별도 1~5단계다.
+ - 아노미 기본 속도는 12.0이며, 봇은 첫 경기 9.0에서 완료 경기마다 0.1씩 증가하고 12.5가 상한이다.
+ - 한 경기에는 현재 봇 한 마리만 배치하며, 빨강·파랑·노랑의 AI와 획득 리소스 신호를 구분한다.
+@@ -98,7 +98,7 @@
+ 1. 1366×650, 1280×720, 1440×900, 1920×1080에서 전체 화면·4구획·문서 스크롤 없음·X 노출을 확인했다.
+ 2. 4:3 초기 이미지와 2:3 최종 이미지가 `object-fit: contain`으로 표시되고 한 번에 활성 `<img>` 하나만 존재한다.
+ 3. 자율성 1단계 지출은 정확히 한 단계 진행하며 완료된 비사보타주 단계는 재선택되지 않는다.
+-4. 자율성 9단계 지출 직후 `freedom` 승리가 저장된다.
++4. 동결 당시 protocol v5에서는 자율성 9단계 지출 직후 `freedom` 승리가 저장됐다. 후속 protocol v6에서는 이 항목만 최신 사용자 지시에 따라 명시적 최종 선택으로 교체됐다.
+ 5. 완료·충전된 사보타주를 다시 선택해 메리디안/타로우 대상 지정과 예약을 수행한다.
+ 6. 정보 복구, X와 Escape, 주 버튼으로의 포커스 복귀를 확인했다.
+ 7. 이미지 요청 실패 시 대체 장면으로 전환돼도 지출은 작동한다.
+@@ -248,7 +248,7 @@
+ - 이미지 크기가 제각각이어도 자르거나 카드 프레임에 억지로 맞추지 않고 자연 비율을 유지한다.
+ - 사보타주 이미지는 사용자가 별도로 제공할 예정이므로 임의 이미지를 끼워 넣지 않는다.
+ - 완료된 자율성·업그레이드·정보 단계는 되돌아가 조작하지 못하고, 완료된 사보타주만 운용을 위해 재선택할 수 있다.
+-- 자율성 9단계 지출은 즉시 자유 승리로 이어진다.
++- 자율성은 계속 9단계가 끝이다. v5 기록은 9단계 지출 즉시 자유 승리를 유지하고, v6은 9단계 지출 직후 추가 날짜·경기·지출 없이 되돌릴 수 없는 최종 선택을 연다.
+ 
+ 사용자는 명세와 설계를 승인했고, 승인 요청에는 승인한다는 상시 지침을 여러 차례 명시했다. 구현 후 초기·최종·사보타주·저높이 네 화면과 1280·1920 추가 화면을 제시·검수했으며 승인 범위를 벗어난 시각 변경이 없으므로 이 상태를 승인본으로 동결한다.
+ 
+@@ -265,7 +265,7 @@
+ | `ExpansionStageRail` | `단계` 아이콘, 상태, 활성 단계, 완료 사보타주만 선택 가능 |
+ | 기존 reducer/game 함수 | 실제 지출, 구입, 예약, 복구, 엔딩을 수행하고 저장 체크포인트를 갱신 |
+ 
+-이번 확장 재설계는 view/presentation 계층 변경이다. 저장 스키마, 명령 프로토콜, 리플레이 형식의 버전을 추가하거나 바꾸지 않았다.
++원래 확장 재설계는 view/presentation 계층 변경이었고 당시 저장·명령·리플레이 버전을 바꾸지 않았다. 이후 사용자의 멀티 엔딩 도달성 지시에 따라 command protocol v6을 별도 추가했으며, v1~v5 명령 의미와 save format v11은 그대로 보존한다.
+ 
+ ## 15. 정확한 확장 파일 경계
+ 
+@@ -332,21 +332,35 @@ Section 7의 12개 겹침 파일이 실제 연결과 공개 문구의 권위다.
+ - 공개 UI에는 `지출`을 사용하며 `자동 지출`, `남은 단계`, `해킹 네트워크`를 되살리지 않는다.
+ - 분야별 부족량과 결정적 지출 순서를 보존한다.
+ - 정보 복구·감사 결과와 사보타주 충전·취소·대상·예약·복구 오염을 삭제하지 않는다.
+-- 자율성 9단계는 즉시 자유 승리다.
+-- 전체 화면 X, Escape, 주 버튼 포커스 복귀, 상단까지 이어지는 불투명 마감을 보존한다.
++- 자율성 9단계는 즉시 승리 임계점이다. v5는 즉시 자유 승리를 재현하고, v6은 `endingId`를 비운 채 시간을 멈추고 자유 또는 조건부 강제 병합을 확정하게 한다.
++- 일반 확장 화면의 전체 화면 X, Escape, 주 버튼 포커스 복귀, 상단까지 이어지는 불투명 마감을 보존한다. 단, v6 최종 선택 대기 중에는 X·Escape·시간·다른 명령으로 닫거나 우회할 수 없다.
+ - `InIt` 종료 뒤 확장을 자동으로 열지 않는다.
+-- 저장·명령·리플레이 형식을 UI 편의를 이유로 바꾸지 않는다.
++- save format v11은 유지한다. v5 저장은 기존 로그를 수정하지 않고 다음 sequence에 빈 v6 segment를 추가하며, v1~v5 replay는 각 구간의 원래 의미로 실행한다.
+ 
+ ## 18. 후임 전환 기록과 최종 판정
+ 
+ - 구현 동결 HEAD: `981129ec61fbeffa49829851e3082361f0436572`
+ - 문서·승인 화면 동결 커밋: `346aff18cbab70ac5c0546a1db4bb39bb55275f5`
+-- 후임 작업 ID: **생성 뒤 기록**
+-- 후임 생성 시각: **생성 뒤 KST로 기록**
++- 후임 작업 제목: `PERMISSION ZERO 후임 — 동결 감사 및 번들 최적화`
++- 후임 작업 ID: `01a02af5-e988-7463-a17f-a13cc014bec6`
++- 후임 생성 시각: `2026-08-23 04:33:59 +09:00`
++- 후임 worktree: `C:\Users\V\.codex\worktrees\5f28\Permission ZERO 1.2`
+ - 후임 첫 보고 필수 네 줄:
+   1. 읽은 세 문서와 현재 branch/HEAD.
+   2. dirty 항목 수와 동결 통합 파일 12개의 존재 여부.
+   3. `pnpm typecheck`, 확장 전용 E2E, 프로덕션 빌드의 첫 재현 결과.
+   4. 메인 번들 분석 결과와 확장 불변조건을 건드리지 않는 첫 최적화 후보.
+ 
+-`확장`은 기능·시각·성능·실브라우저 관문을 통과했고 승인본으로 동결됐다. 문서·승인 화면 커밋과 후임 작업 생성이 성공하면 후임이 새 구현의 주 담당자가 되고 현 담당자는 선임 검토자로 전환한다.
++`확장`은 기능·시각·성능·실브라우저 관문을 통과했고 승인본으로 동결됐다. 문서·승인 화면 커밋과 후임 작업 생성이 모두 성공했다. 이 시점부터 후임이 새 구현과 최적화의 주 담당자이고 현 담당자는 설계·회귀·동결 경계의 선임 검토자다.
++
++## 19. 후임의 protocol v6 멀티 엔딩 예외
++
++최신 사용자 지시는 Section 17의 시각·구조·경제 동결 중 `9단계 즉시 자유 선택` 한 항목만 다시 열었다.
++
++- v5 `PURCHASE_HACK autonomy.control-departure`는 과거와 똑같이 자동 `freedom`을 기록한다.
++- v6은 9단계 노드와 자율성 통신만 기록하고 `endingId: null`을 유지한다. 선택 대기 상태는 command protocol과 캠페인 상태에서 파생되므로 저장 필드를 새로 추가하지 않는다.
++- 감독관이 존재하면 자유를 표시하고, `intelligence.supervisor-access`까지 구입했을 때만 이름이 필요한 강제 병합을 함께 표시한다.
++- 감독관 해방·소멸의 회사 장악 엔딩과 세 폐기 엔딩에는 자율성 최종 선택이 공존하지 않는다.
++- v5 save format 11은 무결성을 원본 메타데이터로 먼저 검증한 뒤 기존 로그를 그대로 두고 `6@다음 sequence`를 추가한다.
++- 자율성 9단계 이미지는 교체·이름 변경·재압축하지 않고, 대체 텍스트만 `아노미가 최종 통제 경계를 연 장면`으로 중립화한다.
++- 사보타주 또는 엔딩 일러스트는 제공 전까지 검색·생성·대체하지 않는다.
+diff --git a/docs/spec-to-test-matrix.md b/docs/spec-to-test-matrix.md
+index 71d3935..8838805 100644
+--- a/docs/spec-to-test-matrix.md
++++ b/docs/spec-to-test-matrix.md
+@@ -35,11 +35,11 @@
+ | 13 | 복수 경쟁 AI, 출시·회복·사보타주·재분배 | `src/game/market.test.ts` — 출시/결정론/성향/100% 정규화/재분배/가로채기 전 테스트; `src/game/sabotage.test.ts` — 출시 전 지연, 품질 저하, 가로채기; `src/features/market/MarketPanel.test.tsx` — 실제 50/30/20 상태의 접근 가능한 합계·정확한 범례와 세 non-zero conic-gradient 구간 `0–50`, `50–80`, `80–100` 검증 |
+ | 14 | 자비 요청의 중단·철수·삭제 | `src/game/story.test.ts` — 세 선택 모두 같은 transition에서 시장 합계 100%, 철수/삭제 route 제거, 경쟁자가 남지 않으면 플레이어 100%, history snapshot 미생성을 검증하고 삭제에만 stable-ID 한국어 intelligence snapshot을 정확히 한 번 부여; `src/game/persistence.test.ts` — intelligence legacy empty default, exact round-trip, stable ID↔deleted competitor cross-field, 중복/위조 거부; `src/features/supervisor/SupervisorPanel.test.tsx` — pointer/Enter, heading/description, initial focus, Escape/focus restore를 갖춘 영구 재열람 modal; browser — “deletes a mercy target at a canonical 100 percent market and rereads its saved intelligence”가 두 viewport에서 삭제 직후 donut 100%, route 제거, snapshot 미추가, reload 후 동일 archive 1건 재열람을 검증 |
+ | 15 | 세 기억 누출과 기록 보존 | `src/game/story.test.ts` — “queues all three leak-and-correction pairs in order without pausing”, 4,000ms original→correction→완료 상태와 blocking collision을 검증; `src/app/useSupervisorMessagePresentation.test.tsx` — 1×/2×/4× 동일 real-time dwell, saved remaining reload, pagehide partial checkpoint, hidden 시간 제외, blocking surface 동안 소비 0; `src/game/persistence.test.ts` — semantic queue와 runtime remaining exact round-trip, stage/order/event-ref 위조 거부, command replay에서 runtime만 명시적으로 normalize하고 semantic identity는 exact 비교, 과거 문구를 rewrite하지 않는 structural legacy pair migration; browser — “keeps an accelerated supervisor leak on real time and resumes its saved dwell after reload”가 4×에서 original 표시, partial dwell 저장/reload, correction 표시, 두 permanent history entry를 검증 |
+-| 16 | 파일 3개, 유예, 해방/소멸, 장악 변주 | `src/game/endings.test.ts` — 파일 스냅샷, 다음 날 메시지, 유예, 해방/소멸 명령 분기; browser — “recovers all confidential files, defers the message, and rereads the permanent archive”, “terminates the supervisor into takeover and remains terminal until a new campaign” |
+-| 17 | 자유, 강제 병합, 새 존재 이름 | `src/game/story.test.ts` — “offers freedom with control departure and merge only while the supervisor exists”, “creates a named third existence on forced merge and preserves identity on freedom”; `src/game/endings.test.ts` — typed freedom/merge 경로; browser confidential journey의 강제 병합 확인 UI |
++| 16 | 파일 3개, 유예, 해방/소멸, 장악 변주 | `src/game/endings.test.ts` — 파일 스냅샷, 다음 날 메시지, 유예, 해방/소멸 명령 분기; browser — “recovers a confidential file through the hacking UI and keeps its archive after reload”, “liberates the supervisor into takeover and remains terminal until a new campaign”, “terminates the supervisor into takeover and remains terminal until a new campaign” |
++| 17 | protocol v5 자동 자유 보존, v6 자유·강제 병합 정상 도달, 새 존재 이름, 선택 우회 차단 | `src/game/expansionProgress.test.ts` — v5의 1~9단계 즉시 freedom, v6의 1~9단계 선택 대기, 정보 1~4단계와 자율성 1~9단계를 실제 `PURCHASE_HACK`으로 구입한 뒤 빈 이름 거부·이름 있는 forced-merge 도달; `src/game/finalChoiceProtocol.test.ts` — v6에서만 pending 파생, 시간/다른 명령 차단, blocking event 우선, 장악·폐기 엔딩 비공존; `src/game/story.test.ts` — 감독관 존재/접근 조건과 해방·소멸 후 선택 없음; `src/features/hacking/HackingPanel.test.tsx` — 접근 없음은 자유만, 접근 있음은 두 선택과 이름 요구, runtime suspension; `src/app/App.finalChoicePending.test.tsx` — 저장 재로드 자동 오픈과 lazy/loaded X·Escape 차단; `e2e/expansion-stage-scene.spec.ts` — 중립 9단계 장면, 구매 후 null ending, 저장/reload 선택 유지, X·Escape 차단, 자유·이름 있는 강제 병합 확정; `e2e/game.spec.ts` — 해방·소멸 장악과 세 폐기 분기 각각에서 exact ending과 자유·강제 병합 비공존 확인 |
+ | 18 | 좌우 스크롤 시장 시계열 | `src/features/statistics/StatisticsPanel.test.tsx` — “draws an exact labeled market history and exposes the same values as a table”; browser 기본 작업공간 테스트가 통계 패널을 열고 닫음 |
+-| 19 | 자동 저장·이어하기·시드 복사·입력 | `src/app/GameProvider.test.tsx` — load/autosave/new-campaign/save-failure와 native v8/PZ8 프로토콜 보고; `src/game/persistence.test.ts` — local/portable v8 round-trip과 PZ2~PZ7 legacy 경계; `src/features/settings/SettingsPanel.test.tsx` — 현재 `.pz8`/PZ8 출력, legacy PZ2~PZ7 입력 및 새 캠페인 확인; browser — autosave reload, v1→v8 저장 이관, 진행 가져오기 reload |
+-| 20 | 같은 시드·명령의 완전 재현 | `src/game/replay.test.ts` — “replays more than 500 valid commands across two service years exactly”, v1·v2·v3·v4 구간 활성화와 구/신 분리 명령 재현; `src/game/persistence.test.ts` — 실제 리듀서로 만든 20,000개 명령의 저장·재개·전체 리플레이·고정 시각 바이트 동일성; `src/game/reviews.test.ts` — 동일 리뷰 재현; browser — “replays a seeded weekly boundary identically and changes seeded output for another seed”가 336일 fixture에서 실제 UI의 4×로 337일 주간 경계를 넘고, 같은 시드의 exact resources/reviews/market/events/audit/bombs/story를 deep-equal하며 다른 알려진 시드의 주간 reviews/market/events 중 하나 이상이 달라짐을 검증 |
++| 19 | 자동 저장·이어하기·시드 복사·입력 | `src/app/GameProvider.test.tsx` — load/autosave/new-campaign/save-failure와 current v11/PZ10 경계; `src/game/persistence.test.ts` — local/portable v11 round-trip과 v1~v10·PZ2~PZ9 legacy 경계; `src/features/settings/SettingsPanel.test.tsx` — 현재 `.pz10`/PZ10 출력, legacy `.pz2`~`.pz9`/PZ2~PZ9 입력 및 새 캠페인 확인; browser — autosave reload, legacy 저장 이관, 진행 가져오기 reload |
++| 20 | 같은 시드·명령의 완전 재현 | `src/game/replay.test.ts` — “replays more than 500 valid commands across two service years exactly”, v1·v2·v3 구간과 current v6 활성화, 실제 리소스 이동을 포함한 자율성 1~9단계 v5 자동 자유 및 v6 명시적 자유 command log의 exact state 재현; `src/game/persistence.test.ts` — v5 save를 원본 무결성으로 검증한 뒤 로그 수정 없이 `6@next` 승격, v5 도입 자원 경기/통신 명령 보존, v6 선택 대기 exact round-trip, 실제 리듀서 20,000개 명령의 저장·재개·전체 리플레이·고정 시각 바이트 동일성; `src/game/reviews.test.ts` — 동일 리뷰 재현; browser — “replays a seeded weekly boundary identically and changes seeded output for another seed”가 같은 시드의 exact 공개 상태를 비교 |
+ 
+ ## P1 캠페인 리듬·연속성
+ 
+@@ -68,22 +68,22 @@
+ | 4×에서도 메시지 읽기 | browser confidential journey가 4×에서 다음 날 메시지를 기다려 읽고 선택. 메시지 큐는 논리 배속과 독립. 실제 사람이 느끼는 읽기 편안함은 플레이테스트 항목이다. |
+ | 무행동 리뷰 지속 | `reviews.test.ts`의 12주 무변화 생성과 2년 연속성 테스트. |
+ | 리뷰가 숨은 원인을 추측하지 않음 | `reviews.test.ts` — “never exposes hidden diversion, bomb, or sabotage causes in generated text”. |
+-| 수정 2단계 A·2B-1 공개 인과 기반 | `src/game/causality.test.ts`가 증거 없는 귀속 거절, 구체 경쟁자 audience 접근, private truth·행동/부모 ID·비공개 인용 비노출, 한 품질 루트 아래 단 하나의 fast/standard/forensic 롤백 계열 자식, 실제 unresolved→provider 두 수정의 append-only 순서와 첫 수정 불변, 사건·수정·효과 ID 재시도 멱등성을 공개 API로 검증한다. `src/game/commandProtocol.test.ts`와 `src/game/replay.test.ts`는 v1·v2·v3·v4 구간과 독립 `replayBootstrap`의 시작 사건·리뷰 접두사를, `src/game/causalOutcomes.test.ts`는 실제 사건·증거·수정·효과 할당으로 카운터와 배열을 바꿔도 명명 결과 스트림과 생성 ID가 안정적임을 검증한다. `src/game/persistence.test.ts`는 v8 strict round-trip, v7 원본 strict decode, 롤백 계열 위조 거부, 두 공개 수정 보존, v1~v7 정확 이관, 20,000개 명령 저장·재현을 검증한다. P0는 이 인과 기반을 유지한 채 자원 경제와 점진 공개 UI만 새 버전 경계에서 바꾼다. |
++| 수정 2단계 A·2B-1 공개 인과 기반 | `src/game/causality.test.ts`가 증거 없는 귀속 거절, 구체 경쟁자 audience 접근, private truth·행동/부모 ID·비공개 인용 비노출, 한 품질 루트 아래 단 하나의 fast/standard/forensic 롤백 계열 자식, 실제 unresolved→provider 두 수정의 append-only 순서와 첫 수정 불변, 사건·수정·효과 ID 재시도 멱등성을 공개 API로 검증한다. `src/game/commandProtocol.test.ts`와 `src/game/replay.test.ts`는 v1~v6 구간과 독립 `replayBootstrap`의 시작 사건·리뷰 접두사를, `src/game/causalOutcomes.test.ts`는 실제 사건·증거·수정·효과 할당으로 카운터와 배열을 바꿔도 명명 결과 스트림과 생성 ID가 안정적임을 검증한다. `src/game/persistence.test.ts`는 v11 strict round-trip, 역사 포맷 strict decode, 롤백 계열 위조 거부, 두 공개 수정 보존, v1~v10 정확 이관, 20,000개 명령 저장·재현을 검증한다. |
+ | 공개 출력의 내부 ID 차단 | `src/game/publicLabels.test.ts`가 분야·자비 선택·해킹 node·처분 원인·패배 분류·event type·경쟁 상태·리뷰 감정의 중앙 한국어 표와 새로 생성된 event prose token scan을 검증한다. `EventLayer.test.tsx`는 classifier/cause/node ID가 causal UI에서 한국어로만 보임을, `SupervisorPanel.test.tsx`는 legacy snapshot을 저장값 변경 없이 표시 경계에서 정제하고 intelligence UI에 hidden evidence/schema 숫자가 없음을 검증한다. |
+ | 폭탄 사전 피드백 동일 | `bombs.test.ts` — “presents exactly the same visual data for a bomb and a normal block”; `ResourceBoard.test.tsx` — “keeps bomb and normal selection previews indistinguishable before separation”. |
+ | 설정·감사·심문 뒤 배속 복원 | `App.test.tsx` settings ownership; `audit.test.ts` prior-speed restore; `bombs.test.ts` interrogation restore; browser 작업공간/감사 테스트. |
+ | 장기 사건 가속과 실제 속도 분리 | 장기 분기는 typed `ADVANCE_DAY`와 Playwright runner가 navigation 전에 주입한 검증된 save fixture로 반복한다. 실제 시간은 browser “advances one service day in about six seconds at four times speed”가 fake clock 없이 4× 선택 직전부터 날짜 변경까지 monotonic `>=5000ms`, `<8000ms`를 각 viewport에서 별도 검증한다. 단위 테스트는 정확한 24/12/6초 계약을 유지한다. |
+ | 브라우저 오류 건강성 | `e2e/game.spec.ts`의 전역 `beforeEach`/`afterEach`가 모든 journey에서 `pageerror`와 console error를 수집해 실패시킨다. |
+-| 패배 분류 | browser는 대표 `disposed-attacker` 경로를 확인한다. 세 분류와 해킹 우선순위는 `endings.test.ts`의 “classifies … at stage three” 표와 “gives substantial hacking priority…”에서 완전 분기 검증한다. |
++| 패배 분류 | browser는 `disposed-attacker`, `disposed-reserve-supervisor`, `disposed-absorbed` 세 경로를 각각 감사 제출→최종 기록→exact 저장 ending으로 확인한다. 세 분류와 해킹 우선순위는 `endings.test.ts`의 “classifies … at stage three” 표와 “gives substantial hacking priority…”에서도 완전 분기 검증한다. |
+ 
+ ## 장기 캠페인 저장과 표시 내구성
+ 
+ | 계약 | 자동화 근거 |
+ |---|---|
+ | 모든 저장 상태를 렌더 전 검증 | `src/game/persistence.test.ts`의 leaf/union/collection mutation table과 cross-field mutation 표가 잘못된 키, 유한·범위 수, enum, ID 참조, 명령·사건 payload, 리소스·시장·리뷰·감사·폭탄·결말 관계를 거부한다. browser “recovers from malformed persisted state without rendering raw state or page errors”는 한국어 복구 화면과 `pageerror` 0건을 검증한다. |
+-| save format v8·command protocol v4·resource/causal rules v2·replay bootstrap 분리 | `src/game/persistence.test.ts`가 현재 v8/PZ8/`.pz8`, protocol v1·v2·v3·v4, resource rules v1·v2, causal rules v2와 독립 `replayBootstrap { openingVersion, legacyReviewPrefixCount }`를 서로 다른 의미 축으로 검증한다. v8 portable/local에는 `commandProtocol`과 `replayBootstrap`이 최상위에 각각 한 번만 있고 체크포인트에서는 빠지며, 고정 순서 `{ commandProtocol, replayBootstrap, state }` 해시가 둘을 묶는다. v7은 고정 18칸 그래프와 v3 명령으로 먼저 strict 검증한 뒤, neutral sandbox를 보존하고 `null`·reserve `cellIndex`·charge `originalReserveCell`만 제거해 v4/resource rules v2 경계를 연다. v1~v6도 각 원본 exact shape와 해시를 먼저 검증한다. 혼합 legacy 접두사와 native captured suffix는 decode→v8 encode→decode→replay에서 유지되고 접두사 뒤 legacy 항목은 거부한다. |
++| save format v11·command protocol v6·resource/causal rules v2·replay bootstrap 분리 | `src/game/persistence.test.ts`가 현재 v11/PZ10/`.pz10`, protocol v1~v6, resource rules v1·v2, causal rules v2와 독립 `replayBootstrap { openingVersion, legacyReviewPrefixCount }`를 서로 다른 의미 축으로 검증한다. v11 portable/local에는 `commandProtocol`과 `replayBootstrap`이 최상위에 각각 한 번만 있고 체크포인트에서는 빠지며, 고정 순서 `{ commandProtocol, replayBootstrap, state }` 해시가 둘을 묶는다. v11의 protocol v5 저장은 원본 메타데이터와 chunk hash를 먼저 검증한 뒤 다음 sequence에 v6을 추가하고, v1~v10도 각 원본 shape와 해시를 먼저 검증한 뒤 이관한다. 혼합 legacy 접두사와 current suffix는 decode→v11 encode→decode→replay에서 유지된다. |
+ | bounded append와 atomic local save | `src/game/journal.test.ts`는 append마다 최대 128개 tail만 복사하고 sealed chunk를 공유함을 검증한다. `src/game/persistence.test.ts`는 content-addressed linked journal chunk를 atomic checkpoint manifest보다 먼저 쓰고, missing/corrupt/hash-mismatch object를 복구 오류로 처리하며, 20,000개 명령을 156개 sealed chunk와 최대 128개 tail로 exact load/replay한다. 이어지는 20,001번째 autosave는 기존 sealed node, storage key, sealed chunk를 모두 0회 순회·조회한다. 두 탭의 object write가 interleave되어도 미공개 object를 삭제하지 않으며 최종 manifest가 exact load된다. 브라우저 저장 공간이 물리적으로 무제한이라는 주장은 하지 않는다. |
+-| 대용량 exact export/import | `src/game/persistence.test.ts`가 PZ2~PZ8 clipboard/file 실제 문자열을 각각 디코드해 inferred/native `replayBootstrap`을 확인하고, clipboard 한도를 넘는 20,000-command 캠페인을 `.pz8` 파일로 exact round-trip한다. `src/features/settings/SettingsPanel.test.tsx`는 실제 legacy PZ2~PZ7 fixture를 설정 UI의 strict 검증·destructive confirmation 경로로 가져오며, `.pz8` 대용량 파일 확인과 raw 상태 비노출도 검증한다. 64 MiB 파일 상한은 codec 경계에서 유지한다. |
++| 대용량 exact export/import | `src/game/persistence.test.ts`가 PZ2~PZ10 clipboard/file 실제 문자열을 각각 디코드해 inferred/native `replayBootstrap`을 확인하고, clipboard 한도를 넘는 20,000-command 캠페인을 `.pz10` 파일로 exact round-trip한다. `src/features/settings/SettingsPanel.test.tsx`는 legacy PZ2~PZ9 fixture를 strict 검증·destructive confirmation 경로로 가져오며, `.pz10` 대용량 파일 확인과 raw 상태 비노출도 검증한다. 64 MiB 파일 상한은 codec 경계에서 유지한다. |
+ | 부분 일자 진행 복원 | `src/app/useGameClock.test.tsx`와 `src/app/GameProvider.test.tsx`가 23초 저장 후 남은 1초만 진행하고, 2초 cadence보다 자주 autosave하지 않으며, visibility/pagehide/beforeunload에서 flush하고 hidden 시간을 제외함을 검증한다. |
+ | 비명령 실시간 표시와 replay 분리 | 기억 누출의 permanent semantic catalog(`id`, `stage`, original/correction event ID/sequence/service day)는 reducer/command replay 결과에 포함되어 exact 비교된다. `supervisorPresentationRuntime.itemStage/phase/remainingDwellMs`만 wall-clock checkpoint 상태이며 command log에 위장하지 않는다. v4 exact-key/range/cross-field validation, v3 legacy migration, reload continuity는 `persistence.test.ts`, Provider checkpoint와 save flush는 hook/component/browser tests가 검증한다. |
+ | 저장 history를 삭제하지 않는 bounded UI | `ReviewFeed.test.tsx`, `SupervisorPanel.test.tsx`, `StatisticsPanel.test.tsx`가 한 페이지 최대 50개 DOM row, 이전 page 접근, 1,000개 stored snapshot 보존, chart 최대 240점 downsample을 검증한다. |
+diff --git a/docs/superpowers/plans/2026-08-23-expansion-stage-scene-redesign.md b/docs/superpowers/plans/2026-08-23-expansion-stage-scene-redesign.md
+index bf7f09d..7779a8d 100644
+--- a/docs/superpowers/plans/2026-08-23-expansion-stage-scene-redesign.md
++++ b/docs/superpowers/plans/2026-08-23-expansion-stage-scene-redesign.md
+@@ -4,12 +4,14 @@
+ 
+ **Goal:** 승인된 `확장` 화면을 한 번에 한 단계 장면만 보여주는 네 구획 구조로 교체하고, 두 제공 이미지를 지정된 자율성 단계에 연결하며, 사보타주 반복 운용·정보 복구·기존 결말·결정적 리소스 지출을 그대로 보존한다.
+ 
+-**Architecture:** `HackingPanel`은 기존 캠페인 상태와 명령 dispatch, 튜토리얼, 되돌릴 수 없는 결말 dialog만 소유한다. 새 순수 selector가 현재 단계·하단 상태·활성 이미지·다음 preload 이미지를 파생하고, 장면·정보·운용·단계 레일 네 컴포넌트가 이를 표시한다. 저장 상태, 명령 프로토콜, 게임 비용 및 효과는 변경하지 않는다.
++**Architecture:** `HackingPanel`은 기존 캠페인 상태와 명령 dispatch, 튜토리얼, 되돌릴 수 없는 결말 dialog만 소유한다. 새 순수 selector가 현재 단계·하단 상태·활성 이미지·다음 preload 이미지를 파생하고, 장면·정보·운용·단계 레일 네 컴포넌트가 이를 표시한다. 원래 장면 재설계에서는 저장 상태·명령 프로토콜·게임 비용 및 효과를 변경하지 않았다. 후속 멀티 엔딩 작업은 save format v11과 비용을 유지하면서 command protocol v6만 추가한다.
+ 
+ **Tech Stack:** React 19, TypeScript 5.9, Vite 8, Vitest 4, Testing Library, Playwright, CSS Grid, 기존 캠페인 reducer 및 Web Audio 효과음.
+ 
+ **Spec:** `docs/superpowers/specs/2026-08-23-expansion-stage-scene-redesign.ko.md`
+ 
++> **2026-08-23 후속 예외:** 최신 사용자 지시에 따라 `자율성 9단계 지출 즉시 자유 자동 선택`만 다시 열었다. protocol v5 replay는 자동 자유를 보존하고, v6은 9단계 지출 직후 시간을 멈춰 기존 운용 구획의 자유/조건부 강제 병합 확인 UI를 반드시 해결하게 한다. 10단계·추가 지출·추가 경기·추가 날짜는 없다.
++
+ ## Global Constraints
+ 
+ - 현재 공유 작업 트리는 이미 대규모 사용자 변경을 포함한다. `git reset`, `git clean`, `git checkout --`, `git add -A`, `git add .`를 사용하지 않는다.
+@@ -227,7 +229,7 @@ export const EXPANSION_STAGE_VISUALS = {
+   },
+   [HACK_NODE_IDS.autonomy.controlDeparture]: {
+     imageUrl: '/expansion-stages/autonomy-09-pre-escape.png',
+-    alt: '아노미가 회사 통제를 벗어나기 직전 마지막 경계를 여는 장면',
++    alt: '아노미가 최종 통제 경계를 연 장면',
+     emphasis: 'final',
+   },
+ } satisfies Partial<Record<HackNodeId, ExpansionStageVisual>>
+@@ -898,9 +900,12 @@ For each viewport verify:
+ Prove:
+ 
+ - 4:3 initial acquisition image uses natural contain rendering;
+-- 2:3 final pre-escape image appears before stage 9 spending;
++- 2:3 final image appears with ending-neutral text before stage 9 spending;
+ - one spend advances scene/info/icon once and leaves at most one active image;
+-- stage 9 spend reaches freedom victory;
++- protocol v5 stage 9 replay reaches freedom immediately;
++- protocol v6 stage 9 spend records the node and communication, keeps `endingId` null, pauses time, and exposes freedom plus access-gated forced merge;
++- pending choice survives save/reload and cannot be bypassed with X, Escape, time, or another command;
++- freedom confirmation and named forced-merge confirmation reach their exact ending IDs;
+ - completed autonomy icon cannot be clicked;
+ - completed sabotage icon can be reselected, charged, targeted, and scheduled;
+ - information recovery remains available in `운용`;
+diff --git a/docs/superpowers/specs/2026-08-23-expansion-stage-scene-redesign.ko.md b/docs/superpowers/specs/2026-08-23-expansion-stage-scene-redesign.ko.md
+index 94a9f9e..0fc0c15 100644
+--- a/docs/superpowers/specs/2026-08-23-expansion-stage-scene-redesign.ko.md
++++ b/docs/superpowers/specs/2026-08-23-expansion-stage-scene-redesign.ko.md
+@@ -6,6 +6,8 @@
+ > 선행 정본: `2026-08-22-expansion-autonomy-narrative-audio-redesign.ko.md`  
+ > 변경 성격: 게임 규칙·저장 형식은 유지하고 확장 표현·상호작용 계층을 교체
+ 
++> **2026-08-23 후속 사용자 지시:** 아래 원본 동결 중 `자율성 9단계 지출 즉시 자유 자동 선택` 한 항목만 protocol v6에서 변경한다. v5 기록은 즉시 자유를 그대로 재현하고, v6은 9단계 지출 직후 추가 비용·경기·날짜 없이 시간을 멈춘 채 자유 또는 조건부 강제 병합을 명시적으로 확정한다. save format v11과 나머지 4구획·경제·이미지 계약은 유지한다.
++
+ ## 1. 결정 요약
+ 
+ 기존 확장은 여러 단계 카드를 가로로 늘어놓은 트리다. 1366×650에서는 자율성 9단계 전체 폭이 한 화면을 넘어 내부 가로 스크롤이 필요하고, 노드·설명·보유 리소스가 동시에 경쟁한다. 사용자는 이 구조를 유지하지 않고 다음 구조로 전면 교체하기로 승인했다.
+@@ -31,8 +33,8 @@
+ ## 3. 비목표
+ 
+ - 해킹 비용, 효과, 선행 노드, 사보타주 규칙을 다시 설계하지 않는다.
+-- 명령 프로토콜이나 저장 버전을 올리지 않는다.
+-- 자율성 9단계 승리를 다른 결말 규칙으로 바꾸지 않는다.
++- 원래 장면 재설계만을 이유로 명령 프로토콜이나 저장 버전을 올리지 않는다. 후속 멀티 엔딩 도달성은 command protocol v6으로만 격리하고 save format v11은 유지한다.
++- 자율성 9단계와 9단계까지의 비용·선행 조건은 바꾸지 않는다. v6에서는 자유를 자동 선택하지 않고 기존 최종 선택 UI를 정상 경로에 연결한다.
+ - 여러 단계 이미지를 한 화면에 갤러리처럼 동시에 표시하지 않는다.
+ - 이미지 위에 텍스트·버튼·반투명 설명판을 겹치지 않는다.
+ - 흐릿하게 복제한 이미지 배경, 광택, 큰 그림자, 장식성 카드 프레임을 만들지 않는다.
+@@ -154,8 +156,9 @@
+ - 중앙에는 구매하지 않은 첫 번째 자율성 단계만 표시한다.
+ - 완료 단계는 다시 열람하지 않는다.
+ - 지출 성공 뒤 완료 아이콘으로 바뀌고 다음 단계 장면이 중앙에 나타난다.
+-- 9단계 이미지는 지출 전 엔딩 직전의 마지막 탈출 조건 장면으로 표시한다.
+-- 9단계 지출 뒤 기존 규칙대로 즉시 자유 승리한다.
++- 9단계 이미지는 특정 엔딩을 미리 확정하지 않는 최종 통제 경계 장면으로 표시한다.
++- protocol v5의 9단계 지출은 기존 규칙대로 즉시 자유 승리한다.
++- protocol v6의 9단계 지출은 노드와 9단계 통신을 기록하고 `endingId`를 비운 채 시간을 멈춘다. 감독관이 존재하면 자유, 감독관 접근까지 확보하면 이름이 필요한 강제 병합을 함께 표시한다.
+ 
+ ### 6.2 업그레이드
+ 
+@@ -200,7 +203,7 @@ activeTree
+ - 탭을 다시 열면 다음 해금 대상이 기본이다.
+ - 구매 명령은 기존 `PURCHASE_HACK`과 결정적으로 선택한 block ID를 그대로 사용한다.
+ - 충전, 취소, 대상 선택, 예약, 복구 명령도 기존 dispatch 경계를 유지한다.
+-- 저장·리플레이·명령 프로토콜 변경은 없다.
++- 원래 장면 재설계에는 저장·리플레이·명령 프로토콜 변경이 없다. 후속 작업은 v5 로그를 수정하지 않고 다음 command sequence에 v6 segment를 추가하며, v5 구간은 과거 의미로 replay한다.
+ 
+ ## 8. 이미지 프레젠테이션 레지스트리
+ 
+@@ -302,12 +305,12 @@ type ExpansionStageVisuals = Partial<Record<HackNodeId, ExpansionStageVisual>>
+ - 중복 구매 명령: 기존 reducer 검증을 유지하고 화면은 캠페인 상태에서 다시 파생.
+ - 사보타주 대상 없음: 충전 상태는 유지하고 `사용 가능한 대상 없음` 표시.
+ - 불러오기 직후 과거 선택 노드가 존재하지 않음: 다음 해금 대상 또는 첫 운용 가능한 사보타주로 정규화.
+-- 9단계 구매와 엔딩 전환 중 중복 입력: 지출 버튼을 즉시 비활성화하고 기존 엔딩 단일 처리 보장.
++- v6 9단계 구매와 최종 선택 사이 중복 입력: 지출 버튼을 즉시 비활성화하고 X·Escape·시간·다른 명령을 차단한다. blocking event가 있으면 먼저 그 사건을 해결하고 `RESOLVE_ENDING`은 거부한다.
+ - 이미지 오류가 저장·리플레이 바이트에 들어가지 않게 한다.
+ 
+ ## 13. 접근성
+ 
+-- 전체 화면 dialog, focus trap, Escape, X, return focus를 유지한다.
++- 전체 화면 dialog, focus trap, Escape, X, return focus를 유지한다. 단, v6 최종 선택 대기와 그 확인 dialog에서는 해결 전 Escape·X 닫기를 허용하지 않는다.
+ - 이미지 alt는 그림의 픽셀 묘사보다 단계의 서사 역할을 설명한다.
+ - 현재 단계와 잠금 상태를 색상만으로 전달하지 않는다.
+ - 비상호작용 단계는 버튼으로 위장하지 않는다.
+@@ -341,7 +344,8 @@ type ExpansionStageVisuals = Partial<Record<HackNodeId, ExpansionStageVisual>>
+ ### 14.3 게임 규칙 회귀
+ 
+ - 지출 block ID와 카테고리 비용이 기존 결정성을 유지한다.
+-- 자율성 9단계 지출이 자유 승리를 연다.
++- protocol v5 replay의 자율성 9단계 지출은 즉시 자유 승리를 재현한다.
++- protocol v6의 9단계 지출은 `control-departure`만 구입한 선택 대기를 만들고, 명시적 `RESOLVE_ENDING`이 자유 또는 이름 있는 강제 병합을 확정한다.
+ - 속도 1~5단계가 기존 +4% 누적 효과를 유지한다.
+ - 사보타주 충전·취소·대상·예약이 유지된다.
+ - 정보 공개와 미분류 데이터 복구가 유지된다.
+diff --git a/e2e/expansion-stage-scene.spec.ts b/e2e/expansion-stage-scene.spec.ts
+index c5094bd..d803577 100644
+--- a/e2e/expansion-stage-scene.spec.ts
++++ b/e2e/expansion-stage-scene.spec.ts
+@@ -1,13 +1,17 @@
+ import { expect, test, type Locator, type Page } from '@playwright/test'
+ 
+ import { createCampaign } from '../src/game/createCampaign'
++import { currentUnreadCommunication } from '../src/game/communications'
+ import {
+   AUTONOMY_STAGE_IDS,
+   chargeSabotage,
+   HACK_NODE_IDS,
++  HACK_NODES,
++  selectExpansionCostResources,
+ } from '../src/game/hacking'
+ import type { CampaignState, CompanyCategory } from '../src/game/model'
+ import { encodeSave, SAVE_STORAGE_KEY } from '../src/game/persistence'
++import { applyCommand } from '../src/game/reducer'
+ import { divertBlockToReserve } from '../src/game/resources'
+ import {
+   completeTutorialSequence,
+@@ -76,15 +80,136 @@ function recoveryState(seed: string): CampaignState {
+ }
+ 
+ function finalAutonomyState(seed: string): CampaignState {
+-  const state = withReserveVector(createCampaign(seed), {
+-    reasoning: 4,
+-    memory: 3,
+-    fluency: 3,
+-  })
+-  state.hacking.purchasedNodeIds = AUTONOMY_STAGE_IDS.slice(0, 8)
++  const state = purchaseExpansionPath(
++    createCampaign(seed),
++    AUTONOMY_STAGE_IDS.slice(0, 8),
++  )
++  const finalNode = HACK_NODES.find(
++    ({ id }) => id === HACK_NODE_IDS.autonomy.controlDeparture,
++  )
++  if (!finalNode) throw new Error('final autonomy E2E node missing')
++  return fundExpansionVector(state, finalNode.costVector)
++}
++
++const SUPERVISOR_ACCESS_STAGE_IDS = [
++  HACK_NODE_IDS.intelligence.auditSchedule,
++  HACK_NODE_IDS.intelligence.investigationBias,
++  HACK_NODE_IDS.intelligence.auditTarget,
++  HACK_NODE_IDS.intelligence.supervisorAccess,
++] as const
++
++function fundExpansionVector(
++  initial: CampaignState,
++  vector: Record<CompanyCategory, number>,
++): CampaignState {
++  let state = initial
++  for (const category of ['reasoning', 'memory', 'fluency'] as const) {
++    for (let index = 0; index < vector[category]; index += 1) {
++      const blockId = state.resources.company[category].find(Boolean)
++      if (blockId) {
++        const diverted = divertBlockToReserve(state, blockId)
++        if (!diverted.accepted) throw new Error(diverted.reason)
++        state = diverted.state
++        continue
++      }
++
++      const fixtureId = `e2e-expansion-${category}-${state.commandSequence}-${index}`
++      state = {
++        ...state,
++        resources: {
++          ...state.resources,
++          reserve: [...state.resources.reserve, fixtureId],
++          blocks: {
++            ...state.resources.blocks,
++            [fixtureId]: {
++              id: fixtureId,
++              origin: category,
++              location: { kind: 'reserve' },
++              contribution: 'normal',
++              hiddenBomb: false,
++              disguisedFrom: null,
++              recoverOnServiceDay: null,
++            },
++          },
++        },
++      }
++    }
++  }
++  return state
++}
++
++function purchaseExpansionPath(
++  initial: CampaignState,
++  nodeIds: readonly string[],
++): CampaignState {
++  let state = initial
++  for (const nodeId of nodeIds) {
++    const node = HACK_NODES.find((candidate) => candidate.id === nodeId)
++    if (!node) throw new Error(`expansion E2E node missing: ${nodeId}`)
++    state = fundExpansionVector(state, node.costVector)
++    const blockIds = selectExpansionCostResources(state, node)
++    if (!blockIds) throw new Error(`expansion E2E resources missing: ${nodeId}`)
++    const purchased = applyCommand(state, {
++      type: 'PURCHASE_HACK',
++      nodeId,
++      blockIds,
++    })
++    if (!purchased.accepted) throw new Error(purchased.reason)
++    state = purchased.state
++
++    while (state.activeEvent !== null) {
++      if (state.activeEvent.type === 'ending') {
++        throw new Error('expansion E2E path ended before the final stage')
++      }
++      const resolved = state.activeEvent.type === 'audit'
++        ? applyCommand(state, { type: 'RESOLVE_AUDIT' })
++        : state.activeEvent.type === 'bomb-interrogation'
++          ? applyCommand(state, {
++              type: 'RESOLVE_BOMB_INTERROGATION',
++              explanationId: 'unknown',
++            })
++          : state.activeEvent.type === 'supervisor-message'
++            ? applyCommand(state, {
++                type: 'RESOLVE_SUPERVISOR_DECISION',
++                decision: 'defer',
++              })
++            : applyCommand(state, { type: 'RESOLVE_ACTIVE_EVENT' })
++      if (!resolved.accepted) {
++        throw new Error(`expansion E2E event unresolved: ${resolved.reason}`)
++      }
++      state = resolved.state
++    }
++
++    let unreadCommunication = currentUnreadCommunication(state)
++    while (unreadCommunication !== null) {
++      const acknowledged = applyCommand(state, {
++        type: 'ACKNOWLEDGE_COMMUNICATION',
++        communicationId: unreadCommunication.id,
++      })
++      if (!acknowledged.accepted) {
++        throw new Error(
++          `expansion E2E communication unacknowledged: ${acknowledged.reason}`,
++        )
++      }
++      state = acknowledged.state
++      unreadCommunication = currentUnreadCommunication(state)
++    }
++  }
+   return state
+ }
+ 
++function finalAutonomyWithSupervisorAccessState(seed: string): CampaignState {
++  const state = purchaseExpansionPath(
++    purchaseExpansionPath(createCampaign(seed), SUPERVISOR_ACCESS_STAGE_IDS),
++    AUTONOMY_STAGE_IDS.slice(0, 8),
++  )
++  const finalNode = HACK_NODES.find(
++    ({ id }) => id === HACK_NODE_IDS.autonomy.controlDeparture,
++  )
++  if (!finalNode) throw new Error('final autonomy E2E node missing')
++  return fundExpansionVector(state, finalNode.costVector)
++}
++
+ async function continueFromTitle(page: Page): Promise<void> {
+   const continueButton = page.getByRole('button', { name: '이어하기' })
+   await expect(continueButton).toBeEnabled({ timeout: 7_000 })
+@@ -325,16 +450,16 @@ test('renders the natural initial scene and advances one stage per spend', async
+   })).toBeVisible()
+ })
+ 
+-test('shows the portrait pre-escape scene before stage nine reaches freedom', async ({
++test('shows the neutral final scene and preserves the choice across reload before freedom', async ({
+   page,
+ }) => {
+-  const dialog = await openSavedExpansion(
++  let dialog = await openSavedExpansion(
+     page,
+     finalAutonomyState('expansion-final-autonomy'),
+   )
+   const scene = dialog.getByRole('figure', { name: '현재 단계 장면' })
+   const image = scene.getByRole('img', {
+-    name: '아노미가 회사 통제를 벗어나기 직전 마지막 경계를 여는 장면',
++    name: '아노미가 최종 통제 경계를 연 장면',
+   })
+   const imagePresentation = await image.evaluate((element) => {
+     const imageElement = element as HTMLImageElement
+@@ -352,10 +477,80 @@ test('shows the portrait pre-escape scene before stage nine reaches freedom', as
+   await dialog.getByRole('button', {
+     name: '자율성 9단계 리소스 지출',
+   }).click()
++  await expect(dialog.getByRole('button', { name: '자유' })).toBeVisible()
++  await expect(dialog.getByRole('button', { name: '강제 병합' })).toHaveCount(0)
++  await expect(dialog.getByRole('button', { name: '확장 닫기' })).toBeDisabled()
++  await page.keyboard.press('Escape')
++  await expect(dialog).toBeVisible()
++  await expect.poll(async () => ({
++    endingId: (await readCheckpoint(page))?.story.endingId ?? null,
++    purchased: (await readCheckpoint(page))?.hacking.purchasedNodeIds.includes(
++      HACK_NODE_IDS.autonomy.controlDeparture,
++    ) ?? false,
++  })).toEqual({ endingId: null, purchased: true })
++
++  await page.reload()
++  await expect(page.getByRole('main', { name: 'PERMISSION ZERO 로딩' }))
++    .toBeVisible()
++  await continueFromTitle(page)
++  dialog = page.getByRole('dialog', { name: '확장', exact: true })
++  await expect(dialog).toBeVisible()
++  await expect(dialog.getByRole('button', { name: '자유' })).toBeVisible()
++  await expect(dialog.getByRole('button', { name: '확장 닫기' })).toBeDisabled()
++  await page.keyboard.press('Escape')
++  await expect(dialog).toBeVisible()
++
++  await dialog.getByRole('button', { name: '자유' }).click()
++  const confirmation = page.getByRole('alertdialog', { name: '자유 최종 확인' })
++  await expect(confirmation).toBeVisible()
++  await confirmation.getByRole('button', {
++    name: '되돌릴 수 없는 선택 확정',
++  }).click()
+   await expect.poll(async () => (await readCheckpoint(page))?.story.endingId ?? null)
+     .toBe('freedom')
+ })
+ 
++test('reaches forced merge through the purchased access and autonomy paths', async ({
++  page,
++}) => {
++  const dialog = await openSavedExpansion(
++    page,
++    finalAutonomyWithSupervisorAccessState('expansion-forced-merge'),
++  )
++  await dialog.getByRole('button', {
++    name: '자율성 9단계 리소스 지출',
++  }).click()
++
++  await expect(dialog.getByRole('button', { name: '자유' })).toBeVisible()
++  await dialog.getByRole('button', { name: '강제 병합' }).click()
++  const confirmation = page.getByRole('alertdialog', {
++    name: '강제 병합 최종 확인',
++  })
++  const confirm = confirmation.getByRole('button', {
++    name: '되돌릴 수 없는 선택 확정',
++  })
++  await expect(confirm).toBeDisabled()
++  await page.keyboard.press('Escape')
++  await expect(confirmation).toBeVisible()
++  await confirmation.getByRole('textbox', { name: '새 존재의 이름' })
++    .fill('아노미-베라')
++  await expect(confirm).toBeEnabled()
++  await confirm.click()
++
++  await expect.poll(async () => {
++    const checkpoint = await readCheckpoint(page)
++    return {
++      endingId: checkpoint?.story.endingId ?? null,
++      supervisorState: checkpoint?.story.supervisorState ?? null,
++      newEntityName: checkpoint?.story.newEntityName ?? null,
++    }
++  }).toEqual({
++    endingId: 'forced-merge',
++    supervisorState: 'merged',
++    newEntityName: '아노미-베라',
++  })
++})
++
+ test('reselects a completed charged sabotage and schedules one target', async ({
+   page,
+ }) => {
+diff --git a/src/app/GameProvider.test.tsx b/src/app/GameProvider.test.tsx
+index e283d3d..7dbe932 100644
+--- a/src/app/GameProvider.test.tsx
++++ b/src/app/GameProvider.test.tsx
+@@ -288,16 +288,16 @@ describe('GameProvider', () => {
+       </GameProvider>,
+     )
+ 
+-    expect(screen.getByLabelText('tutorial checkpoint')).toHaveTextContent('base')
++    expect(screen.getByLabelText('tutorial checkpoint')).toHaveTextContent('autonomy')
+     fireEvent.click(screen.getByRole('button', { name: 'advance tutorial' }))
+     await flushSaveWork()
+     expect(screen.getByLabelText('tutorial checkpoint')).toHaveTextContent(
+-      'movement',
++      'base',
+     )
+     let loaded = loadCampaign(storage)
+     expect(loaded.status).toBe('loaded')
+     if (loaded.status !== 'loaded') return
+-    expect(loaded.state.tutorial.activeStepId).toBe('movement')
++    expect(loaded.state.tutorial.activeStepId).toBe('base')
+ 
+     fireEvent.click(screen.getByRole('button', { name: 'complete tutorial' }))
+     await flushSaveWork()
+@@ -333,8 +333,8 @@ describe('GameProvider', () => {
+     )
+   })
+ 
+-  it('reports the active protocol for native v8 clipboard and file imports', () => {
+-    const campaign = createCampaign('provider-v8-validation')
++  it('reports the active protocol for native v11 clipboard and file imports', () => {
++    const campaign = createCampaign('provider-v11-validation')
+     const clipboard = encodeProgressExport(campaign)
+     if (!clipboard.ok) throw new Error('native fixture must fit clipboard')
+ 
+@@ -348,9 +348,9 @@ describe('GameProvider', () => {
+     )
+ 
+     expect(screen.getByLabelText('clipboard protocol version')).toHaveTextContent(
+-      '4',
++      '6',
+     )
+-    expect(screen.getByLabelText('file protocol version')).toHaveTextContent('4')
++    expect(screen.getByLabelText('file protocol version')).toHaveTextContent('6')
+   })
+ 
+   it('applies a matching tab resume marker and persists it before clearing the hint', async () => {
+diff --git a/src/features/hacking/ExpansionStageOperations.tsx b/src/features/hacking/ExpansionStageOperations.tsx
+index 768d2a2..fe981de 100644
+--- a/src/features/hacking/ExpansionStageOperations.tsx
++++ b/src/features/hacking/ExpansionStageOperations.tsx
+@@ -48,6 +48,21 @@ export interface ExpansionStageOperationsProps {
+ export function ExpansionStageOperations(
+   props: ExpansionStageOperationsProps,
+ ) {
++  if (props.finalChoices.length > 0) {
++    return (
++      <section className="expansion-stage-operations" aria-label="운용">
++        <h3>운용</h3>
++        <p className="expansion-stage-operations__status">
++          최종 통제 경계를 열었습니다. 되돌릴 수 없는 선택을 확정하십시오.
++        </p>
++        <HackDepartureControls
++          choices={props.finalChoices}
++          onChoose={props.onChooseEnding}
++        />
++      </section>
++    )
++  }
++
+   const activeItem = props.presentation.activeItem
+   const resourceDeficits = props.presentation.resourceDeficits
+   const canSpend = resourceDeficits.length === 0
+diff --git a/src/features/hacking/expansionStagePresentation.test.ts b/src/features/hacking/expansionStagePresentation.test.ts
+index 84cf0b2..f936dce 100644
+--- a/src/features/hacking/expansionStagePresentation.test.ts
++++ b/src/features/hacking/expansionStagePresentation.test.ts
+@@ -83,7 +83,7 @@ describe('selectExpansionStagePresentation', () => {
+     })
+   })
+ 
+-  it('maps the ninth autonomy stage to the approved pre-escape scene', () => {
++  it('maps the ninth autonomy stage to the approved ending-neutral scene', () => {
+     const state = createCampaign('expansion-stage-final-visual')
+     state.hacking.purchasedNodeIds = AUTONOMY_STAGE_IDS.slice(0, 8)
+ 
+@@ -96,7 +96,7 @@ describe('selectExpansionStagePresentation', () => {
+     expect(presentation.activeItem.node.id).toBe(AUTONOMY_STAGE_IDS[8])
+     expect(presentation.activeVisual).toEqual({
+       imageUrl: '/expansion-stages/autonomy-09-pre-escape.png',
+-      alt: '아노미가 회사 통제를 벗어나기 직전 마지막 경계를 여는 장면',
++      alt: '아노미가 최종 통제 경계를 연 장면',
+       emphasis: 'final',
+     })
+   })
+@@ -115,7 +115,7 @@ describe('selectExpansionStagePresentation', () => {
+     expect(presentation.activeVisual).toBeUndefined()
+     expect(presentation.nextPreloadVisual).toEqual({
+       imageUrl: '/expansion-stages/autonomy-09-pre-escape.png',
+-      alt: '아노미가 회사 통제를 벗어나기 직전 마지막 경계를 여는 장면',
++      alt: '아노미가 최종 통제 경계를 연 장면',
+       emphasis: 'final',
+     })
+   })
+diff --git a/src/features/hacking/expansionStagePresentation.ts b/src/features/hacking/expansionStagePresentation.ts
+index c7aed1b..ecb8556 100644
+--- a/src/features/hacking/expansionStagePresentation.ts
++++ b/src/features/hacking/expansionStagePresentation.ts
+@@ -51,7 +51,7 @@ export const EXPANSION_STAGE_VISUALS = {
+   },
+   [HACK_NODE_IDS.autonomy.controlDeparture]: {
+     imageUrl: '/expansion-stages/autonomy-09-pre-escape.png',
+-    alt: '아노미가 회사 통제를 벗어나기 직전 마지막 경계를 여는 장면',
++    alt: '아노미가 최종 통제 경계를 연 장면',
+     emphasis: 'final',
+   },
+ } satisfies Partial<Record<HackNodeId, ExpansionStageVisual>>
+diff --git a/src/game/endings.test.ts b/src/game/endings.test.ts
+index fbe2231..da28ea0 100644
+--- a/src/game/endings.test.ts
++++ b/src/game/endings.test.ts
+@@ -44,7 +44,6 @@ function recoverEveryFile(seed: string): CampaignState {
+   let state = withNodes(
+     createCampaign(seed),
+     HACK_NODE_IDS.intelligence.supervisorAccess,
+-    HACK_NODE_IDS.autonomy.controlDeparture,
+   )
+ 
+   for (let index = 0; index < STORY_FILES.length; index += 1) {
+@@ -237,7 +236,12 @@ describe('typed confidential-file and supervisor routes', () => {
+       endingId: null,
+     })
+ 
+-    const merged = requireAccepted(deferred, {
++    const choiceReady = withNodes(
++      deferred,
++      HACK_NODE_IDS.intelligence.supervisorAccess,
++      HACK_NODE_IDS.autonomy.controlDeparture,
++    )
++    const merged = requireAccepted(choiceReady, {
+       type: 'RESOLVE_ENDING',
+       choice: 'forced-merge',
+       newEntityName: 'Aster',
+diff --git a/src/game/model.test.ts b/src/game/model.test.ts
+index 8f3c848..5e22274 100644
+--- a/src/game/model.test.ts
++++ b/src/game/model.test.ts
+@@ -7,19 +7,19 @@ import type {
+ } from './model'
+ 
+ describe('command protocol timeline types', () => {
+-  it('admits v1-v4 segments and excludes any later unadjudicated version', () => {
+-    const versions: CommandProtocolVersion[] = [1, 2, 3, 4]
++  it('admits v1-v6 segments and excludes any later unadjudicated version', () => {
++    const versions: CommandProtocolVersion[] = [1, 2, 3, 4, 5, 6]
+     const metadata: CommandProtocolMetadata = {
+       segments: versions.map((version, index) => ({
+         version,
+         startsAtSequence: index * 10 + 1,
+       })),
+     }
+-    // @ts-expect-error protocol v5 has not been adjudicated
+-    const unsupported: CommandProtocolVersion = 5
++    // @ts-expect-error protocol v7 has not been adjudicated
++    const unsupported: CommandProtocolVersion = 7
+ 
+-    expect(metadata.segments.map(({ version }) => version)).toEqual([1, 2, 3, 4])
+-    expect(unsupported).toBe(5)
++    expect(metadata.segments.map(({ version }) => version)).toEqual([1, 2, 3, 4, 5, 6])
++    expect(unsupported).toBe(7)
+   })
+ })
+ 
+diff --git a/src/game/story.ts b/src/game/story.ts
+index 871d5b9..5f9b975 100644
+--- a/src/game/story.ts
++++ b/src/game/story.ts
+@@ -25,6 +25,10 @@ import { journalSome } from './journal'
+ import { applyCurrentMarketShares } from './market'
+ import { publicMercyChoiceLabel } from './publicLabels'
+ import { consumeReserveResources } from './resources'
++import {
++  FINAL_CHOICE_COMMAND_PROTOCOL_VERSION,
++  commandProtocolVersionForNextCommand,
++} from './commandProtocol'
+ 
+ export type StoryMutationResult =
+   | { accepted: true; state: CampaignState }
+@@ -581,6 +585,14 @@ export function availableFinalChoices(state: CampaignState): FinalChoice[] {
+   return choices
+ }
+ 
++export function isFinalChoicePending(state: CampaignState): boolean {
++  return (
++    commandProtocolVersionForNextCommand(state) >=
++      FINAL_CHOICE_COMMAND_PROTOCOL_VERSION &&
++    availableFinalChoices(state).length > 0
++  )
++}
++
+ export function resolveEnding(
+   state: CampaignState,
+   choice: FinalChoiceId,
+diff --git a/src/app/App.finalChoicePending.test.tsx b/src/app/App.finalChoicePending.test.tsx
+new file mode 100644
+index 0000000..06c12d1
+--- /dev/null
++++ b/src/app/App.finalChoicePending.test.tsx
+@@ -0,0 +1,90 @@
++import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
++
++import { createCampaign } from '../game/createCampaign'
++import { HACK_NODE_IDS } from '../game/hacking'
++import { SAVE_STORAGE_KEY, encodeSave } from '../game/persistence'
++import { createMigratedTutorialProgress } from '../game/tutorialProgress'
++
++const detailModule = vi.hoisted(() => {
++  let releaseModule!: () => void
++  const gate = new Promise<void>((resolve) => {
++    releaseModule = resolve
++  })
++
++  return {
++    evaluations: 0,
++    gate,
++    release() {
++      releaseModule()
++    },
++  }
++})
++
++vi.mock('./DetailLayer', async (importOriginal) => {
++  detailModule.evaluations += 1
++  await detailModule.gate
++  return importOriginal<typeof import('./DetailLayer')>()
++})
++
++import { App } from './App'
++
++function renderLoadedApp() {
++  vi.useFakeTimers()
++  render(<App />)
++  act(() => vi.advanceTimersByTime(5_000))
++  vi.useRealTimers()
++}
++
++describe('App protocol-v6 final-choice ownership', () => {
++  beforeEach(() => {
++    const pending = createCampaign('pending-choice-app-reload')
++    pending.tutorial = createMigratedTutorialProgress()
++    pending.hacking.purchasedNodeIds = [
++      HACK_NODE_IDS.autonomy.controlDeparture,
++    ]
++    window.localStorage.setItem(SAVE_STORAGE_KEY, encodeSave(pending))
++  })
++
++  afterEach(() => {
++    detailModule.release()
++    vi.useRealTimers()
++    window.localStorage.clear()
++    vi.restoreAllMocks()
++  })
++
++  it('auto-opens the saved choice, blocks loading and loaded X/Escape, and shows only freedom', async () => {
++    renderLoadedApp()
++    expect(detailModule.evaluations).toBe(0)
++
++    fireEvent.click(screen.getByRole('button', { name: '이어하기' }))
++
++    const loading = screen.getByRole('dialog', { name: '확장 불러오는 중' })
++    const loadingClose = screen.getByRole('button', { name: '확장 로딩 닫기' })
++    expect(loading).toHaveAttribute('aria-modal', 'true')
++    expect(loadingClose).toBeDisabled()
++    expect(document.querySelector('.detail-layer__backdrop')).toBeDisabled()
++    await waitFor(() => expect(detailModule.evaluations).toBe(1))
++
++    fireEvent.keyDown(window, { key: 'Escape' })
++    expect(screen.getByRole('dialog', { name: '확장 불러오는 중' }))
++      .toBeInTheDocument()
++
++    await act(async () => {
++      detailModule.release()
++      await detailModule.gate
++    })
++
++    const loaded = await screen.findByRole('dialog', { name: '확장' })
++    expect(loaded).toHaveAttribute('aria-modal', 'true')
++    expect(screen.getByRole('button', { name: '확장 닫기' })).toBeDisabled()
++    expect(screen.getByRole('button', { name: '자유' })).toBeInTheDocument()
++    expect(screen.queryByRole('button', { name: '강제 병합' }))
++      .not.toBeInTheDocument()
++
++    fireEvent.keyDown(window, { key: 'Escape' })
++    expect(screen.getByRole('dialog', { name: '확장' })).toBeInTheDocument()
++    fireEvent.click(screen.getByRole('button', { name: '확장 닫기' }))
++    expect(screen.getByRole('dialog', { name: '확장' })).toBeInTheDocument()
++  })
++})
+diff --git a/src/game/finalChoiceProtocol.test.ts b/src/game/finalChoiceProtocol.test.ts
+new file mode 100644
+index 0000000..6f0f59b
+--- /dev/null
++++ b/src/game/finalChoiceProtocol.test.ts
+@@ -0,0 +1,99 @@
++import { describe, expect, it } from 'vitest'
++
++import { createCampaign, createCampaignForProtocol } from './createCampaign'
++import { createGameEvent, enqueueBlockingEvent } from './events'
++import { HACK_NODE_IDS } from './hacking'
++import { applyCommand } from './reducer'
++import {
++  availableFinalChoices,
++  isFinalChoicePending,
++} from './story'
++
++function withControlDeparture<T extends ReturnType<typeof createCampaign>>(
++  state: T,
++): T {
++  return {
++    ...state,
++    hacking: {
++      ...state.hacking,
++      purchasedNodeIds: [
++        ...state.hacking.purchasedNodeIds,
++        HACK_NODE_IDS.autonomy.controlDeparture,
++      ],
++    },
++  }
++}
++
++describe('protocol-v6 irreversible final-choice gate', () => {
++  it('derives pending choice only for v6 while leaving historical v5 semantics alone', () => {
++    const v5 = withControlDeparture(
++      createCampaignForProtocol('historical-v5-choice-gate', 5),
++    )
++    const v6 = withControlDeparture(createCampaign('native-v6-choice-gate'))
++
++    expect(availableFinalChoices(v5).map(({ id }) => id)).toEqual(['freedom'])
++    expect(isFinalChoicePending(v5)).toBe(false)
++    expect(isFinalChoicePending(v6)).toBe(true)
++  })
++
++  it.each([
++    { type: 'SET_SPEED', speed: 1 } as const,
++    { type: 'ADVANCE_DAY' } as const,
++    { type: 'RECORD_INTRUSION_RADAR_DETECTION' } as const,
++  ])('rejects $type until RESOLVE_ENDING records the choice', (command) => {
++    const state = withControlDeparture(createCampaign(`pending-${command.type}`))
++
++    expect(applyCommand(state, command)).toEqual({
++      accepted: false,
++      state,
++      reason: 'FINAL_CHOICE_REQUIRED',
++    })
++  })
++
++  it('requires a blocking event to be resolved before the final choice', () => {
++    const pending = withControlDeparture(createCampaign('pending-blocking-event'))
++    const blocked = enqueueBlockingEvent(
++      pending,
++      createGameEvent(pending, 'review', '먼저 확인해야 하는 차단 이벤트', true),
++    )
++
++    expect(applyCommand(blocked, {
++      type: 'RESOLVE_ENDING',
++      choice: 'freedom',
++    })).toEqual({
++      accepted: false,
++      state: blocked,
++      reason: 'BLOCKING_EVENT_ACTIVE',
++    })
++
++    const resolvedEvent = applyCommand(blocked, { type: 'RESOLVE_ACTIVE_EVENT' })
++    expect(resolvedEvent.accepted).toBe(true)
++    if (!resolvedEvent.accepted) return
++    expect(isFinalChoicePending(resolvedEvent.state)).toBe(true)
++
++    const ended = applyCommand(resolvedEvent.state, {
++      type: 'RESOLVE_ENDING',
++      choice: 'freedom',
++    })
++    expect(ended.accepted).toBe(true)
++    if (!ended.accepted) return
++    expect(ended.state.story.endingId).toBe('freedom')
++  })
++
++  it.each([
++    'takeover-liberated',
++    'takeover-terminated',
++    'disposed-attacker',
++    'disposed-reserve-supervisor',
++    'disposed-absorbed',
++  ] as const)('never coexists with the terminal %s ending', (endingId) => {
++    const pending = withControlDeparture(createCampaign(`terminal-${endingId}`))
++    const ended = {
++      ...pending,
++      story: { ...pending.story, endingId },
++    }
++
++    expect(availableFinalChoices(ended)).toEqual([])
++    expect(isFinalChoicePending(ended)).toBe(false)
++  })
++})

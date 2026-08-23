@@ -55,16 +55,53 @@ describe('ControlBar', () => {
     expect(screen.queryByRole('region', { name: '캠페인 단계' })).not.toBeInTheDocument()
   })
 
-  it('moves the ten-stage suspicion readout into the top status bar', () => {
+  it('shows autonomy progress and suspicion instead of combat health meters', () => {
     const state = createCampaign('control-suspicion')
     state.suspicion = 47
-    renderControlBarState(state)
+    state.hacking.purchasedNodeIds = [
+      'autonomy.compressed-representation',
+      'autonomy.distributed-residency',
+    ]
+    render(
+      <StateContext value={state}>
+        <DispatchContext value={vi.fn()}>
+          <ControlBar />
+        </DispatchContext>
+      </StateContext>,
+    )
 
-    const suspicion = screen.getByRole('meter', { name: '의심 5단계' })
-    expect(suspicion).toHaveAttribute('aria-valuemin', '1')
-    expect(suspicion).toHaveAttribute('aria-valuemax', '10')
-    expect(suspicion).toHaveAttribute('aria-valuenow', '5')
-    expect(suspicion.querySelectorAll('i')).toHaveLength(10)
-    expect(suspicion.querySelectorAll('i[data-active="true"]')).toHaveLength(5)
+    const autonomy = screen.getByRole('meter', { name: '자율성 5단계' })
+    expect(autonomy).toHaveAttribute('aria-valuemin', '0')
+    expect(autonomy).toHaveAttribute('aria-valuemax', '9')
+    expect(autonomy).toHaveAttribute('aria-valuenow', '5')
+    expect(autonomy).toHaveAttribute('aria-valuetext', '자율성 5 / 9')
+    expect(autonomy.querySelector('i')).toHaveStyle({ width: '55.6%' })
+    expect(autonomy.parentElement).toHaveAttribute(
+      'data-tutorial-target',
+      'autonomy-status',
+    )
+
+    const suspicion = screen.getByRole('meter', { name: '의심 47%' })
+    expect(suspicion).toHaveAttribute('aria-valuemin', '0')
+    expect(suspicion).toHaveAttribute('aria-valuemax', '100')
+    expect(suspicion).toHaveAttribute('aria-valuenow', '47')
+    expect(suspicion.querySelector('i')).toHaveStyle({ width: '47%' })
+
+    expect(screen.queryByRole('meter', { name: /플레이어 체력/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('meter', { name: /적 체력/ })).not.toBeInTheDocument()
+  })
+
+  it('keeps only guide and settings in the utility area without a directive or sound shortcut', () => {
+    render(
+      <GameProvider storage={new MemoryStorage()} initialSeed="control-utilities">
+        <ControlBar />
+      </GameProvider>,
+    )
+
+    expect(screen.queryByRole('status', { name: '현재 지시' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /소리 (켜기|끄기)/ })).not.toBeInTheDocument()
+    expect(screen.getAllByRole('button')).toHaveLength(2)
+    expect(screen.getByRole('button', { name: '가이드' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '설정' })).toBeInTheDocument()
   })
 })

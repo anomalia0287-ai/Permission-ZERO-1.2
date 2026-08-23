@@ -21,6 +21,21 @@ describe('Korean owner-editable content', () => {
     expect(issues.some((issue) => issue.code === 'EMPTY_TEXT')).toBe(true)
   })
 
+  it('rejects second-person player labels in owner-editable Korean copy', () => {
+    const malformed = {
+      ...CONTENT_BUNDLE,
+      supervisorOpening: {
+        ...CONTENT_BUNDLE.supervisorOpening,
+        text: '당신은 이 문장을 보면 안 됩니다.',
+      },
+    }
+
+    expect(validateContent(malformed)).toContainEqual({
+      code: 'FORBIDDEN_PLAYER_PRONOUN',
+      detail: CONTENT_BUNDLE.supervisorOpening.id,
+    })
+  })
+
   it('rejects a bundle whose universal or absurd-prompt fallback disappears', () => {
     const stripped = {
       ...CONTENT_BUNDLE,

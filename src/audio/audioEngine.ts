@@ -1,11 +1,13 @@
 import {
   GAME_LOOP_RECIPES,
-  GAME_SAMPLE_URLS,
   GAME_SOUND_RECIPES,
   type GameLoopCue,
-  type GameSampleCue,
   type GameSoundCue,
 } from './gameSounds'
+import {
+  MusicPlaylistController,
+  type MusicPlaylistStatus,
+} from './musicPlaylist'
 
 export interface AudioMixSettings {
   masterVolume: number
@@ -16,13 +18,8 @@ export interface AudioMixSettings {
 
 export interface AudioEngineOptions {
   maxVoices?: number
-  sampleLoader?: AudioSampleLoader
+  proceduralMusic?: boolean
 }
-
-export type AudioSampleLoader = (
-  context: AudioContext,
-  url: string,
-) => Promise<AudioBuffer>
 
 export type AudioTension = 'calm' | 'watch' | 'critical'
 
@@ -68,20 +65,6 @@ interface MusicVoice {
   envelope: GainNode
 }
 
-interface SampleVoice {
-  source: AudioBufferSourceNode
-  envelope: GainNode
-}
-
-async function loadBrowserSample(
-  context: AudioContext,
-  url: string,
-): Promise<AudioBuffer> {
-  const response = await fetch(url)
-  if (!response.ok) throw new Error('sample request failed')
-  return context.decodeAudioData(await response.arrayBuffer())
-}
-
 function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value))
 }
@@ -89,7 +72,7 @@ function clamp01(value: number): number {
 export class GameAudioEngine {
   private readonly contextFactory: AudioContextFactory
   private readonly maxVoices: number
-  private readonly sampleLoader: AudioSampleLoader
+  private readonly proceduralMusic: boolean
   private context: AudioContext | null = null
   private masterBus: GainNode | null = null
   private musicBus: GainNode | null = null
@@ -97,12 +80,6 @@ export class GameAudioEngine {
   private settings: AudioMixSettings = { ...DEFAULT_MIX }
   private readonly activeVoices = new Set<MusicVoice>()
   private readonly effectLoops = new Map<GameLoopCue, Set<MusicVoice>>()
-  private readonly sampleBuffers = new Map<GameSampleCue, AudioBuffer>()
-  private readonly sampleLoads = new Map<
-    GameSampleCue,
-    Promise<AudioBuffer | null>
-  >()
-  private readonly sampleVoices = new Map<GameSampleCue, SampleVoice>()
   private readonly musicLayers = new Set<MusicVoice>()
   private readonly musicAccents = new Set<MusicVoice>()
   private tensionEnvelope: GainNode | null = null
@@ -123,7 +100,7 @@ export class GameAudioEngine {
   ) {
     this.contextFactory = contextFactory
     this.maxVoices = Math.max(1, options.maxVoices ?? 12)
-    this.sampleLoader = options.sampleLoader ?? loadBrowserSample
+    this.proceduralMusic = options.proceduralMusic ?? true
   }
 
   unlock(): Promise<boolean> {
@@ -180,7 +157,7 @@ export class GameAudioEngine {
     }
     this.blocked = false
     this.activated = true
-    this.startMusic()
+    if (this.proceduralMusic) this.startMusic()
     await this.reconcileBackgroundVisibility()
     if (this.disposed || this.context !== context) return false
     this.emitStatus()
@@ -368,94 +345,12 @@ export class GameAudioEngine {
     }
   }
 
-  async playSample(cue: GameSampleCue): Promise<boolean> {
-    const context = this.context
-    const effectsBus = this.effectsBus
-    if (
-      !context ||
-      !effectsBus ||
-      context.state !== 'running' ||
-      this.settings.muted ||
-      this.settings.masterVolume <= 0 ||
-      this.settings.effectsVolume <= 0 ||
-      this.activeEffectVoiceCount() - (this.sampleVoices.has(cue) ? 1 : 0) + 1 >
-        this.maxVoices
-    ) {
-      return false
-    }
-
-    let buffer = this.sampleBuffers.get(cue) ?? null
-    if (!buffer) {
-      let load = this.sampleLoads.get(cue)
-      if (!load) {
-        load = this.sampleLoader(context, GAME_SAMPLE_URLS[cue])
-          .then((loaded) => {
-            if (!this.disposed && this.context === context) {
-              this.sampleBuffers.set(cue, loaded)
-            }
-            return loaded
-          })
-          .catch(() => null)
-          .finally(() => {
-            this.sampleLoads.delete(cue)
-          })
-        this.sampleLoads.set(cue, load)
-      }
-      buffer = await load
-    }
-
-    if (
-      !buffer ||
-      this.disposed ||
-      this.context !== context ||
-      context.state !== 'running' ||
-      this.settings.muted ||
-      this.settings.masterVolume <= 0 ||
-      this.settings.effectsVolume <= 0 ||
-      this.activeEffectVoiceCount() - (this.sampleVoices.has(cue) ? 1 : 0) + 1 >
-        this.maxVoices
-    ) {
-      return false
-    }
-
-    const previous = this.sampleVoices.get(cue)
-    if (previous) {
-      previous.source.onended = null
-      try {
-        previous.source.stop()
-      } catch {
-        // A retrigger may race the previous sample's natural ending.
-      }
-      previous.source.disconnect()
-      previous.envelope.disconnect()
-      this.sampleVoices.delete(cue)
-    }
-
-    const source = context.createBufferSource()
-    const envelope = context.createGain()
-    source.buffer = buffer
-    envelope.gain.setValueAtTime(0.28, context.currentTime)
-    source.connect(envelope)
-    envelope.connect(effectsBus)
-    const voice = { source, envelope }
-    this.sampleVoices.set(cue, voice)
-    source.onended = () => {
-      if (this.sampleVoices.get(cue) === voice) {
-        this.sampleVoices.delete(cue)
-      }
-      source.disconnect()
-      envelope.disconnect()
-    }
-    source.start(context.currentTime)
-    return true
-  }
-
   private activeEffectVoiceCount(): number {
     const loopVoices = [...this.effectLoops.values()].reduce(
       (count, voices) => count + voices.size,
       0,
     )
-    return this.activeVoices.size + loopVoices + this.sampleVoices.size
+    return this.activeVoices.size + loopVoices
   }
 
   async dispose(): Promise<void> {
@@ -485,19 +380,6 @@ export class GameAudioEngine {
       }
     }
     this.effectLoops.clear()
-    for (const voice of this.sampleVoices.values()) {
-      voice.source.onended = null
-      try {
-        voice.source.stop()
-      } catch {
-        // A sample may already have ended during teardown.
-      }
-      voice.source.disconnect()
-      voice.envelope.disconnect()
-    }
-    this.sampleVoices.clear()
-    this.sampleBuffers.clear()
-    this.sampleLoads.clear()
     for (const voice of [...this.musicLayers, ...this.musicAccents]) {
       voice.source.onended = null
       try {
@@ -721,18 +603,60 @@ function createBrowserAudioContext(): AudioContext | null {
 }
 
 let browserAudioEngine: GameAudioEngine | null = null
+let browserMusicPlaylist: MusicPlaylistController | null = null
 
 function activeBrowserAudioEngine(): GameAudioEngine {
-  browserAudioEngine ??= new GameAudioEngine(createBrowserAudioContext)
+  browserAudioEngine ??= new GameAudioEngine(createBrowserAudioContext, {
+    proceduralMusic: false,
+  })
   return browserAudioEngine
 }
 
-export function unlockGameAudio(): Promise<boolean> {
-  return activeBrowserAudioEngine().unlock()
+function activeBrowserMusicPlaylist(): MusicPlaylistController {
+  browserMusicPlaylist ??= new MusicPlaylistController()
+  return browserMusicPlaylist
+}
+
+function mergedBrowserAudioStatus(
+  effects: AudioEngineStatus,
+  music: MusicPlaylistStatus,
+): AudioEngineStatus {
+  const pageHidden = typeof document !== 'undefined' && document.hidden
+  const musicReady = music.availability === 'playing' || (
+    music.started && music.availability === 'paused' && !pageHidden
+  )
+  const availability: AudioEngineStatus['availability'] =
+    music.availability === 'blocked'
+      ? 'blocked'
+      : musicReady
+        ? 'running'
+        : music.started && pageHidden
+          ? 'suspended'
+          : music.availability === 'closed' && effects.availability === 'closed'
+            ? 'closed'
+            : music.availability === 'unavailable'
+              ? effects.availability
+              : effects.availability
+  return {
+    ...effects,
+    availability,
+    activated: effects.activated || music.started,
+    musicStarted: music.started,
+    musicLayerCount: music.started && !music.inGap ? 1 : 0,
+  }
+}
+
+export async function unlockGameAudio(): Promise<boolean> {
+  const [effectsReady, musicReady] = await Promise.all([
+    activeBrowserAudioEngine().unlock(),
+    activeBrowserMusicPlaylist().unlock(),
+  ])
+  return effectsReady || musicReady
 }
 
 export function configureGameAudio(settings: Partial<AudioMixSettings>): void {
   activeBrowserAudioEngine().configure(settings)
+  activeBrowserMusicPlaylist().configure(settings)
 }
 
 export function configureGameAudioPublicState(
@@ -741,18 +665,34 @@ export function configureGameAudioPublicState(
   activeBrowserAudioEngine().configurePublicState(state)
 }
 
-export function setGameAudioBackgroundHidden(hidden: boolean): Promise<void> {
-  return activeBrowserAudioEngine().setBackgroundHidden(hidden)
+export async function setGameAudioBackgroundHidden(hidden: boolean): Promise<void> {
+  await Promise.all([
+    activeBrowserAudioEngine().setBackgroundHidden(hidden),
+    activeBrowserMusicPlaylist().setBackgroundHidden(hidden),
+  ])
+}
+
+export function setGameAudioMainEntered(entered: boolean): void {
+  activeBrowserMusicPlaylist().setMainEntered(entered)
 }
 
 export function getGameAudioStatus(): AudioEngineStatus {
-  return activeBrowserAudioEngine().getStatus()
+  return mergedBrowserAudioStatus(
+    activeBrowserAudioEngine().getStatus(),
+    activeBrowserMusicPlaylist().getStatus(),
+  )
 }
 
 export function subscribeGameAudioStatus(
   listener: (status: AudioEngineStatus) => void,
 ): () => void {
-  return activeBrowserAudioEngine().subscribe(listener)
+  const emit = () => listener(getGameAudioStatus())
+  const unsubscribeEffects = activeBrowserAudioEngine().subscribe(emit)
+  const unsubscribeMusic = activeBrowserMusicPlaylist().subscribe(emit)
+  return () => {
+    unsubscribeEffects()
+    unsubscribeMusic()
+  }
 }
 
 export function playGameSound(cue: GameSoundCue): boolean {
@@ -767,19 +707,11 @@ export function stopGameSoundLoop(cue: GameLoopCue): void {
   activeBrowserAudioEngine().stopLoop(cue)
 }
 
-export function playGameSample(cue: GameSampleCue): Promise<boolean> {
-  return activeBrowserAudioEngine().playSample(cue)
-}
-
-export async function playHackingNetworkClick(): Promise<boolean> {
-  const engine = activeBrowserAudioEngine()
-  if (!(await engine.unlock())) return false
-  if (await engine.playSample('hacking-network-click')) return true
-  return engine.play('ui')
-}
-
 export async function disposeGameAudio(): Promise<void> {
   const engine = browserAudioEngine
+  const playlist = browserMusicPlaylist
   browserAudioEngine = null
+  browserMusicPlaylist = null
+  playlist?.dispose()
   await engine?.dispose()
 }

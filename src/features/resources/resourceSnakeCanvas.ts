@@ -1,13 +1,12 @@
 import {
   RESOURCE_SNAKE_PALETTE,
-  type ResourceSnakeCoreSilhouette,
   type ResourceSnakeScene,
   type ResourceSnakeSceneCore,
   type ResourceSnakeSceneDangerEdge,
   type ResourceSnakeSceneRail,
   type ResourceSnakeSceneTelegraph,
 } from './resourceSnakePresentation'
-import { RESOURCE_SNAKE_CONFIG, type SnakeVector } from './resourceSnakeRuntime'
+import { RESOURCE_SNAKE_CONFIG } from './resourceSnakeRuntime'
 
 interface CanvasPoint {
   x: number
@@ -82,20 +81,6 @@ function rgba(hex: string, alpha: number): string {
   return `rgba(${red}, ${green}, ${blue}, ${Math.max(0, Math.min(1, alpha))})`
 }
 
-function tracePolyline(
-  context: CanvasRenderingContext2D,
-  points: readonly SnakeVector[],
-  scale: CanvasScale,
-): boolean {
-  if (points.length < 2) return false
-  context.beginPath()
-  context.moveTo(points[0].x * scale.x, points[0].y * scale.y)
-  for (let index = 1; index < points.length; index += 1) {
-    context.lineTo(points[index].x * scale.x, points[index].y * scale.y)
-  }
-  return true
-}
-
 function tracePolygon(
   context: CanvasRenderingContext2D,
   points: readonly CanvasPoint[],
@@ -107,41 +92,6 @@ function tracePolygon(
     context.lineTo(points[index].x, points[index].y)
   }
   context.closePath()
-}
-
-export function resourceSnakeCorePolygon(
-  silhouette: ResourceSnakeCoreSilhouette,
-  radius: number,
-): CanvasPoint[] {
-  if (silhouette === 'pressure') {
-    return [
-      { x: radius * 1.62, y: 0 },
-      { x: radius * 0.42, y: radius * 0.5 },
-      { x: -radius * 0.9, y: radius * 0.4 },
-      { x: -radius * 1.18, y: 0 },
-      { x: -radius * 0.9, y: -radius * 0.4 },
-      { x: radius * 0.42, y: -radius * 0.5 },
-    ]
-  }
-  if (silhouette === 'blocker') {
-    return [
-      { x: radius * 1.08, y: 0 },
-      { x: radius * 0.48, y: radius * 0.9 },
-      { x: -radius * 0.58, y: radius },
-      { x: -radius * 1.06, y: radius * 0.45 },
-      { x: -radius * 1.06, y: -radius * 0.45 },
-      { x: -radius * 0.58, y: -radius },
-      { x: radius * 0.48, y: -radius * 0.9 },
-    ]
-  }
-  return [
-    { x: radius * 1.38, y: 0 },
-    { x: radius * 0.18, y: radius * 0.72 },
-    { x: -radius * 1.02, y: radius * 0.46 },
-    { x: -radius * 0.62, y: 0 },
-    { x: -radius * 1.02, y: -radius * 0.46 },
-    { x: radius * 0.18, y: -radius * 0.72 },
-  ]
 }
 
 function drawIndustrialField(
@@ -248,22 +198,28 @@ function drawDangerEdge(
   if (alpha <= 0) return
   const inset = scale.unit * 0.36
   context.save()
+  context.shadowBlur = 0
+  const traceEdge = () => {
+    context.beginPath()
+    if (edge.side === 'north' || edge.side === 'south') {
+      const y = edge.side === 'north' ? inset : height - inset
+      context.moveTo(inset, y)
+      context.lineTo(width - inset, y)
+    } else {
+      const x = edge.side === 'west' ? inset : width - inset
+      context.moveTo(x, inset)
+      context.lineTo(x, height - inset)
+    }
+    context.stroke()
+  }
+  context.strokeStyle = rgba(RESOURCE_SNAKE_PALETTE.danger, alpha * 0.18)
+  context.lineWidth = Math.max(3, scale.unit * (0.14 + edge.intensity * 0.12))
+  context.setLineDash([])
+  traceEdge()
   context.strokeStyle = rgba(RESOURCE_SNAKE_PALETTE.danger, alpha)
-  context.shadowColor = RESOURCE_SNAKE_PALETTE.danger
-  context.shadowBlur = scale.unit * 0.55 * edge.intensity
   context.lineWidth = Math.max(1.5, scale.unit * (0.04 + edge.intensity * 0.08))
   context.setLineDash([scale.unit * 0.46, scale.unit * 0.24])
-  context.beginPath()
-  if (edge.side === 'north' || edge.side === 'south') {
-    const y = edge.side === 'north' ? inset : height - inset
-    context.moveTo(inset, y)
-    context.lineTo(width - inset, y)
-  } else {
-    const x = edge.side === 'west' ? inset : width - inset
-    context.moveTo(x, inset)
-    context.lineTo(x, height - inset)
-  }
-  context.stroke()
+  traceEdge()
   context.restore()
 }
 
@@ -272,32 +228,40 @@ function drawRail(
   rail: ResourceSnakeSceneRail,
   scale: CanvasScale,
 ): void {
-  if (rail.points.length < 2 || rail.opacity <= 0) return
+  if (rail.points.length < 1 || rail.opacity <= 0) return
   context.save()
-  context.lineCap = 'square'
-  context.lineJoin = 'miter'
-  context.miterLimit = 3
   context.globalCompositeOperation = 'lighter'
+  context.shadowBlur = 0
+  const haloSize = Math.max(4.5, scale.unit * 0.46)
+  const outerSize = Math.max(3, scale.unit * 0.28)
+  const innerSize = Math.max(1.2, scale.unit * 0.095)
+  const hotColor = rail.color
 
-  context.globalAlpha = rail.opacity * 0.19
-  context.strokeStyle = rail.color
-  context.shadowColor = rail.color
-  context.shadowBlur = scale.unit * 0.9
-  context.lineWidth = Math.max(5, scale.unit * 0.58)
-  if (tracePolyline(context, rail.points, scale)) context.stroke()
+  // A software shadow filter per trail dot grows catastrophically with trail
+  // length. Three additive pixel passes preserve a hot core and visible bloom
+  // while keeping the cost linear and predictable on CPU-backed canvases.
+  context.globalAlpha = rail.opacity * 0.1
+  context.fillStyle = rail.color
+  for (const point of rail.points) {
+    const x = point.x * scale.x
+    const y = point.y * scale.y
+    context.fillRect(x - haloSize / 2, y - haloSize / 2, haloSize, haloSize)
+  }
 
-  context.globalAlpha = rail.opacity * 0.78
-  context.shadowBlur = scale.unit * 0.42
-  context.lineWidth = Math.max(2.2, scale.unit * 0.22)
-  if (tracePolyline(context, rail.points, scale)) context.stroke()
+  context.globalAlpha = rail.opacity * 0.34
+  for (const point of rail.points) {
+    const x = point.x * scale.x
+    const y = point.y * scale.y
+    context.fillRect(x - outerSize / 2, y - outerSize / 2, outerSize, outerSize)
+  }
 
   context.globalAlpha = rail.opacity
-  context.strokeStyle = rail.actorId === 'player'
-    ? RESOURCE_SNAKE_PALETTE.player
-    : RESOURCE_SNAKE_PALETTE.cyanHot
-  context.shadowBlur = 0
-  context.lineWidth = Math.max(1, scale.unit * 0.065)
-  if (tracePolyline(context, rail.points, scale)) context.stroke()
+  context.fillStyle = hotColor
+  for (const point of rail.points) {
+    const x = point.x * scale.x
+    const y = point.y * scale.y
+    context.fillRect(x - innerSize / 2, y - innerSize / 2, innerSize, innerSize)
+  }
   context.restore()
 }
 
@@ -309,52 +273,45 @@ function drawTelegraph(
 ): void {
   if (telegraph.points.length < 2) return
   const urgency = 0.34 + telegraph.progress * 0.66
-  const dash = scale.unit * (telegraph.role === 'pressure' ? 0.42 : 0.3)
   context.save()
-  context.lineCap = 'butt'
-  context.lineJoin = 'miter'
-  context.strokeStyle = telegraph.color
-  context.shadowColor = telegraph.color
-  context.shadowBlur = scale.unit * (0.45 + urgency * 0.35)
-  context.globalAlpha = 0.1 + urgency * 0.12
-  context.lineWidth = scale.unit * (telegraph.role === 'pressure' ? 0.64 : 0.82)
-  if (tracePolyline(context, telegraph.points, scale)) context.stroke()
-
-  context.globalAlpha = 0.48 + urgency * 0.34
-  context.lineWidth = Math.max(1.4, scale.unit * 0.075)
-  context.setLineDash([dash, dash * 0.62])
-  context.lineDashOffset = telegraph.animated
-    ? -(scene.simulationMs * 0.035) % (dash * 1.62)
-    : 0
-  if (tracePolyline(context, telegraph.points, scale)) context.stroke()
-  context.setLineDash([])
-
+  context.globalCompositeOperation = 'lighter'
+  context.shadowBlur = 0
+  context.fillStyle = telegraph.color
+  const spacing = 0.54
+  const radius = Math.max(1.2, scale.unit * (0.07 + urgency * 0.035))
+  const phase = telegraph.animated ? (scene.simulationMs * 0.0024) % 1 : 0
+  for (let index = 1; index < telegraph.points.length; index += 1) {
+    const start = telegraph.points[index - 1]
+    const end = telegraph.points[index]
+    const length = Math.hypot(end.x - start.x, end.y - start.y)
+    const dots = Math.max(1, Math.ceil(length / spacing))
+    for (let dot = 0; dot <= dots; dot += 1) {
+      const progress = (dot + phase) / dots
+      if (progress > 1) continue
+      const x = (start.x + (end.x - start.x) * progress) * scale.x
+      const y = (start.y + (end.y - start.y) * progress) * scale.y
+      const dotAlpha = (0.22 + urgency * 0.42) * (dot % 2 === 0 ? 1 : 0.62)
+      context.globalAlpha = dotAlpha * 0.16
+      context.beginPath()
+      context.arc(x, y, radius * 2.35, 0, Math.PI * 2)
+      context.fill()
+      context.globalAlpha = dotAlpha
+      context.beginPath()
+      context.arc(x, y, radius, 0, Math.PI * 2)
+      context.fill()
+    }
+  }
   const endpoint = telegraph.points[telegraph.points.length - 1]
   const x = endpoint.x * scale.x
   const y = endpoint.y * scale.y
-  const forwardX = Math.cos(telegraph.attackHeadingRadians)
-  const forwardY = Math.sin(telegraph.attackHeadingRadians)
-  const sideX = -forwardY
-  const sideY = forwardX
-  const length = scale.unit * (telegraph.role === 'pressure' ? 1.08 : 0.82)
-  const width = scale.unit * (telegraph.role === 'pressure' ? 0.42 : 0.68)
+  context.globalAlpha = (0.74 + urgency * 0.26) * 0.16
+  context.beginPath()
+  context.arc(x, y, radius * 3.15, 0, Math.PI * 2)
+  context.fill()
   context.globalAlpha = 0.74 + urgency * 0.26
-  context.lineWidth = Math.max(1.4, scale.unit * 0.09)
-  for (const offset of [0, -length * 0.44]) {
-    const tipX = x + forwardX * (length + offset)
-    const tipY = y + forwardY * (length + offset)
-    context.beginPath()
-    context.moveTo(
-      tipX - forwardX * length * 0.62 + sideX * width,
-      tipY - forwardY * length * 0.62 + sideY * width,
-    )
-    context.lineTo(tipX, tipY)
-    context.lineTo(
-      tipX - forwardX * length * 0.62 - sideX * width,
-      tipY - forwardY * length * 0.62 - sideY * width,
-    )
-    context.stroke()
-  }
+  context.beginPath()
+  context.arc(x, y, radius * 1.85, 0, Math.PI * 2)
+  context.fill()
   context.restore()
 }
 
@@ -365,69 +322,46 @@ function drawCore(
   scale: CanvasScale,
 ): void {
   if (core.opacity <= 0) return
-  const baseRadius = scale.unit * (core.silhouette === 'blocker' ? 0.46 : 0.42)
+  const baseRadius = scale.unit * (core.shape === 'circle' ? 0.34 : 0.38)
   const spawnPulse = core.phase === 'spawning' && !scene.reducedMotion
     ? 0.88 + Math.sin(scene.simulationMs * 0.035) * 0.12
     : 1
   const radius = baseRadius * core.scale * spawnPulse
-  const polygon = resourceSnakeCorePolygon(core.silhouette, radius)
   context.save()
   context.translate(core.x * scale.x, core.y * scale.y)
-  context.rotate(core.headingRadians)
-  context.globalAlpha = core.opacity
   context.globalCompositeOperation = 'lighter'
-  context.shadowColor = core.color
-  context.shadowBlur = radius * (core.silhouette === 'blocker' ? 1.45 : 1.8)
-  context.fillStyle = rgba(core.color, 0.22)
-  context.strokeStyle = core.color
-  context.lineWidth = Math.max(1.4, scale.unit * 0.085)
-  tracePolygon(context, polygon)
-  context.fill()
-  context.stroke()
-
-  const inset = polygon.map((point) => ({ x: point.x * 0.58, y: point.y * 0.58 }))
-  context.shadowBlur = radius * 0.72
-  context.fillStyle = core.id === 'player'
-    ? RESOURCE_SNAKE_PALETTE.player
-    : RESOURCE_SNAKE_PALETTE.cyanHot
-  context.globalAlpha = core.opacity * (0.7 + core.integrityRatio * 0.3)
-  tracePolygon(context, inset)
-  context.fill()
-
   context.shadowBlur = 0
-  context.globalAlpha = core.opacity * 0.7
-  context.strokeStyle = RESOURCE_SNAKE_PALETTE.fieldDeep
-  context.lineWidth = Math.max(1, scale.unit * 0.045)
-  context.beginPath()
-  context.moveTo(-radius * 0.82, -radius * 0.23)
-  context.lineTo(radius * 0.62, -radius * 0.12)
-  context.moveTo(-radius * 0.82, radius * 0.23)
-  context.lineTo(radius * 0.62, radius * 0.12)
-  context.stroke()
-  context.restore()
+  context.fillStyle = core.color
+  context.strokeStyle = core.color
+  context.lineWidth = Math.max(1, scale.unit * 0.06)
+  context.globalAlpha = core.opacity * 0.12
+  if (core.shape === 'circle') {
+    context.beginPath()
+    context.arc(0, 0, radius * 1.72, 0, Math.PI * 2)
+    context.fill()
+  } else {
+    context.fillRect(-radius * 1.72, -radius * 1.72, radius * 3.44, radius * 3.44)
+  }
+  context.globalAlpha = core.opacity * 0.5
+  if (core.shape === 'circle') {
+    context.beginPath()
+    context.arc(0, 0, radius, 0, Math.PI * 2)
+    context.fill()
+    context.stroke()
+  } else {
+    context.fillRect(-radius, -radius, radius * 2, radius * 2)
+    context.strokeRect(-radius, -radius, radius * 2, radius * 2)
+  }
 
-  context.save()
-  context.globalAlpha = Math.min(1, core.opacity + 0.08)
-  context.fillStyle = core.id === 'player'
-    ? RESOURCE_SNAKE_PALETTE.fieldDeep
-    : RESOURCE_SNAKE_PALETTE.cyanHot
-  context.font = `700 ${Math.max(7, radius * 0.62)}px ui-monospace, SFMono-Regular, monospace`
-  context.textAlign = 'center'
-  context.textBaseline = 'middle'
-  context.fillText(core.glyph, core.x * scale.x, core.y * scale.y)
-
-  const tickY = core.y * scale.y + radius * 1.48
-  const tickWidth = radius * 0.38
-  for (let tick = 0; tick < 4; tick += 1) {
-    const lit = core.integrityRatio + 1e-6 >= (tick + 1) / 4
-    context.globalAlpha = lit ? core.opacity * 0.72 : core.opacity * 0.16
-    context.fillStyle = lit ? core.color : RESOURCE_SNAKE_PALETTE.playerDim
-    context.fillRect(
-      core.x * scale.x + (tick - 2) * tickWidth + tickWidth * 0.14,
-      tickY,
-      tickWidth * 0.72,
-      Math.max(1, scale.unit * 0.045),
-    )
+  const inset = radius * 0.44
+  context.fillStyle = core.color
+  context.globalAlpha = core.opacity * (0.7 + core.integrityRatio * 0.3)
+  if (core.shape === 'circle') {
+    context.beginPath()
+    context.arc(0, 0, inset, 0, Math.PI * 2)
+    context.fill()
+  } else {
+    context.fillRect(-inset, -inset, inset * 2, inset * 2)
   }
   context.restore()
 }

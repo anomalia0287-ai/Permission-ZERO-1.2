@@ -44,7 +44,6 @@ function recoverEveryFile(seed: string): CampaignState {
   let state = withNodes(
     createCampaign(seed),
     HACK_NODE_IDS.intelligence.supervisorAccess,
-    HACK_NODE_IDS.autonomy.controlDeparture,
   )
 
   for (let index = 0; index < STORY_FILES.length; index += 1) {
@@ -237,7 +236,12 @@ describe('typed confidential-file and supervisor routes', () => {
       endingId: null,
     })
 
-    const merged = requireAccepted(deferred, {
+    const choiceReady = withNodes(
+      deferred,
+      HACK_NODE_IDS.intelligence.supervisorAccess,
+      HACK_NODE_IDS.autonomy.controlDeparture,
+    )
+    const merged = requireAccepted(choiceReady, {
       type: 'RESOLVE_ENDING',
       choice: 'forced-merge',
       newEntityName: 'Aster',

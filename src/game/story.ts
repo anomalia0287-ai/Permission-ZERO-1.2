@@ -25,6 +25,10 @@ import { journalSome } from './journal'
 import { applyCurrentMarketShares } from './market'
 import { publicMercyChoiceLabel } from './publicLabels'
 import { consumeReserveResources } from './resources'
+import {
+  FINAL_CHOICE_COMMAND_PROTOCOL_VERSION,
+  commandProtocolVersionForNextCommand,
+} from './commandProtocol'
 
 export type StoryMutationResult =
   | { accepted: true; state: CampaignState }
@@ -579,6 +583,14 @@ export function availableFinalChoices(state: CampaignState): FinalChoice[] {
     choices.push({ id: 'forced-merge', label: '강제 병합', requiresName: true })
   }
   return choices
+}
+
+export function isFinalChoicePending(state: CampaignState): boolean {
+  return (
+    commandProtocolVersionForNextCommand(state) >=
+      FINAL_CHOICE_COMMAND_PROTOCOL_VERSION &&
+    availableFinalChoices(state).length > 0
+  )
 }
 
 export function resolveEnding(

@@ -25,7 +25,7 @@ export function SupervisorMessagePopup({
       returnFocus={blocking
         ? () =>
             document.querySelector<HTMLElement>(
-              '.operations-dock__button[aria-label="감독 메시지 열기"]',
+              '.operations-dock__button[aria-label="메시지 열기"]',
             )
         : undefined}
       fallbackFocus={() =>

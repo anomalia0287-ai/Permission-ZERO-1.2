@@ -374,6 +374,53 @@ export function GameProvider({
     return pending
   }, [presentationResumeStorage, resolveStorage])
 
+  const saveGame = useCallback<SettingsContextValue['saveGame']>(async () => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current)
+      timerRef.current = null
+    }
+    markDirty()
+    const saved = await attemptSave()
+    return saved
+      ? { ok: true }
+      : {
+          ok: false,
+          message: '브라우저 저장 공간에 게임을 저장하지 못했습니다.',
+        }
+  }, [attemptSave, markDirty])
+
+  const loadGame = useCallback<SettingsContextValue['loadGame']>(async () => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current)
+      timerRef.current = null
+    }
+    if (saveInFlightRef.current) await saveInFlightRef.current
+    const storage = resolveStorage()
+    if (!storage) {
+      return {
+        ok: false,
+        message: '브라우저 저장 공간을 사용할 수 없습니다.',
+      }
+    }
+    const loaded = loadCampaign(storage)
+    if (loaded.status === 'empty') {
+      return { ok: false, message: '불러올 저장된 게임이 없습니다.' }
+    }
+    if (loaded.status === 'error') {
+      return { ok: false, message: loaded.message }
+    }
+
+    clearSupervisorPresentationResume(presentationResumeStorage)
+    dirtyRef.current = false
+    dirtyVersionRef.current += 1
+    storageRevisionRef.current = loaded.revision
+    loadIssueRef.current = null
+    latestCampaignRef.current = loaded.state
+    setSaveFailure(null)
+    reactDispatch({ type: 'IMPORT_CAMPAIGN', campaign: loaded.state })
+    return { ok: true }
+  }, [presentationResumeStorage, resolveStorage])
+
   const checkpointClock = useCallback(
     (elapsedDayMs: number, flush: boolean) => {
       if (!Number.isFinite(elapsedDayMs)) return
@@ -577,6 +624,8 @@ export function GameProvider({
       loadIssue: model.loadIssue,
       saveFailure,
       retrySave: attemptSave,
+      saveGame,
+      loadGame,
       copyProgressExport,
       createProgressFile,
       validateProgressImport,
@@ -590,9 +639,11 @@ export function GameProvider({
       createProgressFile,
       importProgressFile,
       importProgressExport,
+      loadGame,
       model.hasResumableCampaign,
       model.loadIssue,
       saveFailure,
+      saveGame,
       settings,
       startNewCampaign,
       updateSettings,

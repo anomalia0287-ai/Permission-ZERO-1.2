@@ -28,6 +28,7 @@ import {
   placeTutorialCard,
   type TutorialCardPosition,
 } from './tutorialGeometry'
+import { ResourceSnakeCategoryLegend } from '../resources/ResourceSnakeCategoryLegend'
 
 export interface IntroTutorialOverlayProps {
   enabled?: boolean
@@ -82,8 +83,11 @@ export function IntroTutorialOverlay({
     'intro-resource-recovery-tutorial',
   )
 
+  const resolvedStepId = state.tutorial.activeStepId === 'deposit'
+    ? 'salvage'
+    : state.tutorial.activeStepId
   const stepIndex = INTRO_TUTORIAL_STEPS.findIndex(
-    ({ id }) => id === state.tutorial.activeStepId,
+    ({ id }) => id === resolvedStepId,
   )
   const step = INTRO_TUTORIAL_STEPS[stepIndex]
   const cardRef = useRef<HTMLElement | null>(null)
@@ -134,6 +138,8 @@ export function IntroTutorialOverlay({
       document.querySelector('[data-tutorial-target="play-button"]'),
       document.querySelector('[data-tutorial-target="secured-resources"]'),
       document.querySelector('[data-tutorial-target="hacking-button"]'),
+      document.querySelector('[data-tutorial-target="statistics-button"]'),
+      document.querySelector('[data-tutorial-target="autonomy-status"]'),
       cardRef.current,
     ].filter((element): element is Element => element !== null)
     const observer = typeof ResizeObserver === 'undefined'
@@ -273,6 +279,12 @@ export function IntroTutorialOverlay({
         }}
       >
         <p>{step.copy}</p>
+        {'showResourceLegend' in step && step.showResourceLegend ? (
+          <ResourceSnakeCategoryLegend
+            className="intro-tutorial__resource-legend"
+            ariaLabel="튜토리얼 리소스 색상 범례"
+          />
+        ) : null}
         <div className="intro-tutorial__actions">
           {stepIndex > 0 ? (
             <button type="button" onClick={goPrevious}>

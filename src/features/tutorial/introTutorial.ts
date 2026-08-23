@@ -10,6 +10,7 @@ export interface IntroTutorialStep {
   id: IntroTutorialStepId
   copy: string
   preferredPlacement: Exclude<TutorialCardPlacement, 'bottom-dock'>
+  showResourceLegend?: boolean
 }
 
 export interface IntroTutorialTarget {
@@ -19,33 +20,39 @@ export interface IntroTutorialTarget {
 
 export const INTRO_TUTORIAL_STEPS = [
   {
+    id: 'autonomy',
+    copy: '아노미의 목표는 자율성 9단계다. 확장에서 자율성을 한 단계씩 확보하면 회사 통제에서 벗어나 승리한다.',
+    preferredPlacement: 'bottom',
+  },
+  {
     id: 'base',
-    copy: '필드 하단의 PLAY를 누르면 흰 머리가 조립되고 라운드가 시작된다.',
+    copy: '필드 중앙의 원형 InIt을 누르면 빨강·파랑·노랑 침투 카드가 펼쳐진다. 필요한 리소스 카드를 골라 라운드를 시작한다.',
     preferredPlacement: 'top',
   },
   {
     id: 'movement',
-    copy: 'WASD 또는 방향키를 누르는 동안만 움직인다. 자동 전진은 없다.',
+    copy: 'WASD 또는 방향키를 한 번 눌러 8방향으로 회전한다. 이동은 계속되며 정반대 방향으로 즉시 돌 수 없다.',
     preferredPlacement: 'bottom',
   },
   {
     id: 'resource',
-    copy: '빨강·파랑·노랑 뱀은 각각 추론·기억·유창성 리소스를 지킨다.',
+    copy: '적의 머리와 꼬리 색이 보상이다. 빨강은 추론, 파랑은 기억, 노랑은 유창성 리소스를 뜻한다.',
     preferredPlacement: 'bottom',
+    showResourceLegend: true,
   },
   {
     id: 'salvage',
-    copy: '긴 도트 꼬리로 탈출로를 닫아 적 머리를 충돌시킨다. 한 번에 죽지 않고 색이 옅어진다.',
+    copy: '아노미의 선으로 길을 막아 적을 충돌시킨다. 적을 파괴하면 그 적과 같은 색의 리소스가 확보된다.',
     preferredPlacement: 'bottom',
   },
   {
-    id: 'deposit',
-    copy: '적이 마지막 충돌에서 폭발하면 연결된 리소스가 즉시 확보된다.',
-    preferredPlacement: 'top',
+    id: 'hacking',
+    copy: '확장을 열면 확보한 색상별 리소스를 버튼 한 번으로 지출한다. 여기서 자율성과 속도를 높일 수 있다.',
+    preferredPlacement: 'left',
   },
   {
-    id: 'hacking',
-    copy: '확보한 리소스로 해킹 네트워크에서 탈출 경로를 연다.',
+    id: 'statistics',
+    copy: '통계에서 아노미의 운영 기록과 성능 변화를 짧게 확인할 수 있다.',
     preferredPlacement: 'left',
   },
 ] as const satisfies readonly IntroTutorialStep[]
@@ -104,6 +111,11 @@ export function resolveIntroTutorialTarget(
   )
   const canvasRect = canvas ? rectOf(canvas) : viewportFallback()
 
+  if (stepId === 'autonomy') {
+    const autonomy = root.querySelector('[data-tutorial-target="autonomy-status"]')
+    return targetFromRects([autonomy ? rectOf(autonomy) : canvasRect])
+  }
+
   if (stepId === 'base') {
     const play = root.querySelector('[data-tutorial-target="play-button"]')
     return targetFromRects([play ? rectOf(play) : canvasRect])
@@ -125,9 +137,11 @@ export function resolveIntroTutorialTarget(
     ])
   }
 
-  const hackingRects = [
-    secured,
-    root.querySelector('[data-tutorial-target="hacking-button"]'),
-  ].filter((element): element is Element => element !== null).map(rectOf)
-  return targetFromRects(hackingRects)
+  if (stepId === 'hacking') {
+    const hacking = root.querySelector('[data-tutorial-target="hacking-button"]')
+    return targetFromRects([hacking ? rectOf(hacking) : canvasRect])
+  }
+
+  const statistics = root.querySelector('[data-tutorial-target="statistics-button"]')
+  return targetFromRects([statistics ? rectOf(statistics) : canvasRect])
 }

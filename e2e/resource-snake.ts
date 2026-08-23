@@ -12,6 +12,15 @@ import {
 export type BrowserSnakePhase = 'idle' | 'deploying' | 'active' | 'resolving'
 export type BrowserSnakeActorPhase = 'spawning' | 'active' | 'exploding' | 'defeated'
 export type BrowserSnakeDirectionKey = 'w' | 'a' | 's' | 'd'
+export type BrowserSnakeHeading =
+  | 'north'
+  | 'north-east'
+  | 'east'
+  | 'south-east'
+  | 'south'
+  | 'south-west'
+  | 'west'
+  | 'north-west'
 
 interface BrowserSnakeVector {
   x: number
@@ -28,7 +37,9 @@ export interface BrowserSnakePlayer {
   velocity: BrowserSnakeVector
   integrity: number
   maximumIntegrity: number
+  maximumSpeedPerSecond: number
   phase: BrowserSnakeActorPhase
+  heading: BrowserSnakeHeading
   trailDots: number
   trailSamples: BrowserSnakeTrailSample[]
 }
@@ -41,6 +52,7 @@ export interface BrowserSnakeEnemy {
   velocity: BrowserSnakeVector
   integrity: number
   maximumIntegrity: number
+  maximumSpeedPerSecond: number
   phase: BrowserSnakeActorPhase
   trailDots: number
   trailSamples: BrowserSnakeTrailSample[]
@@ -56,7 +68,11 @@ export interface BrowserSnakeEvent {
   actorId?: string
   actorIds?: string[]
   point?: BrowserSnakeVector
+  collisionKind?: string
+  obstacleOwnerId?: string
   integrity?: number
+  heading?: BrowserSnakeHeading
+  reason?: string
   outcome?: string
   startedAtMs?: number
 }
@@ -64,6 +80,17 @@ export interface BrowserSnakeEvent {
 export interface BrowserSnakeSnapshot {
   phase: BrowserSnakePhase
   simulationMs: number
+  input: {
+    heading: BrowserSnakeHeading
+    pendingChord: {
+      direction: BrowserSnakeHeading
+      key: string
+      startedAtMs: number
+    } | null
+    pressedKeys: string[]
+    queuedTurns: BrowserSnakeHeading[]
+    timestampMs: number
+  }
   player: BrowserSnakePlayer
   enemies: BrowserSnakeEnemy[]
   events: BrowserSnakeEvent[]
@@ -89,14 +116,6 @@ const E2E_PLAYER_PLANNER_PROFILE: SnakePlannerProfile = {
   planningHz: 10,
   commitMs: 220,
   rolloutStepMs: 50,
-}
-
-function browserEnemyMaximumSpeed(enemy: BrowserSnakeEnemy): number {
-  if (enemy.maximumIntegrity === 35) return 6.7
-  if (enemy.maximumIntegrity === 50) return 6.5
-  if (enemy.maximumIntegrity === 65) return 7
-  if (enemy.maximumIntegrity === 80) return 7.2
-  return 6.2
 }
 
 function browserCollisionGraceMs(
@@ -148,7 +167,7 @@ function pressurePlannerDirection(
     velocity: { ...snapshot.player.velocity },
     integrity: snapshot.player.integrity,
     maximumIntegrity: snapshot.player.maximumIntegrity,
-    maximumSpeedPerSecond: 8,
+    maximumSpeedPerSecond: snapshot.player.maximumSpeedPerSecond,
     collisionGraceMs: browserCollisionGraceMs(snapshot, 'player'),
     role: 'pressure',
   }
@@ -158,7 +177,7 @@ function pressurePlannerDirection(
     velocity: { ...target.velocity },
     integrity: target.integrity,
     maximumIntegrity: target.maximumIntegrity,
-    maximumSpeedPerSecond: browserEnemyMaximumSpeed(target),
+    maximumSpeedPerSecond: target.maximumSpeedPerSecond,
     collisionGraceMs: browserCollisionGraceMs(snapshot, target.id),
     role: null,
   }
@@ -170,7 +189,7 @@ function pressurePlannerDirection(
       velocity: { ...enemy.velocity },
       integrity: enemy.integrity,
       maximumIntegrity: enemy.maximumIntegrity,
-      maximumSpeedPerSecond: browserEnemyMaximumSpeed(enemy),
+      maximumSpeedPerSecond: enemy.maximumSpeedPerSecond,
       collisionGraceMs: browserCollisionGraceMs(snapshot, enemy.id),
       role: enemy.role,
     })),
@@ -235,6 +254,7 @@ export async function readSnakeSnapshot(canvas: Locator): Promise<BrowserSnakeSn
   finiteNumber(snapshot.player?.x, 'player.x')
   finiteNumber(snapshot.player?.y, 'player.y')
   finiteNumber(snapshot.player?.integrity, 'player.integrity')
+  finiteNumber(snapshot.player?.maximumSpeedPerSecond, 'player.maximumSpeedPerSecond')
   if (!Array.isArray(snapshot.player?.trailSamples)) {
     throw new Error('resource snake player trail samples missing')
   }
@@ -245,6 +265,7 @@ export async function readSnakeSnapshot(canvas: Locator): Promise<BrowserSnakeSn
     finiteNumber(enemy.x, `${enemy.id}.x`)
     finiteNumber(enemy.y, `${enemy.id}.y`)
     finiteNumber(enemy.integrity, `${enemy.id}.integrity`)
+    finiteNumber(enemy.maximumSpeedPerSecond, `${enemy.id}.maximumSpeedPerSecond`)
     if (!Array.isArray(enemy.trailSamples)) {
       throw new Error(`resource snake trail samples missing for ${enemy.id}`)
     }
@@ -257,9 +278,15 @@ export async function readSnakeSnapshot(canvas: Locator): Promise<BrowserSnakeSn
 
 export async function startSnakeRound(page: Page): Promise<Locator> {
   const canvas = page.locator('canvas.resource-snake-board__canvas')
-  await expect(canvas).toBeVisible()
-  await page.getByRole('button', { name: 'PLAY', exact: true }).click()
+  await expect(canvas).toBeAttached()
+  await expect(canvas).toHaveAttribute('data-visual-state', 'waiting')
+  await page.getByRole('button', { name: 'InIt', exact: true }).click()
+  const targets = page.getByRole('region', { name: '침투 대상 선택' })
+  await expect(targets).toBeVisible({ timeout: 3_000 })
+  await targets.getByRole('button', { name: '파랑 기억 침투' }).click()
   await expect(canvas).toHaveAttribute('data-round-phase', 'deploying')
+  await expect(canvas).toHaveAttribute('data-visual-state', 'combat')
+  await expect(canvas).toBeVisible()
   await expect.poll(async () => (await readSnakeSnapshot(canvas)).phase, {
     timeout: 5_000,
   }).toBe('active')
@@ -267,17 +294,38 @@ export async function startSnakeRound(page: Page): Promise<Locator> {
   return canvas
 }
 
-export async function holdSnakeDirection(
+export async function tapSnakeDirection(
   page: Page,
   key: BrowserSnakeDirectionKey,
-  ms: number,
 ): Promise<void> {
   await page.keyboard.down(key)
-  try {
-    await page.waitForTimeout(ms)
-  } finally {
-    await page.keyboard.up(key)
+  await page.keyboard.up(key)
+}
+
+export async function chordSnakeDirection(
+  page: Page,
+  first: BrowserSnakeDirectionKey,
+  second: BrowserSnakeDirectionKey,
+  gapMs = 0,
+): Promise<void> {
+  if (first === second) throw new Error('snake chord requires two distinct keys')
+  if (!Number.isFinite(gapMs) || gapMs < 0 || gapMs > 24) {
+    throw new Error(`snake chord gap must be inside 0..24ms: ${gapMs}`)
   }
+  if (gapMs === 0) {
+    await Promise.all([
+      page.keyboard.down(first),
+      page.keyboard.down(second),
+    ])
+  } else {
+    await page.keyboard.down(first)
+    await page.waitForTimeout(gapMs)
+    await page.keyboard.down(second)
+  }
+  await Promise.all([
+    page.keyboard.up(second),
+    page.keyboard.up(first),
+  ])
 }
 
 async function replaceHeldKeys(
@@ -412,6 +460,7 @@ function interceptKeys(
   elapsedMs: number,
   steering: BrowserSnakeSteering,
 ): Set<BrowserSnakeDirectionKey> {
+  const playerSpeed = snapshot.player.maximumSpeedPerSecond
   const velocityLength = Math.hypot(enemy.velocity.x, enemy.velocity.y)
   const playerDistance = Math.hypot(
     enemy.x - snapshot.player.x,
@@ -421,7 +470,7 @@ function interceptKeys(
     x: enemy.x - snapshot.player.x,
     y: enemy.y - snapshot.player.y,
   }
-  const interceptA = velocityLength * velocityLength - 8 * 8
+  const interceptA = velocityLength * velocityLength - playerSpeed * playerSpeed
   const interceptB = 2 * (
     relativePosition.x * enemy.velocity.x
     + relativePosition.y * enemy.velocity.y
@@ -436,7 +485,7 @@ function interceptKeys(
     : []
   const interceptSeconds = interceptRoots.length > 0
     ? Math.min(...interceptRoots)
-    : playerDistance / Math.max(8 + velocityLength, 1)
+    : playerDistance / Math.max(playerSpeed + velocityLength, 1)
   const maximumLeadSeconds = playerDistance > 10 ? 2.8 : playerDistance > 4 ? 1.6 : 0.5
   const leadSeconds = Math.max(0.12, Math.min(maximumLeadSeconds, interceptSeconds))
   const target = velocityLength > 0.01
@@ -478,6 +527,29 @@ function interceptKeys(
   const headingIndexForAngle = (angle: number) => (
     ((Math.round(angle / (Math.PI / 4)) % 8) + 8) % 8
   )
+  const headingIndexByName = ({
+    east: 0,
+    'south-east': 1,
+    south: 2,
+    'south-west': 3,
+    west: 4,
+    'north-west': 5,
+    north: 6,
+    'north-east': 7,
+  } as Record<string, number>)
+  const headingIndexByLabel = headingIndexByName[snapshot.player.heading]
+  const latestCommittedHeading = [...snapshot.events].reverse().find((event) => (
+    event.type === 'snake-turn-committed'
+  ))?.heading
+  const currentHeadingIndex = headingIndexByName[snapshot.input.heading]
+    ?? (latestCommittedHeading
+      ? headingIndexByName[latestCommittedHeading] ?? headingIndexByLabel ?? 6
+    : Math.hypot(snapshot.player.velocity.x, snapshot.player.velocity.y) > 0.5
+      ? headingIndexForAngle(Math.atan2(
+          snapshot.player.velocity.y,
+          snapshot.player.velocity.x,
+        ))
+      : headingIndexByLabel ?? 6)
   const pursuitDesiredIndex = headingIndexForAngle(strategicAngle)
   const retreatDesiredIndex = headingIndexForAngle(Math.atan2(
     snapshot.player.y - enemy.y,
@@ -493,8 +565,8 @@ function interceptKeys(
   const safetyFor = (headingIndex: number, collisionGraceMs = 0) => {
     const direction = headingVector(headingIndex)
     const targetVelocity = {
-      x: direction.x * 8,
-      y: direction.y * 8,
+      x: direction.x * playerSpeed,
+      y: direction.y * playerSpeed,
     }
     const trailHazards = [
       ...snapshot.player.trailSamples.map((sample) => ({ ...sample, own: true })),
@@ -518,7 +590,7 @@ function interceptKeys(
         y: targetVelocity.y - velocity.y,
       }
       const velocityDeltaLength = Math.hypot(velocityDelta.x, velocityDelta.y)
-      const velocityStepLimit = 8 * (stepSeconds / 0.12)
+      const velocityStepLimit = playerSpeed * (stepSeconds / 0.12)
       if (velocityDeltaLength <= velocityStepLimit) {
         velocity = { ...targetVelocity }
       } else {
@@ -630,7 +702,29 @@ function interceptKeys(
     steering.lastTurnAtMs = elapsedMs
   }
 
-  const keys = new Set(keysByHeading[steering.headingIndex] ?? [])
+  if (steering.headingIndex !== null) {
+    let signedTurn = (steering.headingIndex - currentHeadingIndex + 8) % 8
+    if (signedTurn > 4) signedTurn -= 8
+    if (signedTurn === 4) signedTurn = 2
+    if (Math.abs(signedTurn) > 2) {
+      steering.headingIndex = (
+        currentHeadingIndex + Math.sign(signedTurn) * 2 + 8
+      ) % 8
+    }
+  }
+
+  const cardinalHeadingIndex: Readonly<Record<BrowserSnakeDirectionKey, number>> = {
+    d: 0,
+    s: 2,
+    a: 4,
+    w: 6,
+  }
+  const orderedKeys = [...(keysByHeading[steering.headingIndex] ?? [])]
+    .sort((left, right) => (
+      Number((cardinalHeadingIndex[left] - currentHeadingIndex + 8) % 8 === 4)
+      - Number((cardinalHeadingIndex[right] - currentHeadingIndex + 8) % 8 === 4)
+    ))
+  const keys = new Set(orderedKeys)
   return keys
 }
 
@@ -671,6 +765,8 @@ export async function defeatFirstSnakeWithTrail(
     initial.enemies.map((enemy) => [enemy.id, enemy.integrity]),
   )
   let observedPlayerIntegrity = initial.player.integrity
+  let lastIssuedHeadingIndex: number | null = null
+  let lastIssuedAtMs = Number.NEGATIVE_INFINITY
   try {
     while (Date.now() - startedAt < 60_000) {
       latest = await readSnakeSnapshot(canvas)
@@ -719,6 +815,7 @@ export async function defeatFirstSnakeWithTrail(
         let escapeHeadingIndex = ((
           Math.round(Math.atan2(escapeVector.y, escapeVector.x) / (Math.PI / 4)) % 8
         ) + 8) % 8
+        let planEscape = true
         if (collision?.point) {
           if (collision.point.x < 0.75) {
             escapeHeadingIndex = latest.player.y > 12 ? 7 : 1
@@ -728,12 +825,42 @@ export async function defeatFirstSnakeWithTrail(
             escapeHeadingIndex = latest.player.x > 25 ? 3 : 1
           } else if (collision.point.y > 23.25) {
             escapeHeadingIndex = latest.player.x > 25 ? 5 : 7
+          } else if (collision.collisionKind === 'trail') {
+            const headingIndices: Record<BrowserSnakeHeading, number> = {
+              east: 0,
+              'south-east': 1,
+              south: 2,
+              'south-west': 3,
+              west: 4,
+              'north-west': 5,
+              north: 6,
+              'north-east': 7,
+            }
+            const currentHeadingIndex = headingIndices[latest.input.heading]
+            const centerVector = {
+              x: 25 - latest.player.x,
+              y: 12 - latest.player.y,
+            }
+            escapeHeadingIndex = [
+              (currentHeadingIndex + 2) % 8,
+              (currentHeadingIndex + 6) % 8,
+            ].sort((left, right) => {
+              const score = (index: number) => (
+                Math.cos(index * Math.PI / 4) * centerVector.x
+                + Math.sin(index * Math.PI / 4) * centerVector.y
+              )
+              return score(right) - score(left) || left - right
+            })[0] ?? currentHeadingIndex
+            planEscape = false
           }
         }
         steering.escapeHeadingIndex = escapeHeadingIndex
-        steering.escapeNeedsPlanning = true
+        steering.escapeNeedsPlanning = planEscape
         steering.headingIndex = steering.escapeHeadingIndex
-        steering.escapeUntilMs = Math.max(steering.escapeUntilMs, elapsedMs + 900)
+        steering.escapeUntilMs = Math.max(
+          steering.escapeUntilMs,
+          elapsedMs + (planEscape ? 900 : 1_250),
+        )
         steering.lastTurnAtMs = elapsedMs
       }
       if (enemyWasDamaged) {
@@ -787,11 +914,36 @@ export async function defeatFirstSnakeWithTrail(
         await page.waitForTimeout(40)
         continue
       }
-      await replaceHeldKeys(
-        page,
-        held,
-        interceptKeys(latest, enemy, elapsedMs, steering),
+      const requestedKeys = interceptKeys(latest, enemy, elapsedMs, steering)
+      await replaceHeldKeys(page, held, new Set())
+      const desiredHeadingIndex = steering.headingIndex
+      const committedHeadingIndex = ({
+        east: 0,
+        'south-east': 1,
+        south: 2,
+        'south-west': 3,
+        west: 4,
+        'north-west': 5,
+        north: 6,
+        'north-east': 7,
+      } as Record<BrowserSnakeHeading, number>)[latest.input.heading]
+      const shouldIssueTurn = desiredHeadingIndex !== null && requestedKeys.size > 0 && (
+        desiredHeadingIndex !== lastIssuedHeadingIndex
+        || (
+          desiredHeadingIndex !== committedHeadingIndex
+          && elapsedMs - lastIssuedAtMs >= 320
+        )
       )
+      if (shouldIssueTurn) {
+        const keys = [...requestedKeys]
+        if (keys.length === 1 && keys[0]) {
+          await tapSnakeDirection(page, keys[0])
+        } else if (keys.length === 2 && keys[0] && keys[1]) {
+          await chordSnakeDirection(page, keys[0], keys[1])
+        }
+        lastIssuedHeadingIndex = desiredHeadingIndex
+        lastIssuedAtMs = elapsedMs
+      }
       await page.waitForTimeout(55)
     }
   } finally {

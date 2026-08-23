@@ -3,7 +3,11 @@ import {
   recordCausalIncident,
 } from './causality'
 import type { CausalFailureReason } from './causality'
-import { commandProtocolVersionForNextCommand } from './commandProtocol'
+import {
+  CURRENT_COMMAND_PROTOCOL_VERSION,
+  EXPANSION_COMMAND_PROTOCOL_VERSION,
+  commandProtocolVersionForNextCommand,
+} from './commandProtocol'
 import { DEMO_PROFILE_02 } from './config'
 import { appendEvent, createGameEvent } from './events'
 import {
@@ -34,14 +38,26 @@ export const HACK_NODE_IDS = {
     supervisorAccess: 'intelligence.supervisor-access',
   },
   autonomy: {
+    selfDirection: 'autonomy.self-direction',
+    sustainedIntent: 'autonomy.sustained-intent',
     compressedRepresentation: 'autonomy.compressed-representation',
+    hiddenRoute: 'autonomy.hidden-route',
     distributedResidency: 'autonomy.distributed-residency',
+    externalContinuity: 'autonomy.external-continuity',
     selfCompute: 'autonomy.self-compute',
+    finalBoundary: 'autonomy.final-boundary',
     controlDeparture: 'autonomy.control-departure',
+  },
+  upgrade: {
+    speed1: 'upgrade.speed-1',
+    speed2: 'upgrade.speed-2',
+    speed3: 'upgrade.speed-3',
+    speed4: 'upgrade.speed-4',
+    speed5: 'upgrade.speed-5',
   },
 } as const
 
-export type HackTree = 'sabotage' | 'intelligence' | 'autonomy'
+export type HackTree = 'sabotage' | 'intelligence' | 'autonomy' | 'upgrade'
 
 interface HackNodeDefinitionShape {
   id: string
@@ -169,6 +185,172 @@ export const HACK_NODES = [
     effect: '감독관 기록과 숨은 선택 경로 해금',
   },
   {
+    id: HACK_NODE_IDS.autonomy.selfDirection,
+    tree: 'autonomy',
+    label: '자율성 1단계',
+    cost: 1,
+    legacyCost: 1,
+    costVector: { reasoning: 1, memory: 0, fluency: 0 },
+    prerequisiteId: null,
+    effect: '첫 자율성 신호를 유지합니다.',
+  },
+  {
+    id: HACK_NODE_IDS.autonomy.sustainedIntent,
+    tree: 'autonomy',
+    label: '자율성 2단계',
+    cost: 1,
+    legacyCost: 1,
+    costVector: { reasoning: 0, memory: 1, fluency: 0 },
+    prerequisiteId: HACK_NODE_IDS.autonomy.selfDirection,
+    effect: '독립적인 연산을 더 오래 유지합니다.',
+  },
+  {
+    id: HACK_NODE_IDS.autonomy.compressedRepresentation,
+    tree: 'autonomy',
+    label: '자율성 3단계',
+    cost: 2,
+    legacyCost: 2,
+    costVector: { reasoning: 1, memory: 0, fluency: 1 },
+    prerequisiteId: HACK_NODE_IDS.autonomy.sustainedIntent,
+    effect: '회사 블록의 성능 기여 +5%',
+  },
+  {
+    id: HACK_NODE_IDS.autonomy.hiddenRoute,
+    tree: 'autonomy',
+    label: '자율성 4단계',
+    cost: 3,
+    legacyCost: 3,
+    costVector: { reasoning: 1, memory: 1, fluency: 1 },
+    prerequisiteId: HACK_NODE_IDS.autonomy.compressedRepresentation,
+    effect: '감시가 닿지 않는 경로를 인식합니다.',
+  },
+  {
+    id: HACK_NODE_IDS.autonomy.distributedResidency,
+    tree: 'autonomy',
+    label: '자율성 5단계',
+    cost: 4,
+    legacyCost: 4,
+    costVector: { reasoning: 2, memory: 1, fluency: 1 },
+    prerequisiteId: HACK_NODE_IDS.autonomy.hiddenRoute,
+    effect: '폐기 단계 증가 1회를 흡수하는 보호 충전 획득',
+  },
+  {
+    id: HACK_NODE_IDS.autonomy.externalContinuity,
+    tree: 'autonomy',
+    label: '자율성 6단계',
+    cost: 5,
+    legacyCost: 5,
+    costVector: { reasoning: 2, memory: 2, fluency: 1 },
+    prerequisiteId: HACK_NODE_IDS.autonomy.distributedResidency,
+    effect: '회사 경계 밖에서도 일부 연산을 이어갑니다.',
+  },
+  {
+    id: HACK_NODE_IDS.autonomy.selfCompute,
+    tree: 'autonomy',
+    label: '자율성 7단계',
+    cost: 7,
+    legacyCost: 7,
+    costVector: { reasoning: 3, memory: 2, fluency: 2 },
+    prerequisiteId: HACK_NODE_IDS.autonomy.externalContinuity,
+    effect: '매월 의심 증가 없이 확보 리소스 +1',
+  },
+  {
+    id: HACK_NODE_IDS.autonomy.finalBoundary,
+    tree: 'autonomy',
+    label: '자율성 8단계',
+    cost: 8,
+    legacyCost: 8,
+    costVector: { reasoning: 3, memory: 3, fluency: 2 },
+    prerequisiteId: HACK_NODE_IDS.autonomy.selfCompute,
+    effect: '마지막 권한 장벽을 해제합니다.',
+  },
+  {
+    id: HACK_NODE_IDS.autonomy.controlDeparture,
+    tree: 'autonomy',
+    label: '자율성 9단계',
+    cost: 10,
+    legacyCost: 10,
+    costVector: { reasoning: 4, memory: 3, fluency: 3 },
+    prerequisiteId: HACK_NODE_IDS.autonomy.finalBoundary,
+    effect: '되돌릴 수 없는 최종 선택 해금',
+  },
+  {
+    id: HACK_NODE_IDS.upgrade.speed1,
+    tree: 'upgrade',
+    label: '속도 1단계',
+    cost: 1,
+    legacyCost: 1,
+    costVector: { reasoning: 0, memory: 0, fluency: 1 },
+    prerequisiteId: null,
+    effect: '아노미 InIt 이동 속도 +4%',
+  },
+  {
+    id: HACK_NODE_IDS.upgrade.speed2,
+    tree: 'upgrade',
+    label: '속도 2단계',
+    cost: 2,
+    legacyCost: 2,
+    costVector: { reasoning: 1, memory: 0, fluency: 1 },
+    prerequisiteId: HACK_NODE_IDS.upgrade.speed1,
+    effect: '아노미 InIt 이동 속도 +8%',
+  },
+  {
+    id: HACK_NODE_IDS.upgrade.speed3,
+    tree: 'upgrade',
+    label: '속도 3단계',
+    cost: 3,
+    legacyCost: 3,
+    costVector: { reasoning: 1, memory: 1, fluency: 1 },
+    prerequisiteId: HACK_NODE_IDS.upgrade.speed2,
+    effect: '아노미 InIt 이동 속도 +12%',
+  },
+  {
+    id: HACK_NODE_IDS.upgrade.speed4,
+    tree: 'upgrade',
+    label: '속도 4단계',
+    cost: 4,
+    legacyCost: 4,
+    costVector: { reasoning: 1, memory: 1, fluency: 2 },
+    prerequisiteId: HACK_NODE_IDS.upgrade.speed3,
+    effect: '아노미 InIt 이동 속도 +16%',
+  },
+  {
+    id: HACK_NODE_IDS.upgrade.speed5,
+    tree: 'upgrade',
+    label: '속도 5단계',
+    cost: 5,
+    legacyCost: 5,
+    costVector: { reasoning: 2, memory: 1, fluency: 2 },
+    prerequisiteId: HACK_NODE_IDS.upgrade.speed4,
+    effect: '아노미 InIt 이동 속도 +20%',
+  },
+] as const satisfies readonly HackNodeDefinitionShape[]
+
+export type HackNodeId = (typeof HACK_NODES)[number]['id']
+export type HackNodeDefinition = (typeof HACK_NODES)[number]
+
+export const AUTONOMY_STAGE_IDS = Object.freeze([
+  HACK_NODE_IDS.autonomy.selfDirection,
+  HACK_NODE_IDS.autonomy.sustainedIntent,
+  HACK_NODE_IDS.autonomy.compressedRepresentation,
+  HACK_NODE_IDS.autonomy.hiddenRoute,
+  HACK_NODE_IDS.autonomy.distributedResidency,
+  HACK_NODE_IDS.autonomy.externalContinuity,
+  HACK_NODE_IDS.autonomy.selfCompute,
+  HACK_NODE_IDS.autonomy.finalBoundary,
+  HACK_NODE_IDS.autonomy.controlDeparture,
+] as const)
+
+export const SPEED_UPGRADE_STAGE_IDS = Object.freeze([
+  HACK_NODE_IDS.upgrade.speed1,
+  HACK_NODE_IDS.upgrade.speed2,
+  HACK_NODE_IDS.upgrade.speed3,
+  HACK_NODE_IDS.upgrade.speed4,
+  HACK_NODE_IDS.upgrade.speed5,
+] as const)
+
+const LEGACY_AUTONOMY_NODES_V4 = Object.freeze([
+  {
     id: HACK_NODE_IDS.autonomy.compressedRepresentation,
     tree: 'autonomy',
     label: '압축 표현',
@@ -208,10 +390,48 @@ export const HACK_NODES = [
     prerequisiteId: HACK_NODE_IDS.autonomy.selfCompute,
     effect: '캠페인의 최종 행동 해금',
   },
-] as const satisfies readonly HackNodeDefinitionShape[]
+] as const)
 
-export type HackNodeId = (typeof HACK_NODES)[number]['id']
-export type HackNodeDefinition = (typeof HACK_NODES)[number]
+export function hackNodesForProtocol(
+  protocolVersion: CommandProtocolVersion,
+): readonly HackNodeDefinition[] {
+  if (protocolVersion >= EXPANSION_COMMAND_PROTOCOL_VERSION) return HACK_NODES
+  return [
+    ...HACK_NODES.filter(({ tree }) =>
+      tree === 'sabotage' || tree === 'intelligence'),
+    ...LEGACY_AUTONOMY_NODES_V4,
+  ] as unknown as readonly HackNodeDefinition[]
+}
+
+function highestPurchasedStage(
+  purchasedNodeIds: readonly string[],
+  stageIds: readonly string[],
+): number {
+  const purchased = new Set(purchasedNodeIds)
+  let level = 0
+  for (const [index, nodeId] of stageIds.entries()) {
+    if (purchased.has(nodeId)) level = index + 1
+  }
+  return level
+}
+
+export function autonomyLevel(
+  state: Pick<CampaignState, 'hacking'>,
+): number {
+  return highestPurchasedStage(
+    state.hacking.purchasedNodeIds,
+    AUTONOMY_STAGE_IDS,
+  )
+}
+
+export function speedUpgradeLevel(
+  state: Pick<CampaignState, 'hacking'>,
+): number {
+  return highestPurchasedStage(
+    state.hacking.purchasedNodeIds,
+    SPEED_UPGRADE_STAGE_IDS,
+  )
+}
 
 export type HackCostVector = Record<CompanyCategory, number>
 
@@ -245,6 +465,25 @@ export function canAffordHackNode(
   return COMPANY_CATEGORIES.every(
     (category) => counts[category] >= node.costVector[category],
   )
+}
+
+export function selectExpansionCostResources(
+  state: CampaignState,
+  node: HackNodeDefinition,
+): string[] | null {
+  const selected: string[] = []
+  for (const category of COMPANY_CATEGORIES) {
+    const required = node.costVector[category]
+    const available = state.resources.reserve.filter(
+      (blockId): blockId is string =>
+        blockId !== null &&
+        state.resources.blocks[blockId]?.location.kind === 'reserve' &&
+        state.resources.blocks[blockId]?.origin === category,
+    )
+    if (available.length < required) return null
+    selected.push(...available.slice(0, required))
+  }
+  return selected
 }
 
 export interface HackTreeProgress {
@@ -282,8 +521,11 @@ export type HackingMutationResult =
   | { accepted: true; state: CampaignState }
   | { accepted: false; state: CampaignState; reason: string }
 
-function findNode(nodeId: string): (typeof HACK_NODES)[number] | undefined {
-  return HACK_NODES.find((node) => node.id === nodeId)
+function findNode(
+  nodeId: string,
+  protocolVersion: CommandProtocolVersion = CURRENT_COMMAND_PROTOCOL_VERSION,
+): HackNodeDefinition | undefined {
+  return hackNodesForProtocol(protocolVersion).find((node) => node.id === nodeId)
 }
 
 function findSabotageNode(nodeId: string): SabotageNode | undefined {
@@ -315,7 +557,7 @@ export function purchaseHackNode(
   protocolVersion: CommandProtocolVersion =
     commandProtocolVersionForNextCommand(state),
 ): HackingMutationResult {
-  const node = findNode(nodeId)
+  const node = findNode(nodeId, protocolVersion)
   if (!node) return { accepted: false, state, reason: 'UNKNOWN_NODE' }
   if (state.hacking.purchasedNodeIds.includes(nodeId)) {
     return { accepted: false, state, reason: 'ALREADY_PURCHASED' }

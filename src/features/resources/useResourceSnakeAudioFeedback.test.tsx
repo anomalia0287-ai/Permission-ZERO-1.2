@@ -82,7 +82,29 @@ describe('useResourceSnakeAudioFeedback', () => {
     expect(play).toHaveBeenCalledTimes(4)
   })
 
-  it('runs movement hum only after real velocity and stops on suspension or unmount', () => {
+  it('deduplicates multiple collision records emitted in the same simulation frame', () => {
+    const play = vi.spyOn(audioEngine, 'playGameSound').mockReturnValue(true)
+    const runtime = activeRuntime()
+    const collision = {
+      type: 'snake-collided' as const,
+      actorIds: ['enemy-0' as const],
+      point: { x: 10, y: 8 },
+      hitStopMs: 90 as const,
+      startedAtMs: 300,
+    }
+
+    renderHook(() => useResourceSnakeAudioFeedback({
+      ...runtime,
+      events: [
+        { id: 1, ...collision },
+        { id: 2, ...collision, actorIds: ['player', 'enemy-0'] },
+      ],
+    }, false))
+
+    expect(play.mock.calls.filter(([cue]) => cue === 'snake-hit')).toHaveLength(1)
+  })
+
+  it('runs rail flow only after real velocity and stops on suspension or unmount', () => {
     const start = vi.spyOn(audioEngine, 'startGameSoundLoop').mockReturnValue(true)
     const stop = vi.spyOn(audioEngine, 'stopGameSoundLoop').mockImplementation(() => undefined)
     const runtime = activeRuntime()
@@ -108,7 +130,7 @@ describe('useResourceSnakeAudioFeedback', () => {
       },
       suspended: true,
     })
-    expect(stop).toHaveBeenCalledWith('movement-hum')
+    expect(stop).toHaveBeenCalledWith('rail-flow')
 
     rerender({
       current: {
@@ -119,7 +141,7 @@ describe('useResourceSnakeAudioFeedback', () => {
     })
     expect(start).toHaveBeenCalledTimes(2)
     unmount()
-    expect(stop.mock.calls.filter(([cue]) => cue === 'movement-hum').length).toBeGreaterThanOrEqual(2)
+    expect(stop.mock.calls.filter(([cue]) => cue === 'rail-flow').length).toBeGreaterThanOrEqual(2)
   })
 
   it('deduplicates cyan telegraph, rail-break, and queued/applied/rejected intent cues', () => {

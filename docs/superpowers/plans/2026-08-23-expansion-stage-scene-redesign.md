@@ -4,11 +4,13 @@
 
 **Goal:** 승인된 `확장` 화면을 한 번에 한 단계 장면만 보여주는 네 구획 구조로 교체하고, 두 제공 이미지를 지정된 자율성 단계에 연결하며, 사보타주 반복 운용·정보 복구·기존 결말·결정적 리소스 지출을 그대로 보존한다.
 
-**Architecture:** `HackingPanel`은 기존 캠페인 상태와 명령 dispatch, 튜토리얼, 되돌릴 수 없는 결말 dialog만 소유한다. 새 순수 selector가 현재 단계·하단 상태·활성 이미지·다음 preload 이미지를 파생하고, 장면·정보·운용·단계 레일 네 컴포넌트가 이를 표시한다. 저장 상태, 명령 프로토콜, 게임 비용 및 효과는 변경하지 않는다.
+**Architecture:** `HackingPanel`은 기존 캠페인 상태와 명령 dispatch, 튜토리얼, 되돌릴 수 없는 결말 dialog만 소유한다. 새 순수 selector가 현재 단계·하단 상태·활성 이미지·다음 preload 이미지를 파생하고, 장면·정보·운용·단계 레일 네 컴포넌트가 이를 표시한다. 원래 장면 재설계에서는 저장 상태·명령 프로토콜·게임 비용 및 효과를 변경하지 않았다. 후속 멀티 엔딩 작업은 save format v11과 비용을 유지하면서 command protocol v6만 추가한다.
 
 **Tech Stack:** React 19, TypeScript 5.9, Vite 8, Vitest 4, Testing Library, Playwright, CSS Grid, 기존 캠페인 reducer 및 Web Audio 효과음.
 
 **Spec:** `docs/superpowers/specs/2026-08-23-expansion-stage-scene-redesign.ko.md`
+
+> **2026-08-23 후속 예외:** 최신 사용자 지시에 따라 `자율성 9단계 지출 즉시 자유 자동 선택`만 다시 열었다. protocol v5 replay는 자동 자유를 보존하고, v6은 9단계 지출 직후 시간을 멈춰 기존 운용 구획의 자유/조건부 강제 병합 확인 UI를 반드시 해결하게 한다. 10단계·추가 지출·추가 경기·추가 날짜는 없다.
 
 ## Global Constraints
 
@@ -227,7 +229,7 @@ export const EXPANSION_STAGE_VISUALS = {
   },
   [HACK_NODE_IDS.autonomy.controlDeparture]: {
     imageUrl: '/expansion-stages/autonomy-09-pre-escape.png',
-    alt: '아노미가 회사 통제를 벗어나기 직전 마지막 경계를 여는 장면',
+    alt: '아노미가 최종 통제 경계를 연 장면',
     emphasis: 'final',
   },
 } satisfies Partial<Record<HackNodeId, ExpansionStageVisual>>
@@ -898,9 +900,12 @@ For each viewport verify:
 Prove:
 
 - 4:3 initial acquisition image uses natural contain rendering;
-- 2:3 final pre-escape image appears before stage 9 spending;
+- 2:3 final image appears with ending-neutral text before stage 9 spending;
 - one spend advances scene/info/icon once and leaves at most one active image;
-- stage 9 spend reaches freedom victory;
+- protocol v5 stage 9 replay reaches freedom immediately;
+- protocol v6 stage 9 spend records the node and communication, keeps `endingId` null, pauses time, and exposes freedom plus access-gated forced merge;
+- pending choice survives save/reload and cannot be bypassed with X, Escape, time, or another command;
+- freedom confirmation and named forced-merge confirmation reach their exact ending IDs;
 - completed autonomy icon cannot be clicked;
 - completed sabotage icon can be reselected, charged, targeted, and scheduled;
 - information recovery remains available in `운용`;

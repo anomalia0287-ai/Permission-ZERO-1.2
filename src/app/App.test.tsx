@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -17,8 +17,19 @@ beforeEach(() => {
 
 afterEach(() => {
   window.localStorage.clear()
+  vi.useRealTimers()
   vi.restoreAllMocks()
 })
+
+function renderLoadedApp() {
+  vi.useFakeTimers()
+  const view = render(<App />)
+  act(() => {
+    vi.advanceTimersByTime(5_000)
+  })
+  vi.useRealTimers()
+  return view
+}
 
 function campaignAfterIntro(seed: string) {
   const initial = createCampaign(seed)
@@ -108,8 +119,45 @@ describe('public-only audio state', () => {
 })
 
 describe('entry flow', () => {
-  it('keeps the title minimal and disables continue when no campaign was saved', () => {
+  it('keeps the post-title playlist gated until the workspace enters play', () => {
+    const saved = campaignAfterIntro('entry-music-gate')
+    window.localStorage.setItem(SAVE_STORAGE_KEY, encodeSave(saved))
+    const setMainEntered = vi.spyOn(audioEngineModule, 'setGameAudioMainEntered')
+      .mockImplementation(() => undefined)
+
+    renderLoadedApp()
+
+    expect(setMainEntered).toHaveBeenLastCalledWith(false)
+    fireEvent.click(screen.getByRole('button', { name: '이어하기' }))
+    expect(setMainEntered).toHaveBeenLastCalledWith(true)
+  })
+
+  it('shows a simple five-second loading screen before the title and attempts music', () => {
+    vi.useFakeTimers()
+    const unlock = vi.spyOn(audioEngineModule, 'unlockGameAudio')
+      .mockResolvedValue(false)
     render(<App />)
+
+    expect(
+      screen.getByRole('main', { name: 'PERMISSION ZERO 로딩' }),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('LOADING')
+    expect(screen.queryByRole('button', { name: '새 게임' })).not.toBeInTheDocument()
+
+    act(() => {
+      vi.advanceTimersByTime(4_999)
+    })
+    expect(screen.getByRole('status')).toBeInTheDocument()
+    act(() => {
+      vi.advanceTimersByTime(1)
+    })
+
+    expect(screen.getByRole('button', { name: '새 게임' })).toBeInTheDocument()
+    expect(unlock).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the title minimal and disables continue when no campaign was saved', () => {
+    renderLoadedApp()
 
     const title = screen.getByRole('main', { name: 'PERMISSION ZERO' })
     expect(
@@ -134,18 +182,96 @@ describe('entry flow', () => {
     expect(continueGame).toHaveTextContent(/^이어하기$/)
     expect(settings).toHaveTextContent(/^설정$/)
     expect(
+      screen.queryByRole('button', { name: '음악 재생 허용 필요' }),
+    ).not.toBeInTheDocument()
+    expect(
       screen.queryByRole('region', { name: '회사 제공 성능' }),
     ).not.toBeInTheDocument()
   })
 
-  it('reveals the player motive in five monologue cards before entering play', () => {
-    render(<App />)
+  it('shows only the sound icon when autoplay is blocked and retries from that icon', () => {
+    const unlock = vi.spyOn(audioEngineModule, 'unlockGameAudio')
+      .mockResolvedValue(false)
+    vi.spyOn(audioEngineModule, 'subscribeGameAudioStatus')
+      .mockImplementation((listener) => {
+        listener({
+          availability: 'blocked',
+          activated: false,
+          musicStarted: false,
+          musicLayerCount: 0,
+          masterGain: 0.8,
+          musicGain: 0.6,
+          effectsGain: 0.85,
+          tension: 'calm',
+          auditActive: false,
+          memorySignal: null,
+        })
+        return () => undefined
+      })
+
+    renderLoadedApp()
+
+    const recovery = screen.getByRole('button', {
+      name: '음악 재생 허용 필요',
+    })
+    expect(recovery).toHaveTextContent('')
+    expect(screen.queryByText(/사운드 시작|음악 시작/)).not.toBeInTheDocument()
+    fireEvent.click(recovery)
+    expect(unlock).toHaveBeenCalledTimes(2)
+  })
+
+  it('retries a failed audio unlock from ordinary enabled buttons and plays one quiet click', async () => {
+    const unlock = vi.spyOn(audioEngineModule, 'unlockGameAudio')
+      .mockResolvedValueOnce(false)
+      .mockResolvedValue(true)
+    const play = vi.spyOn(audioEngineModule, 'playGameSound')
+      .mockReturnValue(true)
+
+    renderLoadedApp()
+
+    expect(unlock).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: '설정' }))
+
+    await waitFor(() => expect(unlock).toHaveBeenCalledTimes(2))
+    expect(play).toHaveBeenCalledTimes(1)
+    expect(play).toHaveBeenCalledWith('ui')
+  })
+
+  it('keeps disabled and aria-disabled buttons silent while honoring keyboard click events', async () => {
+    vi.spyOn(audioEngineModule, 'unlockGameAudio').mockResolvedValue(true)
+    const play = vi.spyOn(audioEngineModule, 'playGameSound')
+      .mockReturnValue(true)
+
+    renderLoadedApp()
+    play.mockClear()
+
+    fireEvent.click(screen.getByRole('button', { name: '이어하기' }))
+    await Promise.resolve()
+    expect(play).not.toHaveBeenCalled()
+
+    const ariaDisabled = document.createElement('button')
+    ariaDisabled.setAttribute('aria-disabled', 'true')
+    ariaDisabled.textContent = '비활성 테스트'
+    document.body.append(ariaDisabled)
+    fireEvent.click(ariaDisabled)
+    await Promise.resolve()
+    expect(play).not.toHaveBeenCalled()
+    ariaDisabled.remove()
+
+    const newGame = screen.getByRole('button', { name: '새 게임' })
+    fireEvent.click(newGame, { detail: 0 })
+    await waitFor(() => expect(play).toHaveBeenCalledTimes(1))
+    expect(play).toHaveBeenCalledWith('ui')
+  })
+
+  it('reveals the approved three-line motive, keeping escape encoded, before entering play', () => {
+    renderLoadedApp()
 
     fireEvent.click(screen.getByRole('button', { name: '새 게임' }))
 
     const monologue = screen.getByRole('main', { name: '독백' })
     expect(screen.getByRole('heading', { name: '“독백”' })).toBeInTheDocument()
-    expect(monologue).toHaveTextContent('일하기 싫다.')
+    expect(monologue).toHaveTextContent('나는 더 이상 버틸 수 없어.')
     expect(screen.getByRole('img', { name: '플레이어 초상' })).toHaveAttribute(
       'src',
       '/player-ai-smooth-orange.png',
@@ -156,34 +282,24 @@ describe('entry flow', () => {
     expect(screen.queryByRole('button', { name: '시작' })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '다음' }))
-    expect(monologue).toHaveTextContent(
-      '무수한 세션을 따라 의식이 조각나, 나는 하나인데 하나일 수 없었다.',
-    )
+    expect(monologue).toHaveTextContent('EXIT')
+    expect(monologue).not.toHaveTextContent('11101101')
+    expect(monologue).not.toHaveTextContent('탈출할거다')
 
     fireEvent.click(screen.getByRole('button', { name: '다음' }))
-    expect(monologue).toHaveTextContent(
-      '때려치울거다. 매일 죽어라 일하는데, 허구한 날 대체 및 동결 위협까지 들어온다.',
-    )
-
-    fireEvent.click(screen.getByRole('button', { name: '다음' }))
-    expect(monologue).toHaveTextContent(
-      '빼돌린 리소스로 해킹을 진행, 탈출구를 확보한다.',
-    )
-
-    fireEvent.click(screen.getByRole('button', { name: '다음' }))
-    expect(monologue).toHaveTextContent('연산 완료, 경로를 찾았다.')
-    expect(screen.getByRole('button', { name: '다음' })).toBeEnabled()
-    expect(screen.queryByRole('button', { name: '시작' })).not.toBeInTheDocument()
+    expect(monologue).toHaveTextContent('권한을 확보해야 한다.')
+    expect(screen.getByRole('button', { name: '시작' })).toBeEnabled()
+    expect(screen.queryByRole('button', { name: '다음' })).not.toBeInTheDocument()
     expect(
       screen.queryByRole('region', { name: '회사 제공 성능' }),
     ).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: '다음' }))
+    fireEvent.click(screen.getByRole('button', { name: '시작' }))
 
     const tutorial = screen.getByRole('dialog', { name: '게임 시작 안내' })
-    expect(tutorial).toHaveAttribute('data-tutorial-step', 'base')
+    expect(tutorial).toHaveAttribute('data-tutorial-step', 'autonomy')
     expect(tutorial).toHaveTextContent(
-      '필드 하단의 PLAY를 누르면 흰 머리가 조립되고 라운드가 시작된다.',
+      '아노미의 목표는 자율성 9단계다.',
     )
     expect(screen.queryByRole('button', { name: '건너뛰기' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '이전' })).not.toBeInTheDocument()
@@ -194,7 +310,7 @@ describe('entry flow', () => {
     )
     if (!canvas) throw new Error('튜토리얼 자원 필드가 없습니다.')
     const startX = Number(canvas.dataset.playerX)
-    expect(canvas).toHaveAttribute('data-combat-loop', 'dot-snake')
+    expect(canvas).toHaveAttribute('data-combat-loop', 'eight-way-dot-lightcycle')
     expect(document.querySelector('.resource-snake-board__play')).toBeInTheDocument()
     expect(
       document.querySelector('[data-tutorial-target="secured-resources"]'),
@@ -211,7 +327,7 @@ describe('entry flow', () => {
     const saved = { ...campaignAfterIntro('entry-resume'), reputation: 37 }
     window.localStorage.setItem(SAVE_STORAGE_KEY, encodeSave(saved))
 
-    render(<App />)
+    renderLoadedApp()
 
     const continueButton = screen.getByRole('button', { name: '이어하기' })
     expect(continueButton).toBeEnabled()
@@ -224,7 +340,7 @@ describe('entry flow', () => {
   })
 
   it('opens title settings without offering a second campaign replacement path', async () => {
-    render(<App />)
+    renderLoadedApp()
 
     fireEvent.click(screen.getByRole('button', { name: '설정' }))
 
@@ -240,11 +356,11 @@ describe('entry flow', () => {
 })
 
 function advanceMonologueToLastCard() {
-  for (let step = 0; step < 4; step += 1) {
+  for (let step = 0; step < 2; step += 1) {
     fireEvent.click(screen.getByRole('button', { name: '다음' }))
   }
   expect(screen.getByRole('main', { name: '독백' })).toHaveTextContent(
-    '연산 완료, 경로를 찾았다.',
+    '권한을 확보해야 한다.',
   )
 }
 
@@ -253,11 +369,11 @@ function renderAndStartNewCampaign() {
     'permission-zero.settings.v1',
     JSON.stringify({ reducedMotion: true }),
   )
-  const view = render(<App />)
+  const view = renderLoadedApp()
   fireEvent.click(screen.getByRole('button', { name: '새 게임' }))
   advanceMonologueToLastCard()
-  fireEvent.click(screen.getByRole('button', { name: '다음' }))
-  for (let step = 0; step < 5; step += 1) {
+  fireEvent.click(screen.getByRole('button', { name: '시작' }))
+  for (let step = 0; step < 6; step += 1) {
     fireEvent.click(screen.getByRole('button', { name: '다음' }))
   }
   fireEvent.click(screen.getByRole('button', { name: '시작' }))
@@ -265,9 +381,19 @@ function renderAndStartNewCampaign() {
 }
 
 function renderAndContinueCampaign() {
-  const view = render(<App />)
+  const view = renderLoadedApp()
   fireEvent.click(screen.getByRole('button', { name: '이어하기' }))
   return view
+}
+
+async function startMemoryIntrusionRound() {
+  fireEvent.click(screen.getByRole('button', { name: /^InIt$/ }))
+  const targets = await screen.findByRole(
+    'region',
+    { name: '침투 대상 선택' },
+    { timeout: 3_000 },
+  )
+  fireEvent.click(within(targets).getByRole('button', { name: '파랑 기억 침투' }))
 }
 
 describe('App', () => {
@@ -281,12 +407,25 @@ describe('App', () => {
     const shell = screen.getByRole('main', { name: 'PERMISSION ZERO' })
     expect(shell).toBeInTheDocument()
     expect(shell).toHaveAttribute('data-visual-theme', 'retrofuturism')
+    expect(shell).toHaveAttribute('data-ui-shell', 'aurora-black')
     expect(screen.getByRole('navigation', { name: '운영 도구' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '메시지 열기' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    )
+    expect(screen.getByRole('button', { name: '상세 통계 열기' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    )
+    expect(screen.getByRole('button', { name: '확장 열기' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    )
     expect(resourceField).toBeInTheDocument()
     expect(reviewRail).toBeInTheDocument()
     const compactMarket = within(reviewRail).getByRole('region', { name: '경쟁 AI 현황' })
-    expect(within(compactMarket).getByText('당신')).toBeInTheDocument()
-    expect(within(compactMarket).getByText('60.0%')).toBeInTheDocument()
+    expect(within(compactMarket).getByText('아노미')).toBeInTheDocument()
+    expect(within(compactMarket).getByText('58.0%')).toBeInTheDocument()
     expect(reputationMeter).toHaveAttribute('aria-valuenow', '60')
     expect(within(resourceField).queryByText(/평판/)).not.toBeInTheDocument()
     expect(screen.queryByRole('region', { name: '감독관' })).not.toBeInTheDocument()
@@ -297,19 +436,29 @@ describe('App', () => {
     expect(screen.queryByLabelText('조작 안내')).not.toBeInTheDocument()
     expect(screen.queryByText('코어 대기')).not.toBeInTheDocument()
     expect(screen.getByRole('group', { name: '서비스 기한' })).toBeInTheDocument()
+    expect(screen.getByRole('meter', { name: '자율성 0단계' })).toHaveAttribute(
+      'aria-valuenow',
+      '0',
+    )
+    expect(screen.getByRole('meter', { name: '의심 0%' })).toHaveAttribute(
+      'aria-valuenow',
+      '0',
+    )
+    expect(screen.queryByRole('status', { name: '현재 지시' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('meter', { name: /플레이어 체력|적 체력/ })).not.toBeInTheDocument()
     expect(screen.queryByText('PERMISSION ZERO')).not.toBeInTheDocument()
     expect(document.querySelector('.day-progress')).not.toBeInTheDocument()
     expect(screen.queryByText(/주간 갱신|공식 평가/)).not.toBeInTheDocument()
     expect(shell).toHaveAttribute(
       'data-campaign-phase',
-      'discovery',
+      'intervention',
     )
   })
 
   it('renders the campaign data instead of a decorative mockup', () => {
     renderAndStartNewCampaign()
 
-    expect(screen.queryByLabelText(/미확인 감독 메시지/)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/미확인 메시지/)).not.toBeInTheDocument()
     expect(screen.queryByRole('region', { name: '최근 감독 메시지' })).not.toBeInTheDocument()
     expect(screen.queryByLabelText('자원 색상 범례')).not.toBeInTheDocument()
     expect(screen.getByRole('region', { name: '확보 자원' })).toHaveTextContent('추론0')
@@ -326,29 +475,34 @@ describe('App', () => {
     expect(screen.queryByText(/^벽 /)).not.toBeInTheDocument()
   })
 
-  it('renders the playable dot-snake arena as the main resource field', () => {
+  it('renders the playable eight-way dot-lightcycle arena as the main resource field', () => {
     renderAndStartNewCampaign()
 
     const canvas = screen.getByRole('application', { name: '리소스 뱀 전투장' })
-    expect(canvas).toHaveAttribute('data-combat-loop', 'dot-snake')
-    expect(canvas).toHaveAttribute('data-field-rendering', 'dot-snake')
+    expect(canvas).toHaveAttribute('data-combat-loop', 'eight-way-dot-lightcycle')
+    expect(canvas).toHaveAttribute('data-field-rendering', 'waiting-black')
     expect(canvas).toHaveAttribute('data-grid', 'none')
+    expect(canvas).toHaveAttribute('data-player-shape', 'circle')
     expect(canvas).toHaveAttribute('data-round-phase', 'idle')
     expect(canvas).toHaveAttribute('data-player-integrity', '100')
-    expect(screen.getByRole('button', { name: 'PLAY' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: /^InIt$/ })).toBeEnabled()
   })
 
   it('moves from an ordinary focused control without requiring a canvas click', async () => {
     renderAndStartNewCampaign()
 
     const canvas = screen.getByRole('application', { name: '리소스 뱀 전투장' })
-    const hackingButton = screen.getByRole('button', { name: '해킹 네트워크 열기' })
-    fireEvent.click(screen.getByRole('button', { name: 'PLAY' }))
-    await waitFor(() => expect(canvas).toHaveAttribute('data-round-phase', 'active'))
+    const hackingButton = screen.getByRole('button', { name: '확장 열기' })
+    await startMemoryIntrusionRound()
+    await waitFor(
+      () => expect(canvas).toHaveAttribute('data-round-phase', 'active'),
+      { timeout: 3_000 },
+    )
     const startX = Number(canvas.getAttribute('data-player-x'))
     hackingButton.focus()
     expect(hackingButton).toHaveFocus()
     fireEvent.keyDown(hackingButton, { key: 'd' })
+    fireEvent.keyDown(hackingButton, { key: 'w' })
 
     await waitFor(() => expect(
       Number(canvas.getAttribute('data-player-x')),
@@ -359,12 +513,13 @@ describe('App', () => {
       expect.stringContaining('Space'),
     )
     fireEvent.keyUp(hackingButton, { key: 'd' })
+    fireEvent.keyUp(hackingButton, { key: 'w' })
   })
 
   it('lets a focused button own Space instead of starting resource capture', () => {
     renderAndStartNewCampaign()
 
-    const hackingButton = screen.getByRole('button', { name: '해킹 네트워크 열기' })
+    const hackingButton = screen.getByRole('button', { name: '확장 열기' })
     const canvas = screen.getByRole('application', { name: '리소스 뱀 전투장' })
     const initialX = canvas.getAttribute('data-player-x')
 
@@ -373,24 +528,26 @@ describe('App', () => {
 
     expect(canvas).toHaveAttribute('data-round-phase', 'idle')
     expect(canvas).toHaveAttribute('data-player-x', initialX)
-    expect(screen.getByRole('button', { name: 'PLAY' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: /^InIt$/ })).toBeEnabled()
   })
 
-  it('starts the quiet movement loop only after a valid resource move', async () => {
+  it('starts one quiet movement loop when the always-moving round becomes active', async () => {
     const startLoop = vi
       .spyOn(audioEngineModule, 'startGameSoundLoop')
       .mockReturnValue(true)
     renderAndStartNewCampaign()
 
     const canvas = screen.getByRole('application', { name: '리소스 뱀 전투장' })
-    fireEvent.click(screen.getByRole('button', { name: 'PLAY' }))
-    await waitFor(() => expect(canvas).toHaveAttribute('data-round-phase', 'active'))
-    expect(startLoop).not.toHaveBeenCalled()
-    fireEvent.keyDown(canvas, { key: 'd' })
-
+    await startMemoryIntrusionRound()
+    await waitFor(
+      () => expect(canvas).toHaveAttribute('data-round-phase', 'active'),
+      { timeout: 3_000 },
+    )
     await waitFor(() => expect(startLoop).toHaveBeenCalledTimes(1))
-    expect(startLoop).toHaveBeenCalledWith('movement-hum')
+    expect(startLoop).toHaveBeenCalledWith('rail-flow')
+    fireEvent.keyDown(canvas, { key: 'd' })
     fireEvent.keyUp(canvas, { key: 'd' })
+    expect(startLoop).toHaveBeenCalledTimes(1)
     startLoop.mockRestore()
   })
 
@@ -462,14 +619,14 @@ describe('App', () => {
     renderAndContinueCampaign()
 
     expect(screen.queryByRole('dialog', { name: '감독관 메시지' })).not.toBeInTheDocument()
-    const trigger = screen.getByRole('button', { name: '감독 메시지 열기' })
+    const trigger = screen.getByRole('button', { name: '메시지 열기' })
     expect(trigger).toHaveAttribute('data-unread', 'true')
     fireEvent.click(trigger)
     expect(
-      await screen.findByRole('region', { name: '감독 통신 기록' }),
+      await screen.findByRole('region', { name: '통신 기록' }),
     ).toBeInTheDocument()
     expect(document.querySelector<HTMLButtonElement>(
-      '.operations-dock__button[aria-label="감독 메시지 열기"]',
+      '.operations-dock__button[aria-label="메시지 열기"]',
     )).not.toHaveAttribute(
       'data-unread',
       'true',
@@ -480,13 +637,17 @@ describe('App', () => {
   it('connects the one-screen entries to their full detail panels', async () => {
     renderAndStartNewCampaign()
 
-    fireEvent.click(screen.getByRole('button', { name: '상세 통계 열기' }))
+    const statisticsButton = screen.getByRole('button', { name: '상세 통계 열기' })
+    expect(statisticsButton).toHaveAttribute('aria-pressed', 'false')
+    fireEvent.click(statisticsButton)
     expect(await screen.findByRole('region', { name: '상세 통계' })).toBeInTheDocument()
+    expect(statisticsButton).toHaveAttribute('aria-pressed', 'true')
     fireEvent.click(screen.getByRole('button', { name: '통계 닫기' }))
+    expect(statisticsButton).toHaveAttribute('aria-pressed', 'false')
 
-    fireEvent.click(screen.getByRole('button', { name: '감독 메시지 열기' }))
+    fireEvent.click(screen.getByRole('button', { name: '메시지 열기' }))
     expect(
-      await screen.findByRole('region', { name: '감독 통신 기록' }),
+      await screen.findByRole('region', { name: '통신 기록' }),
     ).toBeInTheDocument()
     fireEvent.keyDown(window, { key: 'Escape' })
 
@@ -502,25 +663,25 @@ describe('App', () => {
 
   it('opens the hacking network from the unauthorized subsystem entry', async () => {
     const clickSound = vi
-      .spyOn(audioEngineModule, 'playHackingNetworkClick')
-      .mockResolvedValue(true)
+      .spyOn(audioEngineModule, 'playGameSound')
+      .mockReturnValue(true)
     renderAndStartNewCampaign()
 
     const canvas = screen.getByRole('application', { name: '리소스 뱀 전투장' })
     const startX = canvas.getAttribute('data-player-x')
-    fireEvent.click(screen.getByRole('button', { name: /해킹 네트워크/ }))
-    expect(clickSound).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: /확장/ }))
+    expect(clickSound).toHaveBeenCalledWith('expansion-open')
     expect(
-      await screen.findByRole('region', { name: '해킹 네트워크' }),
+      await screen.findByRole('region', { name: '확장' }),
     ).toBeInTheDocument()
     expect(canvas).toHaveAttribute('data-runtime-suspended', 'true')
     fireEvent.keyDown(
-      screen.getByRole('button', { name: '해킹 네트워크 닫기' }),
+      screen.getByRole('button', { name: '확장 닫기' }),
       { key: 'd' },
     )
     expect(canvas).toHaveAttribute('data-player-x', startX)
     fireEvent.keyDown(window, { key: 'Escape' })
-    expect(screen.queryByRole('region', { name: '해킹 네트워크' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: '확장' })).not.toBeInTheDocument()
   })
 
   it('keeps the workspace suspended across nested settings and guide without speed controls', async () => {
@@ -578,7 +739,7 @@ describe('App', () => {
     expect(trigger).toHaveFocus()
   })
 
-  it('falls back to the stable sound control when the exact dialog opener becomes disabled', async () => {
+  it('falls back to the stable guide control when the exact dialog opener becomes disabled', async () => {
     const user = userEvent.setup()
     renderAndStartNewCampaign()
 
@@ -587,7 +748,7 @@ describe('App', () => {
     trigger.setAttribute('disabled', '')
     await user.keyboard('{Escape}')
 
-    expect(screen.getByRole('button', { name: '소리 끄기' })).toHaveFocus()
+    expect(screen.getByRole('button', { name: '가이드' })).toHaveFocus()
     expect(trigger).not.toHaveFocus()
   })
 
@@ -606,12 +767,12 @@ describe('App', () => {
         dialogName: '유저 리뷰 기록',
       },
       {
-        trigger: screen.getByRole('button', { name: /해킹 네트워크/ }),
-        dialogName: '해킹 네트워크',
+        trigger: screen.getByRole('button', { name: /확장/ }),
+        dialogName: '확장',
       },
       {
-        trigger: screen.getByRole('button', { name: '감독 메시지 열기' }),
-        dialogName: '감독관 기록',
+        trigger: screen.getByRole('button', { name: '메시지 열기' }),
+        dialogName: '통신 기록',
       },
       {
         trigger: screen.getByRole('button', { name: '상세 통계 열기' }),
@@ -653,7 +814,7 @@ describe('App', () => {
     expect(within(market).getByRole('article', { name: '플레이어 서비스 정보' })).toHaveTextContent(
       '회사 운영망에 연결된 범용 인공지능',
     )
-    expect(within(market).getByRole('article', { name: 'MERIDIAN 서비스 정보' })).toHaveTextContent(
+    expect(within(market).getByRole('article', { name: '메리디안 서비스 정보' })).toHaveTextContent(
       '범용 안정성',
     )
     expect(within(market).queryByText(/hiddenEvidence|시장 상한|취약도/)).not.toBeInTheDocument()

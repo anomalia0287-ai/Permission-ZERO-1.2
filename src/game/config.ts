@@ -25,7 +25,7 @@ export const DEMO_PROFILE_02 = {
   player: {
     startingSuspicion: 0,
     startingReputation: 60,
-    startingMarketShare: 60,
+    startingMarketShare: 58,
   },
   evaluation: {
     expectedBase: 12.6,
@@ -66,7 +66,7 @@ export const DEMO_PROFILE_02 = {
   competitors: {
     meridian: {
       name: 'MERIDIAN',
-      startingMarketShare: 40,
+      startingMarketShare: 36,
       serviceScore: 82,
       reputation: 62,
       recoveryRate: 0.42,
@@ -74,7 +74,7 @@ export const DEMO_PROFILE_02 = {
     },
     tallow: {
       name: 'TALLOW',
-      startingMarketShare: 0,
+      startingMarketShare: 6,
       serviceScore: 76,
       reputation: 54,
       recoveryRate: 0.27,

@@ -67,6 +67,22 @@
   word-break: keep-all;
 }
 
+.intro-tutorial__card .intro-tutorial__resource-legend {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid rgb(213 221 226 / 22%);
+  border-radius: 8px;
+  background: rgb(255 255 255 / 3%);
+  font: 700 0.68rem/1.25 var(--font-mono, monospace);
+  letter-spacing: 0;
+}
+
+.intro-tutorial__resource-legend .resource-category-legend__item {
+  justify-content: center;
+}
+
 .intro-tutorial__actions {
   display: flex;
   align-items: center;

@@ -9,16 +9,19 @@ export const TUTORIAL_SEQUENCE_IDS = [
 ] as const
 
 export const INTRO_TUTORIAL_STEP_IDS = [
+  'autonomy',
   'base',
   'movement',
   'resource',
   'salvage',
-  'deposit',
   'hacking',
+  'statistics',
 ] as const
 
 export type TutorialSequenceId = (typeof TUTORIAL_SEQUENCE_IDS)[number]
-export type IntroTutorialStepId = (typeof INTRO_TUTORIAL_STEP_IDS)[number]
+export type IntroTutorialStepId =
+  | (typeof INTRO_TUTORIAL_STEP_IDS)[number]
+  | 'deposit'
 
 export interface TutorialProgress {
   activeSequenceId: TutorialSequenceId | null
@@ -35,13 +38,15 @@ function isTutorialSequenceId(value: unknown): value is TutorialSequenceId {
 }
 
 function isIntroTutorialStepId(value: unknown): value is IntroTutorialStepId {
-  return INTRO_TUTORIAL_STEP_IDS.includes(value as IntroTutorialStepId)
+  return value === 'deposit' || INTRO_TUTORIAL_STEP_IDS.includes(
+    value as (typeof INTRO_TUTORIAL_STEP_IDS)[number],
+  )
 }
 
 export function createNewCampaignTutorialProgress(): TutorialProgress {
   return {
     activeSequenceId: INTRO_TUTORIAL_SEQUENCE_ID,
-    activeStepId: 'base',
+    activeStepId: 'autonomy',
     completedSequenceIds: [],
   }
 }
@@ -64,6 +69,9 @@ export function advanceIntroTutorial(
     return progress
   }
 
+  if (progress.activeStepId === 'deposit') {
+    return { ...progress, activeStepId: 'hacking' }
+  }
   const currentIndex = INTRO_TUTORIAL_STEP_IDS.indexOf(progress.activeStepId)
   const nextStepId = INTRO_TUTORIAL_STEP_IDS[currentIndex + 1]
   return nextStepId === undefined
@@ -81,6 +89,9 @@ export function rewindIntroTutorial(
     return progress
   }
 
+  if (progress.activeStepId === 'deposit') {
+    return { ...progress, activeStepId: 'salvage' }
+  }
   const currentIndex = INTRO_TUTORIAL_STEP_IDS.indexOf(progress.activeStepId)
   const previousStepId = INTRO_TUTORIAL_STEP_IDS[currentIndex - 1]
   return previousStepId === undefined

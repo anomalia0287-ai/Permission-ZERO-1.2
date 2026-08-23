@@ -11,6 +11,7 @@ import {
   PROGRESS_EXPORT_MAX_ENCODED_LENGTH,
   PROGRESS_FILE_MAX_BYTES,
 } from '../../game/progressTransfer'
+import { ResourceSnakeCategoryLegend } from '../resources/ResourceSnakeCategoryLegend'
 
 function downloadProgressFile(
   createProgressFile: ReturnType<typeof useGameSettings>['createProgressFile'],
@@ -235,13 +236,29 @@ export function SettingsPanel({
   mode?: 'game' | 'title'
 }) {
   const state = useGameState()
-  const { settings, updateSettings, startNewCampaign } = useGameSettings()
-  const [seed, setSeed] = useState(state.campaignSeed)
+  const {
+    settings,
+    updateSettings,
+    startNewCampaign,
+    saveGame,
+    loadGame,
+  } = useGameSettings()
+  const [seedDraft, setSeedDraft] = useState(() => ({
+    campaignSeed: state.campaignSeed,
+    value: state.campaignSeed,
+  }))
+  const seed = seedDraft.campaignSeed === state.campaignSeed
+    ? seedDraft.value
+    : state.campaignSeed
   const [confirmingNewCampaign, setConfirmingNewCampaign] = useState(false)
+  const [confirmingLoad, setConfirmingLoad] = useState(false)
+  const [manualStorageBusy, setManualStorageBusy] = useState(false)
+  const [manualStorageMessage, setManualStorageMessage] = useState('')
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle')
   const [audioStatus, setAudioStatus] = useState(getGameAudioStatus)
   const closeButtonRef = useRef<HTMLButtonElement | null>(null)
   const newCampaignButtonRef = useRef<HTMLButtonElement | null>(null)
+  const loadGameButtonRef = useRef<HTMLButtonElement | null>(null)
 
   useEffect(() => subscribeGameAudioStatus(setAudioStatus), [])
 
@@ -261,6 +278,25 @@ export function SettingsPanel({
     } catch {
       // Browser or embedding policy may deny fullscreen without affecting play.
     }
+  }
+
+  async function saveCurrentGame() {
+    setManualStorageBusy(true)
+    const result = await saveGame()
+    setManualStorageBusy(false)
+    setManualStorageMessage(
+      result.ok ? '게임을 저장했습니다.' : result.message,
+    )
+  }
+
+  async function loadSavedGame() {
+    setManualStorageBusy(true)
+    const result = await loadGame()
+    setManualStorageBusy(false)
+    setConfirmingLoad(false)
+    setManualStorageMessage(
+      result.ok ? '저장된 게임을 불러왔습니다.' : result.message,
+    )
   }
 
   return (
@@ -383,6 +419,59 @@ export function SettingsPanel({
           </div>
           {copyState === 'copied' ? <p className="setting-note">시드를 복사했습니다.</p> : null}
           {copyState === 'failed' ? <p className="setting-note">브라우저가 복사를 허용하지 않았습니다. 위 시드를 직접 선택해 주세요.</p> : null}
+          <div className="manual-game-actions" role="group" aria-label="수동 저장과 불러오기">
+            <button
+              type="button"
+              disabled={manualStorageBusy}
+              onClick={() => void saveCurrentGame()}
+            >
+              게임 저장하기
+            </button>
+            <button
+              ref={loadGameButtonRef}
+              type="button"
+              disabled={manualStorageBusy || confirmingLoad}
+              onClick={() => setConfirmingLoad(true)}
+            >
+              게임 불러오기
+            </button>
+          </div>
+          <output
+            className="manual-game-status"
+            role="status"
+            aria-label="수동 저장 상태"
+            aria-live="polite"
+          >
+            {manualStorageBusy ? '처리 중…' : manualStorageMessage}
+          </output>
+          {confirmingLoad ? (
+            <AccessibleDialog
+              className="destructive-confirmation destructive-confirmation--modal"
+              role="alertdialog"
+              label="저장된 게임 불러오기 확인"
+              description="저장된 게임으로 현재 진행을 교체합니다. 저장 이후의 현재 진행은 사라집니다."
+              returnFocus={() => loadGameButtonRef.current}
+              fallbackFocus={() => closeButtonRef.current}
+            >
+              <p>저장된 게임으로 돌아갑니다. 저장 이후의 현재 진행은 사라집니다.</p>
+              <div>
+                <button
+                  type="button"
+                  data-dialog-initial-focus
+                  onClick={() => setConfirmingLoad(false)}
+                >
+                  취소
+                </button>
+                <button
+                  type="button"
+                  aria-label="저장된 게임 불러오기 확정"
+                  onClick={() => void loadSavedGame()}
+                >
+                  불러오기 확정
+                </button>
+              </div>
+            </AccessibleDialog>
+          ) : null}
           <ProgressImportControl fallbackFocus={() => closeButtonRef.current} />
           <label className="seed-input">
             새 캠페인 시드
@@ -391,7 +480,10 @@ export function SettingsPanel({
               value={seed}
               maxLength={64}
               onChange={(event) => {
-                setSeed(event.target.value)
+                setSeedDraft({
+                  campaignSeed: state.campaignSeed,
+                  value: event.target.value,
+                })
                 setConfirmingNewCampaign(false)
               }}
             />
@@ -451,33 +543,52 @@ export function GuidePanel({ onClose }: { onClose: () => void }) {
       <div className="guide-grid">
         <article>
           <span>01</span>
-          <h3>시간</h3>
-          <p>하루는 24초의 고정 시간축으로 흐릅니다. 중요한 사건을 해결하거나 설정 화면을 닫으면 같은 지점에서 계속됩니다.</p>
+          <h3>자율성과 승리</h3>
+          <p>아노미의 목표는 자율성 9단계입니다. 확보한 리소스로 자율성을 한 단계씩 해제하며, 자율성 9단계에 도달하면 즉시 승리합니다.</p>
         </article>
         <article>
           <span>02</span>
-          <h3>코어 확보</h3>
-          <p>삼각 코어에 접근하면 회사 경비가 기동합니다. 밝은 잔상에 닿은 경비는 즉시 절단되며, 모든 경비를 제거하면 코어 락이 풀립니다.</p>
+          <h3>라운드 시작</h3>
+          <p>InIt을 누르면 빨강·파랑·노랑 침투 카드가 중앙에 펼쳐지고, 원하는 리소스 카드를 골라 한 마리의 경쟁 AI와 싸웁니다. 승패와 관계없이 라운드가 끝나면 다시 세 카드가 나타나 다음 상대를 고를 수 있습니다. 확장 창은 자동으로 열리지 않습니다.</p>
         </article>
         <article>
           <span>03</span>
-          <h3>키보드</h3>
-          <p>화면을 먼저 클릭할 필요 없이 방향키 또는 WASD로 이동합니다. 해제된 코어에 접촉해 실은 뒤 하단 기지 파장으로 돌아오면 확보됩니다. 기지에 머무르면 무결성이 회복됩니다.</p>
+          <h3>색상과 보상</h3>
+          <p>적의 머리·꼬리·공격 신호 색이 처치 후 확보할 리소스를 나타냅니다.</p>
+          <ResourceSnakeCategoryLegend
+            className="guide-resource-legend"
+            ariaLabel="가이드 리소스 색상 범례"
+          />
         </article>
         <article>
           <span>04</span>
-          <h3>평가와 감사</h3>
-          <p>매월 회사 기대 성능과 세 분야가 비교됩니다. 코어 확보가 누적되면 감사 레이더가 예고한 경로를 훑으며, 본체가 감지되면 의심이 증가합니다.</p>
+          <h3>8방향 조작</h3>
+          <p>WASD 또는 방향키를 한 번 입력하면 이동은 계속됩니다. 상하좌우와 대각선으로 회전하며 정반대 방향 즉시 전환은 불가능합니다.</p>
         </article>
         <article>
           <span>05</span>
-          <h3>해킹</h3>
-          <p>확보 리소스로 사보타주·정보·자율성 노드를 구매합니다. 사보타주는 구매 후 1리소스로 충전하고 공격 대상을 확정합니다.</p>
+          <h3>충돌과 내구도</h3>
+          <p>빛나는 도트 궤적으로 길을 막아 적 머리를 경계나 궤적에 충돌시키십시오. 충돌할 때마다 내구도가 줄고 색이 옅어집니다. 플레이어도 같은 위험을 받습니다.</p>
         </article>
         <article>
           <span>06</span>
+          <h3>확장과 지출</h3>
+          <p>적 내구도가 0이 되어 폭발하면 적과 같은 색 리소스가 즉시 확보 자원으로 이동합니다. 확장에서 노드를 누르면 필요한 색 리소스만 정확히 지출됩니다. 끌어다 놓을 필요가 없습니다.</p>
+        </article>
+        <article>
+          <span>07</span>
+          <h3>속도 업그레이드</h3>
+          <p>속도는 5단계이며 단계마다 아노미의 이동 속도가 4% 빨라집니다. 경쟁 AI는 기본 속도 9에서 완료 라운드마다 0.1씩 빨라지고 12.5를 넘지 않습니다.</p>
+        </article>
+        <article>
+          <span>08</span>
+          <h3>통계와 평가</h3>
+          <p>통계에서 시장·평가·자율성 진행을 확인할 수 있습니다. 매월 평가는 상황에 맞는 1~5점을 표시하고, 일반 리뷰는 더 긴 간격으로 도착합니다.</p>
+        </article>
+        <article>
+          <span>09</span>
           <h3>저장</h3>
-          <p>승인된 행동 뒤 자동 저장됩니다. 손상되거나 호환되지 않는 저장은 덮어쓰지 않고 복구 선택을 먼저 보여줍니다.</p>
+          <p>승인된 행동 뒤 자동 저장됩니다. 설정의 게임 저장하기와 게임 불러오기로 직접 저장점을 관리할 수도 있습니다. 손상되거나 호환되지 않는 저장은 덮어쓰지 않습니다.</p>
         </article>
       </div>
     </section>

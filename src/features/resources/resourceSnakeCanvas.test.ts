@@ -3,12 +3,12 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   drawResourceSnakeScene,
   resourceSnakeCanvasResolution,
-  resourceSnakeCorePolygon,
 } from './resourceSnakeCanvas'
 import type { ResourceSnakeScene } from './resourceSnakePresentation'
 
 function recordingContext() {
   const calls: string[] = []
+  const assignments: Array<{ property: string; value: unknown }> = []
   const gradient = { addColorStop: vi.fn() }
   const methods = new Set([
     'arc',
@@ -42,11 +42,12 @@ function recordingContext() {
       return method
     },
     set(object, property: string, value) {
+      assignments.push({ property, value })
       object[property] = value
       return true
     },
   }) as unknown as CanvasRenderingContext2D
-  return { calls, context }
+  return { assignments, calls, context }
 }
 
 const EMPTY_SCENE: ResourceSnakeScene = {
@@ -74,26 +75,15 @@ describe('resource snake canvas', () => {
     expect(huge.pixelRatio).toBeLessThan(1)
   })
 
-  it('uses visibly different angular silhouettes for pressure and blocker cores', () => {
-    const pressure = resourceSnakeCorePolygon('pressure', 10)
-    const blocker = resourceSnakeCorePolygon('blocker', 10)
-
-    expect(pressure).not.toEqual(blocker)
-    expect(Math.max(...pressure.map(({ x }) => x))).toBeGreaterThan(
-      Math.max(...blocker.map(({ x }) => x)),
-    )
-    expect(Math.max(...blocker.map(({ y }) => Math.abs(y)))).toBeGreaterThan(
-      Math.max(...pressure.map(({ y }) => Math.abs(y))),
-    )
-  })
-
-  it('renders continuous layered rails and polygonal cores without dot actors', () => {
-    const { calls, context } = recordingContext()
+  it('renders luminous discrete trail dots without replacing their category color', () => {
+    const baseline = recordingContext()
+    drawResourceSnakeScene(baseline.context, EMPTY_SCENE, 1_000, 480)
+    const { assignments, calls, context } = recordingContext()
     const scene: ResourceSnakeScene = {
       ...EMPTY_SCENE,
       rails: [{
         actorId: 'enemy-0',
-        color: '#21e6ff',
+        color: '#f06a43',
         opacity: 1,
         points: [
           { x: 4, y: 4 },
@@ -105,27 +95,34 @@ describe('resource snake canvas', () => {
         id: 'enemy-0',
         x: 10,
         y: 8,
-        color: '#21e6ff',
+        color: '#f06a43',
         opacity: 1,
         scale: 1,
         phase: 'active',
         role: 'pressure',
-        silhouette: 'pressure',
-        glyph: 'P',
-        headingRadians: 0,
+        shape: 'square',
         integrityRatio: 1,
       }],
     }
 
     drawResourceSnakeScene(context, scene, 1_000, 480)
 
-    expect(calls.filter((call) => call === 'lineTo').length).toBeGreaterThan(12)
-    expect(calls.filter((call) => call === 'stroke').length).toBeGreaterThan(4)
-    expect(calls.filter((call) => call === 'fill').length).toBeGreaterThan(0)
-    expect(calls.filter((call) => call === 'arc')).toHaveLength(0)
+    expect(calls.filter((call) => call === 'lineTo')).toHaveLength(
+      baseline.calls.filter((call) => call === 'lineTo').length,
+    )
+    expect(calls.filter((call) => call === 'fillRect').length).toBeGreaterThan(
+      baseline.calls.filter((call) => call === 'fillRect').length + scene.rails[0].points.length,
+    )
+    const fillStyles = assignments
+      .filter(({ property }) => property === 'fillStyle')
+      .map(({ value }) => value)
+    expect(fillStyles).toContain('#f06a43')
+    expect(fillStyles).not.toContain('#d7fbff')
   })
 
-  it('renders telegraphs as dashed lanes with an angular attack chevron', () => {
+  it('renders telegraphs as glowing dots without an attack chevron', () => {
+    const baseline = recordingContext()
+    drawResourceSnakeScene(baseline.context, EMPTY_SCENE, 1_000, 480)
     const { calls, context } = recordingContext()
     drawResourceSnakeScene(context, {
       ...EMPTY_SCENE,
@@ -144,7 +141,31 @@ describe('resource snake canvas', () => {
       }],
     }, 1_000, 480)
 
-    expect(calls.filter((call) => call === 'setLineDash').length).toBeGreaterThanOrEqual(2)
-    expect(calls.filter((call) => call === 'lineTo').length).toBeGreaterThan(10)
+    expect(calls.filter((call) => call === 'lineTo')).toHaveLength(
+      baseline.calls.filter((call) => call === 'lineTo').length,
+    )
+    expect(calls.filter((call) => call === 'arc').length).toBeGreaterThan(
+      baseline.calls.filter((call) => call === 'arc').length,
+    )
+  })
+
+  it('draws the player head as a circle and the enemy head as a square', () => {
+    const { calls, context } = recordingContext()
+    drawResourceSnakeScene(context, {
+      ...EMPTY_SCENE,
+      cores: [
+        {
+          id: 'player', x: 12, y: 12, color: '#f4f7ff', opacity: 1, scale: 1,
+          phase: 'active', role: null, shape: 'circle', integrityRatio: 1,
+        },
+        {
+          id: 'enemy-0', x: 20, y: 12, color: '#21e6ff', opacity: 1, scale: 1,
+          phase: 'active', role: 'pressure', shape: 'square', integrityRatio: 1,
+        },
+      ],
+    }, 1_000, 480)
+
+    expect(calls.filter((call) => call === 'arc').length).toBeGreaterThan(0)
+    expect(calls.filter((call) => call === 'fillRect').length).toBeGreaterThan(0)
   })
 })

@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
-import { createCampaign } from './createCampaign'
+import { createCampaign, createCampaignForProtocol } from './createCampaign'
 import { HACK_NODE_IDS } from './hacking'
 import {
   advanceCompetitorsDaily,
   applyInterceptionRoutes,
   calculateMarketShares,
+  normalizeCurrentTallowMarket,
   publicMarketCalculationInputs,
   recordMarketSnapshot,
 } from './market'
@@ -30,22 +31,25 @@ function applyAcceptedMarketCommand(
 }
 
 describe('autonomous competitor lifecycle', () => {
-  it('keeps MERIDIAN active while TALLOW prepares for an approximately month-7 launch', () => {
+  it('starts MERIDIAN and TALLOW active in the same market and advances both', () => {
     const initial = createCampaign('competitor-life')
-    const almostLaunch = advanceCompetitorDays(initial, 209)
-    const launched = advanceCompetitorDays(almostLaunch, 1)
-    const meridian = launched.market.competitors.find(({ id }) => id === 'meridian')
-    const tallowBefore = almostLaunch.market.competitors.find(({ id }) => id === 'tallow')
-    const tallowAfter = launched.market.competitors.find(({ id }) => id === 'tallow')
+    const advanced = advanceCompetitorDays(initial, 1)
+    const meridian = advanced.market.competitors.find(({ id }) => id === 'meridian')
+    const tallowBefore = initial.market.competitors.find(({ id }) => id === 'tallow')
+    const tallowAfter = advanced.market.competitors.find(({ id }) => id === 'tallow')
 
     expect(meridian?.status).toBe('active')
-    expect(tallowBefore).toMatchObject({ status: 'preparing', availability: 0 })
-    expect(tallowBefore?.researchProgress).toBeGreaterThan(0.99)
+    expect(tallowBefore).toMatchObject({
+      status: 'active',
+      availability: 0.55,
+      researchProgress: 1,
+      marketShare: 6,
+    })
     expect(tallowAfter).toMatchObject({
       status: 'active',
       researchProgress: 1,
     })
-    expect(tallowAfter?.availability).toBeGreaterThan(0)
+    expect(tallowAfter?.availability).toBeGreaterThan(0.55)
   })
 
   it('is deterministic and does not publish private daily progress as events', () => {
@@ -150,17 +154,18 @@ describe('normalized market share', () => {
     expect(publicMarketCalculationInputs(state)).toEqual([
       '평균 성능 16.0 / 기대 14.0',
       '평판 60',
-      'MERIDIAN 성능 82.0 · 평판 62 · 가용성 100%',
-      'TALLOW 성능 76.0 · 평판 54 · 가용성 0%',
-      'MERIDIAN 요청 가로채기 +5.0%p',
+      '메리디안 성능 82.0 · 평판 62 · 가용성 100%',
+      '타로우 성능 76.0 · 평판 54 · 가용성 55%',
+      '메리디안 요청 가로채기 +5.0%p',
     ])
   })
 
-  it('assigns zero to inactive competitors and normalizes active systems to 100', () => {
+  it('gives both starting rivals a share and normalizes active systems to 100', () => {
     const state = createCampaign('market-normalize')
     const shares = calculateMarketShares(state)
 
-    expect(shares.competitors.tallow).toBe(0)
+    expect(shares.competitors.meridian).toBeGreaterThan(0)
+    expect(shares.competitors.tallow).toBeGreaterThan(0)
     expect(
       shares.player + Object.values(shares.competitors).reduce((sum, share) => sum + share, 0),
     ).toBeCloseTo(100, 10)
@@ -262,6 +267,52 @@ describe('normalized market share', () => {
     expect(calculateMarketShares(state)).toEqual({
       player: 100,
       competitors: { meridian: 0, tallow: 0, salus: 0, lucent: 0, boreal: 0 },
+    })
+  })
+
+  it('promotes a legacy preparing TALLOW to 6% without rewriting market history', () => {
+    const legacy = createCampaignForProtocol('legacy-tallow-market', 4)
+    const withHistory: CampaignState = {
+      ...legacy,
+      market: {
+        ...legacy.market,
+        history: [
+          {
+            serviceDay: 331,
+            cadence: 'weekly',
+            playerShare: 60,
+            competitorShares: {
+              meridian: 40,
+              tallow: 0,
+              salus: 0,
+              lucent: 0,
+              boreal: 0,
+            },
+            reasons: ['legacy'],
+          },
+        ],
+      },
+    }
+    const history = structuredClone(withHistory.market.history)
+    const normalized = normalizeCurrentTallowMarket(withHistory)
+
+    expect(normalized.market.playerShare).toBeCloseTo(56.4, 10)
+    expect(
+      normalized.market.competitors.find(({ id }) => id === 'meridian')?.marketShare,
+    ).toBeCloseTo(37.6, 10)
+    expect(
+      normalized.market.competitors.find(({ id }) => id === 'tallow'),
+    ).toMatchObject({
+      status: 'active',
+      marketShare: 6,
+      availability: 0.55,
+      researchProgress: 1,
+      launchServiceDay: 331,
+    })
+    expect(normalized.market.history).toEqual(history)
+    expect(normalized.market.history[0]).toMatchObject({
+      playerShare: 60,
+      competitorShares: { meridian: 40, tallow: 0 },
     })
   })
 

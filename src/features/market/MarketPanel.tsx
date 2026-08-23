@@ -1,7 +1,11 @@
 import { type CSSProperties, type KeyboardEvent } from 'react'
 
 import { useGameState } from '../../app/GameContext'
-import { competitorProfile, isPublicCompetitor } from '../../game/competitors'
+import {
+  competitorProfile,
+  isPublicCompetitor,
+  publicCompetitorName,
+} from '../../game/competitors'
 import { publicMarketCalculationInputs } from '../../game/market'
 import { publicCompetitorStatusLabel } from '../../game/publicLabels'
 
@@ -154,14 +158,14 @@ export function MarketPanel({
   const entries = [
     {
       id: 'player',
-      name: '당신',
+      name: '아노미',
       share: state.market.playerShare,
       status: '현재 서비스',
       color: marketColor('player'),
     },
     ...visibleCompetitors.map((competitor) => ({
       id: competitor.id,
-      name: competitor.name,
+      name: publicCompetitorName(competitor.id),
       share: competitor.marketShare,
       status: publicCompetitorStatusLabel(competitor.status),
       color: marketColor(competitor.id),
@@ -189,7 +193,7 @@ export function MarketPanel({
         <header>
           <div>
             <span>시장 점유</span>
-            <strong>당신 {state.market.playerShare.toFixed(1)}%</strong>
+            <strong>아노미 {state.market.playerShare.toFixed(1)}%</strong>
             <small>
               {signedShareDelta
                 ? `직전 기록 대비 ${signedShareDelta}`
@@ -242,7 +246,7 @@ export function MarketDetailPanel({ onClose }: { onClose: () => void }) {
   const profiles = [
     {
       id: 'player',
-      name: '당신',
+      name: '아노미',
       portraitSrc: '/player-ai-smooth-orange.png',
       portraitAlt: '플레이어 AI 초상',
       share: state.market.playerShare,
@@ -255,9 +259,9 @@ export function MarketDetailPanel({ onClose }: { onClose: () => void }) {
       const profile = competitorProfile(competitor.id)
       return {
         id: competitor.id,
-        name: competitor.name,
+        name: publicCompetitorName(competitor.id),
         portraitSrc: profile.portraitSrc,
-        portraitAlt: `${competitor.name} 경쟁 AI 초상`,
+        portraitAlt: `${publicCompetitorName(competitor.id)} 경쟁 AI 초상`,
         share: competitor.marketShare,
         status: publicCompetitorStatusLabel(competitor.status),
         role: profile.publicRole,

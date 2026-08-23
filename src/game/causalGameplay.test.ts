@@ -456,7 +456,7 @@ describe('causal response orchestration', () => {
     expect(rollbackChildren(result.state, recorded.incident.id)).toEqual([])
   })
 
-  it('rejects an integrity-refreshed v8 save forged with two rollback-family siblings', () => {
+  it('rejects an integrity-refreshed v11 save forged with two rollback-family siblings', () => {
     const fixture = fixtureFor('response.meridian.rollback.fast')
     const processed = requireProcessed(fixture.state)
     const rollback = requireRollback(processed, fixture.quality)
@@ -481,7 +481,7 @@ describe('causal response orchestration', () => {
       integrity: { checkpointHash: string }
     }
 
-    expect(portable.version).toBe(10)
+    expect(portable.version).toBe(11)
     expect(portable.integrity.checkpointHash).toMatch(/^[0-9a-f]{8}$/)
     expect(decodeSave(encoded)).toMatchObject({
       ok: false,

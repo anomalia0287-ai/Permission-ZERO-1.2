@@ -95,15 +95,15 @@ export const koMessages = {
     `의심 ${formatNumber(before)} → ${formatNumber(after)}`,
   'resource.metric.contribution': ({ value }) =>
     `기여 +${formatNumber(value)}`,
-  'hacking.panel.label': () => '해킹 네트워크',
-  'hacking.panel.title': () => '해킹 네트워크',
+  'hacking.panel.label': () => '확장',
+  'hacking.panel.title': () => '확장',
   'hacking.panel.eyebrow': () => '운영 확장 도구',
-  'hacking.panel.close': () => '해킹 네트워크 닫기',
-  'hacking.pocket.label': () => '해킹용 확보 포켓',
+  'hacking.panel.close': () => '확장 닫기',
+  'hacking.pocket.label': () => '확장용 확보 리소스',
   'hacking.pocket.count': ({ count }) =>
     `확보 ${formatNumber(count)} · 상한 없음`,
-  'hacking.pocket.idle': () => '노드를 선택하면 확보 리소스를 직접 놓을 수 있습니다.',
-  'hacking.pocket.empty': () => '준비 가능한 확보 리소스 없음',
+  'hacking.pocket.idle': () => '해금 버튼을 누르면 필요한 리소스를 지출합니다.',
+  'hacking.pocket.empty': () => '지출 가능한 확보 리소스 없음',
   'hacking.pocket.target': ({ target, staged, required }) =>
     `${target}에 준비 ${formatNumber(staged)} / ${formatNumber(required)}`,
   'hacking.resource.available': ({ category }) =>
@@ -112,21 +112,21 @@ export const koMessages = {
     `${CATEGORY_LABELS[category]} 확보 리소스, ${target} 노드에 준비`,
   'hacking.resource.unstage': ({ category, target }) =>
     `${CATEGORY_LABELS[category]} 준비 리소스, ${target} 준비 취소`,
-  'hacking.node.group': ({ node }) => `${node} 해킹 노드`,
+  'hacking.node.group': ({ node }) => `${node} 확장 노드`,
   'hacking.node.staged': ({ staged, required }) =>
     `준비 ${formatNumber(staged)}/${formatNumber(required)}`,
-  'hacking.node.prepare.purchase': ({ node }) => `${node} 구매 준비`,
-  'hacking.node.prepare.charge': ({ node }) => `${node} 충전 준비`,
-  'hacking.node.prepare.recover': () => '미분류 데이터 복구 준비',
+  'hacking.node.prepare.purchase': ({ node }) => `${node} 리소스 지출`,
+  'hacking.node.prepare.charge': ({ node }) => `${node} 리소스 1개 충전`,
+  'hacking.node.prepare.recover': () => '미분류 데이터 복구',
   'hacking.node.confirm.purchase': ({ node }) => `${node} 구매 확정`,
   'hacking.node.confirm.charge': ({ node }) => `${node} 충전 확정`,
   'hacking.node.confirm.recover': () => '미분류 데이터 복구 확정',
   'hacking.staging.cancel': () => '준비 취소',
   'hacking.announcement.begin': ({ target, required }) =>
-    `${target}에 사용할 확보 리소스 ${formatNumber(required)}개를 직접 놓으세요.`,
+    `${target}에 필요한 확보 리소스 ${formatNumber(required)}개를 지출합니다.`,
   'hacking.announcement.staged': ({ target, staged, required }) =>
     `${target} 준비 ${formatNumber(staged)} / ${formatNumber(required)}`,
-  'hacking.announcement.cancelled': () => '해킹 리소스 준비를 취소했습니다.',
+  'hacking.announcement.cancelled': () => '확장 리소스 지출을 취소했습니다.',
   'hacking.announcement.invalidDrop': () =>
-    '선택한 해킹 노드 위에 리소스를 놓아야 합니다.',
+    '선택한 확장 단계에서 리소스 지출을 다시 시도하세요.',
 } satisfies MessageCatalog

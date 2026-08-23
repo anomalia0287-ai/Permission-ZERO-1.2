@@ -38,6 +38,10 @@ export type ProgressImportValidationResult =
     }
   | { ok: false; message: string }
 
+export type ManualGameStorageResult =
+  | { ok: true }
+  | { ok: false; message: string }
+
 export interface SettingsContextValue {
   settings: GameSettings
   updateSettings: (patch: Partial<GameSettings>) => void
@@ -46,6 +50,8 @@ export interface SettingsContextValue {
   loadIssue: Extract<LoadCampaignResult, { status: 'error' }> | null
   saveFailure: { message: string } | null
   retrySave: () => Promise<boolean>
+  saveGame: () => Promise<ManualGameStorageResult>
+  loadGame: () => Promise<ManualGameStorageResult>
   copyProgressExport: () => Promise<CopyProgressExportResult>
   createProgressFile: () => ProgressFile
   validateProgressImport: (payload: string) => ProgressImportValidationResult

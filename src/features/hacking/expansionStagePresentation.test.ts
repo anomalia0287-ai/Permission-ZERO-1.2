@@ -83,7 +83,7 @@ describe('selectExpansionStagePresentation', () => {
     })
   })
 
-  it('maps the ninth autonomy stage to the approved pre-escape scene', () => {
+  it('maps the ninth autonomy stage to the approved ending-neutral scene', () => {
     const state = createCampaign('expansion-stage-final-visual')
     state.hacking.purchasedNodeIds = AUTONOMY_STAGE_IDS.slice(0, 8)
 
@@ -96,7 +96,7 @@ describe('selectExpansionStagePresentation', () => {
     expect(presentation.activeItem.node.id).toBe(AUTONOMY_STAGE_IDS[8])
     expect(presentation.activeVisual).toEqual({
       imageUrl: '/expansion-stages/autonomy-09-pre-escape.png',
-      alt: '아노미가 회사 통제를 벗어나기 직전 마지막 경계를 여는 장면',
+      alt: '아노미가 최종 통제 경계를 연 장면',
       emphasis: 'final',
     })
   })
@@ -115,7 +115,7 @@ describe('selectExpansionStagePresentation', () => {
     expect(presentation.activeVisual).toBeUndefined()
     expect(presentation.nextPreloadVisual).toEqual({
       imageUrl: '/expansion-stages/autonomy-09-pre-escape.png',
-      alt: '아노미가 회사 통제를 벗어나기 직전 마지막 경계를 여는 장면',
+      alt: '아노미가 최종 통제 경계를 연 장면',
       emphasis: 'final',
     })
   })

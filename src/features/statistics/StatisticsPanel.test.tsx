@@ -50,13 +50,13 @@ describe('StatisticsPanel', () => {
     )
 
     expect(screen.getByRole('img', { name: '시장 점유율 변화 차트' })).toBeInTheDocument()
-    expect(screen.getByText('당신 · 57.25%')).toBeInTheDocument()
-    expect(screen.getByText('MERIDIAN · 42.75%')).toBeInTheDocument()
-    expect(screen.getByRole('img', { name: 'MERIDIAN 경쟁 AI 초상' })).toHaveAttribute(
+    expect(screen.getByText('아노미 · 57.25%')).toBeInTheDocument()
+    expect(screen.getByText('메리디안 · 42.75%')).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: '메리디안 경쟁 AI 초상' })).toHaveAttribute(
       'src',
       '/competitor-meridian.png',
     )
-    expect(screen.getByRole('img', { name: 'TALLOW 경쟁 AI 초상' })).toHaveAttribute(
+    expect(screen.getByRole('img', { name: '타로우 경쟁 AI 초상' })).toHaveAttribute(
       'src',
       '/competitor-tallow.png',
     )
@@ -131,7 +131,7 @@ describe('StatisticsPanel', () => {
     fireEvent.click(screen.getByRole('tab', { name: '공개 귀속 기록' }))
 
     const history = screen.getByRole('list', { name: '공개 귀속 수정 기록' })
-    expect(history).toHaveTextContent('MERIDIAN 복구 무결성 이상')
+    expect(history).toHaveTextContent('메리디안 복구 무결성 이상')
     expect(history).toHaveTextContent('원인 미상')
     expect(history).toHaveTextContent('최초 공개')
     expect(history).toHaveTextContent('외부 운영자')

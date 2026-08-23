@@ -53,7 +53,7 @@ export function getGameDirective(state: CampaignState): GameDirective {
       ? {
           id: 'unlock-quality-degradation',
           eyebrow: '현재 지시',
-          title: '해킹 네트워크에서 품질 저하 해금',
+          title: '확장에서 품질 저하 해금',
           detail: '필요 리소스 준비 완료',
           progress: '3/3',
         }

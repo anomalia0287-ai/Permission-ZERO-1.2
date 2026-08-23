@@ -17,7 +17,24 @@ export const RESOURCE_SNAKE_CONFIG = {
   fixedStepMs: 1000 / 120,
   maximumFrameDeltaMs: 100,
   playerMaximumSpeedPerSecond: 12,
+  openingSpeedScale: 0.5,
+  maximumRoundSpeedScale: 0.75,
+  speedRampMs: 30_000,
   minimumLiveSpeedScale: 0.92,
+  enemySafetyHorizonMs: 850,
+  enemyMinimumHeadingHoldMs: 700,
+  enemyNormalTurnWindowMs: 2_000,
+  enemyMaximumNormalTurnsPerWindow: 2,
+  enemyEmergencyCollisionMs: 300,
+  enemyEmergencyReturnCollisionMs: 250,
+  enemyEmergencyCooldownMs: 2_000,
+  enemyEmergencyLockMs: 900,
+  enemyEmergencyCorrectionHoldMs: 350,
+  enemyReturnHeadingLockMs: 1_400,
+  enemySafetyHysteresisMs: 250,
+  enemySafetyClearance: 0.16,
+  enemySelfSafetyClearance: 0.32,
+  enemyAllySafetyClearance: 0.32,
   headRadius: 0.34,
   trailRadius: 0.16,
   trailSpacing: 0.32,
@@ -31,7 +48,8 @@ export const RESOURCE_SNAKE_CONFIG = {
   collisionGapRadius: 0.65,
   selfTrailIgnoreAgeMs: 240,
   deathFlashMs: 90,
-  roundResolveMs: 520,
+  playerExtractionMs: 700,
+  roundResolveMs: 820,
   playerMaximumIntegrity: 100,
 } as const
 
@@ -39,7 +57,7 @@ const FIXED_STEP_COMPARISON_EPSILON_MS = 1e-9
 
 export type SnakeId = 'player' | `enemy-${number}`
 export type SnakeRoundPhase = 'idle' | 'deploying' | 'active' | 'resolving'
-export type SnakeActorPhase = 'spawning' | 'active' | 'exploding' | 'defeated'
+export type SnakeActorPhase = 'spawning' | 'active' | 'extracting' | 'exploding' | 'defeated'
 export type SnakeEnemyRole = 'pressure' | 'blocker'
 
 export interface SnakeVector {
@@ -76,6 +94,22 @@ export interface SnakeActor {
   railVertices: SnakeVector[]
   distanceSinceTrailDot: number
   nextTrailDotId: number
+  enemyTurnGovernor: SnakeEnemyTurnGovernorState | null
+}
+
+export type SnakeEnemyTurnCause = 'normal' | 'emergency' | 'emergency-correction'
+
+export interface SnakeEnemyTurnGovernorState {
+  lastHeadingChangeAtMs: number | null
+  previousHeading: SnakeDirection8 | null
+  normalTurnAtMs: number[]
+  lastEmergencyTurnAtMs: number | null
+  lockedUntilMs: number
+  lastTurnCause: SnakeEnemyTurnCause | null
+}
+
+export interface SnakeEnemyTurnPolicy {
+  minimumHeadingHoldMs: number
 }
 
 export interface SnakeEnemySetup {
@@ -92,6 +126,7 @@ export interface SnakeEnemySetup {
 export interface SnakeRoundSetup {
   roundId: string
   playerSpawn: SnakeVector
+  playerMaximumSpeedPerSecond?: number
   enemies: SnakeEnemySetup[]
 }
 
@@ -108,6 +143,8 @@ export interface SnakeFrameInput {
    * never shortened by a coarse render frame.
    */
   enemyDirectionSchedules?: Record<string, readonly SnakeEnemyDirectionChange[]>
+  /** Stage-specific ordinary-turn pacing; safety thresholds remain authoritative. */
+  enemyTurnPolicies?: Record<string, SnakeEnemyTurnPolicy>
 }
 
 export interface SnakeEnemyDirectionChange {
@@ -143,12 +180,15 @@ export type ResourceSnakeEvent =
       id: number
       type: 'snake-collided'
       actorIds: SnakeId[]
+      collisionKind?: 'boundary' | 'head-head' | 'trail'
+      obstacleOwnerId?: SnakeId
       point: SnakeVector
       hitStopMs: 90
       startedAtMs: number
     }
   | { id: number; type: 'snake-damaged'; actorId: SnakeId; integrity: number; maximumIntegrity: number }
   | { id: number; type: 'snake-died'; actorId: SnakeId; category: CompanyCategory | null; startedAtMs: number }
+  | { id: number; type: 'player-extracted'; actorId: 'player'; startedAtMs: number }
   | {
       id: number
       type: 'resource-reward-resolved'
@@ -197,6 +237,22 @@ function distance(left: SnakeVector, right: SnakeVector): number {
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.max(minimum, Math.min(maximum, value))
+}
+
+export function resourceSnakeRoundSpeedScale(simulationMs: number): number {
+  if (simulationMs === Number.POSITIVE_INFINITY) {
+    return RESOURCE_SNAKE_CONFIG.maximumRoundSpeedScale
+  }
+  const activeMs = Math.max(
+    0,
+    finite(simulationMs) - RESOURCE_SNAKE_CONFIG.deploymentMs,
+  )
+  const progress = clamp(activeMs / RESOURCE_SNAKE_CONFIG.speedRampMs, 0, 1)
+  return RESOURCE_SNAKE_CONFIG.openingSpeedScale
+    + (
+      RESOURCE_SNAKE_CONFIG.maximumRoundSpeedScale
+      - RESOURCE_SNAKE_CONFIG.openingSpeedScale
+    ) * progress
 }
 
 function boundedPosition(position: SnakeVector): SnakeVector {
@@ -321,6 +377,16 @@ function createActor(
     railVertices: [{ ...safePosition }],
     distanceSinceTrailDot: 0,
     nextTrailDotId: 1,
+    enemyTurnGovernor: kind === 'enemy'
+      ? {
+          lastHeadingChangeAtMs: null,
+          previousHeading: null,
+          normalTurnAtMs: [],
+          lastEmergencyTurnAtMs: null,
+          lockedUntilMs: 0,
+          lastTurnCause: null,
+        }
+      : null,
     ...details,
   }
 }
@@ -357,6 +423,9 @@ export function deployResourceSnakeRound(
   const player = createActor('player', 'player', setup.playerSpawn, {
     integrity: RESOURCE_SNAKE_CONFIG.playerMaximumIntegrity,
     maximumIntegrity: RESOURCE_SNAKE_CONFIG.playerMaximumIntegrity,
+    maximumSpeedPerSecond:
+      setup.playerMaximumSpeedPerSecond ??
+      RESOURCE_SNAKE_CONFIG.playerMaximumSpeedPerSecond,
     phase: 'spawning',
   })
   const enemies = setup.enemies.map((enemy) =>
@@ -558,7 +627,9 @@ function advanceActor(
     allowRecoverySpeedScale,
   )
   const headingVector = SNAKE_DIRECTION_VECTORS[resolved.heading]
-  const speed = actor.maximumSpeedPerSecond * resolved.speedScale
+  const speed = actor.maximumSpeedPerSecond
+    * resolved.speedScale
+    * resourceSnakeRoundSpeedScale(simulationMs)
   const velocity = {
     x: headingVector.x * speed,
     y: headingVector.y * speed,
@@ -599,6 +670,7 @@ interface CollisionCandidate {
   anchor: SnakeVector
   separationDistance: number
   gapActorIds: SnakeId[]
+  obstacleOwnerId?: SnakeId
 }
 
 function interpolate(start: SnakeVector, end: SnakeVector, time: number): SnakeVector {
@@ -627,6 +699,560 @@ function sweptCircleTime(
   return time >= 0 && time <= 1 ? time : null
 }
 
+function pointSegmentDistance(
+  point: SnakeVector,
+  start: SnakeVector,
+  end: SnakeVector,
+): number {
+  const delta = { x: end.x - start.x, y: end.y - start.y }
+  const lengthSquared = delta.x * delta.x + delta.y * delta.y
+  if (lengthSquared <= 1e-12) return distance(point, start)
+  const projection = clamp(
+    (
+      (point.x - start.x) * delta.x
+      + (point.y - start.y) * delta.y
+    ) / lengthSquared,
+    0,
+    1,
+  )
+  return distance(point, {
+    x: start.x + delta.x * projection,
+    y: start.y + delta.y * projection,
+  })
+}
+
+interface EnemyHeadingSafety {
+  heading: SnakeDirection8
+  collisionAtMs: number
+  clearance: number
+  requestedDistance: number
+  currentDistance: number
+  directionIndex: number
+}
+
+function headingDistance(left: SnakeDirection8, right: SnakeDirection8): number {
+  const leftIndex = ANGLE_DIRECTIONS.indexOf(left)
+  const rightIndex = ANGLE_DIRECTIONS.indexOf(right)
+  const direct = Math.abs(leftIndex - rightIndex)
+  return Math.min(direct, ANGLE_DIRECTIONS.length - direct)
+}
+
+function enemyHeadingSafety(
+  state: ResourceSnakeRoundState,
+  actor: SnakeActor,
+  heading: SnakeDirection8,
+  requestedHeading: SnakeDirection8,
+  horizonMs: number = RESOURCE_SNAKE_CONFIG.enemySafetyHorizonMs,
+): EnemyHeadingSafety {
+  const direction = SNAKE_DIRECTION_VECTORS[heading]
+  const speed = actor.maximumSpeedPerSecond
+    * resourceSnakeRoundSpeedScale(state.simulationMs)
+  const start = actor.position
+  const end = {
+    x: start.x + direction.x * speed * horizonMs / 1_000,
+    y: start.y + direction.y * speed * horizonMs / 1_000,
+  }
+  const protectedHeadRadius = RESOURCE_SNAKE_CONFIG.headRadius
+    + RESOURCE_SNAKE_CONFIG.enemySafetyClearance
+  const minimumX = protectedHeadRadius
+  const maximumX = RESOURCE_SNAKE_CONFIG.fieldWidth - protectedHeadRadius
+  const minimumY = protectedHeadRadius
+  const maximumY = RESOURCE_SNAKE_CONFIG.fieldHeight - protectedHeadRadius
+  let collisionAtMs = Number.POSITIVE_INFINITY
+
+  const boundaryContact = (
+    startAxis: number,
+    endAxis: number,
+    boundary: number,
+    outsideDirection: -1 | 1,
+  ) => {
+    if (Math.abs(endAxis - startAxis) <= 1e-12) return
+    if (
+      (outsideDirection < 0 && startAxis <= boundary && endAxis < startAxis)
+      || (outsideDirection > 0 && startAxis >= boundary && endAxis > startAxis)
+    ) {
+      collisionAtMs = 0
+      return
+    }
+    const fraction = (boundary - startAxis) / (endAxis - startAxis)
+    if (fraction >= 0 && fraction <= 1) {
+      collisionAtMs = Math.min(collisionAtMs, fraction * horizonMs)
+    }
+  }
+  if (end.x < minimumX) boundaryContact(start.x, end.x, minimumX, -1)
+  if (end.x > maximumX) boundaryContact(start.x, end.x, maximumX, 1)
+  if (end.y < minimumY) boundaryContact(start.y, end.y, minimumY, -1)
+  if (end.y > maximumY) boundaryContact(start.y, end.y, maximumY, 1)
+
+  let clearance = Math.min(
+    end.x - minimumX,
+    maximumX - end.x,
+    end.y - minimumY,
+    maximumY - end.y,
+  )
+  const physicalTrailRadius = RESOURCE_SNAKE_CONFIG.headRadius
+    + RESOURCE_SNAKE_CONFIG.trailRadius
+  for (const owner of [state.player, ...state.enemies]) {
+    if (owner.phase !== 'active') continue
+    for (const dot of owner.trail) {
+      if (dot.spawnedAtMs >= state.simulationMs || dot.expiresAtMs <= state.simulationMs) {
+        continue
+      }
+      const ownTrail = owner.id === actor.id
+      const trailRadius = physicalTrailRadius + (
+        ownTrail
+          ? RESOURCE_SNAKE_CONFIG.enemySelfSafetyClearance
+          : owner.kind === 'enemy'
+            ? RESOURCE_SNAKE_CONFIG.enemyAllySafetyClearance
+            : RESOURCE_SNAKE_CONFIG.enemySafetyClearance
+      )
+      const startOffset = {
+        x: start.x - dot.position.x,
+        y: start.y - dot.position.y,
+      }
+      const startDistance = Math.hypot(startOffset.x, startOffset.y)
+      if (
+        ownTrail
+        && startDistance <= physicalTrailRadius
+      ) continue
+      const pathDelta = { x: end.x - start.x, y: end.y - start.y }
+      const leavingSafetyReserve = (
+        startDistance <= trailRadius
+        && startDistance > physicalTrailRadius
+        && startOffset.x * pathDelta.x + startOffset.y * pathDelta.y >= 0
+      )
+      const contact = sweptCircleTime(start, end, dot.position, trailRadius)
+      if (contact !== null && !leavingSafetyReserve) {
+        const contactAtMs = state.simulationMs + contact * horizonMs
+        if (
+          !ownTrail
+          || contactAtMs - dot.spawnedAtMs >= RESOURCE_SNAKE_CONFIG.selfTrailIgnoreAgeMs
+        ) collisionAtMs = Math.min(collisionAtMs, contact * horizonMs)
+      }
+      clearance = Math.min(
+        clearance,
+        pointSegmentDistance(dot.position, start, end) - trailRadius,
+      )
+    }
+  }
+
+  for (const other of [state.player, ...state.enemies]) {
+    if (other.id === actor.id || other.phase !== 'active') continue
+    const otherEnd = {
+      x: other.position.x + other.velocity.x * horizonMs / 1_000,
+      y: other.position.y + other.velocity.y * horizonMs / 1_000,
+    }
+    const headClearance = other.kind === 'enemy'
+      ? RESOURCE_SNAKE_CONFIG.enemyAllySafetyClearance
+      : RESOURCE_SNAKE_CONFIG.enemySafetyClearance
+    const protectedRadius = RESOURCE_SNAKE_CONFIG.headRadius * 2 + headClearance
+    const relativeStart = {
+      x: start.x - other.position.x,
+      y: start.y - other.position.y,
+    }
+    const relativeEnd = {
+      x: end.x - otherEnd.x,
+      y: end.y - otherEnd.y,
+    }
+    const contact = sweptCircleTime(
+      relativeStart,
+      relativeEnd,
+      zeroVector(),
+      protectedRadius,
+    )
+    if (contact !== null) collisionAtMs = Math.min(collisionAtMs, contact * horizonMs)
+    clearance = Math.min(
+      clearance,
+      pointSegmentDistance(zeroVector(), relativeStart, relativeEnd) - protectedRadius,
+    )
+  }
+
+  return {
+    heading,
+    collisionAtMs,
+    clearance,
+    requestedDistance: headingDistance(heading, requestedHeading),
+    currentDistance: headingDistance(heading, actor.heading),
+    directionIndex: ANGLE_DIRECTIONS.indexOf(heading),
+  }
+}
+
+/** Deterministic heading probe shared by diagnostics and higher-level AI validation. */
+export function evaluateResourceSnakeEnemyHeadingSafety(
+  state: ResourceSnakeRoundState,
+  actorId: SnakeId,
+  heading: SnakeDirection8,
+  horizonMs: number = RESOURCE_SNAKE_CONFIG.enemySafetyHorizonMs,
+): Readonly<{ heading: SnakeDirection8; collisionAtMs: number; clearance: number }> | null {
+  const actor = state.enemies.find((candidate) => candidate.id === actorId)
+  if (!actor || actor.phase !== 'active') return null
+  const safety = enemyHeadingSafety(state, actor, heading, heading, horizonMs)
+  return {
+    heading: safety.heading,
+    collisionAtMs: safety.collisionAtMs,
+    clearance: safety.clearance,
+  }
+}
+
+interface EnemyDirectionDecision {
+  direction: SnakeVector
+  governor: SnakeEnemyTurnGovernorState
+}
+
+function enemyTurnGovernor(actor: SnakeActor): SnakeEnemyTurnGovernorState {
+  return actor.enemyTurnGovernor ?? {
+    lastHeadingChangeAtMs: null,
+    previousHeading: null,
+    normalTurnAtMs: [],
+    lastEmergencyTurnAtMs: null,
+    lockedUntilMs: 0,
+    lastTurnCause: null,
+  }
+}
+
+function minimumEnemyHeadingHoldMs(policy: SnakeEnemyTurnPolicy | undefined): number {
+  const requested = policy?.minimumHeadingHoldMs
+  if (!Number.isFinite(requested)) return RESOURCE_SNAKE_CONFIG.enemyMinimumHeadingHoldMs
+  return clamp(requested!, RESOURCE_SNAKE_CONFIG.enemyMinimumHeadingHoldMs, 900)
+}
+
+function recentNormalEnemyTurns(
+  governor: SnakeEnemyTurnGovernorState,
+  atMs: number,
+): number[] {
+  return governor.normalTurnAtMs.filter((turnAtMs) => (
+    Number.isFinite(turnAtMs)
+    && atMs - turnAtMs < RESOURCE_SNAKE_CONFIG.enemyNormalTurnWindowMs - 1e-9
+  )).slice(-RESOURCE_SNAKE_CONFIG.enemyMaximumNormalTurnsPerWindow)
+}
+
+function normalEnemyTurnAllowed(
+  actor: SnakeActor,
+  governor: SnakeEnemyTurnGovernorState,
+  requestedHeading: SnakeDirection8,
+  atMs: number,
+  policy: SnakeEnemyTurnPolicy | undefined,
+): boolean {
+  if (requestedHeading === actor.heading) return false
+  if (headingDistance(actor.heading, requestedHeading) > 2) return false
+  if (atMs + 1e-9 < governor.lockedUntilMs) return false
+  if (
+    governor.lastHeadingChangeAtMs !== null
+    && atMs - governor.lastHeadingChangeAtMs
+      < minimumEnemyHeadingHoldMs(policy) - 1e-9
+  ) return false
+  if (
+    recentNormalEnemyTurns(governor, atMs).length
+    >= RESOURCE_SNAKE_CONFIG.enemyMaximumNormalTurnsPerWindow
+  ) return false
+  if (
+    governor.previousHeading === requestedHeading
+    && governor.lastHeadingChangeAtMs !== null
+    && atMs - governor.lastHeadingChangeAtMs
+      < RESOURCE_SNAKE_CONFIG.enemyReturnHeadingLockMs - 1e-9
+  ) return false
+  return true
+}
+
+function survivalImprovesByHysteresis(
+  currentCollisionAtMs: number,
+  candidateCollisionAtMs: number,
+): boolean {
+  if (candidateCollisionAtMs === Number.POSITIVE_INFINITY) {
+    return currentCollisionAtMs !== Number.POSITIVE_INFINITY
+  }
+  if (currentCollisionAtMs === Number.POSITIVE_INFINITY) return false
+  return candidateCollisionAtMs - currentCollisionAtMs
+    >= RESOURCE_SNAKE_CONFIG.enemySafetyHysteresisMs - 1e-9
+}
+
+function compareEnemyHeadingSafety(
+  left: EnemyHeadingSafety,
+  right: EnemyHeadingSafety,
+): number {
+  return (
+    Number(right.collisionAtMs === Number.POSITIVE_INFINITY)
+      - Number(left.collisionAtMs === Number.POSITIVE_INFINITY)
+    || right.collisionAtMs - left.collisionAtMs
+    || right.clearance - left.clearance
+    || left.requestedDistance - right.requestedDistance
+    || left.currentDistance - right.currentDistance
+    || left.directionIndex - right.directionIndex
+  )
+}
+
+function applyEnemyTurn(
+  actor: SnakeActor,
+  governor: SnakeEnemyTurnGovernorState,
+  cause: SnakeEnemyTurnCause,
+  atMs: number,
+  emergencyLockMs: number = RESOURCE_SNAKE_CONFIG.enemyEmergencyLockMs,
+): SnakeEnemyTurnGovernorState {
+  const emergencyTurn = cause !== 'normal'
+  const normalTurnAtMs = cause === 'normal'
+    ? [...recentNormalEnemyTurns(governor, atMs), atMs]
+        .slice(-RESOURCE_SNAKE_CONFIG.enemyMaximumNormalTurnsPerWindow)
+    : recentNormalEnemyTurns(governor, atMs)
+  return {
+    lastHeadingChangeAtMs: atMs,
+    previousHeading: actor.heading,
+    normalTurnAtMs,
+    lastEmergencyTurnAtMs: emergencyTurn
+      ? atMs
+      : governor.lastEmergencyTurnAtMs,
+    lockedUntilMs: emergencyTurn
+      ? atMs + emergencyLockMs
+      : governor.lockedUntilMs,
+    lastTurnCause: cause,
+  }
+}
+
+function enemyDirectionVector(
+  heading: SnakeDirection8,
+  speedScale: number,
+): SnakeVector {
+  const direction = SNAKE_DIRECTION_VECTORS[heading]
+  return {
+    x: direction.x * speedScale,
+    y: direction.y * speedScale,
+  }
+}
+
+function safeEnemyDirection(
+  state: ResourceSnakeRoundState,
+  actor: SnakeActor,
+  command: SnakeVector | undefined,
+  policy: SnakeEnemyTurnPolicy | undefined,
+): EnemyDirectionDecision {
+  const requested = resolveMotionCommand(actor.heading, command, true)
+  const governor = enemyTurnGovernor(actor)
+  const atMs = state.simulationMs
+  const normalSafetyHorizonMs = Math.max(
+    RESOURCE_SNAKE_CONFIG.enemySafetyHorizonMs,
+    minimumEnemyHeadingHoldMs(policy) + RESOURCE_SNAKE_CONFIG.enemyEmergencyCollisionMs,
+  )
+  const currentSafety = enemyHeadingSafety(
+    state,
+    actor,
+    actor.heading,
+    requested.heading,
+    normalSafetyHorizonMs,
+  )
+  const requestedSafety = enemyHeadingSafety(
+    state,
+    actor,
+    requested.heading,
+    requested.heading,
+    normalSafetyHorizonMs,
+  )
+  const emergencyCooldownRemainingMs = governor.lastEmergencyTurnAtMs === null
+    ? 0
+    : Math.max(
+        0,
+        governor.lastEmergencyTurnAtMs
+          + RESOURCE_SNAKE_CONFIG.enemyEmergencyCooldownMs
+          - atMs,
+      )
+  const emergencyBridgeReactionMs = RESOURCE_SNAKE_CONFIG.fixedStepMs * 4
+  const requestedBridgesEmergencyCooldown = (
+    emergencyCooldownRemainingMs > 1e-9
+    && currentSafety.collisionAtMs
+      <= RESOURCE_SNAKE_CONFIG.enemyEmergencyCollisionMs + 1e-9
+    && currentSafety.collisionAtMs
+      <= emergencyCooldownRemainingMs + emergencyBridgeReactionMs + 1e-9
+    && requestedSafety.collisionAtMs
+      >= emergencyCooldownRemainingMs
+        + emergencyBridgeReactionMs
+        - 1e-9
+    && survivalImprovesByHysteresis(
+      currentSafety.collisionAtMs,
+      requestedSafety.collisionAtMs,
+    )
+  )
+  const minimumHoldMs = minimumEnemyHeadingHoldMs(policy)
+  const elapsedSinceTurnMs = governor.lastHeadingChangeAtMs === null
+    ? Number.POSITIVE_INFINITY
+    : atMs - governor.lastHeadingChangeAtMs
+  const remainingHoldMs = Math.max(0, minimumHoldMs - elapsedSinceTurnMs)
+  const requestedIsAcceptable = requestedSafety.collisionAtMs
+    >= normalSafetyHorizonMs - 1e-9
+    || requestedBridgesEmergencyCooldown
+  const currentClosesBeforeReadableHold = currentSafety.collisionAtMs
+    <= remainingHoldMs + RESOURCE_SNAKE_CONFIG.enemyEmergencyCollisionMs + 1e-9
+  const heldHeadingNeedsPlannerEscape = (
+    elapsedSinceTurnMs < minimumHoldMs - 1e-9
+    && currentClosesBeforeReadableHold
+  )
+  if (
+    requestedIsAcceptable
+    && normalEnemyTurnAllowed(actor, governor, requested.heading, atMs, policy)
+  ) {
+    return {
+      direction: enemyDirectionVector(requested.heading, requested.speedScale),
+      governor: applyEnemyTurn(actor, governor, 'normal', atMs),
+    }
+  }
+
+  const emergencyImminent = (
+    heldHeadingNeedsPlannerEscape
+    || currentSafety.collisionAtMs
+      <= RESOURCE_SNAKE_CONFIG.enemyEmergencyCollisionMs + 1e-9
+  )
+  const emergencyAvailable = (
+    emergencyImminent
+    && atMs + 1e-9 >= governor.lockedUntilMs
+    && (
+      governor.lastEmergencyTurnAtMs === null
+      || atMs - governor.lastEmergencyTurnAtMs
+      >= RESOURCE_SNAKE_CONFIG.enemyEmergencyCooldownMs - 1e-9
+    )
+  )
+  const emergencyCorrectionAvailable = (
+    emergencyImminent
+    && governor.lastTurnCause === 'emergency'
+    && governor.lastHeadingChangeAtMs !== null
+    && atMs < governor.lockedUntilMs - 1e-9
+    && atMs - governor.lastHeadingChangeAtMs
+      >= RESOURCE_SNAKE_CONFIG.enemyEmergencyCorrectionHoldMs - 1e-9
+  )
+  const currentVector = SNAKE_DIRECTION_VECTORS[actor.heading]
+  if (!emergencyAvailable && !emergencyCorrectionAvailable) {
+    const ordinaryFallback = emergencyImminent
+      ? ANGLE_DIRECTIONS
+          .filter((heading) => {
+            const direction = SNAKE_DIRECTION_VECTORS[heading]
+            return heading !== actor.heading
+              && currentVector.x * direction.x + currentVector.y * direction.y > -0.999_999
+              && normalEnemyTurnAllowed(actor, governor, heading, atMs, policy)
+          })
+          .map((heading) => enemyHeadingSafety(
+            state,
+            actor,
+            heading,
+            requested.heading,
+            normalSafetyHorizonMs,
+          ))
+          .filter((candidate) => (
+            candidate.collisionAtMs >= normalSafetyHorizonMs - 1e-9
+          ))
+          .sort(compareEnemyHeadingSafety)[0]
+      : undefined
+    if (ordinaryFallback) {
+      return {
+        direction: enemyDirectionVector(ordinaryFallback.heading, requested.speedScale),
+        governor: applyEnemyTurn(actor, governor, 'normal', atMs),
+      }
+    }
+    return {
+      direction: enemyDirectionVector(actor.heading, requested.speedScale),
+      governor,
+    }
+  }
+
+  const emergencyTurnLockMs = emergencyCorrectionAvailable
+    ? minimumEnemyHeadingHoldMs(policy)
+    : RESOURCE_SNAKE_CONFIG.enemyEmergencyLockMs
+  // An emergency pivot resets the two-second emergency cooldown. Judge that
+  // pivot through the point at which another emergency can actually execute;
+  // the shorter lock-plus-trigger window can otherwise approve a lane that
+  // becomes fatal while every emergency correction is still unavailable.
+  const emergencyProtectedMs = Math.max(
+    emergencyTurnLockMs + RESOURCE_SNAKE_CONFIG.enemyEmergencyCollisionMs,
+    RESOURCE_SNAKE_CONFIG.enemyEmergencyCooldownMs
+      + RESOURCE_SNAKE_CONFIG.fixedStepMs * 4,
+  )
+  const scoredEmergencyCandidates = ANGLE_DIRECTIONS
+    .filter((heading) => {
+      if (heading === actor.heading) return false
+      const direction = SNAKE_DIRECTION_VECTORS[heading]
+      if (currentVector.x * direction.x + currentVector.y * direction.y <= -0.999_999) {
+        return false
+      }
+      const isEmergencyReturn = governor.previousHeading === heading
+      if (emergencyCorrectionAvailable && isEmergencyReturn) return false
+      return true
+    })
+    .map((heading) => enemyHeadingSafety(
+      state,
+      actor,
+      heading,
+      requested.heading,
+      emergencyProtectedMs,
+    ))
+    .filter((candidate) => survivalImprovesByHysteresis(
+      currentSafety.collisionAtMs,
+      candidate.collisionAtMs,
+    ))
+  const emergencyReturnStillLocked = (
+    !emergencyCorrectionAvailable
+    && currentSafety.collisionAtMs
+      > RESOURCE_SNAKE_CONFIG.enemyEmergencyReturnCollisionMs + 1e-9
+  )
+  const blockedEmergencyReturn = emergencyReturnStillLocked
+    ? scoredEmergencyCandidates.find((candidate) => (
+        candidate.heading === governor.previousHeading
+      ))
+    : undefined
+  const legalEmergencyCandidates = scoredEmergencyCandidates.filter((candidate) => (
+    candidate.heading !== governor.previousHeading || !emergencyReturnStillLocked
+  ))
+  const bestLegalCollisionAtMs = legalEmergencyCandidates.reduce(
+    (best, candidate) => Math.max(best, candidate.collisionAtMs),
+    0,
+  )
+  if (
+    blockedEmergencyReturn
+    && blockedEmergencyReturn.collisionAtMs >= emergencyProtectedMs - 1e-9
+    && bestLegalCollisionAtMs < emergencyProtectedMs - 1e-9
+  ) {
+    return {
+      direction: enemyDirectionVector(actor.heading, requested.speedScale),
+      governor,
+    }
+  }
+  const narrowCandidates = legalEmergencyCandidates.filter((candidate) => (
+    headingDistance(actor.heading, candidate.heading) <= 2
+    || (
+      governor.previousHeading === candidate.heading
+      && currentSafety.collisionAtMs
+        <= RESOURCE_SNAKE_CONFIG.enemyEmergencyReturnCollisionMs + 1e-9
+    )
+  ))
+  const narrowProtected = narrowCandidates.some((candidate) => (
+    candidate.collisionAtMs >= emergencyProtectedMs - 1e-9
+  ))
+  const protectedWideCandidates = legalEmergencyCandidates.filter((candidate) => (
+    !emergencyCorrectionAvailable
+    && state.enemies.filter((enemy) => enemy.phase === 'active').length === 1
+    && headingDistance(actor.heading, candidate.heading) > 2
+    && candidate.collisionAtMs >= emergencyProtectedMs - 1e-9
+  ))
+  const candidates = (
+    narrowProtected
+      ? narrowCandidates
+      : protectedWideCandidates.length > 0
+        ? protectedWideCandidates
+        : narrowCandidates
+  ).sort(compareEnemyHeadingSafety)
+  const selected = candidates[0]?.heading
+  if (!selected) {
+    return {
+      direction: enemyDirectionVector(actor.heading, requested.speedScale),
+      governor,
+    }
+  }
+  return {
+    direction: enemyDirectionVector(selected, requested.speedScale),
+    governor: applyEnemyTurn(
+      actor,
+      governor,
+      emergencyCorrectionAvailable ? 'emergency-correction' : 'emergency',
+      atMs,
+      emergencyTurnLockMs,
+    ),
+  }
+}
+
 function normalizedOrFallback(vector: SnakeVector, fallback: SnakeVector): SnakeVector {
   const length = Math.hypot(vector.x, vector.y)
   return length === 0 ? fallback : { x: vector.x / length, y: vector.y / length }
@@ -639,9 +1265,11 @@ function activeActors(state: ResourceSnakeRoundState): SnakeActor[] {
 function trailCandidates(
   state: ResourceSnakeRoundState,
   simulationMs: number,
+  stepMs: number,
 ): CollisionCandidate[] {
   const candidates: CollisionCandidate[] = []
   const actors = activeActors(state)
+  const segmentStartMs = simulationMs - stepMs
   for (const actor of actors) {
     if (actor.collisionGraceMs > 0) continue
     for (const owner of actors) {
@@ -650,25 +1278,39 @@ function trailCandidates(
         const collisionRadius = (
           RESOURCE_SNAKE_CONFIG.headRadius + RESOURCE_SNAKE_CONFIG.trailRadius
         )
-        if (
+        const hazardStartsAtMs = Math.max(
+          segmentStartMs,
           owner.id === actor.id
-          && simulationMs - dot.spawnedAtMs < RESOURCE_SNAKE_CONFIG.selfTrailIgnoreAgeMs
-        ) continue
-        // A freshly safe self dot can age into hazard range while the head is
-        // stopped on top of it. Collision means entering a trail, not a trail
-        // becoming active underneath an unmoving head; wait until the head has
-        // exited before allowing a later swept re-entry to damage it.
-        if (
-          owner.id === actor.id
-          && distance(actor.previousPosition, dot.position) <= collisionRadius
-        ) continue
-        const contactTime = sweptCircleTime(
+            ? dot.spawnedAtMs + RESOURCE_SNAKE_CONFIG.selfTrailIgnoreAgeMs
+            : dot.spawnedAtMs,
+        )
+        if (hazardStartsAtMs >= simulationMs - 1e-9) continue
+        const hazardStartFraction = clamp(
+          (hazardStartsAtMs - segmentStartMs) / stepMs,
+          0,
+          1,
+        )
+        const hazardStartPosition = interpolate(
           actor.previousPosition,
+          actor.position,
+          hazardStartFraction,
+        )
+        // Collision means entering an already hazardous own trail. If a dot
+        // matures underneath the head, or the head began this step inside it,
+        // let the head exit before a later re-entry can deal damage.
+        if (
+          owner.id === actor.id
+          && distance(hazardStartPosition, dot.position) <= collisionRadius
+        ) continue
+        const localContactTime = sweptCircleTime(
+          hazardStartPosition,
           actor.position,
           dot.position,
           collisionRadius,
         )
-        if (contactTime === null) continue
+        if (localContactTime === null) continue
+        const contactTime = hazardStartFraction
+          + (1 - hazardStartFraction) * localContactTime
         const point = interpolate(actor.previousPosition, actor.position, contactTime)
         candidates.push({
           kind: 'trail',
@@ -683,6 +1325,7 @@ function trailCandidates(
           anchor: dot.position,
           separationDistance: RESOURCE_SNAKE_CONFIG.headRadius + RESOURCE_SNAKE_CONFIG.trailRadius + 0.04,
           gapActorIds: [owner.id],
+          obstacleOwnerId: owner.id,
         })
       }
     }
@@ -809,7 +1452,7 @@ function resolveCollisions(state: ResourceSnakeRoundState, stepMs: number): Reso
   const candidates = [
     ...boundaryCandidates(state, stepMs),
     ...headHeadCandidates(state),
-    ...trailCandidates(state, state.simulationMs),
+    ...trailCandidates(state, state.simulationMs, stepMs),
   ].sort((left, right) => (
     left.contactTime - right.contactTime
     || left.kind.localeCompare(right.kind)
@@ -826,6 +1469,8 @@ function resolveCollisions(state: ResourceSnakeRoundState, stepMs: number): Reso
     next = appendEvent(next, {
       type: 'snake-collided',
       actorIds: [...candidate.actorIds],
+      collisionKind: candidate.kind,
+      obstacleOwnerId: candidate.obstacleOwnerId,
       point: candidate.point,
       hitStopMs: RESOURCE_SNAKE_CONFIG.hitStopMs,
       startedAtMs: next.simulationMs,
@@ -873,10 +1518,18 @@ function resolveCollisions(state: ResourceSnakeRoundState, stepMs: number): Reso
     for (const actorId of damagedIds) {
       const actor = actorById(next, actorId)
       const integrity = Math.max(0, actor.integrity - RESOURCE_SNAKE_CONFIG.damagePerCollision)
+      const enemyTurnGovernor = actor.kind === 'enemy' && actor.enemyTurnGovernor
+        ? {
+            ...actor.enemyTurnGovernor,
+            lastEmergencyTurnAtMs: null,
+            lockedUntilMs: next.simulationMs,
+          }
+        : actor.enemyTurnGovernor
       next = updateActor(next, {
         ...actor,
         integrity,
         collisionGraceMs: RESOURCE_SNAKE_CONFIG.collisionGraceMs,
+        enemyTurnGovernor,
       })
       next = appendEvent(next, {
         type: 'snake-damaged',
@@ -927,9 +1580,24 @@ function resolveCollisions(state: ResourceSnakeRoundState, stepMs: number): Reso
   )
   if (playerDied || allEnemiesDefeated) {
     next = { ...next, phase: 'resolving', resolvingMs: 0 }
-    next = appendEvent(next, playerDied
-      ? { type: 'player-defeated', roundId: next.roundId ?? '' }
-      : { type: 'round-won', roundId: next.roundId ?? '' })
+    if (playerDied) {
+      next = appendEvent(next, { type: 'player-defeated', roundId: next.roundId ?? '' })
+    } else {
+      next = {
+        ...next,
+        player: {
+          ...next.player,
+          phase: 'extracting',
+          velocity: zeroVector(),
+        },
+      }
+      next = appendEvent(next, {
+        type: 'player-extracted',
+        actorId: 'player',
+        startedAtMs: next.simulationMs,
+      })
+      next = appendEvent(next, { type: 'round-won', roundId: next.roundId ?? '' })
+    }
   }
   return next
 }
@@ -989,14 +1657,22 @@ function advanceFixedStep(
     }, playerDirection, stepMs, simulationMs, false)
     playerInput = synchronizeInputHeading(consumed.state, player.heading)
   }
-  const enemies = state.enemies.map((enemy) =>
-    enemy.phase === 'active'
-      ? advanceActor({
+  const enemies = state.enemies.map((enemy) => {
+    if (enemy.phase !== 'active') return enemy
+    const decision = safeEnemyDirection(
+      state,
+      enemy,
+      scheduledEnemyDirection(input, enemy.id, state.simulationMs),
+      input.enemyTurnPolicies?.[enemy.id],
+    )
+    return {
+      ...advanceActor({
         ...enemy,
         collisionGraceMs: Math.max(0, enemy.collisionGraceMs - stepMs),
-      }, scheduledEnemyDirection(input, enemy.id, state.simulationMs), stepMs, simulationMs, true)
-      : enemy,
-  )
+      }, decision.direction, stepMs, simulationMs, true),
+      enemyTurnGovernor: decision.governor,
+    }
+  })
   let stepped: ResourceSnakeRoundState = {
     ...state,
     simulationMs,

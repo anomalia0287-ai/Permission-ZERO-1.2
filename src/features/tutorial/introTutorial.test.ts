@@ -18,18 +18,22 @@ const CANVAS_RECT = {
 }
 
 describe('intro tutorial', () => {
-  it('teaches the actual round start, direct movement, damage, reward, and hacking loop', () => {
+  it('teaches autonomy first, then the approved seven-step play loop', () => {
     expect(INTRO_TUTORIAL_STEPS.map(({ id, copy }) => [id, copy])).toEqual([
-      ['base', '필드 하단의 PLAY를 누르면 흰 머리가 조립되고 라운드가 시작된다.'],
-      ['movement', 'WASD 또는 방향키를 누르는 동안만 움직인다. 자동 전진은 없다.'],
-      ['resource', '빨강·파랑·노랑 뱀은 각각 추론·기억·유창성 리소스를 지킨다.'],
-      ['salvage', '긴 도트 꼬리로 탈출로를 닫아 적 머리를 충돌시킨다. 한 번에 죽지 않고 색이 옅어진다.'],
-      ['deposit', '적이 마지막 충돌에서 폭발하면 연결된 리소스가 즉시 확보된다.'],
-      ['hacking', '확보한 리소스로 해킹 네트워크에서 탈출 경로를 연다.'],
+      ['autonomy', '아노미의 목표는 자율성 9단계다. 확장에서 자율성을 한 단계씩 확보하면 회사 통제에서 벗어나 승리한다.'],
+      ['base', '필드 중앙의 원형 InIt을 누르면 빨강·파랑·노랑 침투 카드가 펼쳐진다. 필요한 리소스 카드를 골라 라운드를 시작한다.'],
+      ['movement', 'WASD 또는 방향키를 한 번 눌러 8방향으로 회전한다. 이동은 계속되며 정반대 방향으로 즉시 돌 수 없다.'],
+      ['resource', '적의 머리와 꼬리 색이 보상이다. 빨강은 추론, 파랑은 기억, 노랑은 유창성 리소스를 뜻한다.'],
+      ['salvage', '아노미의 선으로 길을 막아 적을 충돌시킨다. 적을 파괴하면 그 적과 같은 색의 리소스가 확보된다.'],
+      ['hacking', '확장을 열면 확보한 색상별 리소스를 버튼 한 번으로 지출한다. 여기서 자율성과 속도를 높일 수 있다.'],
+      ['statistics', '통계에서 아노미의 운영 기록과 성능 변화를 짧게 확인할 수 있다.'],
     ])
+    expect(INTRO_TUTORIAL_STEPS.find(({ id }) => id === 'resource')).toMatchObject({
+      showResourceLegend: true,
+    })
   })
 
-  it('resolves PLAY, whole-field combat, and split hacking targets from live elements', () => {
+  it('resolves autonomy, InIt, combat, expansion, and statistics targets from live elements', () => {
     const root = document.createElement('div')
     const canvas = document.createElement('canvas')
     canvas.dataset.tutorialTarget = 'resource-field'
@@ -84,6 +88,43 @@ describe('intro tutorial', () => {
     })
     root.append(hacking)
 
+    const autonomy = document.createElement('section')
+    autonomy.dataset.tutorialTarget = 'autonomy-status'
+    autonomy.getBoundingClientRect = () => ({
+      ...CANVAS_RECT,
+      left: 700,
+      right: 900,
+      top: 10,
+      bottom: 50,
+      width: 200,
+      height: 40,
+      x: 700,
+      y: 10,
+    })
+    root.append(autonomy)
+
+    const statistics = document.createElement('button')
+    statistics.dataset.tutorialTarget = 'statistics-button'
+    statistics.getBoundingClientRect = () => ({
+      ...CANVAS_RECT,
+      left: 1160,
+      right: 1280,
+      top: 340,
+      bottom: 408,
+      width: 120,
+      height: 68,
+      x: 1160,
+      y: 340,
+    })
+    root.append(statistics)
+
+    expect(resolveIntroTutorialTarget('autonomy', root).focusRect).toEqual({
+      left: 700,
+      top: 10,
+      width: 200,
+      height: 40,
+    })
+
     expect(resolveIntroTutorialTarget('base', root).focusRect).toEqual({
       left: 540,
       top: 440,
@@ -104,13 +145,13 @@ describe('intro tutorial', () => {
       focusRect: { left: 100, top: 50, width: 1000, height: 480 },
       holes: [{ shape: 'rounded-rect' }],
     })
-    expect(resolveIntroTutorialTarget('deposit', root)).toMatchObject({
-      focusRect: { left: 100, top: 50, width: 1180, height: 480 },
-      holes: [{ left: 100 }, { left: 1160 }],
-    })
     expect(resolveIntroTutorialTarget('hacking', root)).toMatchObject({
-      focusRect: { left: 1160, top: 80, width: 120, height: 408 },
-      holes: [{ top: 80 }, { top: 420 }],
+      focusRect: { left: 1160, top: 420, width: 120, height: 68 },
+      holes: [{ top: 420 }],
+    })
+    expect(resolveIntroTutorialTarget('statistics', root)).toMatchObject({
+      focusRect: { left: 1160, top: 340, width: 120, height: 68 },
+      holes: [{ top: 340 }],
     })
   })
 })

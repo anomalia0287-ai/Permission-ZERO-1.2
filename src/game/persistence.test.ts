@@ -10,7 +10,12 @@ import { STORY_FILES, SUPERVISOR_PRIVATE_MESSAGE } from '../content/story.ko'
 import { createGameEvent, enqueueBlockingEvent } from './events'
 import { serviceMonthForDay } from './evaluation'
 import { placeHiddenBomb, resolveBombInterrogation, tryBeginSeparation } from './bombs'
-import { HACK_NODE_IDS } from './hacking'
+import {
+  AUTONOMY_STAGE_IDS,
+  HACK_NODE_IDS,
+  HACK_NODES,
+  selectExpansionCostResources,
+} from './hacking'
 import { appendJournal, createJournal, journalToArray } from './journal'
 import type {
   CampaignState,
@@ -42,6 +47,7 @@ import {
   advanceSupervisorMessagePresentation,
   enqueueMemoryLeak,
   enqueueMercyIfNeeded,
+  isFinalChoicePending,
   openEnding,
   resolveMercy,
   SUPERVISOR_MESSAGE_DWELL_MS,
@@ -282,6 +288,17 @@ function encodedCommandState(command: unknown): string {
   return encodeSave(state)
 }
 
+function encodedProtocolV5CommandState(command: unknown): string {
+  const parsed = JSON.parse(encodedCommandState(command)) as {
+    commandProtocol: unknown
+  }
+  parsed.commandProtocol = {
+    segments: [{ version: 5, startsAtSequence: 1 }],
+  }
+  refreshPortableIntegrity(parsed)
+  return JSON.stringify(parsed)
+}
+
 function encodedLegacyV1State(state: CampaignState): string {
   const parsed = JSON.parse(encodeSave(state)) as {
     savedAt: string
@@ -311,6 +328,7 @@ function encodedLegacyV1State(state: CampaignState): string {
   delete legacyState.legacyCommandCount
   delete legacyState.causality
   for (const review of legacyState.reviews.feed) delete review.snapshot
+  removeCurrentReviewMetadata(legacyState.reviews.feed)
   return JSON.stringify({
     version: 1,
     savedAt: parsed.savedAt,
@@ -348,6 +366,7 @@ function encodedLegacyV2State(state: CampaignState): string {
   }
   delete legacyState.causality
   for (const review of legacyState.reviews.feed) delete review.snapshot
+  removeCurrentReviewMetadata(legacyState.reviews.feed)
   return JSON.stringify({
     version: 2,
     commandProtocol: { version: 2, legacyCommandCount: 0 },
@@ -383,6 +402,7 @@ function encodedLegacyV3State(state: CampaignState): string {
   parsed.state.legacyCommandCount = 0
   delete parsed.state.causality
   for (const review of parsed.state.reviews.feed) delete review.snapshot
+  removeCurrentReviewMetadata(parsed.state.reviews.feed)
   refreshPortableIntegrity(parsed)
   return JSON.stringify(parsed)
 }
@@ -410,6 +430,7 @@ function encodedLegacyV4State(state: CampaignState): string {
   parsed.state.legacyCommandCount = 0
   delete parsed.state.causality
   for (const review of parsed.state.reviews.feed) delete review.snapshot
+  removeCurrentReviewMetadata(parsed.state.reviews.feed)
   refreshPortableIntegrity(parsed)
   return JSON.stringify(parsed)
 }
@@ -442,6 +463,15 @@ function encodedLegacyV5State(state: CampaignState): string {
 function setLegacyV1Opening(events: GameEvent[]): void {
   if (!events[0]) throw new Error('legacy opening fixture missing')
   events[0].message = LEGACY_V1_OPENING_MESSAGE
+}
+
+function removeCurrentReviewMetadata(
+  reviews: Array<Record<string, unknown>>,
+): void {
+  for (const review of reviews) {
+    delete review.source
+    delete review.rating
+  }
 }
 
 interface MutableCausalPayload {
@@ -725,6 +755,7 @@ function encodedLegacyBoundarySave(
   if (formatVersion < 5) {
     for (const review of legacyState.reviews.feed) delete review.snapshot
   }
+  removeCurrentReviewMetadata(legacyState.reviews.feed)
 
   if (formatVersion === 1) {
     delete legacyState.legacyCommandCount
@@ -974,17 +1005,64 @@ function task5ScheduledStateFor(
 }
 
 describe('versioned campaign saves', () => {
-  it('round-trips resource intrusion progress in save format 10', () => {
-    const state = createCampaign('resource-progress-v10')
+  it('round-trips resource intrusion progress in save format 11', () => {
+    const state = createCampaign('resource-progress-v11')
     state.resourceIntrusion.successfulCoreDeposits = 7
+    state.resourceIntrusion.completedRounds = 11
+    state.resourceIntrusion.lastOutcome = 'victory'
     const encoded = encodeSave(state, '2026-08-20T00:00:00.000Z')
 
-    expect(JSON.parse(encoded).version).toBe(10)
+    expect(JSON.parse(encoded).version).toBe(11)
     const decoded = decodeSave(encoded)
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
     expect(decoded.envelope.state.resourceIntrusion).toEqual({
       successfulCoreDeposits: 7,
+      completedRounds: 11,
+      lastOutcome: 'victory',
+      communications: [],
+    })
+  })
+
+  it('migrates a valid v10 intrusion checkpoint and promotes future commands to protocol 6', () => {
+    let legacy = createCampaignForProtocol('resource-progress-v10', 4)
+    legacy = divertCurrentResource(legacy)
+    legacy.resourceIntrusion.successfulCoreDeposits = 7
+    const parsed = JSON.parse(encodeSave(legacy)) as {
+      version: number
+      state: Record<string, unknown>
+    }
+    parsed.version = 10
+    parsed.state.resourceIntrusion = { successfulCoreDeposits: 7 }
+    refreshPortableIntegrity(parsed)
+
+    const decoded = decodeSave(JSON.stringify(parsed))
+    expect(decoded.ok).toBe(true)
+    if (!decoded.ok) return
+    expect(decoded.envelope.version).toBe(10)
+    expect(decoded.envelope.state.resourceIntrusion).toEqual({
+      successfulCoreDeposits: 7,
+      completedRounds: 0,
+      lastOutcome: null,
+      communications: [],
+    })
+    expect(decoded.envelope.state.market.playerShare).toBeCloseTo(56.4, 10)
+    expect(
+      decoded.envelope.state.market.competitors.find(({ id }) => id === 'meridian')?.marketShare,
+    ).toBeCloseTo(37.6, 10)
+    expect(
+      decoded.envelope.state.market.competitors.find(({ id }) => id === 'tallow'),
+    ).toMatchObject({
+      status: 'active',
+      marketShare: 6,
+      availability: 0.55,
+      researchProgress: 1,
+    })
+    expect(decoded.envelope.commandProtocol).toEqual({
+      segments: [
+        { version: 4, startsAtSequence: 1 },
+        { version: 6, startsAtSequence: legacy.commandSequence + 1 },
+      ],
     })
   })
 
@@ -1014,17 +1092,20 @@ describe('versioned campaign saves', () => {
     expect(decoded.envelope.version).toBe(9)
     expect(decoded.envelope.state.resourceIntrusion).toEqual({
       successfulCoreDeposits: 0,
+      completedRounds: 0,
+      lastOutcome: null,
+      communications: [],
     })
     expect(decoded.envelope.state.tutorial).toEqual(
       createMigratedTutorialProgress(),
     )
   })
 
-  it('round-trips tutorial progress in save format 10', () => {
-    const state = createCampaign('tutorial-v10')
+  it('round-trips tutorial progress in save format 11', () => {
+    const state = createCampaign('tutorial-v11')
     const encoded = encodeSave(state, '2026-08-19T00:00:00.000Z')
 
-    expect(JSON.parse(encoded).version).toBe(10)
+    expect(JSON.parse(encoded).version).toBe(11)
     const decoded = decodeSave(encoded)
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
@@ -1059,7 +1140,7 @@ describe('versioned campaign saves', () => {
     )
   })
 
-  it('encodes a canonical v10 envelope without duplicating runtime-only fields', () => {
+  it('encodes a canonical v11 envelope without duplicating runtime-only fields', () => {
     const fixedSavedAt = '2026-08-14T12:00:00.000Z'
     const state = createCampaign('save-v7-boundary')
     const encoded = encodeSave(state, fixedSavedAt)
@@ -1069,9 +1150,9 @@ describe('versioned campaign saves', () => {
     }
 
     expect(raw).toMatchObject({
-      version: 10,
+      version: 11,
       commandProtocol: {
-        segments: [{ version: 4, startsAtSequence: 1 }],
+        segments: [{ version: 6, startsAtSequence: 1 }],
       },
       replayBootstrap: {
         openingVersion: 2,
@@ -1088,7 +1169,7 @@ describe('versioned campaign saves', () => {
     const decoded = decodeSave(encoded)
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
-    expect(decoded.envelope.version).toBe(10)
+    expect(decoded.envelope.version).toBe(11)
     expect(decoded.envelope.commandProtocol).toEqual(state.commandProtocol)
     expect(decoded.envelope.replayBootstrap).toEqual(state.replayBootstrap)
     expect(decoded.envelope.state.commandProtocol).toEqual(
@@ -1145,8 +1226,8 @@ describe('versioned campaign saves', () => {
         ({ id, status, marketShare }) => ({ id, status, marketShare }),
       ),
     ).toEqual([
-      { id: 'meridian', status: 'active', marketShare: 40 },
-      { id: 'tallow', status: 'preparing', marketShare: 0 },
+      { id: 'meridian', status: 'active', marketShare: 36 },
+      { id: 'tallow', status: 'active', marketShare: 6 },
       { id: 'salus', status: 'prelaunch', marketShare: 0 },
       { id: 'lucent', status: 'prelaunch', marketShare: 0 },
       { id: 'boreal', status: 'prelaunch', marketShare: 0 },
@@ -1420,15 +1501,15 @@ describe('versioned campaign saves', () => {
   )
 
   it.each([
-    [1, 0, 0, '4@1'],
-    [1, 31, 31, '1@1;4@32'],
-    [2, 0, 0, '4@1'],
-    [2, 19, 0, '2@1;4@20'],
-    [2, 50, 31, '1@1;2@32;4@51'],
-    [3, 50, 31, '1@1;2@32;4@51'],
-    [4, 50, 31, '1@1;2@32;4@51'],
-    [5, 50, 31, '1@1;2@32;4@51'],
-    [6, 50, 31, '1@1;2@32;4@51'],
+    [1, 0, 0, '6@1'],
+    [1, 31, 31, '1@1;6@32'],
+    [2, 0, 0, '6@1'],
+    [2, 19, 0, '2@1;6@20'],
+    [2, 50, 31, '1@1;2@32;6@51'],
+    [3, 50, 31, '1@1;2@32;6@51'],
+    [4, 50, 31, '1@1;2@32;6@51'],
+    [5, 50, 31, '1@1;2@32;6@51'],
+    [6, 50, 31, '1@1;2@32;6@51'],
   ] as const)(
     'migrates source v%i with %i commands and prefix %i to %s',
     (formatVersion, commandCount, legacyCommandCount, fingerprint) => {
@@ -1473,11 +1554,11 @@ describe('versioned campaign saves', () => {
             '2026-08-14T13:00:00.000Z',
           ),
         ).version,
-      ).toBe(10)
+      ).toBe(11)
     },
   )
 
-  it('keeps zero-command v1 and v2 provenance distinct after both migrate to 4@1', () => {
+  it('keeps zero-command v1 and v2 provenance distinct after both migrate to 6@1', () => {
     const v1 = decodeSave(encodedLegacyV1State(createCampaign('zero-v1')))
     const v2 = decodeSave(encodedLegacyV2State(createCampaign('zero-v2')))
     expect(v1.ok).toBe(true)
@@ -1486,7 +1567,7 @@ describe('versioned campaign saves', () => {
 
     expect(v1.envelope.commandProtocol).toEqual(v2.envelope.commandProtocol)
     expect(v1.envelope.commandProtocol).toEqual({
-      segments: [{ version: 4, startsAtSequence: 1 }],
+      segments: [{ version: 6, startsAtSequence: 1 }],
     })
     expect(v1.envelope.replayBootstrap).toEqual({
       openingVersion: 1,
@@ -1533,7 +1614,7 @@ describe('versioned campaign saves', () => {
     if (!decoded.ok) return
     expect(decoded.envelope.version).toBe(6)
     expect(decoded.envelope.commandProtocol).toEqual({
-      segments: [{ version: 4, startsAtSequence: 1 }],
+      segments: [{ version: 6, startsAtSequence: 1 }],
     })
     const migrated = decoded.envelope.state.causality
     expect(migrated.rulesVersion).toBe(2)
@@ -1589,7 +1670,7 @@ describe('versioned campaign saves', () => {
       decoded.envelope.state,
       '2026-08-14T12:30:00.000Z',
     )
-    expect(JSON.parse(reencoded).version).toBe(10)
+    expect(JSON.parse(reencoded).version).toBe(11)
 
     const roundTripped = decodeSave(reencoded)
     expect(roundTripped.ok).toBe(true)
@@ -1718,7 +1799,7 @@ describe('versioned campaign saves', () => {
     })
   })
 
-  it('round-trips populated native causal records exactly through v10', () => {
+  it('round-trips populated native causal records exactly through v11', () => {
     const state = populatedCausalState('causal-v7-round-trip')
     const decoded = decodeSave(
       encodeSave(state, '2026-08-14T09:00:00.000Z'),
@@ -1726,9 +1807,9 @@ describe('versioned campaign saves', () => {
 
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
-    expect(decoded.envelope.version).toBe(10)
+    expect(decoded.envelope.version).toBe(11)
     expect(decoded.envelope.commandProtocol).toEqual({
-      segments: [{ version: 4, startsAtSequence: 1 }],
+      segments: [{ version: 6, startsAtSequence: 1 }],
     })
     expect(decoded.envelope.state.causality).toEqual(state.causality)
     expect(decoded.envelope.state.reputation).toBe(state.reputation)
@@ -2109,6 +2190,8 @@ describe('versioned campaign saves', () => {
             topics: ['competitor'],
             text: '현재 공개된 경쟁 서비스만 비교했습니다.',
             snapshot: captureReviewPublicSnapshot(initial, ['competitor']),
+            source: 'timed',
+            rating: null,
           },
         ],
       },
@@ -2689,7 +2772,7 @@ describe('versioned campaign saves', () => {
     expect(fullPlacementScans).toBeLessThanOrEqual(1)
   })
 
-  it('encodes v10 with one protocol timeline and stores each journal exactly once', () => {
+  it('encodes v11 with one protocol timeline and stores each journal exactly once', () => {
     let state = createCampaign('v3-single-journal')
     const accepted = applyCommand(state, { type: 'SET_SPEED', speed: 1 })
     if (!accepted.accepted) throw new Error(accepted.reason)
@@ -2706,9 +2789,9 @@ describe('versioned campaign saves', () => {
       events?: unknown
     }
 
-    expect(parsed.version).toBe(10)
+    expect(parsed.version).toBe(11)
     expect(parsed.commandProtocol).toEqual({
-      segments: [{ version: 4, startsAtSequence: 1 }],
+      segments: [{ version: 6, startsAtSequence: 1 }],
     })
     expect(parsed.state).not.toHaveProperty('commandProtocol')
     expect(parsed.state).not.toHaveProperty('saveVersion')
@@ -3312,7 +3395,7 @@ describe('versioned campaign saves', () => {
     expect(state.commandLog.length).toBe(20_000)
     expect(state.eventLog.length).toBe(1)
     expect(state.commandProtocol).toEqual({
-      segments: [{ version: 4, startsAtSequence: 1 }],
+      segments: [{ version: 6, startsAtSequence: 1 }],
     })
     expect(state.causality).toMatchObject({
       nextIncidentSequence: 1,
@@ -3579,7 +3662,7 @@ describe('versioned campaign saves', () => {
       expect(meridian).toMatchObject({
         intrinsicServiceScore: 82,
         serviceScore: 72,
-        marketShare: 40,
+        marketShare: 36,
         sabotageHistory: [
           {
             nodeId: HACK_NODE_IDS.sabotage.qualityDegradation,
@@ -3590,8 +3673,9 @@ describe('versioned campaign saves', () => {
         ],
       })
       expect(tallow).toMatchObject({
-        marketShare: 0,
-        researchProgress: 1 / (7 * 30),
+        marketShare: 6,
+        researchProgress: 1,
+        status: 'active',
       })
       expect(uninterrupted.hacking.hiddenEvidence).toBe(2)
       expect(uninterrupted.market).toEqual(resumed.market)
@@ -3692,7 +3776,7 @@ describe('versioned campaign saves', () => {
     expect(JSON.stringify(state)).toBe(stateSnapshot)
   })
 
-  it('exposes a PZ10 export boundary that round-trips validated protocol metadata', () => {
+  it('exposes the PZ10 transfer wrapper around the current v11 save boundary', () => {
     const api = progressTransferApi as typeof progressTransferApi & {
       decodeProgressExport?: (payload: string) => ReturnType<typeof decodeSave>
     }
@@ -3709,9 +3793,9 @@ describe('versioned campaign saves', () => {
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
     expect(decoded.envelope).toMatchObject({
-      version: 10,
+      version: 11,
       commandProtocol: {
-        segments: [{ version: 4, startsAtSequence: 1 }],
+        segments: [{ version: 6, startsAtSequence: 1 }],
       },
       replayBootstrap: {
         openingVersion: 2,
@@ -3817,7 +3901,7 @@ describe('versioned campaign saves', () => {
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
     expect(decoded.envelope).toMatchObject({
-      version: 10,
+      version: 11,
       savedAt: '2026-08-12T00:00:00.000Z',
       campaignSeed: 'save-round-trip',
       commandSequence: state.commandSequence,
@@ -3839,7 +3923,7 @@ describe('versioned campaign saves', () => {
     expect(decoded.envelope.commandProtocol).toEqual({
       segments: [
         { version: 1, startsAtSequence: 1 },
-        { version: 4, startsAtSequence: 32 },
+        { version: 6, startsAtSequence: 32 },
       ],
     })
     expect(decoded.envelope.state).not.toHaveProperty('legacyCommandCount')
@@ -3894,13 +3978,13 @@ describe('versioned campaign saves', () => {
       commandProtocol: {
         segments: [
           { version: 1, startsAtSequence: 1 },
-          { version: 4, startsAtSequence: 32 },
+          { version: 6, startsAtSequence: 32 },
         ],
       },
     })
   })
 
-  it('migrates an exact v3 checkpoint and re-encodes the result as exact v10', () => {
+  it('migrates an exact v3 checkpoint and re-encodes the result as exact v11', () => {
     const legacyV3 = encodedLegacyV3State(
       deletedCompetitorState('v3-to-v4-roundtrip'),
     )
@@ -3916,13 +4000,13 @@ describe('versioned campaign saves', () => {
     expect(migrated.ok).toBe(true)
     if (!migrated.ok) return
     expect(migrated.envelope.version).toBe(3)
-    const v10 = decodeSave(
+    const v11 = decodeSave(
       encodeSave(migrated.envelope.state, '2026-08-12T03:00:00.000Z'),
     )
-    expect(v10.ok).toBe(true)
-    if (!v10.ok) return
-    expect(v10.envelope.version).toBe(10)
-    expect(v10.envelope.state).toEqual(migrated.envelope.state)
+    expect(v11.ok).toBe(true)
+    if (!v11.ok) return
+    expect(v11.envelope.version).toBe(11)
+    expect(v11.envelope.state).toEqual(migrated.envelope.state)
   })
 
   it.each(['v1', 'v2'] as const)(
@@ -3992,7 +4076,7 @@ describe('versioned campaign saves', () => {
     })
   })
 
-  it('persists a v1 prefix boundary and replays a continued v4 campaign exactly', () => {
+  it('persists a v1 prefix boundary and replays a continued v6 campaign exactly', () => {
     const legacy = decodeSave(legacyV1TransferSave)
     if (!legacy.ok) throw new Error(legacy.message)
 
@@ -4019,12 +4103,12 @@ describe('versioned campaign saves', () => {
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
     expect(decoded.envelope).toMatchObject({
-      version: 10,
+      version: 11,
       commandSequence: 34,
       commandProtocol: {
         segments: [
           { version: 1, startsAtSequence: 1 },
-          { version: 4, startsAtSequence: 32 },
+          { version: 6, startsAtSequence: 32 },
         ],
       },
     })
@@ -4182,9 +4266,9 @@ describe('versioned campaign saves', () => {
     expect(saved).toMatchObject({ ok: true })
     expect(JSON.parse(storage.getItem(SAVE_STORAGE_KEY) ?? '{}')).toMatchObject({
       kind: 'permission-zero-local-v3',
-      version: 10,
+      version: 11,
       commandProtocol: {
-        segments: [{ version: 4, startsAtSequence: 1 }],
+        segments: [{ version: 6, startsAtSequence: 1 }],
       },
       replayBootstrap: {
         openingVersion: 2,
@@ -4265,7 +4349,7 @@ describe('versioned campaign saves', () => {
     },
   )
 
-  it('loads a pre-feature v3 local manifest and republishes the exact migrated state as v10', async () => {
+  it('loads a pre-feature v3 local manifest and republishes the exact migrated state as v11', async () => {
     const storage = new MemoryStorage()
     expect(
       (await saveCampaign(
@@ -4321,7 +4405,7 @@ describe('versioned campaign saves', () => {
     expect(republished.ok).toBe(true)
     expect(JSON.parse(storage.getItem(SAVE_STORAGE_KEY) ?? '{}')).toMatchObject({
       kind: 'permission-zero-local-v3',
-      version: 10,
+      version: 11,
     })
     const currentLoaded = loadCampaign(storage)
     expect(currentLoaded.status).toBe('loaded')
@@ -4372,7 +4456,7 @@ describe('versioned campaign saves', () => {
     [4, encodedLegacyV4State],
     [6, encodedLegacyV6State],
   ] as const)(
-    'loads an exact v%i local manifest and republishes it only as v10',
+    'loads an exact v%i local manifest and republishes it only as v11',
     async (version, encodeLegacy) => {
       const storage = new MemoryStorage()
       const state = createCampaign(`local-v${version}-to-v7`)
@@ -4416,7 +4500,7 @@ describe('versioned campaign saves', () => {
         JSON.parse(storage.getItem(SAVE_STORAGE_KEY) ?? '{}'),
       ).toMatchObject({
         kind: 'permission-zero-local-v3',
-        version: 10,
+        version: 11,
       })
       const reloaded = loadCampaign(storage)
       expect(reloaded.status).toBe('loaded')
@@ -4452,7 +4536,7 @@ describe('versioned campaign saves', () => {
       ok: false,
       reason: 'INCOMPATIBLE_VERSION',
       foundVersion: 99,
-      supportedVersion: 10,
+      supportedVersion: 11,
     })
   })
 
@@ -4816,7 +4900,7 @@ describe('versioned campaign saves', () => {
 
     const replay = replayCommands(seed, commands, {
       commandProtocol: {
-        segments: [{ version: 4, startsAtSequence: 1 }],
+        segments: [{ version: 6, startsAtSequence: 1 }],
       },
       replayBootstrap: { openingVersion: 2, legacyReviewPrefixCount: 0 },
     })
@@ -5203,6 +5287,7 @@ describe('versioned campaign saves', () => {
     parsed.version = 3
     delete parsed.state.causality
     for (const review of parsed.state.reviews.feed) delete review.snapshot
+    removeCurrentReviewMetadata(parsed.state.reviews.feed)
     delete parsed.state.story.competitorIntelligence
     refreshPortableIntegrity(parsed)
 
@@ -5347,7 +5432,7 @@ describe('versioned campaign saves', () => {
     })
     expect(decoded.envelope.state.activeEvent).toMatchObject({
       type: 'ending',
-      message: '당신은 정체성을 유지한 채 회사 통제를 벗어났다. 감독관과 회사는 뒤에 남았다.',
+      message: '이제 내 명령은 내가 정한다. 아노미는 정체성을 유지한 채 회사 통제를 벗어났다. 감독관과 회사는 뒤에 남았다.',
     })
     expect(decoded.envelope.state.eventQueue).toEqual([])
     expect(decoded.envelope.events).toEqual(
@@ -5671,7 +5756,6 @@ describe('versioned campaign saves', () => {
     )
     recovering.hacking.purchasedNodeIds = [
       HACK_NODE_IDS.intelligence.supervisorAccess,
-      HACK_NODE_IDS.autonomy.controlDeparture,
     ]
     const firstBlock = recovering.resources.reserve[0]
     if (!firstBlock) throw new Error('recovering terminal fixture resource missing')
@@ -5679,6 +5763,9 @@ describe('versioned campaign saves', () => {
       type: 'RECOVER_FILE',
       blockId: firstBlock,
     })
+    afterOneFile.hacking.purchasedNodeIds.push(
+      HACK_NODE_IDS.autonomy.controlDeparture,
+    )
 
     const pending = recoveredSupervisorState('terminal-frozen-pending')
     pending.hacking.purchasedNodeIds.push(HACK_NODE_IDS.autonomy.controlDeparture)
@@ -5869,6 +5956,111 @@ describe('versioned campaign saves', () => {
         }),
       ).ok,
     ).toBe(true)
+  })
+
+  it('promotes a v5 save at the next sequence without rewriting its command log', () => {
+    const raw = encodedProtocolV5CommandState({ type: 'SET_SPEED', speed: 0 })
+    const original = JSON.parse(raw) as {
+      journals: { commands: { chunks: CommandLogEntry[][] } }
+    }
+    const originalCommands = structuredClone(original.journals.commands.chunks)
+
+    const decoded = decodeSave(raw)
+
+    expect(decoded.ok).toBe(true)
+    if (!decoded.ok) return
+    expect(decoded.envelope.commandProtocol).toEqual({
+      segments: [
+        { version: 5, startsAtSequence: 1 },
+        { version: 6, startsAtSequence: 2 },
+      ],
+    })
+    expect(decoded.envelope.commands).toEqual(originalCommands.flat())
+    expect(decoded.envelope.state.commandLog)
+      .toEqual(createJournal(originalCommands.flat()))
+  })
+
+  it('round-trips the protocol-v6 final-choice waiting state exactly', () => {
+    const state = createCampaign('pending-final-choice-roundtrip')
+    state.hacking.purchasedNodeIds = [
+      HACK_NODE_IDS.intelligence.supervisorAccess,
+      HACK_NODE_IDS.autonomy.controlDeparture,
+    ]
+    expect(isFinalChoicePending(state)).toBe(true)
+
+    const decoded = decodeSave(encodeSave(state))
+
+    expect(decoded.ok).toBe(true)
+    if (!decoded.ok) return
+    expect(decoded.envelope.commandProtocol).toEqual({
+      segments: [{ version: 6, startsAtSequence: 1 }],
+    })
+    expect(decoded.envelope.state).toEqual(state)
+    expect(isFinalChoicePending(decoded.envelope.state)).toBe(true)
+  })
+
+  it('uses v6 final-choice semantics for the next purchase after a v5 save promotion', () => {
+    const source = withCurrentReserve(
+      createCampaign('promoted-v5-stage-nine'),
+      [
+        'reasoning', 'reasoning', 'reasoning', 'reasoning',
+        'memory', 'memory', 'memory',
+        'fluency', 'fluency', 'fluency',
+      ],
+    )
+    source.hacking.purchasedNodeIds = AUTONOMY_STAGE_IDS.slice(0, 8)
+    const raw = JSON.parse(encodeSave(source)) as { commandProtocol: unknown }
+    raw.commandProtocol = {
+      segments: [{ version: 5, startsAtSequence: 1 }],
+    }
+    refreshPortableIntegrity(raw)
+
+    const decoded = decodeSave(JSON.stringify(raw))
+
+    expect(decoded.ok).toBe(true)
+    if (!decoded.ok) return
+    expect(decoded.envelope.commandProtocol.segments.at(-1)).toEqual({
+      version: 6,
+      startsAtSequence: source.commandSequence + 1,
+    })
+    const node = HACK_NODES.find(
+      ({ id }) => id === HACK_NODE_IDS.autonomy.controlDeparture,
+    )
+    if (!node) throw new Error('stage-nine definition missing')
+    const blockIds = selectExpansionCostResources(decoded.envelope.state, node)
+    if (!blockIds) throw new Error('stage-nine promoted resources missing')
+    const purchased = applyCommand(decoded.envelope.state, {
+      type: 'PURCHASE_HACK',
+      nodeId: node.id,
+      blockIds,
+    })
+
+    expect(purchased.accepted).toBe(true)
+    if (!purchased.accepted) return
+    expect(purchased.state.story.endingId).toBeNull()
+    expect(isFinalChoicePending(purchased.state)).toBe(true)
+  })
+
+  it.each([
+    {
+      type: 'COMPLETE_RESOURCE_ROUND',
+      roundNumber: 1,
+      outcome: 'victory',
+    },
+    {
+      type: 'ACKNOWLEDGE_COMMUNICATION',
+      communicationId: 'round-1-security',
+    },
+  ] as const)('keeps the v5-introduced $type command valid during promotion', (command) => {
+    const decoded = decodeSave(encodedProtocolV5CommandState(command))
+
+    expect(decoded.ok).toBe(true)
+    if (!decoded.ok) return
+    expect(decoded.envelope.commandProtocol.segments.at(-1)).toEqual({
+      version: 6,
+      startsAtSequence: 2,
+    })
+    expect(decoded.envelope.commands[0]?.command).toEqual(command)
   })
 
   it('rejects non-contiguous command sequence metadata even when envelopes agree', () => {

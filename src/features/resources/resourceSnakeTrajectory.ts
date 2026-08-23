@@ -13,6 +13,7 @@ import type {
   SnakeTrajectoryCandidate,
   SnakeVector,
 } from './resourceSnakePlannerTypes'
+import { RESOURCE_SNAKE_CONFIG } from './resourceSnakeRuntime'
 
 const CLOCKWISE_HEADINGS = Object.freeze([
   'north',
@@ -26,7 +27,8 @@ const CLOCKWISE_HEADINGS = Object.freeze([
 ] as const satisfies readonly SnakeDirection8[])
 
 const LEGAL_RELATIVE_OFFSETS = Object.freeze([0, -1, 1, -2, 2, -3, 3] as const)
-const FUTURE_TURN_OFFSETS = Object.freeze([-1, 1, -2, 2, -3, 3] as const)
+const PLANNED_RELATIVE_OFFSETS = Object.freeze([0, -1, 1, -2, 2] as const)
+const FUTURE_TURN_OFFSETS = Object.freeze([-1, 1, -2, 2] as const)
 const EPSILON = 1e-9
 const RUNTIME_FIXED_STEP_MS = 1_000 / 120
 const MAX_PLAN_SAMPLES = 50
@@ -45,12 +47,61 @@ export interface GenerateResourceSnakeLightcycleCandidatesInput {
   actor: SnakePlannerActor
   profile: SnakePlannerProfile
   telegraphMs: number
+  plannedAtMs?: number
   speedScale?: 0.92 | 1
   field?: {
     width: number
     height: number
     padding: number
   }
+}
+
+function earliestNormalTurnOffsetMs(
+  actor: SnakePlannerActor,
+  attackHeading: SnakeDirection8,
+  profile: SnakePlannerProfile,
+  telegraphMs: number,
+  plannedAtMs: number | undefined,
+): number {
+  if (!Number.isFinite(plannedAtMs) || attackHeading === actorHeading(actor)) {
+    return telegraphMs
+  }
+  const governor = actor.enemyTurnGovernor
+  if (!governor) return telegraphMs
+  let earliestAtMs = plannedAtMs! + telegraphMs
+  earliestAtMs = Math.max(earliestAtMs, governor.lockedUntilMs)
+  if (governor.lastHeadingChangeAtMs !== null) {
+    const minimumHoldMs = Number.isFinite(profile.minimumHeadingHoldMs)
+      ? profile.minimumHeadingHoldMs!
+      : RESOURCE_SNAKE_CONFIG.enemyMinimumHeadingHoldMs
+    earliestAtMs = Math.max(
+      earliestAtMs,
+      governor.lastHeadingChangeAtMs + minimumHoldMs,
+    )
+    if (governor.previousHeading === attackHeading) {
+      earliestAtMs = Math.max(
+        earliestAtMs,
+        governor.lastHeadingChangeAtMs
+          + RESOURCE_SNAKE_CONFIG.enemyReturnHeadingLockMs,
+      )
+    }
+  }
+  const normalTurns = governor.normalTurnAtMs
+    .filter(Number.isFinite)
+    .sort((left, right) => left - right)
+  while (true) {
+    const recent = normalTurns.filter((turnAtMs) => (
+      turnAtMs <= earliestAtMs + EPSILON
+      && earliestAtMs - turnAtMs
+        < RESOURCE_SNAKE_CONFIG.enemyNormalTurnWindowMs - EPSILON
+    ))
+    if (recent.length < RESOURCE_SNAKE_CONFIG.enemyMaximumNormalTurnsPerWindow) break
+    earliestAtMs = Math.max(
+      earliestAtMs,
+      recent[0] + RESOURCE_SNAKE_CONFIG.enemyNormalTurnWindowMs,
+    )
+  }
+  return rounded(Math.max(telegraphMs, earliestAtMs - plannedAtMs!))
 }
 
 function clockwiseIndex(heading: SnakeDirection8): number {
@@ -136,20 +187,35 @@ function steeringCost(changes: readonly SnakeHeadingChange[]): number {
 }
 
 function candidateHeadingChanges(
+  actor: SnakePlannerActor,
   originHeading: SnakeDirection8,
   attackHeading: SnakeDirection8,
   profile: SnakePlannerProfile,
   telegraphMs: number,
+  plannedAtMs: number | undefined,
   candidateIndex: number,
 ): SnakeHeadingChange[] {
-  const branchIndex = Math.floor(candidateIndex / LEGAL_RELATIVE_OFFSETS.length)
+  const branchIndex = Math.floor(candidateIndex / PLANNED_RELATIVE_OFFSETS.length)
   const futureTurnOffset = FUTURE_TURN_OFFSETS[branchIndex % FUTURE_TURN_OFFSETS.length]
   const delayVariant = Math.floor(branchIndex / FUTURE_TURN_OFFSETS.length)
   const futureHeading = headingAtOffset(attackHeading, futureTurnOffset)
-  const futureTurnAtMs = telegraphMs + profile.commitMs + delayVariant * 200
+  const advertisedTurnAtMs = earliestNormalTurnOffsetMs(
+    actor,
+    attackHeading,
+    profile,
+    telegraphMs,
+    plannedAtMs,
+  )
+  const minimumHeadingHoldMs = profile.minimumHeadingHoldMs
+  const projectedTurnSeparationMs = Number.isFinite(minimumHeadingHoldMs)
+    ? Math.max(profile.commitMs, minimumHeadingHoldMs!)
+    : profile.commitMs
+  const futureTurnAtMs = advertisedTurnAtMs
+    + projectedTurnSeparationMs
+    + delayVariant * 200
   const changes: SnakeHeadingChange[] = [{ offsetMs: 0, heading: originHeading }]
-  if (attackHeading !== originHeading || telegraphMs > 0) {
-    changes.push({ offsetMs: telegraphMs, heading: attackHeading })
+  if (attackHeading !== originHeading || advertisedTurnAtMs > 0) {
+    changes.push({ offsetMs: advertisedTurnAtMs, heading: attackHeading })
   }
   changes.push({ offsetMs: futureTurnAtMs, heading: futureHeading })
   return changes
@@ -225,15 +291,19 @@ export function generateResourceSnakeLightcycleCandidates(
   ) return []
 
   const originHeading = actorHeading(actor)
-  const attackHeadings = legalResourceSnakeHeadings(originHeading)
+  const attackHeadings = PLANNED_RELATIVE_OFFSETS.map((offset) => (
+    headingAtOffset(originHeading, offset)
+  ))
   const speedScale = input.speedScale ?? 1
   return Array.from({ length: profile.candidateCount }, (_, candidateIndex) => {
     const attackHeading = attackHeadings[candidateIndex % attackHeadings.length]
     const headingChanges = candidateHeadingChanges(
+      actor,
       originHeading,
       attackHeading,
       profile,
       input.telegraphMs,
+      input.plannedAtMs,
       candidateIndex,
     )
     const rollout = rolloutCandidate(

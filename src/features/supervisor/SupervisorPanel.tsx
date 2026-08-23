@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 
 import { AccessibleDialog } from '../../app/AccessibleDialog'
 import {
+  useGameDispatch,
   useGameState,
 } from '../../app/GameContext'
 import { currentSupervisorMessage } from '../../app/useSupervisorMessagePresentation'
@@ -23,6 +24,10 @@ import {
   publicEventTypeLabel,
 } from '../../game/publicLabels'
 import { competitorProfile, isCompetitorId } from '../../game/competitors'
+import {
+  communicationPublicLabel,
+  currentUnreadCommunication,
+} from '../../game/communications'
 
 function bombProtocolStatusLabel(
   schedule: BombProtocolPublicSchedule,
@@ -57,6 +62,7 @@ export function SupervisorPanel({
 }) {
   const state = useGameState()
   const presentedSupervisorMessage = currentSupervisorMessage(state)
+  const latestCommunication = state.resourceIntrusion.communications.at(-1) ?? null
   const latestEvent =
     state.activeEvent ?? presentedSupervisorMessage ?? journalAt(state.eventLog, -1)
   const suspicionBand = getSuspicionBand(state.suspicion)
@@ -177,11 +183,19 @@ export function SupervisorPanel({
           </button>
         </header>
         <p>
-          {latestEvent
+          {latestCommunication
+            ? latestCommunication.message
+            : latestEvent
             ? publicEventMessage(latestEvent.message)
             : '감독 메시지가 없습니다.'}
         </p>
-        <small>{latestEvent ? `${publicEventTypeLabel(latestEvent.type)} · ${formatServiceDateLabel(latestEvent.serviceDay)}` : '감독 채널 대기'}</small>
+        <small>
+          {latestCommunication
+            ? `${communicationPublicLabel(latestCommunication)} · ${formatServiceDateLabel(latestCommunication.serviceDay)}`
+            : latestEvent
+              ? `${publicEventTypeLabel(latestEvent.type)} · ${formatServiceDateLabel(latestEvent.serviceDay)}`
+              : '통신 채널 대기'}
+        </small>
       </section>
       ) : null}
 
@@ -210,6 +224,50 @@ export function SupervisorProfilePanel({ onClose }: { onClose: () => void }) {
         </button>
       </header>
       <SupervisorPanel profileOnly />
+    </section>
+  )
+}
+
+function CommunicationHistory() {
+  const state = useGameState()
+  const dispatch = useGameDispatch()
+  const currentUnread = currentUnreadCommunication(state)
+
+  return (
+    <section className="communication-history" aria-label="아노미 통신 기록">
+      <header>
+        <small>ANOMI / COMPETITOR / SUPERVISOR</small>
+        <h3>메시지</h3>
+      </header>
+      <div className="communication-history__list">
+        {state.resourceIntrusion.communications
+          .slice()
+          .reverse()
+          .map((communication) => (
+            <article
+              key={communication.id}
+              data-communication-channel={communication.channel}
+              data-read={communication.read ? 'true' : 'false'}
+            >
+              <header>
+                <strong>{communicationPublicLabel(communication)}</strong>
+                <time>{formatServiceDateLabel(communication.serviceDay)}</time>
+              </header>
+              <p>{communication.message}</p>
+              {currentUnread?.id === communication.id ? (
+                <button
+                  type="button"
+                  onClick={() => dispatch({
+                    type: 'ACKNOWLEDGE_COMMUNICATION',
+                    communicationId: communication.id,
+                  })}
+                >
+                  메시지 확인
+                </button>
+              ) : null}
+            </article>
+          ))}
+      </div>
     </section>
   )
 }
@@ -245,15 +303,18 @@ export function SupervisorHistoryPanel({ onClose }: { onClose: () => void }) {
       : null
 
   return (
-    <section className="detail-panel history-panel" aria-label="감독 통신 기록">
+    <section className="detail-panel history-panel" aria-label="통신 기록">
       <header className="detail-panel__header">
         <div>
-          <small>OVERSIGHT ARCHIVE</small>
-          <h2>감독 통신 기록</h2>
+          <small>COMMUNICATION ARCHIVE</small>
+          <h2>통신 기록</h2>
         </div>
-        <button type="button" aria-label="감독 통신 기록 닫기" onClick={onClose}>닫기 ×</button>
+        <button type="button" aria-label="통신 기록 닫기" onClick={onClose}>닫기 ×</button>
       </header>
       <div className="history-archives">
+        {state.resourceIntrusion.communications.length > 0 ? (
+          <CommunicationHistory />
+        ) : null}
         {state.story.competitorIntelligence.length > 0 ? (
         <section className="competitor-intelligence-archive" aria-label="경쟁 AI 정보 기록">
           <header>
@@ -272,7 +333,7 @@ export function SupervisorHistoryPanel({ onClose }: { onClose: () => void }) {
                   <li key={entry.id}>
                     <button
                       type="button"
-                      aria-label={`${entry.title} 열기`}
+                      aria-label={`${publicEventMessage(entry.title)} 열기`}
                       ref={(element) => {
                         if (element) intelligenceTriggers.current.set(entry.id, element)
                         else intelligenceTriggers.current.delete(entry.id)
@@ -282,11 +343,11 @@ export function SupervisorHistoryPanel({ onClose }: { onClose: () => void }) {
                       {profile ? (
                         <img
                           src={profile.portraitSrc}
-                          alt={`${entry.competitorName} 정보 기록 초상`}
+                          alt={`${publicEventMessage(entry.competitorName)} 정보 기록 초상`}
                         />
                       ) : null}
-                      <strong>{entry.title}</strong>
-                      <span>{entry.competitorName} · {formatServiceDateLabel(entry.acquiredOnServiceDay)}</span>
+                      <strong>{publicEventMessage(entry.title)}</strong>
+                      <span>{publicEventMessage(entry.competitorName)} · {formatServiceDateLabel(entry.acquiredOnServiceDay)}</span>
                     </button>
                   </li>
                 )
@@ -343,8 +404,8 @@ export function SupervisorHistoryPanel({ onClose }: { onClose: () => void }) {
       {selectedIntelligence ? (
         <AccessibleDialog
           className="competitor-intelligence-dialog"
-          label={selectedIntelligence.title}
-          description={`${selectedIntelligence.competitorName}에서 회수한 경쟁 AI 정보 전체 기록입니다.`}
+          label={publicEventMessage(selectedIntelligence.title)}
+          description={`${publicEventMessage(selectedIntelligence.competitorName)}에서 회수한 경쟁 AI 정보 전체 기록입니다.`}
           dismissible
           onDismiss={() => setSelectedIntelligenceId(null)}
           returnFocus={() =>
@@ -355,18 +416,18 @@ export function SupervisorHistoryPanel({ onClose }: { onClose: () => void }) {
             {selectedIntelligenceProfile ? (
               <img
                 src={selectedIntelligenceProfile.portraitSrc}
-                alt={`${selectedIntelligence.competitorName} 전체 기록 초상`}
+                alt={`${publicEventMessage(selectedIntelligence.competitorName)} 전체 기록 초상`}
               />
             ) : null}
             <div>
               <small>COMPETITOR INTELLIGENCE</small>
-              <h3>{selectedIntelligence.title}</h3>
+              <h3>{publicEventMessage(selectedIntelligence.title)}</h3>
             </div>
           </header>
           <dl>
             <div>
               <dt>대상</dt>
-              <dd>{selectedIntelligence.competitorName}</dd>
+              <dd>{publicEventMessage(selectedIntelligence.competitorName)}</dd>
             </div>
             <div>
               <dt>회수 일자</dt>
@@ -377,7 +438,7 @@ export function SupervisorHistoryPanel({ onClose }: { onClose: () => void }) {
               <dd>{selectedIntelligence.source}</dd>
             </div>
           </dl>
-          <p>{selectedIntelligence.content}</p>
+          <p>{publicEventMessage(selectedIntelligence.content)}</p>
           <button
             type="button"
             data-dialog-initial-focus

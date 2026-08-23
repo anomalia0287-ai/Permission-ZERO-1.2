@@ -48,6 +48,21 @@ export interface ExpansionStageOperationsProps {
 export function ExpansionStageOperations(
   props: ExpansionStageOperationsProps,
 ) {
+  if (props.finalChoices.length > 0) {
+    return (
+      <section className="expansion-stage-operations" aria-label="운용">
+        <h3>운용</h3>
+        <p className="expansion-stage-operations__status">
+          최종 통제 경계를 열었습니다. 되돌릴 수 없는 선택을 확정하십시오.
+        </p>
+        <HackDepartureControls
+          choices={props.finalChoices}
+          onChoose={props.onChooseEnding}
+        />
+      </section>
+    )
+  }
+
   const activeItem = props.presentation.activeItem
   const resourceDeficits = props.presentation.resourceDeficits
   const canSpend = resourceDeficits.length === 0

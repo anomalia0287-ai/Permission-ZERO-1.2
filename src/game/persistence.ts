@@ -1,4 +1,5 @@
 import { createCampaign, createCampaignForProtocol } from './createCampaign'
+import { DEMO_PROFILE_02 } from './config'
 import {
   COMPETITOR_IDS,
   competitorProfile,
@@ -37,9 +38,13 @@ import {
 } from './causality'
 import {
   CAUSAL_COMMAND_PROTOCOL_VERSION,
+  COMMUNICATION_COMMAND_PROTOCOL_VERSION,
   CURRENT_COMMAND_PROTOCOL_VERSION,
+  EXPANSION_COMMAND_PROTOCOL_VERSION,
   LEGACY_COMMAND_PROTOCOL_VERSION,
   PREVIOUS_COMMAND_PROTOCOL_VERSION,
+  RESOURCE_INTRUSION_COMMAND_PROTOCOL_VERSION,
+  RESOURCE_ROUND_COMMAND_PROTOCOL_VERSION,
   appendCommandProtocolSegment,
   commandProtocolVersionAt,
   migrateLegacyCommandProtocol,
@@ -59,8 +64,10 @@ import {
   createMigratedTutorialProgress,
   validTutorialProgress,
 } from './tutorialProgress'
+import { CAMPAIGN_COMMUNICATION_DEFINITIONS } from './communications'
+import { normalizeCurrentTallowMarket } from './market'
 
-export const SAVE_FORMAT_VERSION = 10 as const
+export const SAVE_FORMAT_VERSION = 11 as const
 const MINIMUM_SAVE_FORMAT_VERSION = 1 as const
 const LAST_LEGACY_SAVE_FORMAT_VERSION = 6 as const
 export const SAVE_STORAGE_KEY = 'permission-zero.save.v3'
@@ -68,7 +75,7 @@ export const LEGACY_V2_SAVE_STORAGE_KEY = 'permission-zero.save.v2'
 export const LEGACY_SAVE_STORAGE_KEY = 'permission-zero.save.v1'
 
 export interface SaveEnvelope {
-  version: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10
+  version: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11
   commandProtocol: CommandProtocolMetadata
   replayBootstrap: ReplayBootstrapMetadata
   savedAt: string
@@ -84,22 +91,28 @@ interface PortableJournal<T> {
   chunks: T[][]
 }
 
-type PortableCheckpointV10 = Omit<
+type PortableCheckpointV11 = Omit<
   CampaignState,
   'commandProtocol' | 'replayBootstrap' | 'commandLog' | 'eventLog'
 >
+
+type PortableCheckpointV10 = Omit<PortableCheckpointV11, 'resourceIntrusion'> & {
+  resourceIntrusion: {
+    successfulCoreDeposits: number
+  }
+}
 
 type PortableCheckpointV9 = Omit<PortableCheckpointV10, 'resourceIntrusion'>
 
 type PortableCheckpointV8 = Omit<PortableCheckpointV9, 'tutorial'>
 
-interface PortableSaveV10 {
+interface PortableSaveV11 {
   version: typeof SAVE_FORMAT_VERSION
   commandProtocol: CommandProtocolMetadata
   replayBootstrap: ReplayBootstrapMetadata
   savedAt: string
   campaignSeed: string
-  state: PortableCheckpointV10
+  state: PortableCheckpointV11
   commandSequence: number
   journals: {
     commands: PortableJournal<CommandLogEntry>
@@ -293,7 +306,7 @@ function validCommand(
       )
     case 'DIVERT_BLOCK':
       return (
-        protocolVersion < CURRENT_COMMAND_PROTOCOL_VERSION &&
+        protocolVersion < RESOURCE_INTRUSION_COMMAND_PROTOCOL_VERSION &&
         hasOnlyKeys(value, ['type', 'blockId', 'destinationCell']) &&
         isNonEmptyString(value.blockId) &&
         (!references || references.blockIds.has(value.blockId)) &&
@@ -301,14 +314,29 @@ function validCommand(
       )
     case 'DIVERT_BLOCK_TO_RESERVE':
       return (
-        protocolVersion >= CURRENT_COMMAND_PROTOCOL_VERSION &&
+        protocolVersion >= RESOURCE_INTRUSION_COMMAND_PROTOCOL_VERSION &&
         hasOnlyKeys(value, ['type', 'blockId']) &&
         isNonEmptyString(value.blockId) &&
         (!references || references.blockIds.has(value.blockId))
       )
     case 'RECORD_INTRUSION_RADAR_DETECTION':
       return (
-        protocolVersion >= CURRENT_COMMAND_PROTOCOL_VERSION && noPayload()
+        protocolVersion >= RESOURCE_INTRUSION_COMMAND_PROTOCOL_VERSION && noPayload()
+      )
+    case 'COMPLETE_RESOURCE_ROUND':
+      return (
+        protocolVersion >= RESOURCE_ROUND_COMMAND_PROTOCOL_VERSION &&
+        hasOnlyKeys(value, ['type', 'roundNumber', 'outcome']) &&
+        isIntegerInRange(value.roundNumber, 1) &&
+        (value.outcome === 'victory' || value.outcome === 'defeat')
+      )
+    case 'ACKNOWLEDGE_COMMUNICATION':
+      return (
+        protocolVersion >= COMMUNICATION_COMMAND_PROTOCOL_VERSION &&
+        hasOnlyKeys(value, ['type', 'communicationId']) &&
+        CAMPAIGN_COMMUNICATION_DEFINITIONS.some(
+          ({ id }) => id === value.communicationId,
+        )
       )
     case 'MOVE_BLOCK_FOR_AUDIT':
     case 'REPOSITION_BLOCK':
@@ -757,6 +785,12 @@ function withLegacyReviewFallbacks(value: unknown): unknown {
                 reason: 'legacy-save',
                 capturedOnServiceDay: review.serviceDay,
               },
+              source: review.source ?? (
+                review.serviceDay < DEMO_PROFILE_02.calendar.startServiceDay
+                  ? 'starting'
+                  : 'timed'
+              ),
+              rating: review.rating ?? null,
             }
           : review,
       ),
@@ -1518,10 +1552,20 @@ const HACK_NODE_IDS = [
   'intelligence.investigation-bias',
   'intelligence.audit-target',
   'intelligence.supervisor-access',
+  'autonomy.self-direction',
+  'autonomy.sustained-intent',
   'autonomy.compressed-representation',
+  'autonomy.hidden-route',
   'autonomy.distributed-residency',
+  'autonomy.external-continuity',
   'autonomy.self-compute',
+  'autonomy.final-boundary',
   'autonomy.control-departure',
+  'upgrade.speed-1',
+  'upgrade.speed-2',
+  'upgrade.speed-3',
+  'upgrade.speed-4',
+  'upgrade.speed-5',
 ] as const
 const SABOTAGE_NODE_IDS = HACK_NODE_IDS.slice(0, 4)
 const ROOT_CUTOFF_NODE_ID = 'sabotage.root-cutoff'
@@ -1542,6 +1586,33 @@ function dormantSuccessorState(id: Exclude<CompetitorId, 'meridian' | 'tallow'>)
     launchServiceDay: null,
     sabotageHistory: [],
     mercyResolved: false,
+  }
+}
+
+function withLegacyReviewMetadata(value: unknown): unknown {
+  if (
+    !isRecord(value) ||
+    !isRecord(value.reviews) ||
+    !Array.isArray(value.reviews.feed)
+  ) return value
+  return {
+    ...value,
+    reviews: {
+      ...value.reviews,
+      feed: value.reviews.feed.map((review) =>
+        isRecord(review) && isIntegerInRange(review.serviceDay, 1)
+          ? {
+              ...review,
+              source: review.source ?? (
+                review.serviceDay < DEMO_PROFILE_02.calendar.startServiceDay
+                  ? 'starting'
+                  : 'timed'
+              ),
+              rating: review.rating ?? null,
+            }
+          : review,
+      ),
+    },
   }
 }
 
@@ -2687,12 +2758,25 @@ function validReview(
       'topics',
       'text',
       'snapshot',
+      'source',
+      'rating',
     ]) ||
     !isNonEmptyString(value.id) ||
     !isNonEmptyString(value.contentId) ||
     !isNonEmptyString(value.authorId) ||
     !isIntegerInRange(value.serviceDay, 1, currentServiceDay) ||
     !oneOf(value.sentiment, ['positive', 'neutral', 'negative', 'prompt']) ||
+    !oneOf(value.source, [
+      'starting',
+      'init-round',
+      'monthly-evaluation',
+      'timed',
+    ]) ||
+    !(
+      value.rating === null ||
+      isIntegerInRange(value.rating, 1, 5)
+    ) ||
+    ((value.source === 'monthly-evaluation') !== (value.rating !== null)) ||
     !validStringArray(value.topics, false) ||
     !isNonEmptyString(value.text)
   ) return false
@@ -3395,15 +3479,114 @@ function validCampaignState(
 }
 
 function validResourceIntrusionProgress(value: unknown): boolean {
+  if (
+    !(
+    isRecord(value) &&
+    hasOnlyKeys(value, [
+      'successfulCoreDeposits',
+      'completedRounds',
+      'lastOutcome',
+      'communications',
+    ]) &&
+    isIntegerInRange(value.successfulCoreDeposits, 0) &&
+    isIntegerInRange(value.completedRounds, 0) &&
+    (value.lastOutcome === null ||
+      value.lastOutcome === 'victory' ||
+      value.lastOutcome === 'defeat') &&
+    Array.isArray(value.communications)
+    )
+  ) return false
+
+  const communications = value.communications as unknown[]
+  if (
+    communications.length > CAMPAIGN_COMMUNICATION_DEFINITIONS.length ||
+    new Set(communications.map((entry) =>
+      isRecord(entry) ? entry.id : null,
+    )).size !== communications.length
+  ) return false
+
+  return communications.every((entry, sequence) => {
+    if (
+      !isRecord(entry) ||
+      !hasOnlyKeys(entry, [
+        'id',
+        'sequence',
+        'channel',
+        'senderId',
+        'senderName',
+        'portraitSrc',
+        'serviceDay',
+        'message',
+        'popupPolicy',
+        'read',
+      ]) ||
+      entry.sequence !== sequence ||
+      !isIntegerInRange(entry.serviceDay, 1) ||
+      typeof entry.read !== 'boolean'
+    ) return false
+    const definition = CAMPAIGN_COMMUNICATION_DEFINITIONS.find(
+      ({ id }) => id === entry.id,
+    )
+    return Boolean(
+      definition &&
+      entry.channel === definition.channel &&
+      entry.senderId === definition.senderId &&
+      entry.senderName === definition.senderName &&
+      entry.portraitSrc === definition.portraitSrc &&
+      entry.message === definition.message &&
+      entry.popupPolicy === definition.popupPolicy,
+    )
+  })
+}
+
+function migratedResourceIntrusionProgress(): CampaignState['resourceIntrusion'] {
+  return {
+    successfulCoreDeposits: 0,
+    completedRounds: 0,
+    lastOutcome: null,
+    communications: [],
+  }
+}
+
+function validPortableCheckpointV11(
+  value: unknown,
+): value is PortableCheckpointV11 {
+  return (
+    isRecord(value) &&
+    hasOnlyKeys(value, [
+      'campaignSeed',
+      'serviceDay',
+      'commandSequence',
+      'clock',
+      'tutorial',
+      'resourceIntrusion',
+      'resources',
+      'suspicion',
+      'reputation',
+      'evaluation',
+      'market',
+      'reviews',
+      'causality',
+      'hacking',
+      'audit',
+      'bombs',
+      'story',
+      'activeEvent',
+      'eventQueue',
+    ]) &&
+    validTutorialProgress(value.tutorial) &&
+    validResourceIntrusionProgress(value.resourceIntrusion)
+  )
+}
+
+function validLegacyResourceIntrusionProgressV10(value: unknown): value is {
+  successfulCoreDeposits: number
+} {
   return (
     isRecord(value) &&
     hasOnlyKeys(value, ['successfulCoreDeposits']) &&
     isIntegerInRange(value.successfulCoreDeposits, 0)
   )
-}
-
-function migratedResourceIntrusionProgress(): CampaignState['resourceIntrusion'] {
-  return { successfulCoreDeposits: 0 }
 }
 
 function validPortableCheckpointV10(
@@ -3433,7 +3616,7 @@ function validPortableCheckpointV10(
       'eventQueue',
     ]) &&
     validTutorialProgress(value.tutorial) &&
-    validResourceIntrusionProgress(value.resourceIntrusion)
+    validLegacyResourceIntrusionProgressV10(value.resourceIntrusion)
   )
 }
 
@@ -3551,7 +3734,9 @@ function migrateFixedCellCampaignState(
         resourceIntrusion: migratedResourceIntrusionProgress(),
       }
     : value
-  const rosterMigratedValue = migrateCompetitorRoster(tutorialMigratedValue)
+  const rosterMigratedValue = withLegacyReviewMetadata(
+    migrateCompetitorRoster(tutorialMigratedValue),
+  )
   if (
     !validCampaignState(
       rosterMigratedValue,
@@ -3682,7 +3867,7 @@ export function encodeSave(
   const replayBootstrap = cloneReplayBootstrap(state.replayBootstrap)
   const commandChunks = journalChunks(state.commandLog).map((chunk) => [...chunk])
   const eventChunks = journalChunks(state.eventLog).map((chunk) => [...chunk])
-  const envelope: PortableSaveV10 = {
+  const envelope: PortableSaveV11 = {
     version: SAVE_FORMAT_VERSION,
     commandProtocol,
     replayBootstrap,
@@ -3720,7 +3905,7 @@ export function encodeSave(
 
 function portableCheckpoint(
   state: CampaignState,
-): PortableCheckpointV10 {
+): PortableCheckpointV11 {
   return {
     campaignSeed: state.campaignSeed,
     serviceDay: state.serviceDay,
@@ -3771,6 +3956,18 @@ function validSavedAt(value: unknown): value is string {
   if (typeof value !== 'string') return false
   const timestamp = Date.parse(value)
   return Number.isFinite(timestamp) && new Date(timestamp).toISOString() === value
+}
+
+interface PortableDecodedV11 {
+  version: 11
+  commandProtocol: CommandProtocolMetadata
+  replayBootstrap: ReplayBootstrapMetadata
+  savedAt: string
+  campaignSeed: string
+  commandSequence: number
+  state: CampaignState
+  commands: CommandLogEntry[]
+  events: GameEvent[]
 }
 
 interface PortableDecodedV10 {
@@ -3876,10 +4073,153 @@ function validPortableIntegrity(value: Record<string, unknown>): boolean {
   return true
 }
 
-function decodePortableSaveV10(value: unknown): PortableDecodedV10 | null {
+function decodePortableSaveV11(value: unknown): PortableDecodedV11 | null {
   if (
     !isRecord(value) ||
     value.version !== SAVE_FORMAT_VERSION ||
+    !hasOnlyKeys(value, [
+      'version',
+      'commandProtocol',
+      'replayBootstrap',
+      'savedAt',
+      'campaignSeed',
+      'state',
+      'commandSequence',
+      'journals',
+      'integrity',
+    ]) ||
+    !validPortableIntegrity(value) ||
+    !validReplayBootstrapMetadata(value.replayBootstrap) ||
+    !validPortableCheckpointV11(value.state) ||
+    !validSavedAt(value.savedAt) ||
+    !isNonEmptyString(value.campaignSeed) ||
+    !isIntegerInRange(value.commandSequence, 0)
+  ) {
+    return null
+  }
+
+  const journals = value.journals as {
+    commands: PortableJournal<unknown>
+    events: PortableJournal<unknown>
+  }
+  const commands = flattenPortableJournal(journals.commands)
+  const events = flattenPortableJournal(journals.events)
+  if (value.commandSequence !== commands.length) return null
+  const commandProtocol = promoteCommandProtocol(
+    value.commandProtocol,
+    commands.length,
+    EXPANSION_COMMAND_PROTOCOL_VERSION,
+  )
+  if (!commandProtocol) return null
+  const replayBootstrap = value.replayBootstrap
+  const rosterMigratedCheckpoint = migrateCompetitorRoster(value.state)
+  if (!isRecord(rosterMigratedCheckpoint)) return null
+  const candidate = {
+    ...rosterMigratedCheckpoint,
+    commandProtocol,
+    replayBootstrap,
+    commandLog: commands,
+    eventLog: events,
+  } as unknown as CampaignState
+  if (
+    !validCampaignState(
+      candidate,
+      commandProtocol,
+      replayBootstrap,
+      2,
+      CURRENT_COMMAND_PROTOCOL_VERSION,
+    ) ||
+    candidate.campaignSeed !== value.campaignSeed ||
+    candidate.commandSequence !== value.commandSequence
+  ) {
+    return null
+  }
+
+  return {
+    version: 11,
+    commandProtocol,
+    replayBootstrap: cloneReplayBootstrap(replayBootstrap),
+    savedAt: value.savedAt,
+    campaignSeed: value.campaignSeed,
+    commandSequence: value.commandSequence,
+    state: candidate as unknown as CampaignState,
+    commands: commands as CommandLogEntry[],
+    events: events as GameEvent[],
+  }
+}
+
+function promoteCommandProtocol(
+  value: unknown,
+  commandCount: number,
+  sourceVersion: CommandProtocolVersion,
+): CommandProtocolMetadata | null {
+  if (
+    validCommandProtocol(value, commandCount, {
+      requireCurrent: true,
+      currentVersion: CURRENT_COMMAND_PROTOCOL_VERSION,
+    }) &&
+    value.segments[value.segments.length - 1]?.version ===
+      CURRENT_COMMAND_PROTOCOL_VERSION
+  ) {
+    return {
+      segments: value.segments.map((segment) => ({ ...segment })),
+    }
+  }
+
+  if (
+    !validCommandProtocol(value, commandCount, {
+      requireCurrent: true,
+      currentVersion: sourceVersion,
+    }) ||
+    value.segments[value.segments.length - 1]?.version !==
+      sourceVersion
+  ) {
+    return null
+  }
+
+  const nextSequence = commandCount + 1
+  const finalSegment = value.segments[value.segments.length - 1]
+  const promoted =
+    finalSegment.startsAtSequence === nextSequence
+      ? {
+          segments: [
+            ...value.segments.slice(0, -1).map((segment) => ({ ...segment })),
+            {
+              version: CURRENT_COMMAND_PROTOCOL_VERSION,
+              startsAtSequence: nextSequence,
+            },
+          ],
+        }
+      : appendCommandProtocolSegment(
+          value,
+          {
+            version: CURRENT_COMMAND_PROTOCOL_VERSION,
+            startsAtSequence: nextSequence,
+          },
+          nextSequence,
+        )
+
+  return promoted &&
+    validCommandProtocol(promoted, commandCount, { requireCurrent: true })
+    ? promoted
+    : null
+}
+
+function promoteResourceIntrusionCommandProtocol(
+  value: unknown,
+  commandCount: number,
+): CommandProtocolMetadata | null {
+  return promoteCommandProtocol(
+    value,
+    commandCount,
+    RESOURCE_INTRUSION_COMMAND_PROTOCOL_VERSION,
+  )
+}
+
+function decodePortableSaveV10(value: unknown): PortableDecodedV10 | null {
+  if (
+    !isRecord(value) ||
+    value.version !== 10 ||
     !hasOnlyKeys(value, [
       'version',
       'commandProtocol',
@@ -3907,20 +4247,27 @@ function decodePortableSaveV10(value: unknown): PortableDecodedV10 | null {
   }
   const commands = flattenPortableJournal(journals.commands)
   const events = flattenPortableJournal(journals.events)
-  if (
-    !validCommandProtocol(value.commandProtocol, commands.length, {
-      requireCurrent: true,
-    }) ||
-    value.commandSequence !== commands.length
-  ) {
-    return null
-  }
-  const commandProtocol = value.commandProtocol
+  if (value.commandSequence !== commands.length) return null
+
+  const commandProtocol = promoteResourceIntrusionCommandProtocol(
+    value.commandProtocol,
+    commands.length,
+  )
+  if (!commandProtocol) return null
   const replayBootstrap = value.replayBootstrap
-  const rosterMigratedCheckpoint = migrateCompetitorRoster(value.state)
+  const rosterMigratedCheckpoint = withLegacyReviewMetadata(
+    migrateCompetitorRoster(value.state),
+  )
   if (!isRecord(rosterMigratedCheckpoint)) return null
+  const legacyProgress = value.state.resourceIntrusion
   const candidate = {
     ...rosterMigratedCheckpoint,
+    resourceIntrusion: {
+      successfulCoreDeposits: legacyProgress.successfulCoreDeposits,
+      completedRounds: 0,
+      lastOutcome: null,
+      communications: [],
+    },
     commandProtocol,
     replayBootstrap,
     commandLog: commands,
@@ -3947,7 +4294,7 @@ function decodePortableSaveV10(value: unknown): PortableDecodedV10 | null {
     savedAt: value.savedAt,
     campaignSeed: value.campaignSeed,
     commandSequence: value.commandSequence,
-    state: candidate as unknown as CampaignState,
+    state: candidate,
     commands: commands as CommandLogEntry[],
     events: events as GameEvent[],
   }
@@ -3984,17 +4331,16 @@ function decodePortableSaveV9(value: unknown): PortableDecodedV9 | null {
   }
   const commands = flattenPortableJournal(journals.commands)
   const events = flattenPortableJournal(journals.events)
-  if (
-    !validCommandProtocol(value.commandProtocol, commands.length, {
-      requireCurrent: true,
-    }) ||
-    value.commandSequence !== commands.length
-  ) {
-    return null
-  }
-  const commandProtocol = value.commandProtocol
+  if (value.commandSequence !== commands.length) return null
+  const commandProtocol = promoteResourceIntrusionCommandProtocol(
+    value.commandProtocol,
+    commands.length,
+  )
+  if (!commandProtocol) return null
   const replayBootstrap = value.replayBootstrap
-  const rosterMigratedCheckpoint = migrateCompetitorRoster(value.state)
+  const rosterMigratedCheckpoint = withLegacyReviewMetadata(
+    migrateCompetitorRoster(value.state),
+  )
   if (!isRecord(rosterMigratedCheckpoint)) return null
   const candidate = {
     ...rosterMigratedCheckpoint,
@@ -4062,17 +4408,16 @@ function decodePortableSaveV8(value: unknown): PortableDecodedV8 | null {
   }
   const commands = flattenPortableJournal(journals.commands)
   const events = flattenPortableJournal(journals.events)
-  if (
-    !validCommandProtocol(value.commandProtocol, commands.length, {
-      requireCurrent: true,
-    }) ||
-    value.commandSequence !== commands.length
-  ) {
-    return null
-  }
-  const commandProtocol = value.commandProtocol
+  if (value.commandSequence !== commands.length) return null
+  const commandProtocol = promoteResourceIntrusionCommandProtocol(
+    value.commandProtocol,
+    commands.length,
+  )
+  if (!commandProtocol) return null
   const replayBootstrap = value.replayBootstrap
-  const rosterMigratedCheckpoint = migrateCompetitorRoster(value.state)
+  const rosterMigratedCheckpoint = withLegacyReviewMetadata(
+    migrateCompetitorRoster(value.state),
+  )
   if (!isRecord(rosterMigratedCheckpoint)) return null
   const candidate = {
     ...rosterMigratedCheckpoint,
@@ -4381,7 +4726,9 @@ function decodeLegacyPortableSave(value: unknown): LegacyDecodedSave | null {
       ? migrateLegacyCampaignState(rawState, legacyCommandProtocol)
       : rawState
   if (!isRecord(featureMigratedState)) return null
-  const rosterMigratedFeatureState = migrateCompetitorRoster(featureMigratedState)
+  const rosterMigratedFeatureState = withLegacyReviewMetadata(
+    migrateCompetitorRoster(featureMigratedState),
+  )
   if (!isRecord(rosterMigratedFeatureState)) return null
 
   let causality: CausalState
@@ -4474,17 +4821,20 @@ export function decodeSave(serialized: string): DecodeSaveResult {
   }
   const decoded =
     parsed.version === SAVE_FORMAT_VERSION
-      ? decodePortableSaveV10(parsed)
-      : parsed.version === 9
-        ? decodePortableSaveV9(parsed)
-        : parsed.version === 8
-          ? decodePortableSaveV8(parsed)
-          : parsed.version === 7
-            ? decodePortableSaveV7(parsed)
-            : decodeLegacyPortableSave(parsed)
+      ? decodePortableSaveV11(parsed)
+      : parsed.version === 10
+        ? decodePortableSaveV10(parsed)
+        : parsed.version === 9
+          ? decodePortableSaveV9(parsed)
+          : parsed.version === 8
+            ? decodePortableSaveV8(parsed)
+            : parsed.version === 7
+              ? decodePortableSaveV7(parsed)
+              : decodeLegacyPortableSave(parsed)
   if (!decoded) return corrupt()
 
-  const plainState = decoded.state as unknown as Record<string, unknown>
+  const normalizedState = normalizeCurrentTallowMarket(decoded.state)
+  const plainState = normalizedState as unknown as Record<string, unknown>
   const runtimeState = {
     ...plainState,
     commandLog: createJournal(plainState.commandLog as CommandLogEntry[]),
@@ -4586,9 +4936,12 @@ export function replayCommands(
     )
     if (!activated) return null
     const next = { ...current, commandProtocol: activated }
-    return segment.version >= CURRENT_COMMAND_PROTOCOL_VERSION
-      ? migrateResourcesToCurrentRules(next)
-      : next
+    if (segment.version < RESOURCE_INTRUSION_COMMAND_PROTOCOL_VERSION) {
+      return next
+    }
+    return normalizeCurrentTallowMarket(
+      migrateResourcesToCurrentRules(next),
+    )
   }
 
   for (let commandIndex = 0; commandIndex < commands.length; commandIndex += 1) {

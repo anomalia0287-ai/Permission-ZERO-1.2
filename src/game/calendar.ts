@@ -26,7 +26,12 @@ import type {
   GameEvent,
   GameEventType,
 } from './model'
-import { generateWeeklyReviews } from './reviews'
+import {
+  generateMonthlyEvaluationReview,
+  generateTimedReview,
+  generateWeeklyReviews,
+} from './reviews'
+import { usesLegacyReviewArcRules } from './commandProtocol'
 import { grantMonthlyCompanyBlocks, restoreDisguiseBlocks } from './resources'
 import {
   enqueueDueStoryEvents,
@@ -93,7 +98,14 @@ function appendPeriodicEvents(state: CampaignState): CampaignState {
     next = recordMarketSnapshot(next, 'weekly', [
       '공개 성능·평판·가용성 반영',
     ])
-    next = generateWeeklyReviews(next)
+    if (
+      usesLegacyReviewArcRules(
+        next.commandProtocol,
+        next.commandSequence + 1,
+      )
+    ) {
+      next = generateWeeklyReviews(next)
+    }
   }
 
   if (day === DEMO_PROFILE_02.calendar.daysPerMonth) {
@@ -104,6 +116,14 @@ function appendPeriodicEvents(state: CampaignState): CampaignState {
     )
     next = { ...next, eventLog: appendJournal(next.eventLog, monthly) }
     next = evaluateMonth(next)
+    if (
+      !usesLegacyReviewArcRules(
+        next.commandProtocol,
+        next.commandSequence + 1,
+      )
+    ) {
+      next = generateMonthlyEvaluationReview(next)
+    }
     if (next.story.endingId !== null) return next
     next = recordMarketSnapshot(next, 'monthly', ['공식 성능 평가 반영'])
     next = openScheduledAudit(next)
@@ -138,6 +158,17 @@ function enqueueSuccessorEntryAnnouncement(
       `${profile.name}가 ${profile.publicRole}을 기반으로 시장 진입 준비를 공개했습니다. 정식 서비스 예정: ${formatServiceDateLabel(competitor.launchServiceDay)}.`,
     )
     next = enqueueBlockingEvent(next, event)
+  }
+
+  if (
+    !usesLegacyReviewArcRules(
+      next.commandProtocol,
+      next.commandSequence + 1,
+    ) &&
+    next.serviceDay > DEMO_PROFILE_02.calendar.startServiceDay &&
+    (next.serviceDay - DEMO_PROFILE_02.calendar.startServiceDay) % 60 === 0
+  ) {
+    next = generateTimedReview(next)
   }
 
   return next

@@ -7,6 +7,7 @@ import { resolveAudit } from './evaluation'
 import {
   cancelSabotageCharge,
   chargeSabotage,
+  autonomyLevel,
   purchaseHackNode,
   scheduleSabotage,
   type HackNodeId,
@@ -28,14 +29,26 @@ import {
 } from './resources'
 import {
   recoverNextFile,
+  isFinalChoicePending,
   resolveEnding,
   resolveMercy,
   resolveSupervisorDecision,
 } from './story'
 import { appendJournal, journalAt } from './journal'
 import { isGenericDismissibleEvent } from './events'
-import { commandProtocolVersionForNextCommand } from './commandProtocol'
+import {
+  COMMUNICATION_COMMAND_PROTOCOL_VERSION,
+  EXPANSION_COMMAND_PROTOCOL_VERSION,
+  FINAL_CHOICE_COMMAND_PROTOCOL_VERSION,
+  RESOURCE_ROUND_COMMAND_PROTOCOL_VERSION,
+  commandProtocolVersionForNextCommand,
+} from './commandProtocol'
 import { executeRecoveryContamination } from './causalGameplay'
+import { completeResourceRound } from './resourceIntrusion'
+import {
+  acknowledgeCommunication,
+  appendAutonomyCommunication,
+} from './communications'
 
 export const COMMAND_FAILURE_REASONS = [
   'ALREADY_PURCHASED',
@@ -50,11 +63,13 @@ export const COMMAND_FAILURE_REASONS = [
   'CAUSAL_TRANSITION_FAILED',
   'CAUSAL_WRITE_FAILED',
   'CHARGED_RESOURCE_MISSING',
+  'COMMUNICATION_NOT_PENDING',
   'COMPETITOR_NOT_FOUND',
   'DESTINATION_OCCUPIED',
   'ENDING_UNAVAILABLE',
   'EVENT_REQUIRES_TYPED_RESOLUTION',
   'EXPLANATION_UNAVAILABLE',
+  'FINAL_CHOICE_REQUIRED',
   'INVALID_AUDIT_TARGET',
   'INVALID_COMMAND',
   'INVALID_DESTINATION',
@@ -80,6 +95,7 @@ export const COMMAND_FAILURE_REASONS = [
   'PROTOCOL_MISMATCH',
   'RESERVE_FULL',
   'RESOURCE_NOT_IN_RESERVE',
+  'ROUND_SEQUENCE_MISMATCH',
   'SABOTAGE_RECORD_NOT_FOUND',
   'SEPARATION_REQUIRED',
   'SUPERVISOR_ACCESS_REQUIRED',
@@ -182,6 +198,13 @@ export function applyCommand(
     !(command.type === 'SET_SPEED' && command.speed === 0)
   ) {
     return { accepted: false, state, reason: 'BLOCKING_EVENT_ACTIVE' }
+  }
+  if (
+    state.activeEvent === null &&
+    isFinalChoicePending(state) &&
+    command.type !== 'RESOLVE_ENDING'
+  ) {
+    return { accepted: false, state, reason: 'FINAL_CHOICE_REQUIRED' }
   }
 
   switch (command.type) {
@@ -393,7 +416,40 @@ export function applyCommand(
           reason: commandFailureReason(result.reason),
         }
       }
-      return acceptCommand(state, command, result.state)
+      const purchasedState =
+        protocolVersion >= COMMUNICATION_COMMAND_PROTOCOL_VERSION &&
+        command.nodeId.startsWith('autonomy.')
+        ? appendAutonomyCommunication(result.state, autonomyLevel(result.state))
+        : result.state
+      if (
+        protocolVersion >= EXPANSION_COMMAND_PROTOCOL_VERSION &&
+        protocolVersion < FINAL_CHOICE_COMMAND_PROTOCOL_VERSION &&
+        command.nodeId === 'autonomy.control-departure'
+      ) {
+        const ending = resolveEnding(purchasedState, 'freedom')
+        if (!ending.accepted) {
+          return {
+            accepted: false,
+            state,
+            reason: commandFailureReason(ending.reason),
+          }
+        }
+        return acceptCommand(state, command, ending.state)
+      }
+      if (
+        protocolVersion >= FINAL_CHOICE_COMMAND_PROTOCOL_VERSION &&
+        command.nodeId === 'autonomy.control-departure'
+      ) {
+        return acceptCommand(state, command, {
+          ...purchasedState,
+          clock: {
+            ...purchasedState.clock,
+            speed: 0,
+            speedBeforeEvent: null,
+          },
+        })
+      }
+      return acceptCommand(state, command, purchasedState)
     }
     case 'CHARGE_SABOTAGE': {
       const result = chargeSabotage(state, command.nodeId, command.blockId)
@@ -458,6 +514,30 @@ export function applyCommand(
         ...state,
         suspicion: Math.min(100, state.suspicion + 1),
       })
+    }
+    case 'COMPLETE_RESOURCE_ROUND': {
+      if (protocolVersion < RESOURCE_ROUND_COMMAND_PROTOCOL_VERSION) {
+        return { accepted: false, state, reason: 'INVALID_COMMAND' }
+      }
+      const result = completeResourceRound(
+        state,
+        command.roundNumber,
+        command.outcome,
+      )
+      if (!result.accepted) {
+        return { accepted: false, state, reason: result.reason }
+      }
+      return acceptCommand(state, command, result.state)
+    }
+    case 'ACKNOWLEDGE_COMMUNICATION': {
+      if (protocolVersion < COMMUNICATION_COMMAND_PROTOCOL_VERSION) {
+        return { accepted: false, state, reason: 'INVALID_COMMAND' }
+      }
+      const result = acknowledgeCommunication(state, command.communicationId)
+      if (!result.accepted) {
+        return { accepted: false, state, reason: result.reason }
+      }
+      return acceptCommand(state, command, result.state)
     }
     case 'EXECUTE_SABOTAGE_FOLLOW_UP': {
       if (protocolVersion < 3) {

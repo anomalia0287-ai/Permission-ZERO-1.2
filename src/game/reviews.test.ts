@@ -2,8 +2,17 @@ import { describe, expect, it } from 'vitest'
 
 import { REVIEW_CONTENT } from '../content/reviews.ko'
 import { createCampaign } from './createCampaign'
-import type { CampaignState, CompanyCategory } from './model'
-import { captureReviewPublicSnapshot, generateWeeklyReviews } from './reviews'
+import type {
+  CampaignState,
+  CompanyCategory,
+  MonthlyEvaluationRecord,
+} from './model'
+import {
+  captureReviewPublicSnapshot,
+  generateInItReviews,
+  generateWeeklyReviews,
+  monthlyEvaluationRating,
+} from './reviews'
 import { divertBlockToReserve } from './resources'
 
 function generateWeek(initial: CampaignState, serviceDay: number): CampaignState {
@@ -101,6 +110,8 @@ describe('living weekly review feed', () => {
       true,
     )
     expect(state.reviews.feed.every(({ serviceDay }) => serviceDay < 331)).toBe(true)
+    expect(state.reviews.feed.every(({ source }) => source === 'starting')).toBe(true)
+    expect(state.reviews.feed.every(({ rating }) => rating === null)).toBe(true)
     expect(
       state.reviews.feed.map((entry) =>
         (entry as unknown as { snapshot?: unknown }).snapshot,
@@ -118,6 +129,60 @@ describe('living weekly review feed', () => {
       },
     ])
   })
+
+  it('adds one review after every InIt with a deterministic 35% chance of a second', () => {
+    for (let seed = 0; seed < 50; seed += 1) {
+      const initial = createCampaign(`init-review-${seed}`)
+      const first = generateInItReviews(initial, 1)
+      const generated = first.reviews.feed.slice(initial.reviews.feed.length)
+
+      expect(generated.length).toBeGreaterThanOrEqual(1)
+      expect(generated.length).toBeLessThanOrEqual(2)
+      expect(generated.every(({ source, rating }) =>
+        source === 'init-round' && rating === null,
+      )).toBe(true)
+      expect(new Set(generated.map(({ text }) => text)).size).toBe(generated.length)
+      expect(generated[0]?.authorId).not.toBe(initial.reviews.feed.at(-1)?.authorId)
+      if (generated.length === 2) {
+        expect(generated[1]?.authorId).not.toBe(generated[0]?.authorId)
+      }
+      expect(generateInItReviews(initial, 1)).toEqual(first)
+    }
+  })
+
+  it.each([
+    ['exceptional pass', true, [15, 15, 15], [], 0, 0, 5],
+    ['ordinary pass', true, [13, 13, 13], [], 0, 0, 4],
+    ['narrow single miss', false, [12.2, 13, 13], ['reasoning'], 0, 0, 3],
+    ['multiple miss', false, [12, 12, 13], ['reasoning', 'memory'], 0, 0, 2],
+    ['severe miss', false, [9, 13, 13], ['reasoning'], 0, 0, 1],
+    ['disposal escalation', false, [12, 13, 13], ['reasoning'], 0, 1, 1],
+  ] as const)(
+    'maps %s to a five-point monthly rating',
+    (_label, passed, performance, failedCategories, before, after, rating) => {
+      const record: MonthlyEvaluationRecord = {
+        serviceDay: 360,
+        serviceMonth: 12,
+        expectedPerformance: 12.6,
+        categoryPerformance: {
+          reasoning: performance[0],
+          memory: performance[1],
+          fluency: performance[2],
+        },
+        passed,
+        failedCategories: [...failedCategories],
+        reputationBefore: 60,
+        reputationDelta: 0,
+        reputationAfter: 60,
+        commercialValueFailed: false,
+        disposalStageBefore: before,
+        disposalStageAfter: after,
+        disposalCauses: [],
+      }
+
+      expect(monthlyEvaluationRating(record)).toBe(rating)
+    },
+  )
 
   it('keeps dormant successor identities out of public review snapshots', () => {
     const snapshot = captureReviewPublicSnapshot(

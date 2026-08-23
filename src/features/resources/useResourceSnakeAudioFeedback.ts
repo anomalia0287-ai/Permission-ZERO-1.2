@@ -68,7 +68,7 @@ function stopMovementLoopSafely(activeRef: { current: boolean }): void {
   if (!activeRef.current) return
   activeRef.current = false
   try {
-    stopGameSoundLoop('movement-hum')
+    stopGameSoundLoop('rail-flow')
   } catch {
     // Presentation failures must never cross into the simulation boundary.
   }
@@ -81,6 +81,7 @@ export function useResourceSnakeAudioFeedback(
 ): void {
   const highestEventByRoundRef = useRef(new Map<string, number>())
   const heardTelegraphsRef = useRef(new Map<string, true>())
+  const heardCollisionFramesRef = useRef(new Map<string, true>())
   const movementLoopActiveRef = useRef(false)
   const moving = runtime.phase === 'active'
     && !runtimeSuspended
@@ -94,6 +95,13 @@ export function useResourceSnakeAudioFeedback(
       highestEventId = event.id
       const cue = eventCue(event)
       if (!cue) continue
+      if (
+        event.type === 'snake-collided' &&
+        !rememberBounded(
+          heardCollisionFramesRef.current,
+          `${roundKey}:${event.startedAtMs}`,
+        )
+      ) continue
       playCueSafely(cue)
     }
     highestEventByRoundRef.current.set(roundKey, highestEventId)
@@ -120,7 +128,7 @@ export function useResourceSnakeAudioFeedback(
     }
     if (movementLoopActiveRef.current) return
     try {
-      movementLoopActiveRef.current = startGameSoundLoop('movement-hum')
+      movementLoopActiveRef.current = startGameSoundLoop('rail-flow')
     } catch {
       movementLoopActiveRef.current = false
     }

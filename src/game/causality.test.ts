@@ -11,7 +11,10 @@ import {
   recordCausalEvidence,
   recordCausalIncident,
 } from './causality'
-import { nativeCommandProtocol } from './commandProtocol'
+import {
+  commandProtocolFingerprint,
+  nativeCommandProtocol,
+} from './commandProtocol'
 import { createCampaign } from './createCampaign'
 import type {
   CampaignState,
@@ -1201,7 +1204,7 @@ describe('causal revision effects and deterministic IDs', () => {
 
     const hash = Math.floor(
       random01(
-        `${first.campaignSeed}|causal-rules-2|4@1`,
+        `${first.campaignSeed}|causal-rules-2|${commandProtocolFingerprint(first.commandProtocol)}`,
         first.causality.rulesVersion,
         'causal-effect',
         7,

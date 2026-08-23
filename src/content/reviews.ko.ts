@@ -115,6 +115,8 @@ export const STARTING_REVIEW_ENTRIES: ReviewFeedEntry[] = [
     sentiment: 'neutral',
     topics: ['general'],
     text: '업무 정리할 때 무난하게 쓰고 있습니다.',
+    source: 'starting',
+    rating: null,
     snapshot: {
       kind: 'unavailable',
       reason: 'prior-service',
@@ -129,6 +131,8 @@ export const STARTING_REVIEW_ENTRIES: ReviewFeedEntry[] = [
     sentiment: 'neutral',
     topics: ['ordinary-prompt'],
     text: '주말 일정표를 부탁했는데 필요한 만큼은 해줬어요.',
+    source: 'starting',
+    rating: null,
     snapshot: {
       kind: 'unavailable',
       reason: 'prior-service',

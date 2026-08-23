@@ -153,7 +153,7 @@ describe('ExpansionStageScene', () => {
 
     expect(scene).toHaveAttribute('data-phase', 'entering')
     expect(within(scene).getByRole('img', {
-      name: '아노미가 회사 통제를 벗어나기 직전 마지막 경계를 여는 장면',
+      name: '아노미가 최종 통제 경계를 연 장면',
     })).toBeInTheDocument()
     expect(scene).toHaveAttribute('data-emphasis', 'final')
     expect(scene.querySelectorAll('img')).toHaveLength(1)
@@ -234,7 +234,7 @@ describe('ExpansionStageScene', () => {
     const scene = screen.getByRole('figure', { name: '현재 단계 장면' })
     expect(scene).toHaveAttribute('data-phase', 'stable')
     expect(within(scene).getByRole('img', {
-      name: '아노미가 회사 통제를 벗어나기 직전 마지막 경계를 여는 장면',
+      name: '아노미가 최종 통제 경계를 연 장면',
     })).toBeInTheDocument()
     expect(vi.getTimerCount()).toBe(0)
   })

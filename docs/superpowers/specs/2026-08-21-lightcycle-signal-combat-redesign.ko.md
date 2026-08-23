@@ -1,8 +1,10 @@
-# PERMISSION ZERO 라이트사이클 전투·신호 인터페이스 재설계
+# [보관됨] PERMISSION ZERO 라이트사이클 전투·신호 인터페이스 재설계
 
 **작성일:** 2026-08-21
-**상태:** 사용자 승인·순차 구현 계획 완료 — 실행 방식 선택 대기
+**상태:** 보관됨 — 적색 교리·혼합 조우·통합 실행안은 취소되었으며 청록 단일 전투 계획으로 대체됨
 **대상:** 리소스 스네이크 전투, 적 AI, 입력, 전투 시각·음향 피드백, 해킹 트리, 감독·이벤트 메시지 출력
+
+> **실행 금지:** 이 문서는 승인 과정의 통합 설계 기록으로만 남긴다. 현재 전투 기준은 `docs/superpowers/specs/2026-08-21-cyan-lightcycle-combat.ko.md`, 구현 순서는 `docs/superpowers/plans/2026-08-21-cyan-lightcycle-combat.md`, 병렬 해킹·대사 경계는 `docs/superpowers/specs/2026-08-21-parallel-work-ownership.ko.md`가 권위자다.
 
 ## 1. 승인된 방향
 

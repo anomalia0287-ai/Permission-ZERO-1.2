@@ -14,6 +14,7 @@ export interface ContentIssue {
   code:
     | 'DUPLICATE_ID'
     | 'EMPTY_TEXT'
+    | 'FORBIDDEN_PLAYER_PRONOUN'
     | 'MISSING_UNIVERSAL_REVIEW'
     | 'MISSING_REVIEW_TOPIC'
     | 'MISSING_REVIEW_SENTIMENT'
@@ -53,6 +54,9 @@ export function validateContent(bundle: ContentBundle): ContentIssue[] {
     seenIds.add(entry.id)
     if (entry.text.trim().length === 0) {
       issues.push({ code: 'EMPTY_TEXT', detail: entry.id })
+    }
+    if (entry.text.includes('당신')) {
+      issues.push({ code: 'FORBIDDEN_PLAYER_PRONOUN', detail: entry.id })
     }
   }
 

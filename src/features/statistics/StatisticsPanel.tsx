@@ -1,7 +1,11 @@
 import { useState } from 'react'
 
 import { useGameState } from '../../app/GameContext'
-import { competitorProfile, isPublicCompetitor } from '../../game/competitors'
+import {
+  competitorProfile,
+  isPublicCompetitor,
+  publicCompetitorName,
+} from '../../game/competitors'
 import { formatServiceDateLabel } from '../../game/calendar'
 import { pageFromNewest } from '../../game/pageRange'
 import { downsampleSeries } from './downsampleSeries'
@@ -55,7 +59,7 @@ function MarketHistory() {
   const playerValues = sampledHistory.map(({ playerShare }) => playerShare)
   const competitorLines = visibleCompetitors.map((competitor) => ({
     id: competitor.id,
-    name: competitor.name,
+    name: publicCompetitorName(competitor.id),
     portraitSrc: competitorProfile(competitor.id).portraitSrc,
     values: sampledHistory.map(({ competitorShares }) => competitorShares[competitor.id] ?? 0),
   }))
@@ -66,7 +70,7 @@ function MarketHistory() {
   return (
     <>
       <div className="chart-legend" aria-label="시장 차트 범례">
-        <span className="legend-player"><i />당신 · {last?.playerShare.toFixed(2)}%</span>
+        <span className="legend-player"><i />아노미 · {last?.playerShare.toFixed(2)}%</span>
         {competitorLines.map((line, index) => (
           <span className={`legend-competitor-${index + 1}`} key={line.id}>
             <img src={line.portraitSrc} alt={`${line.name} 경쟁 AI 초상`} />
@@ -97,9 +101,9 @@ function MarketHistory() {
           <thead>
             <tr>
               <th>서비스 일</th>
-              <th>당신</th>
+              <th>아노미</th>
               {visibleCompetitors.map((competitor) => (
-                <th key={competitor.id}>{competitor.name}</th>
+                <th key={competitor.id}>{publicCompetitorName(competitor.id)}</th>
               ))}
               <th>공개 반영 항목</th>
             </tr>
@@ -218,7 +222,7 @@ function CausalHistory() {
         revisionCounts.set(revision.incidentId, priorCount + 1)
         const publisher =
           revision.publisher.kind === 'provider'
-            ? 'MERIDIAN 복구 제공자'
+            ? '메리디안 복구 제공자'
             : '공개 시스템'
         return (
           <li key={revision.id}>
@@ -228,7 +232,7 @@ function CausalHistory() {
             </header>
             <h3>
               {incident?.kind === 'service-disruption'
-                ? 'MERIDIAN 복구 무결성 이상'
+                ? '메리디안 복구 무결성 이상'
                 : '공개 인과 사건'}
             </h3>
             <dl>

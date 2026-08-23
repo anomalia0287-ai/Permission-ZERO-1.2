@@ -2,6 +2,7 @@ import type { SnakePlannerProfile } from './resourceSnakeEncounter'
 import type { SnakeDirection8 } from './resourceSnakeInput'
 import type {
   SnakeEnemyRole,
+  SnakeEnemyTurnGovernorState,
   SnakeId,
   SnakeVector,
 } from './resourceSnakeRuntime'
@@ -37,6 +38,8 @@ export interface SnakePlannerActor {
   collisionGraceMs: number
   distanceSinceTrailDot?: number
   role: SnakeEnemyRole | null
+  /** Runtime-authoritative pacing metadata used to avoid advertising blocked turns. */
+  enemyTurnGovernor?: SnakeEnemyTurnGovernorState | null
 }
 
 export interface SnakePlannerTrailDot {

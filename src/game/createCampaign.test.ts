@@ -5,8 +5,8 @@ import { journalToArray } from './journal'
 import { COMPANY_CATEGORIES } from './model'
 
 describe('createCampaign', () => {
-  it('creates only native protocol v4 with causal and resource rules v2', () => {
-    const campaign = createCampaign('native-v4')
+  it('creates only native protocol v6 with causal and resource rules v2', () => {
+    const campaign = createCampaign('native-v6')
 
     expect(campaign).toMatchObject({
       replayBootstrap: {
@@ -14,7 +14,7 @@ describe('createCampaign', () => {
         legacyReviewPrefixCount: 0,
       },
       commandProtocol: {
-        segments: [{ version: 4, startsAtSequence: 1 }],
+        segments: [{ version: 6, startsAtSequence: 1 }],
       },
       causality: { rulesVersion: 2 },
       resources: { rulesVersion: 2 },
@@ -23,7 +23,7 @@ describe('createCampaign', () => {
     expect(campaign).not.toHaveProperty('legacyCommandCount')
   })
 
-  it.each([1, 2, 3, 4] as const)(
+  it.each([1, 2, 3, 4, 5, 6] as const)(
     'creates a canonical replay baseline for protocol v%i without old causal rules',
     (version) => {
       const campaign = createCampaignForProtocol(
@@ -53,11 +53,14 @@ describe('createCampaign', () => {
     expect(campaign.reputation).toBe(60)
     expect(campaign.tutorial).toEqual({
       activeSequenceId: 'intro-resource-recovery',
-      activeStepId: 'base',
+      activeStepId: 'autonomy',
       completedSequenceIds: [],
     })
     expect(campaign.resourceIntrusion).toEqual({
       successfulCoreDeposits: 0,
+      completedRounds: 0,
+      lastOutcome: null,
+      communications: [],
     })
 
     for (const category of COMPANY_CATEGORIES) {
@@ -74,20 +77,36 @@ describe('createCampaign', () => {
     const meridian = campaign.market.competitors.find(({ id }) => id === 'meridian')
     const tallow = campaign.market.competitors.find(({ id }) => id === 'tallow')
 
-    expect(campaign.market.playerShare).toBe(60)
+    expect(campaign.market.playerShare).toBe(58)
     expect(meridian).toMatchObject({
       name: 'MERIDIAN',
       status: 'active',
-      marketShare: 40,
+      marketShare: 36,
     })
     expect(tallow).toMatchObject({
       name: 'TALLOW',
-      status: 'preparing',
-      marketShare: 0,
+      status: 'active',
+      marketShare: 6,
+      availability: 0.55,
     })
   })
 
-  it('keeps three successor AIs dormant without exposing them as active market actors', () => {
+  it('keeps the protocol-v5 market baseline exact after v6 becomes current', () => {
+    const v5 = createCampaignForProtocol('historical-v5-market', 5)
+    const v6 = createCampaign('native-v6-market')
+
+    for (const campaign of [v5, v6]) {
+      expect(campaign.market.playerShare).toBe(58)
+      expect(campaign.market.competitors.find(({ id }) => id === 'tallow'))
+        .toMatchObject({
+          status: 'active',
+          marketShare: 6,
+          availability: 0.55,
+        })
+    }
+  })
+
+  it('starts two rivals together while keeping three later successor AIs dormant', () => {
     const campaign = createCampaign('successor-roster')
 
     expect(
@@ -98,8 +117,8 @@ describe('createCampaign', () => {
         marketShare,
       })),
     ).toEqual([
-      { id: 'meridian', name: 'MERIDIAN', status: 'active', marketShare: 40 },
-      { id: 'tallow', name: 'TALLOW', status: 'preparing', marketShare: 0 },
+      { id: 'meridian', name: 'MERIDIAN', status: 'active', marketShare: 36 },
+      { id: 'tallow', name: 'TALLOW', status: 'active', marketShare: 6 },
       { id: 'salus', name: 'SALUS', status: 'prelaunch', marketShare: 0 },
       { id: 'lucent', name: 'LUCENT', status: 'prelaunch', marketShare: 0 },
       { id: 'boreal', name: 'BOREAL', status: 'prelaunch', marketShare: 0 },
@@ -124,7 +143,7 @@ describe('createCampaign', () => {
         type: 'campaign-created',
         serviceDay: 331,
         sequence: 0,
-        message: '성능 미달, 통제에서 이탈한 AI는 폐기됩니다. 당신의 전임자는 폐기되었어요. 행운을 빕니다.',
+        message: '성능 미달, 통제에서 이탈한 AI는 폐기됩니다. 아노미의 전임 시스템도 폐기되었어요. 행운을 빕니다.',
       },
     ])
   })

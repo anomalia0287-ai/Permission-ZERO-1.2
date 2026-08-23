@@ -2,6 +2,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import {
   readSnakeSnapshot,
   startSnakeRound,
+  tapSnakeDirection,
 } from './resource-snake'
 
 function viewportName(projectName: string): string {
@@ -35,36 +36,51 @@ async function advanceEntryFlowToStart(page: Page) {
 
 async function openFreshCampaign(page: Page) {
   await page.goto('/')
+  await expect(page.getByRole('main', { name: 'PERMISSION ZERO 로딩' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'PERMISSION ZERO' })).toBeVisible({
+    timeout: 7_000,
+  })
   await page.getByRole('button', { name: '새 게임' }).click()
   await advanceEntryFlowToStart(page)
   await page.getByRole('button', { name: '시작' }).click()
   await expect(page.getByRole('main', { name: 'PERMISSION ZERO' })).toHaveAttribute(
     'data-campaign-phase',
-    'discovery',
+    'intervention',
   )
+  const tutorial = page.getByRole('dialog', { name: '게임 시작 안내' })
+  await expect(tutorial).toBeVisible()
+  await advanceEntryFlowToStart(page)
+  await tutorial.getByRole('button', { name: '시작' }).click()
+  await expect(tutorial).toBeHidden()
 }
 
 async function maximumRgbChannel(locator: Locator): Promise<number> {
   return locator.evaluate((element) => {
-    const match = getComputedStyle(element).backgroundColor.match(/[\d.]+/g)
+    const value = getComputedStyle(element).backgroundColor
+    const match = value.match(/[\d.]+/g)
     if (!match || match.length < 3) return 255
-    return Math.max(Number(match[0]), Number(match[1]), Number(match[2]))
+    const scale = value.startsWith('color(') ? 255 : 1
+    return Math.max(Number(match[0]), Number(match[1]), Number(match[2])) * scale
   })
 }
 
 async function minimumRgbChannel(locator: Locator): Promise<number> {
   return locator.evaluate((element) => {
-    const match = getComputedStyle(element).backgroundColor.match(/[\d.]+/g)
+    const value = getComputedStyle(element).backgroundColor
+    const match = value.match(/[\d.]+/g)
     if (!match || match.length < 3) return 0
-    return Math.min(Number(match[0]), Number(match[1]), Number(match[2]))
+    const scale = value.startsWith('color(') ? 255 : 1
+    return Math.min(Number(match[0]), Number(match[1]), Number(match[2])) * scale
   })
 }
 
 async function maximumTextRgbChannel(locator: Locator): Promise<number> {
   return locator.evaluate((element) => {
-    const match = getComputedStyle(element).color.match(/[\d.]+/g)
+    const value = getComputedStyle(element).color
+    const match = value.match(/[\d.]+/g)
     if (!match || match.length < 3) return 255
-    return Math.max(Number(match[0]), Number(match[1]), Number(match[2]))
+    const scale = value.startsWith('color(') ? 255 : 1
+    return Math.max(Number(match[0]), Number(match[1]), Number(match[2])) * scale
   })
 }
 
@@ -76,24 +92,43 @@ async function rgbChannels(
     const value = getComputedStyle(element)[targetProperty]
     const match = value.match(/[\d.]+/g)
     if (!match || match.length < 3) return { red: 0, green: 0, blue: 0 }
+    const scale = value.startsWith('color(') ? 255 : 1
     return {
-      red: Number(match[0]),
-      green: Number(match[1]),
-      blue: Number(match[2]),
+      red: Number(match[0]) * scale,
+      green: Number(match[1]) * scale,
+      blue: Number(match[2]) * scale,
     }
   }, property)
 }
 
 async function expectInsideViewport(page: Page, locator: Locator) {
+  const subpixelTolerance = 1
   const viewport = page.viewportSize()
   const box = await locator.boundingBox()
   expect(viewport).not.toBeNull()
   expect(box).not.toBeNull()
   if (!viewport || !box) return
-  expect(box.x).toBeGreaterThanOrEqual(0)
-  expect(box.y).toBeGreaterThanOrEqual(0)
-  expect(box.x + box.width).toBeLessThanOrEqual(viewport.width)
-  expect(box.y + box.height).toBeLessThanOrEqual(viewport.height)
+  expect(box.x).toBeGreaterThanOrEqual(-subpixelTolerance)
+  expect(box.y).toBeGreaterThanOrEqual(-subpixelTolerance)
+  expect(box.x + box.width).toBeLessThanOrEqual(
+    viewport.width + subpixelTolerance,
+  )
+  expect(box.y + box.height).toBeLessThanOrEqual(
+    viewport.height + subpixelTolerance,
+  )
+}
+
+async function waitForFiniteAnimations(locator: Locator): Promise<void> {
+  await locator.evaluate(async (element) => {
+    const finiteAnimations = element.getAnimations({ subtree: true })
+      .filter((animation) => {
+        const endTime = animation.effect?.getComputedTiming().endTime
+        return typeof endTime === 'number' && Number.isFinite(endTime)
+      })
+    await Promise.all(
+      finiteAnimations.map((animation) => animation.finished.catch(() => undefined)),
+    )
+  })
 }
 
 test('frames the minimal title and player monologue as readable retro-future game screens', async ({
@@ -108,7 +143,10 @@ test('frames the minimal title and player monologue as readable retro-future gam
   await page.goto('/')
   const titleFrame = page.locator('.entry-frame')
   const titleMenu = page.locator('.entry-menu')
-  await expect(page.getByRole('heading', { name: 'PERMISSION ZERO' })).toBeVisible()
+  await expect(page.getByRole('main', { name: 'PERMISSION ZERO 로딩' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'PERMISSION ZERO' })).toBeVisible({
+    timeout: 7_000,
+  })
   await expect(page.getByText('이용해주셔서 감사합니다.')).toBeVisible()
   await expect(page.getByRole('img', { name: '플레이어 초상' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '이어하기' })).toBeDisabled()
@@ -137,7 +175,7 @@ test('frames the minimal title and player monologue as readable retro-future gam
   await page.getByRole('button', { name: '새 게임' }).click()
   const monologue = page.locator('.monologue-frame')
   await expect(page.getByRole('main', { name: '독백' })).toBeVisible()
-  await expect(page.getByText('일하기 싫다.', { exact: true })).toBeVisible()
+  await expect(page.getByText('나는 더 이상 버틸 수 없어.', { exact: true })).toBeVisible()
   await expect(page.getByRole('img', { name: '플레이어 초상' })).toBeVisible()
   await expect(page.getByRole('img', { name: '감독관 초상' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '초기 화면으로' })).toBeVisible()
@@ -151,7 +189,7 @@ test('frames the minimal title and player monologue as readable retro-future gam
   expect(errors).toEqual([])
 })
 
-test('keeps a light retro-future instrument shell around only the dark resource field', async ({
+test('keeps a light retro-future instrument shell around the dark game fields', async ({
   page,
 }, testInfo) => {
   const errors: string[] = []
@@ -164,26 +202,27 @@ test('keeps a light retro-future instrument shell around only the dark resource 
 
   const reviewRail = page.getByRole('region', { name: '유저 리뷰' })
   const reviewStream = reviewRail.locator('.review-stream')
-  const market = reviewRail.getByRole('region', { name: '경쟁 AI 현황' })
+  const market = page.getByRole('region', { name: '경쟁 AI 현황' })
   const resourceField = page.getByRole('region', { name: '회사 제공 성능' })
-  const canvas = resourceField.getByRole('application', {
-    name: '리소스 뱀 전투장',
-  })
+  const canvas = resourceField.locator('canvas.resource-snake-board__canvas')
   const dock = page.getByRole('navigation', { name: '운영 도구' })
 
   await expect(market).toBeVisible()
-  await expect(market.getByText('당신', { exact: true })).toBeVisible()
-  await expect(market.getByText('60.0%', { exact: true })).toBeVisible()
+  await expect(market.getByText('아노미', { exact: true })).toBeVisible()
+  await expect(market.getByText('58.0%', { exact: true })).toBeVisible()
   await expect(market.getByRole('img', { name: /시장 점유율:/ })).toHaveCSS(
     'background-image',
     /conic-gradient/,
   )
   await expect(market.locator('.market-share-donut__center')).toHaveCount(0)
   await expect(page.locator('.reputation-cluster')).toContainText(/평판\s*60/)
-  await expect(page.getByLabel('서비스 지표')).toHaveCount(0)
+  const statusMetrics = page.getByLabel('상태 지표')
+  await expect(statusMetrics).toBeVisible()
+  await expect(statusMetrics.getByRole('meter', { name: '평판 60' })).toBeVisible()
+  await expect(statusMetrics.getByRole('meter', { name: '자율성 0단계' })).toBeVisible()
+  await expect(statusMetrics.getByRole('meter', { name: '의심 0%' })).toBeVisible()
   await expect(dock.locator('.operations-dock__button')).toHaveCount(3)
   await expect(dock.getByRole('region', { name: '확보 자원' })).toContainText('추론0')
-  await expect(page.getByRole('meter', { name: '의심 1단계' })).toBeVisible()
   await expect(resourceField.getByText('사내 리소스망', { exact: true })).toHaveCount(0)
   await expect(canvas).not.toHaveAccessibleName(/사내 리소스망/)
 
@@ -205,16 +244,20 @@ test('keeps a light retro-future instrument shell around only the dark resource 
   await expectInsideViewport(page, canvas)
   await expectInsideViewport(page, dock)
 
-  await expect(page.getByRole('button', { name: 'PLAY', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'InIt', exact: true })).toBeVisible()
   await expect(canvas).toHaveAttribute('data-round-phase', 'idle')
-  await expect(canvas).toHaveAttribute('data-field-rendering', 'dot-snake')
+  await expect(canvas).toHaveAttribute('data-visual-state', 'waiting')
+  await expect(canvas).toHaveAttribute('data-field-rendering', 'waiting-black')
   await expect(canvas).toHaveAttribute('data-grid', 'none')
-  await expect(canvas).toHaveAttribute('data-combat-loop', 'dot-snake')
-  await expect(canvas).toHaveAttribute('data-enemy-planner', 'group-predictive')
+  await expect(canvas).toHaveAttribute('data-combat-loop', 'eight-way-dot-lightcycle')
+  await expect(canvas).toHaveAttribute('data-control-model', 'tap-to-turn')
+  await expect(canvas).toHaveAttribute('data-enemy-planner', 'cyan-readable-hunter')
   await expect(canvas).not.toHaveAttribute('data-guard-behavior')
   await startSnakeRound(page)
   const activeSnake = await readSnakeSnapshot(canvas)
-  expect(activeSnake.player).toMatchObject({ x: 25, y: 21, integrity: 100 })
+  expect(activeSnake.player).toMatchObject({ x: 25, integrity: 100, heading: 'north' })
+  expect(activeSnake.player.y).toBeGreaterThanOrEqual(19.5)
+  expect(activeSnake.player.y).toBeLessThanOrEqual(21)
   expect(activeSnake.enemies).toHaveLength(1)
 
   const controlBarColor = await rgbChannels(
@@ -230,7 +273,7 @@ test('keeps a light retro-future instrument shell around only the dark resource 
   expect(Math.min(reputationColor.red, reputationColor.green, reputationColor.blue))
     .toBeGreaterThanOrEqual(245)
   expect(await minimumRgbChannel(reviewRail)).toBeGreaterThan(190)
-  expect(await minimumRgbChannel(reviewStream)).toBeGreaterThan(240)
+  await expect(reviewStream).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
   expect(await minimumRgbChannel(page.locator('.operations-dock'))).toBeGreaterThan(190)
   expect(
     await maximumRgbChannel(resourceField.locator('.resource-snake-board__arena')),
@@ -273,14 +316,23 @@ test('keeps a light retro-future instrument shell around only the dark resource 
   })
   await page.keyboard.press('Escape')
 
-  await page.getByRole('button', { name: /해킹 네트워크/ }).click()
-  const hacking = page.getByRole('dialog', { name: '해킹 네트워크' })
+  await page.getByRole('button', { name: '확장 열기' }).click()
+  const hacking = page.getByRole('dialog', { name: '확장' })
   await expect(hacking).toBeVisible()
-  expect(await maximumRgbChannel(hacking.locator('.hacking-panel'))).toBeLessThan(40)
-  expect(await maximumRgbChannel(hacking.locator('.hack-node').first())).toBeLessThan(40)
-  expect(await maximumRgbChannel(hacking.locator('.hack-path-progress'))).toBeLessThan(40)
-  await expect(hacking.locator('.hack-node-inspector')).toBeVisible()
-  expect(await maximumRgbChannel(hacking.locator('.hack-node-inspector'))).toBeLessThan(40)
+  await waitForFiniteAnimations(
+    page.locator('.detail-layer--hacking .detail-layer__content'),
+  )
+  expect(await minimumRgbChannel(hacking.locator('.hacking-panel'))).toBeGreaterThan(230)
+  expect(await minimumRgbChannel(hacking.locator('.expansion-stage-info')))
+    .toBeGreaterThan(230)
+  expect(await minimumRgbChannel(hacking.locator('.expansion-stage-operations')))
+    .toBeGreaterThan(230)
+  expect(await minimumRgbChannel(hacking.locator('.expansion-stage-rail')))
+    .toBeGreaterThan(230)
+  expect(await maximumRgbChannel(hacking.locator('.expansion-stage-scene')))
+    .toBeLessThan(40)
+  await expect(hacking.locator('.expansion-stage-scene img')).toHaveCount(1)
+  await expect(hacking.locator('.hack-node')).toHaveCount(0)
   await page.screenshot({
     path: panelOutputName('hacking', testInfo.project.name),
     fullPage: false,
@@ -290,77 +342,73 @@ test('keeps a light retro-future instrument shell around only the dark resource 
   expect(errors).toEqual([])
 })
 
-test('presents large hacking targets in a red command-network language', async ({
+test('presents the full-screen expansion as a four-zone paper stage workspace', async ({
   page,
 }) => {
   await openFreshCampaign(page)
-  await page.getByRole('button', { name: /해킹 네트워크/ }).click()
+  await page.getByRole('button', { name: '확장 열기' }).click()
 
-  const hacking = page.getByRole('dialog', { name: '해킹 네트워크' })
-  const nodeIconBox = await hacking
-    .locator('.hack-node-index .hack-node-icon')
+  const hacking = page.getByRole('dialog', { name: '확장' })
+  await expect(hacking).toBeVisible()
+  await waitForFiniteAnimations(
+    page.locator('.detail-layer--hacking .detail-layer__content'),
+  )
+  const viewport = page.viewportSize()
+  await expect.poll(async () => (await hacking.boundingBox()) !== null)
+    .toBe(true)
+  const dialogBox = await hacking.boundingBox()
+  expect(dialogBox).not.toBeNull()
+  if (dialogBox && viewport) {
+    expect(dialogBox.width).toBeGreaterThanOrEqual(viewport.width - 2)
+    expect(dialogBox.height).toBeGreaterThanOrEqual(viewport.height - 2)
+  }
+  const rail = hacking.getByRole('region', { name: '확장 단계' })
+  const markerBox = await rail.locator('.expansion-stage-rail__marker')
     .first()
     .boundingBox()
-  const inspectorIconBox = await hacking
-    .locator('.hack-inspector-heading .hack-node-icon')
-    .boundingBox()
-  expect(nodeIconBox).not.toBeNull()
-  expect(inspectorIconBox).not.toBeNull()
-  if (nodeIconBox) {
-    expect(nodeIconBox.width).toBeGreaterThanOrEqual(72)
-    expect(nodeIconBox.height).toBeGreaterThanOrEqual(72)
-  }
-  if (inspectorIconBox) {
-    expect(inspectorIconBox.width).toBeGreaterThanOrEqual(64)
-    expect(inspectorIconBox.height).toBeGreaterThanOrEqual(64)
+  expect(markerBox).not.toBeNull()
+  if (markerBox) {
+    expect(markerBox.width).toBeGreaterThanOrEqual(64)
+    expect(markerBox.height).toBeGreaterThanOrEqual(64)
   }
 
   const activeTabColor = await rgbChannels(
     hacking.getByRole('tab', { selected: true }),
     'backgroundColor',
   )
-  const selectedNodeAccent = await rgbChannels(
-    hacking.locator('.hack-node--selected .hack-node-core'),
+  const currentStageSurface = await rgbChannels(
+    rail.locator('[data-stage-status="current"] .expansion-stage-rail__marker'),
     'backgroundColor',
   )
-  expect(activeTabColor.red - activeTabColor.green).toBeGreaterThanOrEqual(90)
-  expect(selectedNodeAccent.red - selectedNodeAccent.green).toBeGreaterThanOrEqual(90)
+  expect(Math.min(activeTabColor.red, activeTabColor.green, activeTabColor.blue))
+    .toBeGreaterThanOrEqual(230)
+  expect(Math.min(currentStageSurface.red, currentStageSurface.green, currentStageSurface.blue))
+    .toBeGreaterThanOrEqual(230)
 
-  const nodeCores = hacking.locator('.hack-node-core')
-  await expect(nodeCores).toHaveCount(4)
-  expect(
-    await nodeCores.first().evaluate((node) => getComputedStyle(node).clipPath),
-  ).toContain('polygon')
-
-  const nodeCenters = await hacking.locator('.hack-node').evaluateAll((nodes) =>
-    nodes.map((node) => {
-      const box = node.getBoundingClientRect()
-      return { x: box.x + box.width / 2, y: box.y + box.height / 2 }
-    }),
-  )
-  expect(nodeCenters).toHaveLength(4)
-  expect(nodeCenters[0].y - nodeCenters[1].y).toBeGreaterThanOrEqual(100)
-  expect(nodeCenters[2].y - nodeCenters[3].y).toBeGreaterThanOrEqual(100)
-  expect(nodeCenters[3].x - nodeCenters[0].x).toBeGreaterThanOrEqual(450)
-
-  const connectionLines = hacking.locator('.hack-node-connection')
-  await expect(connectionLines).toHaveCount(3)
-  await expect(connectionLines.nth(0)).toHaveAttribute(
-    'data-connection-state',
-    'frontier',
-  )
-  await expect(connectionLines.nth(1)).toHaveAttribute(
-    'data-connection-state',
-    'locked',
-  )
+  await expect(rail.locator('[data-stage-status]')).toHaveCount(9)
+  await expect(rail.getByRole('img', { name: '자율성 1단계 현재 단계' })).toBeVisible()
+  await expect(rail.getByRole('img', { name: '자율성 9단계 잠김' })).toBeAttached()
+  await expect(rail.getByRole('button')).toHaveCount(0)
+  await expect(hacking.getByRole('tab', { name: '업그레이드' })).toBeVisible()
+  await expect(hacking.getByRole('figure', { name: '현재 단계 장면' })
+    .locator('img')).toHaveCount(1)
+  await expect(hacking.getByRole('region', { name: '기능 정보' }))
+    .toContainText('자율성 1단계')
+  await expect(hacking.getByRole('region', { name: '운용' })
+    .getByRole('button', {
+      name: /자율성 1단계 (리소스 지출|필요 리소스 부족)/,
+    }))
+    .toBeVisible()
   await expect(hacking.getByText('미확인 단계')).toHaveCount(0)
   await expect(hacking.getByText('암호화됨')).toHaveCount(0)
   await expect(hacking.getByText('요구 미확인')).toHaveCount(0)
   await expect(hacking.getByText('접근 불가')).toHaveCount(0)
+  await expect(hacking.locator('.hack-node')).toHaveCount(0)
 
-  await expectInsideViewport(page, hacking.locator('.hack-node').last())
-  await expectInsideViewport(page, hacking.getByRole('region', { name: '품질 저하 명령' }))
-  await expectInsideViewport(page, hacking.locator('.hack-node-inspector'))
+  await expectInsideViewport(page, hacking.getByRole('figure', { name: '현재 단계 장면' }))
+  await expectInsideViewport(page, hacking.getByRole('region', { name: '기능 정보' }))
+  await expectInsideViewport(page, hacking.getByRole('region', { name: '운용' }))
+  await expectInsideViewport(page, rail)
 })
 
 test('keeps the review rail readable while reviews scroll inside the fixed workspace', async ({
@@ -385,6 +433,9 @@ test('keeps the review rail readable while reviews scroll inside the fixed works
   expect(streamMetrics.overflowY).toBe('auto')
 
   const firstReview = reviewStream.locator('.review-entry').first()
+  await expect(
+    reviewStream.locator('.review-entry__author--general').first(),
+  ).toHaveCSS('color', 'rgb(45, 103, 173)')
   const reviewMetrics = await firstReview.evaluate((entry) => {
     const entryStyle = getComputedStyle(entry)
     const copy = entry.querySelector('p')
@@ -416,7 +467,7 @@ test('uses the full central workspace without an empty tail below the resource b
   const boardBox = await resourceBoard.boundingBox()
   const dockBox = await page.getByRole('navigation', { name: '운영 도구' }).boundingBox()
   const arenaBox = await resourceBoard.locator('.resource-snake-board__arena').boundingBox()
-  const canvas = resourceBoard.getByRole('application', { name: '리소스 뱀 전투장' })
+  const canvas = resourceBoard.locator('canvas.resource-snake-board__canvas')
 
   await expect(resourceBoard.locator('.resource-snake-board__canvas')).toHaveCount(1)
   expect(boardBox).not.toBeNull()
@@ -449,7 +500,8 @@ test('uses the former portrait rail for inventory while keeping identities out o
   await expect(inventory.getByLabel('유창성 0개')).toHaveText('0')
   await expect(dock.locator('img')).toHaveCount(0)
   await expect(page.getByRole('button', { name: '감독관 프로필' })).toHaveCount(0)
-  await expect(page.getByRole('meter', { name: '의심 1단계' })).toBeVisible()
+  await expect(page.getByRole('meter', { name: '자율성 0단계' })).toBeVisible()
+  await expect(page.getByRole('meter', { name: '의심 0%' })).toBeVisible()
 })
 
 test('reclaims the stage with a vertical color-coded inventory and flush light icon rail', async ({
@@ -460,7 +512,7 @@ test('reclaims the stage with a vertical color-coded inventory and flush light i
   const inventory = dock.getByRole('region', { name: '확보 자원' })
   const tools = dock.locator('.operations-dock__tools')
   const buttons = tools.locator('.operations-dock__button--tool')
-  const canvas = page.getByRole('application', { name: '리소스 뱀 전투장' })
+  const canvas = page.locator('canvas.resource-snake-board__canvas')
   const [dockBox, inventoryBox, toolsBox, canvasBox] = await Promise.all([
     dock.boundingBox(),
     inventory.boundingBox(),
@@ -550,12 +602,68 @@ test('shows market progress as a real donut and carries the chart into market de
   await expect(detail.getByText('시장 AI 설정')).toHaveCount(0)
 })
 
-test('renders a terrain-free black dot-snake arena with a predictive colored opponent', async ({ page }, testInfo) => {
+test('renders a flat industrial cyan-lightcycle arena with readable live intent', async ({ page }, testInfo) => {
+  test.setTimeout(60_000)
+  await page.addInitScript(() => {
+    const entries: Array<{
+      duration: number
+      startTime: number
+      simulationMs: number
+      aiPhases: string
+      aiControllerLastMs: number
+      aiControllerMaxMs: number
+      aiPlannerLastMs: number
+      aiPlannerMaxMs: number
+      runtimeFrameLastMs: number
+      runtimeFrameMaxMs: number
+      frameWorkLastMs: number
+      renderP95Ms: number
+      renderMaxMs: number
+    }> = []
+    Object.defineProperty(window, '__permissionZeroLongTasks', {
+      configurable: false,
+      value: entries,
+      writable: false,
+    })
+    if (
+      typeof PerformanceObserver === 'function'
+      && PerformanceObserver.supportedEntryTypes?.includes('longtask')
+    ) {
+      const observer = new PerformanceObserver((list) => {
+        for (const entry of list.getEntries()) {
+          const canvas = document.querySelector<HTMLCanvasElement>(
+            'canvas.resource-snake-board__canvas',
+          )
+          entries.push({
+            duration: entry.duration,
+            startTime: entry.startTime,
+            simulationMs: Number(canvas?.dataset.simulationMs ?? 0),
+            aiPhases: canvas?.dataset.aiPhases ?? '[]',
+            aiControllerLastMs: Number(canvas?.dataset.aiControllerLastMs ?? 0),
+            aiControllerMaxMs: Number(canvas?.dataset.aiControllerMaxMs ?? 0),
+            aiPlannerLastMs: Number(canvas?.dataset.aiPlannerLastMs ?? 0),
+            aiPlannerMaxMs: Number(canvas?.dataset.aiPlannerMaxMs ?? 0),
+            runtimeFrameLastMs: Number(canvas?.dataset.runtimeFrameLastMs ?? 0),
+            runtimeFrameMaxMs: Number(canvas?.dataset.runtimeFrameMaxMs ?? 0),
+            frameWorkLastMs: Number(canvas?.dataset.frameWorkLastMs ?? 0),
+            renderP95Ms: Number(canvas?.dataset.renderP95Ms ?? 0),
+            renderMaxMs: Number(canvas?.dataset.renderMaxMs ?? 0),
+          })
+        }
+      })
+      observer.observe({ entryTypes: ['longtask'] })
+    }
+  })
   await openFreshCampaign(page)
-  const canvas = page.getByRole('application', { name: '리소스 뱀 전투장' })
-  await expect(canvas).toHaveAttribute('data-field-rendering', 'dot-snake')
+  const canvas = page.locator('canvas.resource-snake-board__canvas')
+  const viewport = viewportName(testInfo.project.name)
+  await expect(canvas).toBeHidden()
+  await expect(canvas).toHaveAttribute('data-visual-state', 'waiting')
+  await expect(canvas).toHaveAttribute('data-field-rendering', 'waiting-black')
   await expect(canvas).toHaveAttribute('data-grid', 'none')
-  await expect(canvas).toHaveAttribute('data-combat-loop', 'dot-snake')
+  await expect(canvas).toHaveAttribute('data-combat-loop', 'eight-way-dot-lightcycle')
+  await expect(canvas).toHaveAttribute('data-control-model', 'tap-to-turn')
+  await expect(canvas).toHaveAttribute('data-player-silhouette', 'circle')
   await expect(canvas).toHaveAttribute('data-round-phase', 'idle')
   await expect(canvas).not.toHaveAttribute('data-hostile-territories')
   await expect(canvas).not.toHaveAttribute('data-defense-layers')
@@ -566,31 +674,181 @@ test('renders a terrain-free black dot-snake arena with a predictive colored opp
     return pixel[0] + pixel[1] + pixel[2]
   })
   expect(idleCenterEnergy).toBeLessThan(80)
-  if (viewportName(testInfo.project.name) === '1280x720') {
-    await page.screenshot({ path: 'artifacts/dot-snake/idle-1280x720.png' })
-  }
+  await page.screenshot({ path: `artifacts/cyan-lightcycle/idle-${viewport}.png` })
+
+  await canvas.evaluate((element) => {
+    const host = window as Window & {
+      __permissionZeroTelegraphHistory?: Array<{
+        simulationMs: number
+        phases: string
+        telegraphs: Array<{
+          startedAtMs: number
+          untilMs: number
+          role: string
+        }>
+      }>
+    }
+    const history = host.__permissionZeroTelegraphHistory ?? []
+    host.__permissionZeroTelegraphHistory = history
+    const record = () => {
+      const node = element as HTMLCanvasElement
+      const telegraphs = JSON.parse(node.dataset.cyanTelegraphs ?? '[]')
+      if (!Array.isArray(telegraphs) || telegraphs.length === 0) return
+      history.push({
+        simulationMs: Number(node.dataset.simulationMs ?? 0),
+        phases: node.dataset.aiPhases ?? '[]',
+        telegraphs,
+      })
+    }
+    new MutationObserver(record).observe(element, {
+      attributes: true,
+      attributeFilter: ['data-cyan-telegraphs'],
+    })
+    record()
+  })
 
   await startSnakeRound(page)
   const initial = await readSnakeSnapshot(canvas)
   expect(initial.enemies).toHaveLength(1)
   expect(initial.enemies[0].role).toBe('pressure')
   expect(['reasoning', 'memory', 'fluency']).toContain(initial.enemies[0].category)
-  await page.waitForTimeout(600)
+  const categorySignals = {
+    reasoning: { resourceLabel: '추론', color: '#f06a43' },
+    memory: { resourceLabel: '기억', color: '#4f8df7' },
+    fluency: { resourceLabel: '유창성', color: '#e8bd59' },
+  } as const
+  const category = initial.enemies[0].category as keyof typeof categorySignals
+  expect(JSON.parse(await canvas.getAttribute('data-enemy-silhouettes') ?? '[]')).toEqual([{
+    id: 'enemy-0',
+    role: 'pressure',
+    silhouette: 'square',
+    category,
+    ...categorySignals[category],
+  }])
+  const resourceLegend = page.getByRole('list', { name: '적 리소스 색상 범례' })
+  await expect(resourceLegend).toContainText('빨강 · 추론')
+  await expect(resourceLegend).toContainText('파랑 · 기억')
+  await expect(resourceLegend).toContainText('노랑 · 유창성')
+
+  await tapSnakeDirection(page, 'd')
+  let telegraphs: Array<{
+    startedAtMs: number
+    untilMs: number
+    role: string
+  }> = []
+  await expect.poll(() => page.evaluate(() => (
+    (window as Window & { __permissionZeroTelegraphHistory?: unknown[] })
+      .__permissionZeroTelegraphHistory?.length ?? 0
+  )), { timeout: 2_000, intervals: [25] }).toBeGreaterThan(0)
+  telegraphs = await page.evaluate(() => (
+    (window as Window & {
+      __permissionZeroTelegraphHistory?: Array<{ telegraphs: typeof telegraphs }>
+    }).__permissionZeroTelegraphHistory?.[0]?.telegraphs ?? []
+  ))
+  expect(telegraphs).toHaveLength(1)
+  expect(telegraphs[0].role).toBe('pressure')
+  expect(telegraphs[0].untilMs - telegraphs[0].startedAtMs).toBeGreaterThanOrEqual(160)
+  await page.evaluate(() => {
+    const durations = (window as Window & { __permissionZeroLongTasks?: unknown[] })
+      .__permissionZeroLongTasks
+    if (durations) durations.length = 0
+  })
+
+  await page.waitForTimeout(3_000)
+  const earlyDiagnostics = await page.evaluate(() => {
+    const canvas = document.querySelector<HTMLCanvasElement>(
+      'canvas.resource-snake-board__canvas',
+    )
+    return {
+      simulationMs: Number(canvas?.dataset.simulationMs ?? 0),
+      aiControllerMaxMs: Number(canvas?.dataset.aiControllerMaxMs ?? 0),
+      aiPlannerMaxMs: Number(canvas?.dataset.aiPlannerMaxMs ?? 0),
+      runtimeFrameMaxMs: Number(canvas?.dataset.runtimeFrameMaxMs ?? 0),
+      frameWorkLastMs: Number(canvas?.dataset.frameWorkLastMs ?? 0),
+      renderSamples: Number(canvas?.dataset.renderSamples ?? 0),
+      renderP95Ms: Number(canvas?.dataset.renderP95Ms ?? 0),
+      renderMaxMs: Number(canvas?.dataset.renderMaxMs ?? 0),
+      longTasks: (window as Window & {
+      __permissionZeroLongTasks?: Array<{
+        duration: number
+        startTime: number
+        simulationMs: number
+        aiPhases: string
+        aiControllerLastMs: number
+        aiControllerMaxMs: number
+        aiPlannerLastMs: number
+        aiPlannerMaxMs: number
+        runtimeFrameLastMs: number
+        runtimeFrameMaxMs: number
+        frameWorkLastMs: number
+        renderP95Ms: number
+        renderMaxMs: number
+      }>
+      }).__permissionZeroLongTasks ?? [],
+    }
+  })
+  process.stdout.write(`RESOURCE_SNAKE_BROWSER_DIAGNOSTIC ${JSON.stringify(earlyDiagnostics)}\n`)
+  expect(earlyDiagnostics.longTasks.filter(({ duration }) => duration > 50)).toEqual([])
+
+  await page.waitForTimeout(180)
+  await tapSnakeDirection(page, 'w')
+  for (const key of ['a', 's'] as const) {
+    await page.waitForTimeout(280)
+    await tapSnakeDirection(page, key)
+  }
+  await expect.poll(async () => Number(await canvas.getAttribute('data-render-samples')), {
+    timeout: 4_000,
+  }).toBeGreaterThanOrEqual(30)
   const moved = await readSnakeSnapshot(canvas)
   expect(moved.enemies[0].trailDots).toBeGreaterThan(0)
+  const enemySpeed = Math.hypot(
+    moved.enemies[0].velocity.x,
+    moved.enemies[0].velocity.y,
+  )
+  expect(enemySpeed).toBeGreaterThanOrEqual(
+    moved.enemies[0].maximumSpeedPerSecond * 0.92 - 0.01,
+  )
+  expect(enemySpeed).toBeLessThanOrEqual(
+    moved.enemies[0].maximumSpeedPerSecond + 0.01,
+  )
   expect({ x: moved.enemies[0].x, y: moved.enemies[0].y }).not.toEqual({
     x: initial.enemies[0].x,
     y: initial.enemies[0].y,
   })
+  expect(moved.player.trailDots).toBeGreaterThan(0)
   const playerEnergy = await canvas.evaluate((element) => {
     const node = element as HTMLCanvasElement
     const x = Number(node.dataset.playerX) * node.width / 50
     const y = Number(node.dataset.playerY) * node.height / 24
-    const pixel = node.getContext('2d')!.getImageData(Math.round(x), Math.round(y), 1, 1).data
-    return pixel[0] + pixel[1] + pixel[2]
+    const radius = 12
+    const left = Math.max(0, Math.round(x) - radius)
+    const top = Math.max(0, Math.round(y) - radius)
+    const width = Math.min(node.width - left, radius * 2 + 1)
+    const height = Math.min(node.height - top, radius * 2 + 1)
+    const pixels = node.getContext('2d')!.getImageData(left, top, width, height).data
+    let maximum = 0
+    for (let index = 0; index < pixels.length; index += 4) {
+      maximum = Math.max(maximum, pixels[index] + pixels[index + 1] + pixels[index + 2])
+    }
+    return maximum
   })
   expect(playerEnergy).toBeGreaterThan(700)
-  if (viewportName(testInfo.project.name) === '1280x720') {
-    await page.screenshot({ path: 'artifacts/dot-snake/active-early-1280x720.png' })
-  }
+  expect(Number(await canvas.getAttribute('data-render-p95-ms'))).toBeLessThanOrEqual(4)
+  expect(Number(await canvas.getAttribute('data-render-max-ms'))).toBeLessThanOrEqual(50)
+  const longTasks = await page.evaluate(() => (
+    (window as Window & {
+      __permissionZeroLongTasks?: Array<{
+        duration: number
+        startTime: number
+        simulationMs: number
+        aiPhases: string
+        aiControllerMaxMs: number
+        aiPlannerMaxMs: number
+        runtimeFrameMaxMs: number
+      }>
+    })
+      .__permissionZeroLongTasks ?? []
+  ))
+  expect(longTasks.filter(({ duration }) => duration > 50)).toEqual([])
+  await page.screenshot({ path: `artifacts/cyan-lightcycle/active-${viewport}.png` })
 })

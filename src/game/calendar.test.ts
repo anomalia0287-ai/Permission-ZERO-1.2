@@ -228,8 +228,7 @@ describe('fixed campaign calendar', () => {
       serviceDay: 337,
       reasons: ['공개 성능·평판·가용성 반영'],
     })
-    expect(advanced.reviews.feed.length).toBeGreaterThanOrEqual(3)
-    expect(advanced.reviews.feed.length).toBeLessThanOrEqual(4)
+    expect(advanced.reviews.feed).toHaveLength(2)
   })
 
   it('interrupts once with a named entry signal when a hidden successor begins preparation', () => {
@@ -298,6 +297,12 @@ describe('fixed campaign calendar', () => {
       }),
     )
     expect(advanced.evaluation.monthlyHistory).toHaveLength(1)
+    expect(advanced.reviews.feed).toHaveLength(3)
+    expect(advanced.reviews.feed.at(-1)).toMatchObject({
+      source: 'monthly-evaluation',
+      rating: expect.any(Number),
+      serviceDay: 360,
+    })
     expect(advanced.market.history.filter(({ cadence }) => cadence === 'weekly')).toHaveLength(4)
     expect(advanced.market.history.filter(({ cadence }) => cadence === 'monthly')).toHaveLength(1)
   })
@@ -318,14 +323,15 @@ describe('fixed campaign calendar', () => {
     expect(advanced.resources.reserve).toEqual(reserveBefore)
   })
 
-  it('advances private competitor research every logical day', () => {
+  it('keeps the starting competitor active while advancing its private service state', () => {
     const initial = withSpeed(1)
     const before = initial.market.competitors.find(({ id }) => id === 'tallow')
     const advanced = advanceFixedStep(initial, 24_000)
     const after = advanced.market.competitors.find(({ id }) => id === 'tallow')
 
-    expect(before?.researchProgress).toBe(0)
-    expect(after?.researchProgress).toBeGreaterThan(0)
+    expect(before).toMatchObject({ status: 'active', researchProgress: 1 })
+    expect(after).toMatchObject({ status: 'active', researchProgress: 1 })
+    expect(after?.availability).toBeGreaterThan(before?.availability ?? 0)
     expect(advanced.market.history).toEqual([])
   })
 

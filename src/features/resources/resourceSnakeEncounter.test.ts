@@ -157,7 +157,7 @@ describe('snake encounter resource authority', () => {
     expect(new Set(categories)).toEqual(new Set(['reasoning', 'memory', 'fluency']))
   })
 
-  it('uses a distinct available origin for the second dual reservation across an incoming bag boundary', () => {
+  it('consumes only one category from an incoming bag because each round has one bot', () => {
     const result = createResourceSnakeEncounter({
       campaignSeed: 'seed-3',
       roundOrdinal: 1,
@@ -170,36 +170,82 @@ describe('snake encounter resource authority', () => {
       bag: { cycle: 1, remainingCategories: ['reasoning'] },
     })
 
-    expect(result.setup!.enemies.map((enemy) => enemy.category)).toEqual(['reasoning', 'memory'])
-    expect(result.bag).toEqual({ cycle: 2, remainingCategories: ['reasoning'] })
+    expect(result.setup!.enemies.map((enemy) => enemy.category)).toEqual(['reasoning'])
+    expect(result.bag).toEqual({ cycle: 1, remainingCategories: [] })
+  })
+
+  it.each(['memory', 'reasoning', 'fluency'] as const)(
+    'reserves only the explicitly selected %s category',
+    (targetCategory) => {
+      const candidates = [
+        candidate('memory-1', 'memory'),
+        candidate('memory-2', 'memory'),
+        candidate('reasoning-1', 'reasoning'),
+        candidate('reasoning-2', 'reasoning'),
+        candidate('fluency-1', 'fluency'),
+        candidate('fluency-2', 'fluency'),
+      ]
+      const input = {
+        campaignSeed: 'selected-target',
+        roundOrdinal: 4,
+        successfulDeposits: 0,
+        completedRounds: 4,
+        targetCategory,
+        bag: { cycle: 2, remainingCategories: ['reasoning', 'memory'] as SnakeResourceCandidate['origin'][] },
+      }
+      const first = createResourceSnakeEncounter({ ...input, candidates })
+      const second = createResourceSnakeEncounter({
+        ...input,
+        candidates: [...candidates].reverse(),
+      })
+
+      expect(first.setup?.enemies).toHaveLength(1)
+      expect(first.setup?.enemies[0].category).toBe(targetCategory)
+      expect(second.setup?.enemies[0].reservedBlockId)
+        .toBe(first.setup?.enemies[0].reservedBlockId)
+      expect(first.bag).toEqual(input.bag)
+    },
+  )
+
+  it('returns no setup when the explicitly selected category has no candidate', () => {
+    const result = createResourceSnakeEncounter({
+      campaignSeed: 'missing-selected-target',
+      roundOrdinal: 0,
+      successfulDeposits: 0,
+      targetCategory: 'memory',
+      candidates: [candidate('reasoning-only', 'reasoning')],
+      bag: { cycle: 0, remainingCategories: [] },
+    })
+
+    expect(result.setup).toBeNull()
+    expect(result.disabledReason).toBe('no-eligible-resource')
   })
 })
 
 describe('snake encounter difficulty and reservation setup', () => {
   it.each([
-    [0, 'cyan-intro', 1, [30], [11.6], 1_400, 48, 10, 220, 260],
-    [6, 'cyan-advanced', 1, [65], [12.2], 1_800, 72, 12, 190, 220],
-    [12, 'cyan-dual-role', 2, [50, 50], [12.2, 11.8], 2_200, 96, 14, 160, 180],
+    [0, 'cyan-intro', [30], 1_400, 48, 10, 220, 260, 900],
+    [6, 'cyan-advanced', [65], 1_800, 72, 12, 190, 220, 800],
+    [12, 'cyan-dual-role', [50], 2_200, 96, 14, 160, 180, 700],
   ] as const)('maps %i deposits to %s and its cyan profile', (
     deposits,
     stage,
-    enemyCount,
     integrity,
-    speeds,
     lookaheadMs,
     candidateCount,
     planningHz,
     telegraphMs,
     commitMs,
+    minimumHeadingHoldMs,
   ) => {
     const result = encounter([
       candidate('reasoning-1', 'reasoning'),
       candidate('memory-1', 'memory'),
     ], deposits)
 
-    expect(result.setup!.enemies).toHaveLength(enemyCount)
+    expect(result.setup!.enemies).toHaveLength(1)
     expect(result.setup!.enemies.map((enemy) => enemy.maximumIntegrity)).toEqual(integrity)
-    expect(result.setup!.enemies.map((enemy) => enemy.maximumSpeedPerSecond)).toEqual(speeds)
+    expect(result.setup!.enemies.map((enemy) => enemy.maximumSpeedPerSecond)).toEqual([9])
     expect(result.stage).toBe(stage)
     expect(result.doctrine).toBe('readable-hunter')
     expect(result.cyanProfile).toMatchObject({
@@ -218,11 +264,12 @@ describe('snake encounter difficulty and reservation setup', () => {
       candidateCount,
       planningHz,
       commitMs,
+      minimumHeadingHoldMs,
       rolloutStepMs: 50,
     })
   })
 
-  it('always deploys dual cyan roles at 12+ when two blocks exist and falls back for one block', () => {
+  it('always deploys one bot even at 12+ deposits', () => {
     const candidates = [candidate('reasoning-1', 'reasoning'), candidate('memory-1', 'memory')]
     const firstSeed = createResourceSnakeEncounter({
       campaignSeed: 'seed-0', roundOrdinal: 1, successfulDeposits: 12, candidates,
@@ -242,8 +289,7 @@ describe('snake encounter difficulty and reservation setup', () => {
       expect(result.setup).toMatchObject({
         playerSpawn: { x: 25, y: 21 },
         enemies: [
-          { maximumIntegrity: 50, maximumSpeedPerSecond: 12.2, spawn: { x: 16, y: 3.5 }, role: 'pressure' },
-          { maximumIntegrity: 50, maximumSpeedPerSecond: 11.8, spawn: { x: 34, y: 3.5 }, role: 'blocker' },
+          { maximumIntegrity: 50, maximumSpeedPerSecond: 9, spawn: { x: 25, y: 3.5 }, role: 'pressure' },
         ],
       })
       expect(result.stage).toBe('cyan-dual-role')
@@ -251,10 +297,46 @@ describe('snake encounter difficulty and reservation setup', () => {
     expect(fallback.setup).toMatchObject({
       playerSpawn: { x: 25, y: 21 },
       enemies: [{
-        maximumIntegrity: 50, maximumSpeedPerSecond: 12.2,
+        maximumIntegrity: 50, maximumSpeedPerSecond: 9,
         spawn: { x: 25, y: 3.5 }, role: 'pressure',
       }],
     })
+  })
+
+  it.each([
+    [0, 9],
+    [10, 10],
+    [20, 11],
+    [30, 12],
+    [35, 12.5],
+    [200, 12.5],
+  ])('uses completed-round speed %i -> %f regardless of resource color', (completedRounds, speed) => {
+    for (const origin of ['reasoning', 'memory', 'fluency'] as const) {
+      const result = createResourceSnakeEncounter({
+        campaignSeed: `speed-${origin}`,
+        roundOrdinal: completedRounds,
+        successfulDeposits: 99,
+        completedRounds,
+        candidates: [candidate(`${origin}-1`, origin)],
+        bag: { cycle: 0, remainingCategories: [] },
+      })
+      expect(result.setup?.enemies[0].maximumSpeedPerSecond).toBe(speed)
+    }
+  })
+
+  it('passes the five-stage player speed upgrade into the runtime setup only', () => {
+    const result = createResourceSnakeEncounter({
+      campaignSeed: 'player-speed-upgrade',
+      roundOrdinal: 4,
+      successfulDeposits: 4,
+      completedRounds: 4,
+      speedUpgradeLevel: 5,
+      candidates: [candidate('reasoning-1', 'reasoning')],
+      bag: { cycle: 0, remainingCategories: [] },
+    })
+
+    expect(result.setup?.playerMaximumSpeedPerSecond).toBe(14.4)
+    expect(result.setup?.enemies[0].maximumSpeedPerSecond).toBe(9.4)
   })
 
   it('creates deterministic round, enemy, reward, spawn, and role identifiers', () => {
@@ -269,14 +351,12 @@ describe('snake encounter difficulty and reservation setup', () => {
       enemies: expect.arrayContaining([
         expect.objectContaining({
           id: 'enemy-0', rewardKey: 'campaign-alpha:snake:7:enemy-0:memory-1',
-          spawn: { x: 16, y: 3.5 }, role: 'pressure', maximumIntegrity: 50,
-        }),
-        expect.objectContaining({
-          id: 'enemy-1', rewardKey: 'campaign-alpha:snake:7:enemy-1:reasoning-1',
-          spawn: { x: 34, y: 3.5 }, role: 'blocker', maximumIntegrity: 50,
+          spawn: { x: 25, y: 3.5 }, role: 'pressure', maximumIntegrity: 50,
+          maximumSpeedPerSecond: 9,
         }),
       ]),
     }))
+    expect(result.setup!.enemies).toHaveLength(1)
   })
 
   it('returns a disabled result when compact candidates contain no normal block', () => {

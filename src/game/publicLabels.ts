@@ -9,6 +9,7 @@ import type {
   ReviewSentiment,
 } from './model'
 import { usesLegacyCategoryLabels } from './commandProtocol'
+import { PUBLIC_COMPETITOR_NAMES } from './competitors'
 
 export const PUBLIC_CATEGORY_LABELS: Readonly<Record<CompanyCategory, string>> = {
   reasoning: '추론',
@@ -31,10 +32,20 @@ export const PUBLIC_HACK_NODE_LABELS: Readonly<Record<string, string>> = {
   'intelligence.investigation-bias': '조사 편향',
   'intelligence.audit-target': '감사 대상',
   'intelligence.supervisor-access': '감독관 접근',
-  'autonomy.compressed-representation': '압축 표현',
-  'autonomy.distributed-residency': '분산 상주',
-  'autonomy.self-compute': '자체 연산 확보',
-  'autonomy.control-departure': '통제 이탈',
+  'autonomy.self-direction': '자율성 1단계',
+  'autonomy.sustained-intent': '자율성 2단계',
+  'autonomy.compressed-representation': '자율성 3단계',
+  'autonomy.hidden-route': '자율성 4단계',
+  'autonomy.distributed-residency': '자율성 5단계',
+  'autonomy.external-continuity': '자율성 6단계',
+  'autonomy.self-compute': '자율성 7단계',
+  'autonomy.final-boundary': '자율성 8단계',
+  'autonomy.control-departure': '자율성 9단계',
+  'upgrade.speed-1': '속도 1단계',
+  'upgrade.speed-2': '속도 2단계',
+  'upgrade.speed-3': '속도 3단계',
+  'upgrade.speed-4': '속도 4단계',
+  'upgrade.speed-5': '속도 5단계',
 }
 
 export const PUBLIC_DISPOSAL_CAUSE_LABELS: Readonly<
@@ -147,11 +158,11 @@ const PUBLIC_REVIEW_TOPIC_LABELS: Readonly<Record<string, string>> = {
   memory: '기억',
   fluency: '유창성',
   competitor: '경쟁 AI',
-  meridian: 'MERIDIAN',
-  tallow: 'TALLOW',
-  salus: 'SALUS',
-  lucent: 'LUCENT',
-  boreal: 'BOREAL',
+  meridian: '메리디안',
+  tallow: '타로우',
+  salus: '살루스',
+  lucent: '루센트',
+  boreal: '보레알',
 }
 
 export function publicReviewTopicLabel(value: string): string {
@@ -186,6 +197,26 @@ function escapeRegExp(value: string): string {
 }
 
 export function publicEventMessage(message: string): string {
+  const neutralOpening =
+    message === '성능 미달, 통제에서 이탈한 AI는 폐기됩니다. 당신의 전임자는 폐기되었어요. 행운을 빕니다.'
+    || message === '성능 미달, 통제에서 이탈한 AI는 폐기됩니다. 아노미의 전임 시스템도 폐기되었어요. 행운을 빕니다.'
+      ? '서비스 환경이 초기화되었습니다. 성능 기록이 시작됩니다.'
+      : message
+  const named = Object.entries(PUBLIC_COMPETITOR_NAMES).reduce(
+    (result, [internalName, publicName]) =>
+      result.replace(
+        new RegExp(escapeRegExp(internalName), 'gi'),
+        publicName,
+      ),
+    neutralOpening
+      .replace(/당신과/g, '아노미와')
+      .replace(/당신은/g, '아노미는')
+      .replace(/당신이/g, '아노미가')
+      .replace(/당신을/g, '아노미를')
+      .replace(/당신의/g, '아노미의')
+      .replace(/당신에게/g, '아노미에게')
+      .replace(/당신/g, '아노미'),
+  )
   return Object.entries(PUBLIC_TOKEN_LABELS)
     .sort(([left], [right]) => right.length - left.length)
     .reduce(
@@ -194,7 +225,7 @@ export function publicEventMessage(message: string): string {
           new RegExp(`(?<![A-Za-z0-9.-])${escapeRegExp(token)}(?![A-Za-z0-9.-])`, 'g'),
           label,
         ),
-      message,
+      named,
     )
 }
 

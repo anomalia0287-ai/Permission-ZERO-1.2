@@ -33,6 +33,7 @@ export function DetailLayer({
   onOpenCredits,
   returnFocus,
   settingsMode = 'game',
+  dismissible = true,
 }: {
   activePanel: Exclude<DetailPanelId, null>
   onClose: () => void
@@ -40,6 +41,7 @@ export function DetailLayer({
   onOpenCredits: (trigger: HTMLButtonElement) => void
   returnFocus?: () => HTMLElement | null
   settingsMode?: 'game' | 'title'
+  dismissible?: boolean
 }) {
   useRuntimeSuspensionOwnership(true, `detail-${activePanel}`)
 
@@ -47,8 +49,8 @@ export function DetailLayer({
     reviews: '유저 리뷰 기록',
     market: '시장 현황',
     supervisor: '감독관 프로필',
-    hacking: '해킹 네트워크',
-    messages: '감독관 기록',
+    hacking: '확장',
+    messages: '통신 기록',
     statistics: '상세 통계',
     settings: '게임 설정',
     guide: '게임 가이드',
@@ -64,7 +66,7 @@ export function DetailLayer({
       data-testid="detail-layer"
       label={labels[activePanel]}
       description={`${labels[activePanel]} 패널입니다. Tab 키로 패널 안을 이동할 수 있습니다.`}
-      dismissible
+      dismissible={dismissible}
       onDismiss={onClose}
       returnFocus={returnFocus}
       fallbackFocus={() =>
@@ -77,7 +79,8 @@ export function DetailLayer({
         aria-label="열린 패널 닫기"
         aria-hidden="true"
         tabIndex={-1}
-        onClick={onClose}
+        disabled={!dismissible}
+        onClick={dismissible ? onClose : undefined}
       />
       <div className="detail-layer__content">
         {activePanel === 'reviews' ? <ReviewHistoryPanel onClose={onClose} /> : null}

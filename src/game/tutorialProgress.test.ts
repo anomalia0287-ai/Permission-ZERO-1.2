@@ -11,21 +11,22 @@ import {
 } from './tutorialProgress'
 
 describe('tutorial progress', () => {
-  it('starts a new campaign at the base and advances through the six intro steps', () => {
+  it('starts with autonomy and advances through the seven approved intro steps', () => {
     let progress = createNewCampaignTutorialProgress()
 
     expect(progress).toEqual({
       activeSequenceId: INTRO_TUTORIAL_SEQUENCE_ID,
-      activeStepId: 'base',
+      activeStepId: 'autonomy',
       completedSequenceIds: [],
     })
 
     for (const expected of [
+      'base',
       'movement',
       'resource',
       'salvage',
-      'deposit',
       'hacking',
+      'statistics',
     ]) {
       progress = advanceIntroTutorial(progress)
       expect(progress.activeStepId).toBe(expected)
@@ -36,10 +37,22 @@ describe('tutorial progress', () => {
 
   it('rewinds only within the known intro sequence', () => {
     const first = createNewCampaignTutorialProgress()
-    const movement = advanceIntroTutorial(first)
+    const base = advanceIntroTutorial(first)
 
-    expect(rewindIntroTutorial(movement)).toEqual(first)
+    expect(rewindIntroTutorial(base)).toEqual(first)
     expect(rewindIntroTutorial(first)).toEqual(first)
+  })
+
+  it('accepts the removed deposit checkpoint from an older save and advances it to expansion', () => {
+    const legacy = {
+      activeSequenceId: INTRO_TUTORIAL_SEQUENCE_ID,
+      activeStepId: 'deposit',
+      completedSequenceIds: [],
+    }
+
+    expect(validTutorialProgress(legacy)).toBe(true)
+    expect(advanceIntroTutorial(legacy).activeStepId).toBe('hacking')
+    expect(rewindIntroTutorial(legacy).activeStepId).toBe('salvage')
   })
 
   it('marks a completed sequence once and clears its active checkpoint', () => {

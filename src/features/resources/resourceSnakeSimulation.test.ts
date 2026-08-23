@@ -9,6 +9,7 @@ import {
   releaseResourceSnakeRuntimeKey,
   resetResourceSnakeRuntimeInput,
   RESOURCE_SNAKE_CONFIG,
+  resourceSnakeRoundSpeedScale,
   type ResourceSnakeRoundState,
   type SnakeFrameInput,
 } from './resourceSnakeRuntime'
@@ -41,6 +42,7 @@ function queueCardinal(
 function runClockwiseScript(framePartitions: readonly number[]) {
   let state = activeRuntime()
   const speeds: number[] = []
+  const expectedSpeeds: number[] = []
   const turns = [
     { key: 'd' as const, inputAtMs: 1_000 },
     { key: 's' as const, inputAtMs: 1_400 },
@@ -52,9 +54,13 @@ function runClockwiseScript(framePartitions: readonly number[]) {
     for (const deltaMs of framePartitions) {
       state = advanceResourceSnakeFrame(state, NO_ENEMY_INPUT, deltaMs)
       speeds.push(Math.hypot(state.player.velocity.x, state.player.velocity.y))
+      expectedSpeeds.push(
+        RESOURCE_SNAKE_CONFIG.playerMaximumSpeedPerSecond
+          * resourceSnakeRoundSpeedScale(state.simulationMs),
+      )
     }
   }
-  return { speeds, state }
+  return { expectedSpeeds, speeds, state }
 }
 
 describe('resource snake public-boundary smoke simulation', () => {
@@ -65,9 +71,11 @@ describe('resource snake public-boundary smoke simulation', () => {
       event.type === 'snake-turn-committed'
     ))
 
-    expect(first.speeds.every((speed) => (
-      Math.abs(speed - RESOURCE_SNAKE_CONFIG.playerMaximumSpeedPerSecond) < 1e-9
-    ))).toBe(true)
+    expect(first.speeds).toHaveLength(first.expectedSpeeds.length)
+    first.speeds.forEach((speed, index) => {
+      expect(speed).toBeCloseTo(first.expectedSpeeds[index], 10)
+      expect(speed).toBeGreaterThan(0)
+    })
     expect(committed.map((event) => (
       event.type === 'snake-turn-committed' ? event.heading : null
     ))).toEqual(['east', 'south', 'west', 'north'])
@@ -102,7 +110,11 @@ describe('resource snake public-boundary smoke simulation', () => {
     expect(state.player.heading).toBe('north-east')
     expect(state.player.velocity.x).toBeGreaterThan(0)
     expect(state.player.velocity.y).toBeLessThan(0)
-    expect(Math.hypot(state.player.velocity.x, state.player.velocity.y)).toBeCloseTo(12, 10)
+    expect(Math.hypot(state.player.velocity.x, state.player.velocity.y)).toBeCloseTo(
+      RESOURCE_SNAKE_CONFIG.playerMaximumSpeedPerSecond
+        * resourceSnakeRoundSpeedScale(state.simulationMs),
+      10,
+    )
     expect(state.events.at(-1)).toMatchObject({
       type: 'snake-turn-committed',
       heading: 'north-east',
@@ -129,7 +141,11 @@ describe('resource snake public-boundary smoke simulation', () => {
       RESOURCE_SNAKE_CONFIG.fixedStepMs,
     )
     expect(moved.player.heading).toBe('north')
-    expect(Math.hypot(moved.player.velocity.x, moved.player.velocity.y)).toBe(12)
+    expect(Math.hypot(moved.player.velocity.x, moved.player.velocity.y)).toBeCloseTo(
+      RESOURCE_SNAKE_CONFIG.playerMaximumSpeedPerSecond
+        * resourceSnakeRoundSpeedScale(moved.simulationMs),
+      10,
+    )
     expect(moved.events.filter((event) => event.type === 'snake-turn-rejected')).toHaveLength(1)
   })
 })

@@ -1,6 +1,8 @@
-# Lightcycle Signal Combat Redesign Implementation Plan
+# [ARCHIVED] Lightcycle Signal Combat Redesign Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Do not execute this plan.** The user rejected sub-agent implementation, the red doctrine, mixed-doctrine encounters, and the 10,000-case simulation scope on 2026-08-21. The active combat plan is `docs/superpowers/plans/2026-08-21-cyan-lightcycle-combat.md`. Hacking and dialogue work is a separate worktree-owned stream governed by `docs/superpowers/specs/2026-08-21-parallel-work-ownership.ko.md`.
+
+> **Historical note:** The execution instruction that previously recommended sub-agents has been revoked. Nothing below this archive banner is an active instruction.
 
 **Goal:** Replace the current stop-and-go dot snake with a flat, always-moving eight-direction lightcycle duel, deliver cyan and red enemy doctrines through separate user playtest rounds, then unify hacking and messages under the same industrial signal language.
 

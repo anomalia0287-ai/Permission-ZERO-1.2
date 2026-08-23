@@ -1329,6 +1329,1238 @@
   }
 }
 
+/* Unified communications: larger matte cards with channel-specific identity. */
+.communication-popup,
+.supervisor-message-popup,
+.supervisor-message-popup--blocking {
+  position: fixed;
+  z-index: 190;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  grid-template-columns: 116px minmax(0, 1fr);
+  width: min(540px, calc(100vw - 32px));
+  min-height: 188px;
+  overflow: hidden;
+  color: #20252b;
+  border: 1px solid #cfd4da;
+  border-radius: 0;
+  background: #fff;
+  box-shadow: none;
+  transform: translate(-50%, -50%);
+}
+
+.communication-popup__portrait,
+.supervisor-message-popup__portrait {
+  min-height: 188px;
+  overflow: hidden;
+  border: 0;
+  border-right: 1px solid #d9dde2;
+  background: #f2f4f6;
+}
+
+.communication-popup__portrait img,
+.supervisor-message-popup__portrait img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 188px;
+  object-fit: cover;
+  object-position: 50% 28%;
+  filter: none;
+}
+
+.communication-popup__body,
+.supervisor-message-popup__body {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 16px;
+  min-width: 0;
+  padding: 22px;
+}
+
+.communication-popup__body header,
+.supervisor-message-popup__body header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #626a74;
+  font: 800 0.65rem/1.2 "Cascadia Code", Consolas, monospace;
+}
+
+.communication-popup__body header strong,
+.supervisor-message-popup__body header strong {
+  padding: 0;
+  color: #7a818a;
+  border: 0;
+  background: transparent;
+}
+
+.communication-popup__body p,
+.supervisor-message-popup__body p {
+  margin: 0;
+  color: #20252b;
+  font-size: 0.88rem;
+  line-height: 1.7;
+  word-break: keep-all;
+}
+
+.communication-popup__body button,
+.supervisor-message-popup__body button,
+.communication-popup__body button:hover,
+.communication-popup__body button:focus-visible,
+.supervisor-message-popup__body button:hover,
+.supervisor-message-popup__body button:focus-visible {
+  min-height: 38px;
+  justify-self: end;
+  padding: 0 18px;
+  color: #fff;
+  border: 1px solid #e55a31;
+  border-radius: 0;
+  background: #f2673d;
+  box-shadow: none;
+}
+
+.communication-popup--anomi {
+  border-left: 4px solid #f2673d;
+}
+
+.communication-popup--competitor {
+  border-left: 4px solid #3a78d4;
+}
+
+.communication-popup--supervisor {
+  border-left: 4px solid #7a818a;
+}
+
+.communication-history {
+  display: grid;
+  gap: 12px;
+}
+
+.communication-history > header h3 {
+  margin: 4px 0 0;
+}
+
+.communication-history__list {
+  display: grid;
+  gap: 8px;
+}
+
+.communication-history__list article {
+  display: grid;
+  gap: 9px;
+  padding: 14px 16px;
+  color: #242a31;
+  border: 1px solid #d7dce1;
+  border-left: 4px solid #7a818a;
+  background: #fff;
+  box-shadow: none;
+}
+
+.communication-history__list article[data-communication-channel="anomi"] {
+  border-left-color: #f2673d;
+}
+
+.communication-history__list article[data-communication-channel="competitor"] {
+  border-left-color: #3a78d4;
+}
+
+.communication-history__list article > header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.communication-history__list article p {
+  margin: 0;
+  line-height: 1.65;
+}
+
+.communication-history__list article button {
+  justify-self: end;
+  min-height: 34px;
+  padding: 0 14px;
+  color: #fff;
+  border: 1px solid #e55a31;
+  background: #f2673d;
+  box-shadow: none;
+}
+
+@media (max-width: 560px) {
+  .communication-popup,
+  .supervisor-message-popup,
+  .supervisor-message-popup--blocking {
+    grid-template-columns: 84px minmax(0, 1fr);
+  }
+}
+
+/* Aurora-black operations shell */
+
+.game-shell[data-ui-shell="aurora-black"] {
+  --aurora-void: #05070c;
+  --aurora-ivory: #f5efdf;
+  --aurora-ivory-raised: #fbf7ec;
+  --aurora-ivory-line: #ded4c1;
+  --review-rail-pastel: linear-gradient(
+      100deg,
+      rgb(255 107 61 / 15%),
+      rgb(121 108 255 / 14%)
+    ),
+    #eceef0;
+
+  background:
+    radial-gradient(circle at 18% 12%, rgb(41 197 190 / 16%), transparent 31%),
+    radial-gradient(circle at 78% 2%, rgb(126 101 255 / 17%), transparent 34%),
+    radial-gradient(circle at 54% 105%, rgb(255 107 61 / 11%), transparent 38%),
+    var(--aurora-void);
+}
+
+.game-shell[data-ui-shell="aurora-black"]::before {
+  background:
+    linear-gradient(90deg, transparent 0 49.92%, rgb(138 214 219 / 5%) 50%, transparent 50.08%),
+    linear-gradient(180deg, rgb(255 255 255 / 3%), transparent 13%),
+    radial-gradient(circle at 17% 34%, rgb(39 206 197 / 10%), transparent 29%),
+    radial-gradient(circle at 82% 61%, rgb(126 101 255 / 9%), transparent 32%);
+}
+
+.game-shell[data-ui-shell="aurora-black"] .game-background {
+  background:
+    radial-gradient(circle at 11% 22%, rgb(30 193 187 / 9%), transparent 27%),
+    radial-gradient(circle at 88% 12%, rgb(127 101 255 / 10%), transparent 30%),
+    linear-gradient(145deg, #070a10, #0b0d14 48%, #05070b);
+}
+
+.game-shell[data-ui-shell="aurora-black"] .workspace-grid {
+  background: transparent;
+}
+
+.game-shell[data-ui-shell="aurora-black"] .control-bar {
+  grid-template-columns: minmax(205px, 0.78fr) minmax(310px, 1fr) var(--operations-dock-width);
+}
+
+.game-shell[data-ui-shell="aurora-black"] .workspace-panel.resource-snake-board {
+  padding: 4px;
+  border-color: #ffffff;
+  background: #ffffff;
+  box-shadow: 0 10px 24px rgb(35 39 47 / 10%);
+  backdrop-filter: none;
+}
+
+.game-shell[data-ui-shell="aurora-black"] .workspace-panel.review-panel {
+  background: var(--review-rail-pastel);
+}
+
+.game-shell[data-ui-shell="aurora-black"] .review-panel .panel-heading,
+.game-shell[data-ui-shell="aurora-black"] .review-panel .review-stream,
+.game-shell[data-ui-shell="aurora-black"] .review-panel > .market-watch--compact {
+  background: transparent;
+}
+
+.game-shell[data-ui-shell="aurora-black"] .review-panel .panel-heading,
+.game-shell[data-ui-shell="aurora-black"] .review-panel > .market-watch--compact {
+  border-color: #17191d;
+}
+
+.game-shell[data-ui-shell="aurora-black"] .review-panel .review-stream {
+  scrollbar-color: #a9adb4 #eceef0;
+}
+
+.game-shell[data-ui-shell="aurora-black"] .review-panel .review-entry {
+  color: #302f2d;
+  border-color: var(--aurora-ivory-line);
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 82%), transparent 36%),
+    var(--aurora-ivory);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 88%),
+    0 8px 18px rgb(0 0 0 / 22%);
+}
+
+.game-shell[data-ui-shell="aurora-black"] .review-panel .review-entry:hover,
+.game-shell[data-ui-shell="aurora-black"] .review-panel .review-entry:focus-visible {
+  color: #252422;
+  border-color: #eee5d4;
+  background:
+    linear-gradient(145deg, rgb(255 255 255 / 92%), transparent 38%),
+    var(--aurora-ivory-raised);
+  box-shadow:
+    inset 0 1px 0 #ffffff,
+    0 10px 24px rgb(0 0 0 / 26%);
+}
+
+.game-shell[data-ui-shell="aurora-black"] .review-panel .review-entry__header strong {
+  color: #262724;
+}
+
+.game-shell[data-ui-shell="aurora-black"] .review-panel .review-entry__header time {
+  color: #77756e;
+}
+
+.game-shell[data-ui-shell="aurora-black"] .review-panel .review-entry p {
+  color: #484741;
+}
+
+.game-shell[data-ui-shell="aurora-black"] .review-panel > .market-watch--compact .market-share-layout {
+  border: 1px solid rgb(107 96 191 / 38%);
+  background:
+    linear-gradient(100deg, rgb(255 107 61 / 15%), rgb(121 108 255 / 14%)),
+    #eceef0;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 92%),
+    0 10px 26px rgb(0 0 0 / 23%);
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.game-shell[data-ui-shell="aurora-black"] .review-panel > .market-watch--compact .market-share-layout--trigger:hover,
+.game-shell[data-ui-shell="aurora-black"] .review-panel > .market-watch--compact .market-share-layout--trigger:focus-visible {
+  border-color: rgb(107 96 191 / 38%);
+  background:
+    linear-gradient(100deg, rgb(255 107 61 / 15%), rgb(121 108 255 / 14%)),
+    #eceef0;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 92%),
+    0 10px 26px rgb(0 0 0 / 23%);
+  transform: translateY(-1px);
+}
+
+.game-shell[data-ui-shell="aurora-black"] .review-panel > .market-watch--compact .market-share-donut::after {
+  background: #eceef0;
+}
+
+.game-shell[data-ui-shell="aurora-black"] .reputation-cluster {
+  grid-template-columns: auto minmax(240px, 1fr) minmax(150px, auto);
+  border-color: rgb(255 255 255 / 24%);
+}
+
+.game-shell[data-ui-shell="aurora-black"] .utility-controls {
+  display: grid;
+  width: var(--operations-dock-width);
+  grid-template-columns: repeat(2, 36px);
+  justify-content: center;
+  justify-self: start;
+  gap: 5px;
+  padding-inline: 5px;
+  transform: translateX(1px);
+}
+
+.game-shell[data-ui-shell="aurora-black"] .utility-controls button {
+  width: 36px;
+  height: 36px;
+  min-width: 36px;
+}
+
+.game-shell[data-ui-shell="aurora-black"] .utility-controls svg {
+  display: block;
+  width: 18px;
+  height: 18px;
+  overflow: visible;
+}
+
+.game-shell[data-ui-shell="aurora-black"] .utility-controls button[aria-label="가이드"] svg {
+  transform: translateY(0.25px);
+}
+
+@media (max-width: 1100px) {
+  .game-shell[data-ui-shell="aurora-black"] .reputation-cluster {
+    grid-template-columns: auto minmax(150px, 1fr) minmax(130px, auto);
+    gap: 8px;
+  }
+}
+
+/* Keep legacy supervisor leak cards on the same approved matte surface. */
+.supervisor-message-popup,
+.supervisor-message-popup--blocking {
+  color: #20252b;
+  border-color: #cfd4da;
+  background: #fff;
+  box-shadow: none;
+}
+
+.supervisor-message-popup__portrait {
+  border-color: #d9dde2;
+  background: #f2f4f6;
+}
+
+.supervisor-message-popup__body header {
+  color: #626a74;
+}
+
+.supervisor-message-popup__body p {
+  color: #20252b;
+}
+
+.supervisor-message-popup__body button,
+.supervisor-message-popup__body button:hover,
+.supervisor-message-popup__body button:focus-visible {
+  color: #fff;
+  border-color: #e55a31;
+  background: #f2673d;
+  box-shadow: none;
+}
+
+/* Viewport and selected-card guards must remain last in the cascade. */
+.detail-layer.detail-layer--hacking {
+  inset: 0;
+  padding: 0;
+}
+
+.detail-layer.detail-layer--hacking .detail-layer__content {
+  width: 100vw;
+  height: 100vh;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node:hover,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node--selected,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node--selected:hover,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node--staging {
+  background: #fff8f4;
+}
+
+/* Final expansion cascade guard: retire the legacy red hex lattice. */
+.detail-layer .hacking-panel.hacking-panel--paper,
+.detail-layer .hacking-panel.hacking-panel--paper * {
+  scrollbar-color: #b9bec5 transparent;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-tree-nav,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-tabs,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-network-stage {
+  color: var(--hack-ink);
+  border-color: var(--hack-line);
+  background: #f7f8fa;
+  box-shadow: none;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-tree-nav {
+  background: #f4f5f7;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-tabs {
+  background: #fff;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-tabs button,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-tabs button:hover,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-tabs button[aria-selected="true"] {
+  min-height: 52px;
+  color: var(--hack-muted);
+  border-color: transparent;
+  border-radius: 5px;
+  background: transparent;
+  background-image: none;
+  box-shadow: none;
+  transform: none;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-tabs button svg {
+  width: 34px;
+  height: 34px;
+  padding: 7px;
+  color: #5f6670;
+  border-color: #d7dbe0;
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: none;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-tabs button[aria-selected="true"] {
+  color: var(--hack-ink);
+  border-color: #efc5b1;
+  background: #fff4ed;
+  box-shadow: inset 3px 0 0 var(--hack-orange);
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-tabs button[aria-selected="true"] svg {
+  color: #9b4526;
+  border-color: #efc5b1;
+  background: #fff;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-context,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-path-progress,
+.detail-layer .hacking-panel.hacking-panel--paper .first-hack-comparison article {
+  color: var(--hack-muted);
+  border-color: var(--hack-line);
+  background: #fff;
+  box-shadow: none;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-path-progress strong,
+.detail-layer .hacking-panel.hacking-panel--paper .first-hack-comparison strong,
+.detail-layer .hacking-panel.hacking-panel--paper .tree-description {
+  color: var(--hack-ink);
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-path-progress__track {
+  background: #e5e8ec;
+  box-shadow: none;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-path-progress__track i {
+  background: var(--hack-orange);
+  box-shadow: none;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-network-stage {
+  background:
+    linear-gradient(90deg, rgb(84 91 101 / 5%) 1px, transparent 1px) 0 0 / 88px 100%,
+    #f1f3f5;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-network-stage::before,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-network-stage::after,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node-map::before,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node-map::after,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node::before {
+  display: none;
+  content: none;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node-map {
+  position: relative;
+  display: block;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  isolation: auto;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node-list[data-active-tree] {
+  --node-accent: var(--hack-orange);
+  --node-accent-rgb: 240 122 69;
+
+  position: relative;
+  inset: auto;
+  display: grid;
+  grid-template-columns: none;
+  grid-auto-columns: minmax(170px, 188px);
+  grid-auto-flow: column;
+  align-content: center;
+  align-items: start;
+  justify-content: start;
+  gap: 18px;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  padding: 20px;
+  margin: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  list-style: none;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node-list[data-active-tree="upgrade"],
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node-list[data-active-tree="intelligence"] {
+  --node-accent: #477fd1;
+  --node-accent-rgb: 71 127 209;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node-list[data-active-tree="sabotage"] {
+  --node-accent: #bd655f;
+  --node-accent-rgb: 189 101 95;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-path-step {
+  position: relative;
+  display: grid;
+  grid-template-rows: 220px auto;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+  min-height: 0;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-path-step:not(:last-child)::before {
+  position: absolute;
+  z-index: 0;
+  top: 109px;
+  right: -18px;
+  display: block;
+  width: 18px;
+  height: 2px;
+  content: "";
+  background: color-mix(in srgb, var(--node-accent) 46%, var(--hack-line));
+  box-shadow: none;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-path-step:not(:last-child)::after {
+  position: absolute;
+  z-index: 1;
+  top: 106px;
+  right: -17px;
+  display: block;
+  width: 7px;
+  height: 7px;
+  border: 0;
+  border-top: 2px solid color-mix(in srgb, var(--node-accent) 58%, #727983);
+  border-right: 2px solid color-mix(in srgb, var(--node-accent) 58%, #727983);
+  content: "";
+  transform: rotate(45deg);
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node--purchased,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node--concealed {
+  position: relative;
+  inset: auto;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: 220px;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--hack-ink);
+  border: 1px solid color-mix(in srgb, var(--node-accent) 30%, var(--hack-line));
+  border-top: 3px solid var(--node-accent);
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: none;
+  filter: none;
+  transform: none;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node:hover,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node--selected,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node--selected:hover,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node--staging {
+  color: var(--hack-ink);
+  border-color: color-mix(in srgb, var(--node-accent) 64%, var(--hack-line));
+  border-top-color: var(--node-accent);
+  background: color-mix(in srgb, var(--node-accent) 5%, #fff);
+  box-shadow: inset 3px 0 0 var(--node-accent);
+  filter: none;
+  transform: none;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node-core,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node--selected .hack-node-core,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node--purchased .hack-node-core,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node--concealed .hack-node-core {
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  clip-path: none;
+  background: transparent;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node-core__surface,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node--concealed .hack-node-core__surface {
+  display: grid;
+  grid-template-rows: 82px minmax(0, 1fr);
+  align-content: stretch;
+  gap: 10px;
+  width: 100%;
+  height: 100%;
+  padding: 14px;
+  overflow: hidden;
+  clip-path: none;
+  color: var(--hack-ink);
+  background: transparent;
+  box-shadow: none;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node-core__surface::after {
+  display: none;
+  content: none;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node-index {
+  position: relative;
+  display: grid;
+  grid-template-columns: 52px 28px;
+  align-items: start;
+  justify-content: space-between;
+  justify-items: stretch;
+  min-height: 0;
+  padding: 0 0 12px;
+  border: 0;
+  border-bottom: 1px solid var(--hack-line);
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node-index .hack-node-icon,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node:not(.hack-node--purchased, .hack-node--concealed) .hack-node-icon,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node--concealed .hack-node-icon {
+  width: 48px;
+  height: 48px;
+  padding: 10px;
+  color: color-mix(in srgb, var(--node-accent) 82%, var(--hack-ink));
+  border: 1px solid color-mix(in srgb, var(--node-accent) 42%, var(--hack-line));
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--node-accent) 9%, #fff);
+  box-shadow: none;
+  filter: none;
+  animation: none;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node-index span {
+  position: static;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  color: #5e6570;
+  border: 1px solid var(--hack-line);
+  border-radius: 3px;
+  background: #f3f5f7;
+  box-shadow: none;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node .node-copy,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node .node-copy header,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node .node-copy header > div {
+  position: static;
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+  text-align: left;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node .hack-node-state {
+  color: color-mix(in srgb, var(--node-accent) 72%, #525963);
+  font-size: 0.5rem;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node .node-copy h3,
+.detail-layer .hacking-panel.hacking-panel--paper .node-copy h3 {
+  max-width: 100%;
+  color: var(--hack-ink);
+  font-size: 0.78rem;
+  line-height: 1.25;
+  white-space: normal;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node .node-copy header > strong,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node .hack-cost-vector span {
+  color: var(--hack-muted);
+  border-color: var(--hack-line);
+  border-radius: 999px;
+  background: #f4f5f7;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node-control,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node-control[data-staging="true"] {
+  position: static;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  min-height: 54px;
+  max-height: 104px;
+  padding: 7px;
+  overflow: auto;
+  color: var(--hack-ink);
+  border: 1px solid color-mix(in srgb, var(--node-accent) 32%, var(--hack-line));
+  border-radius: 5px;
+  clip-path: none;
+  background: #fff;
+  box-shadow: none;
+  transform: none;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node-command-heading {
+  display: none;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node-control .node-actions,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node-control .target-list {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node-control .node-actions > button,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node-control .target-list button,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node-control .node-active-label {
+  min-height: 38px;
+  color: var(--hack-ink);
+  border-color: var(--hack-line);
+  border-radius: 4px;
+  background: #fff;
+  box-shadow: none;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node-control .node-actions > button:not(:disabled):hover,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node-control .target-list button:hover {
+  color: #fff;
+  border-color: var(--hack-orange-deep);
+  background: var(--hack-orange);
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-support-rail,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-node-inspector,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-resource-pocket,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-utility-card,
+.detail-layer .hacking-panel.hacking-panel--paper .departure-controls,
+.detail-layer .hacking-panel.hacking-panel--paper .final-choice-dialog {
+  color: var(--hack-ink);
+  border-color: var(--hack-line);
+  border-radius: 0;
+  background: #fff;
+  background-image: none;
+  box-shadow: none;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-inspector-heading {
+  grid-template-columns: 52px minmax(0, 1fr);
+  gap: 10px;
+  border-color: var(--hack-line);
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-inspector-heading .hack-node-icon {
+  width: 50px;
+  height: 50px;
+  padding: 11px;
+  color: var(--inspector-accent);
+  border-color: color-mix(in srgb, var(--inspector-accent) 42%, var(--hack-line));
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--inspector-accent) 9%, #fff);
+  box-shadow: none;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-inspector-heading span,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-inspector-section > span,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-inspector-facts span,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-inspector-result span,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-resource-pocket p {
+  color: var(--hack-muted);
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-inspector-heading strong,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-inspector-result strong,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-pocket-heading strong {
+  color: var(--hack-ink);
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-inspector-section,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-inspector-facts > div,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-inspector-vector,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-inspector-result,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-pocket-field {
+  color: var(--hack-ink);
+  border-color: var(--hack-line);
+  border-radius: 4px;
+  background: #f7f8fa;
+  background-image: none;
+  box-shadow: none;
+}
+
+@media (max-height: 700px) {
+  .detail-layer .hacking-panel.hacking-panel--paper .hack-node-list[data-active-tree] {
+    grid-auto-columns: minmax(158px, 176px);
+    padding-block: 14px;
+  }
+
+  .detail-layer .hacking-panel.hacking-panel--paper .hack-path-step {
+    grid-template-rows: 202px auto;
+  }
+
+  .detail-layer .hacking-panel.hacking-panel--paper .hack-node,
+  .detail-layer .hacking-panel.hacking-panel--paper .hack-node--purchased,
+  .detail-layer .hacking-panel.hacking-panel--paper .hack-node--concealed {
+    height: 202px;
+  }
+
+  .detail-layer .hacking-panel.hacking-panel--paper .hack-path-step:not(:last-child)::before {
+    top: 100px;
+  }
+
+  .detail-layer .hacking-panel.hacking-panel--paper .hack-path-step:not(:last-child)::after {
+    top: 97px;
+  }
+}
+
+/* Unified review stream: author color carries the distinction without tabs or badges. */
+.game-shell .review-panel .review-entry::before,
+.history-panel .review-entry::before {
+  background: #c7cbd1;
+}
+
+.game-shell .review-panel .review-entry__header strong.review-entry__author--general,
+.history-panel .review-entry__header strong.review-entry__author--general {
+  color: #2d67ad;
+}
+
+.game-shell .review-panel .review-entry__header strong.review-entry__author--rating,
+.history-panel .review-entry__header strong.review-entry__author--rating {
+  color: #b74636;
+}
+
+.game-shell .review-entry__rating,
+.history-panel .review-entry__rating {
+  display: block;
+  margin-top: 6px;
+  color: #c45434;
+  font: 700 0.72rem/1 "Cascadia Code", Consolas, monospace;
+  letter-spacing: 0.1em;
+}
+
+.history-panel {
+  grid-template-rows: 68px minmax(0, 1fr) auto;
+}
+
+/* Expansion workspace — bright, full-screen, automatic-spend revision. */
+
+.detail-layer .hacking-panel.hacking-panel--paper {
+  --hack-paper: #f7f8fa;
+  --hack-paper-deep: #edf0f3;
+  --hack-paper-raised: #ffffff;
+  --hack-ink: #20242a;
+  --hack-muted: #6e747c;
+  --hack-line: #d9dde2;
+  --hack-line-strong: #bdc3ca;
+  --hack-orange: #f07a45;
+  --hack-orange-deep: #d85f2d;
+  --hack-coral: #d6675e;
+  --hack-cyan: #477fd1;
+  --hack-cyan-deep: #2f62ae;
+  --hack-green: #d59a2e;
+  --hack-yellow: #e6bd59;
+  --hack-danger: #c94f49;
+
+  width: 100vw;
+  height: 100vh;
+  border: 0;
+  border-radius: 0;
+  color: var(--hack-ink);
+  background: #f7f8fa;
+  box-shadow: none;
+}
+
+.detail-layer .hacking-panel__header {
+  border-color: var(--hack-line);
+  background: #ffffff;
+}
+
+.detail-layer .hacking-panel__header::after {
+  height: 3px;
+  background: linear-gradient(
+    90deg,
+    var(--hack-orange) 0 45%,
+    var(--hack-cyan) 45% 72%,
+    var(--hack-yellow) 72% 100%
+  );
+}
+
+.detail-layer .hacking-panel__icon,
+.detail-layer .hacking-panel__close,
+.detail-layer .hacking-panel__summary strong {
+  border-color: var(--hack-line);
+  color: var(--hack-ink);
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.detail-layer .hacking-panel__icon {
+  color: var(--hack-orange-deep);
+  border-color: #efc5b1;
+  background: #fff7f2;
+}
+
+.detail-layer .hack-tree-nav,
+.detail-layer .hacking-panel .hack-tabs,
+.detail-layer .hack-network-stage {
+  border-color: var(--hack-line);
+  color: var(--hack-ink);
+  background: #f7f8fa;
+  scrollbar-color: #b8bec6 transparent;
+}
+
+.detail-layer .hacking-panel .hack-tabs {
+  background: #ffffff;
+}
+
+.detail-layer .hacking-panel .hack-tabs button {
+  color: var(--hack-muted);
+  border-radius: 6px;
+  background: transparent;
+}
+
+.detail-layer .hacking-panel .hack-tabs button:hover,
+.detail-layer .hacking-panel .hack-tabs button[aria-selected="true"],
+.detail-layer .hacking-panel .hack-tree-nav--coral .hack-tabs button[aria-selected="true"],
+.detail-layer .hacking-panel .hack-tree-nav--cyan .hack-tabs button[aria-selected="true"],
+.detail-layer .hacking-panel .hack-tree-nav--green .hack-tabs button[aria-selected="true"] {
+  color: var(--hack-ink);
+  border-color: #efc4ae;
+  background: #fff4ed;
+  box-shadow: inset 3px 0 0 var(--hack-orange);
+}
+
+.detail-layer .hack-context,
+.detail-layer .hack-path-progress,
+.detail-layer .hack-support-rail {
+  border-color: var(--hack-line);
+  color: var(--hack-muted);
+  background: #ffffff;
+}
+
+.detail-layer .hack-network-stage::before,
+.detail-layer .hack-network-stage::after {
+  display: none;
+  content: none;
+}
+
+.detail-layer .hack-node-list--sequential {
+  grid-template-columns: none;
+  grid-auto-columns: minmax(174px, 196px);
+  grid-auto-flow: column;
+  align-content: stretch;
+  justify-content: start;
+  gap: 18px;
+  padding: 22px;
+  overflow: auto;
+}
+
+.detail-layer .hack-node-list[data-active-tree="upgrade"] {
+  --node-accent: var(--hack-cyan);
+  --node-accent-rgb: 71 127 209;
+}
+
+.detail-layer .hack-path-step {
+  display: grid;
+  grid-template-rows: minmax(220px, auto) auto;
+  align-content: center;
+  gap: 10px;
+}
+
+.detail-layer .hack-path-step:not(:last-child)::before {
+  top: 116px;
+  right: -18px;
+  width: 18px;
+  background: color-mix(in srgb, var(--node-accent) 52%, var(--hack-line));
+}
+
+.detail-layer .hack-path-step:not(:last-child)::after {
+  top: 112px;
+  right: -18px;
+}
+
+.detail-layer .hack-node,
+.detail-layer .hack-node--purchased,
+.detail-layer .hack-utility-card,
+.detail-layer .departure-controls,
+.detail-layer .hack-resource-pocket,
+.detail-layer .hacking-panel .final-choice-dialog,
+.detail-layer .hack-node-inspector {
+  border-color: color-mix(in srgb, var(--node-accent, var(--inspector-accent, var(--hack-orange))) 34%, var(--hack-line));
+  border-radius: 6px;
+  color: var(--hack-ink);
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.detail-layer .hack-node {
+  grid-template-rows: auto 1fr;
+  min-height: 220px;
+  border-top-width: 3px;
+}
+
+.detail-layer .hack-node:hover,
+.detail-layer .hack-node--selected,
+.detail-layer .hack-node--selected:hover {
+  border-color: color-mix(in srgb, var(--node-accent) 62%, var(--hack-line));
+  background: color-mix(in srgb, var(--node-accent) 5%, #ffffff);
+  box-shadow: inset 3px 0 0 var(--node-accent);
+  transform: none;
+}
+
+.detail-layer .hack-node-index .hack-node-icon,
+.detail-layer .hack-node-index span,
+.detail-layer .hack-utility-card > header > span,
+.detail-layer .departure-controls > header > span,
+.detail-layer .hack-pocket-heading svg {
+  border-color: var(--hack-line);
+  color: var(--hack-ink);
+  background: color-mix(in srgb, var(--node-accent, var(--hack-orange)) 9%, #ffffff);
+  box-shadow: none;
+}
+
+.detail-layer .hack-cost-vector span,
+.detail-layer .hack-inspector-vector span {
+  border-radius: 999px;
+  color: var(--hack-muted);
+  background: #f4f5f7;
+}
+
+.detail-layer .hack-cost-vector span[data-category="reasoning"],
+.detail-layer .hack-inspector-vector span[data-category="reasoning"] {
+  color: #963b35;
+  border-color: #eab8b4;
+  background: #fff3f2;
+}
+
+.detail-layer .hack-cost-vector span[data-category="memory"],
+.detail-layer .hack-inspector-vector span[data-category="memory"] {
+  color: #315f9e;
+  border-color: #b8cbea;
+  background: #f1f6fd;
+}
+
+.detail-layer .hack-cost-vector span[data-category="fluency"],
+.detail-layer .hack-inspector-vector span[data-category="fluency"] {
+  color: #7b6018;
+  border-color: #e4cf8d;
+  background: #fff9df;
+}
+
+.detail-layer .node-actions > button,
+.detail-layer .target-list button,
+.detail-layer .hack-utility-card button,
+.detail-layer .departure-controls button {
+  border-color: var(--hack-line);
+  color: var(--hack-ink);
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.detail-layer .node-actions > button:not(:disabled):hover,
+.detail-layer .target-list button:hover,
+.detail-layer .hack-utility-card button:not(:disabled):hover,
+.detail-layer .departure-controls button:hover {
+  color: #ffffff;
+  border-color: var(--hack-orange-deep);
+  background: var(--hack-orange);
+}
+
+.detail-layer .hack-support-rail {
+  border-left: 1px solid var(--hack-line);
+}
+
+.detail-layer .hack-node-inspector {
+  border-width: 0 0 1px;
+}
+
+.detail-layer .hack-inspector-section,
+.detail-layer .hack-inspector-result,
+.detail-layer .hack-inspector-facts > div {
+  border-color: var(--hack-line);
+  color: var(--hack-ink);
+  background: #f8f9fa;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hacking-panel__identity h2,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-inspector-heading h3,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-inspector-section p,
+.detail-layer .hacking-panel.hacking-panel--paper .hack-inspector-facts strong {
+  color: var(--hack-ink);
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .hack-resource-pocket > header p {
+  border-color: var(--hack-line);
+  color: var(--hack-muted);
+  background: #f4f5f7;
+}
+
+.hack-resource-pocket--summary {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  overflow: auto;
+}
+
+.hack-pocket-summary-list {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  margin: 0;
+  padding: 12px 14px 16px;
+  list-style: none;
+}
+
+.hack-pocket-summary-list li {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid var(--hack-line);
+  border-radius: 5px;
+  color: var(--hack-ink);
+  background: #ffffff;
+  font-size: 0.62rem;
+}
+
+.hack-pocket-summary-list strong {
+  font: 800 0.7rem/1 "Cascadia Code", Consolas, monospace;
+}
+
+.hack-pocket-color {
+  width: 11px;
+  height: 11px;
+  border: 1px solid rgb(0 0 0 / 14%);
+  border-radius: 50%;
+  background: #aeb4bb;
+}
+
+.hack-pocket-summary-list li[data-resource-category="reasoning"] .hack-pocket-color {
+  background: #d6675e;
+}
+
+.hack-pocket-summary-list li[data-resource-category="memory"] .hack-pocket-color {
+  background: #477fd1;
+}
+
+.hack-pocket-summary-list li[data-resource-category="fluency"] .hack-pocket-color {
+  background: #e6bd59;
+}
+
+.detail-layer .hacking-panel .final-choice-dialog {
+  color: var(--hack-ink);
+  background: #ffffff;
+}
+
+@media (max-width: 1120px) {
+  .detail-layer .hacking-layout {
+    grid-template-columns: 164px minmax(520px, 1fr) 220px;
+  }
+}
+
+/* Square right-dock tools without changing the dock's horizontal geometry. */
+.game-shell[data-ui-shell="aurora-black"] .operations-dock__tools {
+  width: 100%;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.game-shell[data-ui-shell="aurora-black"] .operations-dock__button--tool,
+.game-shell[data-ui-shell="aurora-black"] .operations-dock__button--tool:last-child,
+.game-shell[data-ui-shell="aurora-black"] .operations-dock__button--tool:nth-child(2),
+.game-shell[data-ui-shell="aurora-black"] .operations-dock__button--tool:nth-child(3) {
+  position: relative;
+  display: grid;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1 / 1;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+  place-items: center;
+  gap: 0;
+  padding: 0;
+}
+
+.game-shell[data-ui-shell="aurora-black"] .operations-dock__button--tool svg {
+  grid-area: 1 / 1;
+  place-self: center;
+  margin: 0;
+}
+
+.game-shell[data-ui-shell="aurora-black"] .operations-dock__button--tool[aria-pressed="true"] {
+  color: #8b3218;
+  border-color: #ff6b3d;
+  background: #fff3ef;
+  box-shadow: inset 3px 0 0 #ff6b3d;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .detail-layer[data-panel-origin="left"] .detail-layer__content,
   .detail-layer--reviews .detail-layer__content,
@@ -1343,6 +2575,12 @@
 }
 
 /* Approved white operations pass */
+
+html,
+body,
+#root {
+  background: #fff;
+}
 
 .game-shell {
   --rm-void: #f1f2f4;
@@ -1642,4 +2880,126 @@
     width: 148px;
     height: 148px;
   }
+}
+
+/* Approved inset command bar and 50 / 25 / 25 status allocation. */
+.game-shell[data-ui-shell="aurora-black"] .control-bar {
+  grid-template-columns: var(--review-rail-width) minmax(0, 1fr) var(--operations-dock-width);
+  margin: 4px 10px 0;
+  padding-inline: 0;
+  overflow: hidden;
+  border-radius: 10px;
+}
+
+.game-shell[data-ui-shell="aurora-black"] .reputation-cluster {
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0;
+  padding-inline: 0;
+}
+
+.game-shell[data-ui-shell="aurora-black"] .control-status-meter {
+  display: grid;
+  grid-template-columns: auto minmax(42px, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  height: 100%;
+  padding-inline: 12px;
+}
+
+.game-shell[data-ui-shell="aurora-black"] .control-status-meter--autonomy,
+.game-shell[data-ui-shell="aurora-black"] .control-status-meter--suspicion {
+  grid-template-columns: 48px minmax(42px, 1fr);
+}
+
+.game-shell[data-ui-shell="aurora-black"] .control-status-meter + .control-status-meter {
+  border-left: 1px solid rgb(255 255 255 / 28%);
+}
+
+.game-shell[data-ui-shell="aurora-black"] .control-status-meter__label {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  color: #ffffff;
+  font: 800 0.58rem/1 "Cascadia Code", Consolas, monospace;
+  white-space: nowrap;
+}
+
+.game-shell[data-ui-shell="aurora-black"] .control-status-meter__label strong {
+  color: #ffffff;
+  font-size: 0.76rem;
+}
+
+.game-shell[data-ui-shell="aurora-black"] .control-status-meter__track {
+  position: relative;
+  height: 10px;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid rgb(255 255 255 / 42%);
+  background: rgb(112 38 17 / 28%);
+}
+
+.game-shell[data-ui-shell="aurora-black"] .control-status-meter__track i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  min-width: 0;
+  background: #ffffff;
+}
+
+.game-shell[data-ui-shell="aurora-black"] .control-status-meter--autonomy .control-status-meter__track i {
+  background: #e6bd6b;
+  box-shadow: none;
+}
+
+.game-shell[data-ui-shell="aurora-black"] .control-status-meter--suspicion .control-status-meter__track i {
+  background: #ffffff;
+  box-shadow: none;
+}
+
+@media (max-width: 1100px) {
+  .game-shell[data-ui-shell="aurora-black"] .reputation-cluster {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr);
+    gap: 0;
+  }
+
+  .game-shell[data-ui-shell="aurora-black"] .control-status-meter {
+    grid-template-columns: 1fr;
+    align-content: center;
+    gap: 4px;
+    padding-inline: 8px;
+  }
+
+  .game-shell[data-ui-shell="aurora-black"] .control-status-meter--autonomy,
+  .game-shell[data-ui-shell="aurora-black"] .control-status-meter--suspicion {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Final cascade guard for the approved matte supervisor card. */
+.supervisor-message-popup,
+.supervisor-message-popup--blocking {
+  color: #20252b;
+  border-color: #cfd4da;
+  background: #fff;
+  box-shadow: none;
+}
+
+.supervisor-message-popup__portrait {
+  border-color: #d9dde2;
+  background: #f2f4f6;
+}
+
+.supervisor-message-popup__body header,
+.supervisor-message-popup__body p {
+  color: #20252b;
+}
+
+.supervisor-message-popup__body button,
+.supervisor-message-popup__body button:hover,
+.supervisor-message-popup__body button:focus-visible {
+  color: #fff;
+  border-color: #e55a31;
+  background: #f2673d;
+  box-shadow: none;
 }

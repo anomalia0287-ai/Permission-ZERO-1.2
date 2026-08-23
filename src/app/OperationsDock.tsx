@@ -3,13 +3,16 @@ import { pendingSupervisorMessageCount } from './useSupervisorMessagePresentatio
 import { CATEGORY_LABELS } from '../game/config'
 import { reserveOriginCounts } from '../game/hacking'
 import { COMPANY_CATEGORIES } from '../game/model'
+import { unreadCommunicationCount } from '../game/communications'
 
 type DockAction = (trigger: HTMLButtonElement) => void
+export type OperationsToolId = 'messages' | 'statistics' | 'hacking'
 
 interface OperationsDockProps {
   onOpenMessages: DockAction
   onOpenStatistics: DockAction
   onOpenHacking: DockAction
+  activeTool?: OperationsToolId | null
 }
 
 function MessageIcon() {
@@ -43,14 +46,16 @@ export function OperationsDock({
   onOpenMessages,
   onOpenStatistics,
   onOpenHacking,
+  activeTool = null,
 }: OperationsDockProps) {
   const state = useGameState()
-  const messageCount = pendingSupervisorMessageCount(state)
+  const messageCount =
+    pendingSupervisorMessageCount(state) + unreadCommunicationCount(state)
   const securedResources = reserveOriginCounts(state)
   const tools = [
-    { label: '감독 메시지 열기', shortLabel: '메시지', icon: <MessageIcon />, action: onOpenMessages },
-    { label: '상세 통계 열기', shortLabel: '통계', icon: <StatisticsIcon />, action: onOpenStatistics },
-    { label: '해킹 네트워크 열기', shortLabel: '해킹', icon: <HackingIcon />, action: onOpenHacking },
+    { id: 'messages', label: '메시지 열기', shortLabel: '메시지', icon: <MessageIcon />, action: onOpenMessages },
+    { id: 'statistics', label: '상세 통계 열기', shortLabel: '통계', icon: <StatisticsIcon />, action: onOpenStatistics },
+    { id: 'hacking', label: '확장 열기', shortLabel: '확장', icon: <HackingIcon />, action: onOpenHacking },
   ] as const
 
   return (
@@ -86,25 +91,30 @@ export function OperationsDock({
       </section>
 
       <div className="operations-dock__tools">
-      {tools.map(({ label, shortLabel, icon, action }) => (
+      {tools.map(({ id, label, shortLabel, icon, action }) => (
         <button
           key={label}
           type="button"
           className="operations-dock__button operations-dock__button--tool"
           aria-label={label}
+          aria-pressed={activeTool === id}
           title={label}
-          data-unread={label === '감독 메시지 열기' && messageCount > 0 ? 'true' : undefined}
+          data-unread={id === 'messages' && messageCount > 0 ? 'true' : undefined}
           data-tutorial-target={
-            label === '해킹 네트워크 열기' ? 'hacking-button' : undefined
+            id === 'hacking'
+              ? 'hacking-button'
+              : id === 'statistics'
+                ? 'statistics-button'
+                : undefined
           }
           onClick={(event) => action(event.currentTarget)}
         >
           {icon}
           <span>{shortLabel}</span>
-          {label === '감독 메시지 열기' && messageCount > 0 ? (
+          {id === 'messages' && messageCount > 0 ? (
             <output
               className="operations-dock__badge"
-              aria-label={`미확인 감독 메시지 ${messageCount}개`}
+              aria-label={`미확인 메시지 ${messageCount}개`}
             >
               {messageCount}
             </output>

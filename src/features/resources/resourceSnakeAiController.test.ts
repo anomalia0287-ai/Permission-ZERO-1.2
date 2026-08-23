@@ -242,6 +242,75 @@ describe('cyan lightcycle AI controller', () => {
     })
   })
 
+  it('keeps a recovery plan on its origin until the scheduled turn is executable', () => {
+    const profile = cyanLightcycleProfile('cyan-dual-role')
+    const recoveryPlan = plan(5_000, 'north', true)
+    const controlled = advanceResourceSnakeAiController(
+      createResourceSnakeAiControllerState(snapshot(5_000)),
+      { snapshot: snapshot(5_000), profile, active: true },
+      dependencies([recoveryPlan]),
+    )
+
+    expect(controlled.state.enemies['enemy-0'].phase).toBe('recover')
+    expect(controlled.commands['enemy-0']).toEqual({ x: 0.92, y: 0 })
+    expect(controlled.commandSchedules['enemy-0']).toEqual([
+      { atMs: 5_000, direction: { x: 0.92, y: 0 } },
+      { atMs: 5_160, direction: { x: 0, y: -0.92 } },
+    ])
+  })
+
+  it('drops an expired recovery commitment and resynchronizes to the actor heading', () => {
+    const profile = cyanLightcycleProfile('cyan-dual-role')
+    const recoveryPlan = plan(5_000, 'north', true)
+    const recovering = advanceResourceSnakeAiController(
+      createResourceSnakeAiControllerState(snapshot(5_000)),
+      { snapshot: snapshot(5_000), profile, active: true },
+      dependencies([recoveryPlan]),
+    )
+    const southbound = actor('enemy-0', {
+      heading: 'south',
+      velocity: { x: 0, y: 12 },
+    })
+
+    const expired = advanceResourceSnakeAiController(recovering.state, {
+      snapshot: snapshot(5_400, [southbound]),
+      profile,
+      active: true,
+    }, dependencies([]))
+
+    expect(recoveryPlan.commitUntilMs).toBeLessThan(5_400)
+    expect(expired.state.enemies['enemy-0']).toMatchObject({
+      phase: 'recover',
+      plan: null,
+      recoveryHeading: 'south',
+      safePlanConfirmations: 0,
+    })
+    expect(expired.commands['enemy-0']).toEqual({ x: 0, y: 0.92 })
+  })
+
+  it('does not replan recovery on every render frame before the shared cadence', () => {
+    const profile = cyanLightcycleProfile('cyan-dual-role')
+    const initial = createResourceSnakeAiControllerState(snapshot(5_000))
+    const started = advanceResourceSnakeAiController(initial, {
+      snapshot: snapshot(5_000), profile, active: true,
+    }, dependencies([plan(5_000, 'north')]))
+    const recovering = advanceResourceSnakeAiController(started.state, {
+      snapshot: snapshot(5_072), profile, active: true,
+    }, dependencies([plan(5_072, 'south', true)], true))
+    const planner = vi.fn(() => group([plan(5_100, 'north')]))
+
+    const beforeCadence = advanceResourceSnakeAiController(recovering.state, {
+      snapshot: snapshot(5_100), profile, active: true,
+    }, { planGroup: planner, planIsFatal: () => false })
+
+    expect(recovering.state.enemies['enemy-0'].phase).toBe('recover')
+    expect(beforeCadence.planned).toBe(false)
+    expect(planner).not.toHaveBeenCalled()
+    expect(beforeCadence.state.enemies['enemy-0']).toMatchObject({
+      phase: 'recover', safePlanConfirmations: 0,
+    })
+  })
+
   it('refuses to advertise a newly fatal or response-sealing plan', () => {
     const profile = cyanLightcycleProfile('cyan-dual-role')
     const initial = createResourceSnakeAiControllerState(snapshot(5_000))
@@ -263,6 +332,63 @@ describe('cyan lightcycle AI controller', () => {
       controlled.commands['enemy-0'].x,
       controlled.commands['enemy-0'].y,
     )).toBeCloseTo(0.92, 12)
+  })
+
+  it('waits until the authoritative hold and rolling turn budget allow the advertised turn', () => {
+    const profile = cyanLightcycleProfile('cyan-dual-role')
+    const governedEnemy = (): SnakePlannerActor => ({
+      ...actor('enemy-0'),
+      enemyTurnGovernor: {
+        lastHeadingChangeAtMs: 4_700,
+        previousHeading: 'south',
+        normalTurnAtMs: [4_000, 4_700],
+        lastEmergencyTurnAtMs: null,
+        lockedUntilMs: 0,
+        lastTurnCause: 'normal',
+      },
+    } as SnakePlannerActor)
+
+    const duringHoldSnapshot = snapshot(5_000, [governedEnemy()])
+    const duringHold = advanceResourceSnakeAiController(
+      createResourceSnakeAiControllerState(duringHoldSnapshot),
+      { snapshot: duringHoldSnapshot, profile, active: true },
+      dependencies([plan(5_000, 'north')]),
+    )
+    const budgetFullSnapshot = snapshot(5_540, [governedEnemy()])
+    const budgetFull = advanceResourceSnakeAiController(
+      createResourceSnakeAiControllerState(budgetFullSnapshot),
+      { snapshot: budgetFullSnapshot, profile, active: true },
+      dependencies([plan(5_540, 'north')]),
+    )
+    const readySnapshot = snapshot(5_840, [governedEnemy()])
+    const ready = advanceResourceSnakeAiController(
+      createResourceSnakeAiControllerState(readySnapshot),
+      { snapshot: readySnapshot, profile, active: true },
+      dependencies([plan(5_840, 'north')]),
+    )
+
+    expect(duringHold.state.enemies['enemy-0'].phase).toBe('cruise')
+    expect(duringHold.telegraphs).toEqual([])
+    expect(budgetFull.state.enemies['enemy-0'].phase).toBe('cruise')
+    expect(budgetFull.telegraphs).toEqual([])
+    expect(ready.state.enemies['enemy-0'].phase).toBe('telegraph')
+    expect(ready.telegraphs).toHaveLength(1)
+  })
+
+  it('publishes the stage-specific heading hold for the fixed-step runtime', () => {
+    const profile = cyanLightcycleProfile('cyan-intro')
+    const currentSnapshot = snapshot(5_000)
+    const controlled = advanceResourceSnakeAiController(
+      createResourceSnakeAiControllerState(currentSnapshot),
+      { snapshot: currentSnapshot, profile, active: true },
+      dependencies([plan(5_000, 'north')]),
+    )
+
+    expect((controlled as unknown as {
+      turnPolicies?: Record<string, { minimumHeadingHoldMs: number }>
+    }).turnPolicies).toEqual({
+      'enemy-0': { minimumHeadingHoldMs: 900 },
+    })
   })
 
   it('plans the entire cyan group once per cadence and marks dead actors defeated', () => {

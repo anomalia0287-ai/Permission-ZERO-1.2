@@ -55,7 +55,7 @@ describe('resource snake presentation', () => {
     })
   })
 
-  it('projects exact continuous rail vertices and heading-oriented angular cores', () => {
+  it('projects exact trail dots with a white circular player and category-colored square enemies', () => {
     const deployed = deployedRound()
     const runtime: ResourceSnakeRoundState = {
       ...deployed,
@@ -70,6 +70,10 @@ describe('resource snake presentation', () => {
           { x: 25, y: 21 },
           { x: 27, y: 21 },
           { x: 27, y: 19 },
+        ],
+        trail: [
+          { id: 1, position: { x: 25, y: 21 }, spawnedAtMs: 400, expiresAtMs: 10_400 },
+          { id: 2, position: { x: 27, y: 19 }, spawnedAtMs: 500, expiresAtMs: 10_500 },
         ],
       },
       enemies: deployed.enemies.map((enemy, index) => ({
@@ -87,30 +91,49 @@ describe('resource snake presentation', () => {
 
     expect(player).toMatchObject({
       color: RESOURCE_SNAKE_PALETTE.player,
-      silhouette: 'operator',
-      glyph: '00',
+      shape: 'circle',
     })
-    expect(player?.headingRadians).toBeCloseTo(-Math.PI / 4, 8)
+    expect(player).not.toHaveProperty('glyph')
+    expect(player).not.toHaveProperty('headingRadians')
     expect(pressure).toMatchObject({
-      color: RESOURCE_SNAKE_PALETTE.cyan,
-      silhouette: 'pressure',
-      glyph: 'P',
+      color: '#f06a43',
+      shape: 'square',
     })
     expect(blocker).toMatchObject({
-      color: RESOURCE_SNAKE_PALETTE.cyan,
-      silhouette: 'blocker',
-      glyph: 'B',
+      color: '#4f8df7',
+      shape: 'square',
+    })
+    expect(scene.rails.find(({ actorId }) => actorId === 'enemy-0')).toMatchObject({
+      color: '#f06a43',
+    })
+    expect(scene.rails.find(({ actorId }) => actorId === 'enemy-1')).toMatchObject({
+      color: '#4f8df7',
     })
     expect(playerRail?.points).toEqual([
       { x: 25, y: 21 },
-      { x: 27, y: 21 },
       { x: 27, y: 19 },
-      { x: 29, y: 17 },
     ])
-    expect(scene.rails.every(({ points }) => points.length >= 2)).toBe(true)
+    expect(scene.rails.every(({ points }) => points.length <= 320)).toBe(true)
   })
 
-  it('keeps damaged cyan cores readable instead of fading them into the floor', () => {
+  it.each([
+    ['reasoning', '#f06a43'],
+    ['memory', '#4f8df7'],
+    ['fluency', '#e8bd59'],
+  ] as const)('maps a %s enemy to its secured resource color', (category, color) => {
+    const deployed = deployedRound()
+    const runtime: ResourceSnakeRoundState = {
+      ...deployed,
+      enemies: [{ ...deployed.enemies[0], category }],
+    }
+
+    const scene = buildResourceSnakeScene(runtime, null)
+
+    expect(scene.cores.find(({ id }) => id === 'enemy-0')?.color).toBe(color)
+    expect(scene.rails.find(({ actorId }) => actorId === 'enemy-0')?.color).toBe(color)
+  })
+
+  it('keeps damaged category-colored cores readable instead of fading them into the floor', () => {
     const deployed = deployedRound()
     const runtime: ResourceSnakeRoundState = {
       ...deployed,
@@ -126,7 +149,7 @@ describe('resource snake presentation', () => {
     expect(pressure?.opacity).toBeGreaterThanOrEqual(0.62)
   })
 
-  it('preserves the exact cyan attack telegraph in reduced-motion mode', () => {
+  it('preserves the enemy resource color on attack telegraphs in reduced-motion mode', () => {
     const runtime = { ...deployedRound(), phase: 'active' as const, simulationMs: 500 }
     const telegraph: ResourceSnakeTelegraph = {
       enemyId: 'enemy-0',
@@ -150,6 +173,7 @@ describe('resource snake presentation', () => {
         id: 'telegraph:enemy-0:440',
         enemyId: 'enemy-0',
         role: 'pressure',
+        color: '#f06a43',
         points: telegraph.path,
         progress: expect.closeTo(1 / 3, 5),
         attackHeadingRadians: expect.closeTo(3 * Math.PI / 4, 8),
@@ -187,7 +211,12 @@ describe('resource snake presentation', () => {
     }, null)
 
     expect(active.contacts).toEqual([
-      expect.objectContaining({ x: 10, y: 8, progress: expect.closeTo(2 / 3, 5) }),
+      expect.objectContaining({
+        x: 10,
+        y: 8,
+        color: '#f06a43',
+        progress: expect.closeTo(2 / 3, 5),
+      }),
     ])
     expect(active.powerCuts.map(({ actorId }) => actorId).sort()).toEqual([
       'enemy-0',
@@ -197,7 +226,7 @@ describe('resource snake presentation', () => {
     expect(expired.powerCuts).toEqual([])
   })
 
-  it('breaks a dead rail into bounded fragments but substitutes a static glyph for reduced motion', () => {
+  it('breaks dead trail dots into bounded fragments but keeps one static burst for reduced motion', () => {
     const deployed = deployedRound()
     const death = {
       id: 9,
@@ -217,6 +246,12 @@ describe('resource snake presentation', () => {
             x: 8 + index * 0.3,
             y: 6 + (index % 2),
           })),
+          trail: Array.from({ length: 30 }, (_, index) => ({
+            id: index + 1,
+            position: { x: 8 + index * 0.3, y: 6 + (index % 2) },
+            spawnedAtMs: 100 + index * 10,
+            expiresAtMs: 10_100 + index * 10,
+          })),
         },
         deployed.enemies[1],
       ],
@@ -229,7 +264,7 @@ describe('resource snake presentation', () => {
     expect(animated.explosions).toEqual([
       expect.objectContaining({
         actorId: 'enemy-0',
-        color: RESOURCE_SNAKE_PALETTE.cyan,
+        color: '#f06a43',
         progress: expect.closeTo(4 / 7, 5),
       }),
     ])
@@ -267,6 +302,56 @@ describe('resource snake presentation', () => {
     )
 
     expect(buildResourceSnakeScene(advanced, null).explosions[0]?.progress).toBe(0.5)
+  })
+
+  it('retracts a victorious player toward center without a defeat explosion', () => {
+    const deployed = deployedRound()
+    const extraction = {
+      id: 21,
+      type: 'player-extracted',
+      actorId: 'player',
+      startedAtMs: 500,
+    } as ResourceSnakeEvent
+    const runtime: ResourceSnakeRoundState = {
+      ...deployed,
+      phase: 'resolving',
+      simulationMs: 850,
+      resolvingMs: 350,
+      player: {
+        ...deployed.player,
+        phase: 'extracting',
+        position: { x: 10, y: 18 },
+        trail: Array.from({ length: 8 }, (_, index) => ({
+          id: index + 1,
+          position: { x: 4 + index, y: 18 },
+          spawnedAtMs: 100 + index * 10,
+          expiresAtMs: 10_100 + index * 10,
+        })),
+      },
+      events: [extraction],
+    }
+
+    const animated = buildResourceSnakeScene(runtime, null, false)
+    const reduced = buildResourceSnakeScene(runtime, null, true)
+    const player = animated.cores.find(({ id }) => id === 'player')
+    const playerRail = animated.rails.find(({ actorId }) => actorId === 'player')
+
+    expect(player).toMatchObject({
+      phase: 'extracting',
+      x: 17.5,
+      y: 15,
+      opacity: 0.5,
+      scale: 0.59,
+    })
+    expect(playerRail?.points).toHaveLength(4)
+    expect(playerRail?.opacity).toBe(0.5)
+    expect(animated.explosions).toEqual([])
+    expect(animated.fragments).toEqual([])
+    expect(reduced.cores.find(({ id }) => id === 'player')).toMatchObject({
+      x: 10,
+      y: 18,
+      opacity: 0.5,
+    })
   })
 
   it('bounds collision shake to three pixels and 180ms with a reduced-motion zero', () => {

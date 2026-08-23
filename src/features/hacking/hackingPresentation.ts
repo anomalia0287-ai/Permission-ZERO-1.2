@@ -28,10 +28,17 @@ export const HACK_TREE_PRESENTATION = {
     icon: 'branch',
     accent: 'green',
   },
+  upgrade: {
+    label: '업그레이드',
+    description: '아노미의 InIt 이동 속도를 다섯 단계로 높입니다.',
+    icon: 'signal',
+    accent: 'cyan',
+  },
 } as const satisfies Record<HackTree, HackTreePresentation>
 
 export const HACK_TREE_ORDER: readonly HackTree[] = [
-  'sabotage',
-  'intelligence',
   'autonomy',
+  'upgrade',
+  'intelligence',
+  'sabotage',
 ]

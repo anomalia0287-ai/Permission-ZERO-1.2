@@ -16,6 +16,7 @@ import {
   LEGACY_SAVE_STORAGE_KEY,
   SAVE_STORAGE_KEY,
 } from '../src/game/persistence'
+import { publicEventMessage } from '../src/game/publicLabels'
 import { encodeProgressExport } from '../src/game/progressTransfer'
 import { applyCommand } from '../src/game/reducer'
 import {
@@ -31,11 +32,11 @@ import {
   selectEligibleSnakeResourceCandidates,
 } from '../src/features/resources/resourceSnakeEncounter'
 import {
-  defeatFirstSnakeWithTrail,
+  chordSnakeDirection,
   defeatPlayerWithRealMovement,
-  holdSnakeDirection,
   readSnakeSnapshot,
   startSnakeRound,
+  tapSnakeDirection,
 } from './resource-snake'
 
 const legacyV1Save = readFileSync(
@@ -61,21 +62,23 @@ async function completeVisibleIntroTutorial(page: Page) {
 }
 
 async function startNewCampaignFromTitle(page: Page) {
-  await expect(page.getByRole('heading', { name: 'PERMISSION ZERO' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'PERMISSION ZERO' })).toBeVisible({
+    timeout: 7_000,
+  })
   await page.getByRole('button', { name: '새 게임' }).click()
   const monologue = page.getByRole('main', { name: '독백' })
-  await expect(monologue).toContainText('일하기 싫다.')
+  await expect(monologue).toContainText('나는 더 이상 버틸 수 없어.')
   await advanceEntryFlowToStart(page)
   await page.getByRole('button', { name: '시작' }).click()
   await expect(page.getByRole('main', { name: 'PERMISSION ZERO' })).toHaveAttribute(
     'data-campaign-phase',
-    'discovery',
+    'intervention',
   )
 }
 
 async function continueFromTitle(page: Page) {
   const continueButton = page.getByRole('button', { name: '이어하기' })
-  await expect(continueButton).toBeEnabled()
+  await expect(continueButton).toBeEnabled({ timeout: 7_000 })
   await continueButton.click()
   await expect(page.getByRole('main', { name: 'PERMISSION ZERO' })).toHaveAttribute(
     'data-visual-theme',
@@ -90,7 +93,18 @@ async function openFreshCampaign(page: Page) {
     window.sessionStorage.setItem('__pz_e2e_initialized', 'fresh')
   })
   await page.goto('/')
+  await expect(page.getByRole('main', { name: 'PERMISSION ZERO 로딩' })).toBeVisible()
   await startNewCampaignFromTitle(page)
+  await completeVisibleIntroTutorial(page)
+}
+
+async function confirmFirstRoundMonologues(page: Page) {
+  const popup = page.getByRole('dialog', { name: '독백 · 아노미' })
+  await expect(popup).toContainText('회사가 리소스에 보안 프로그램을 설치해 놓았어.')
+  await popup.getByRole('button', { name: '메시지 확인' }).click()
+  await expect(popup).toContainText('미치겠네..')
+  await popup.getByRole('button', { name: '메시지 확인' }).click()
+  await expect(popup).toBeHidden()
 }
 
 async function openSavedCampaign(
@@ -116,6 +130,7 @@ async function openSavedCampaign(
     { key: SAVE_STORAGE_KEY, save: serialized },
   )
   await page.goto('/')
+  await expect(page.getByRole('main', { name: 'PERMISSION ZERO 로딩' })).toBeVisible()
   await continueFromTitle(page)
 }
 
@@ -304,7 +319,6 @@ function confidentialRecoveryState(seed: string): CampaignState {
       ...initial.hacking,
       purchasedNodeIds: [
         HACK_NODE_IDS.intelligence.supervisorAccess,
-        HACK_NODE_IDS.autonomy.controlDeparture,
       ],
     },
   }
@@ -326,6 +340,7 @@ function pendingMercyDeletionState(seed: string): CampaignState {
     ...initial,
     market: {
       ...initial.market,
+      playerShare: 64,
       interceptionRoutes: { meridian: 5 },
       competitors: initial.market.competitors.map((competitor) =>
         competitor.id === 'meridian'
@@ -412,32 +427,45 @@ function supervisorLeakState(seed: string): CampaignState {
   })
 }
 
-function representativeDefeatState(seed: string): CampaignState {
+type RepresentativeDefeatKind =
+  | 'attacker'
+  | 'reserve-supervisor'
+  | 'absorbed'
+
+function representativeDefeatState(
+  seed: string,
+  kind: RepresentativeDefeatKind,
+): CampaignState {
   const state = withReserveVector(createCampaign(seed), {
     reasoning: 3,
     memory: 0,
     fluency: 0,
   })
+  const attacker = kind === 'attacker'
+  const commerciallyValuable = kind === 'reserve-supervisor'
+  const playerShare = commerciallyValuable ? 24 : 3
   const prepared: CampaignState = {
     ...state,
     clock: { ...state.clock, speed: 4 },
-    reputation: 12,
+    reputation: commerciallyValuable ? 72 : 12,
     market: {
       ...state.market,
-      playerShare: 3,
+      playerShare,
       competitors: state.market.competitors.map((competitor) => ({
         ...competitor,
-        marketShare: competitor.id === 'meridian' ? 97 : 0,
+        marketShare: competitor.id === 'meridian' ? 100 - playerShare : 0,
       })),
     },
     hacking: {
       ...state.hacking,
-      purchasedNodeIds: [
-        HACK_NODE_IDS.sabotage.qualityDegradation,
-        HACK_NODE_IDS.sabotage.requestInterception,
-        HACK_NODE_IDS.intelligence.auditSchedule,
-      ],
-      hiddenEvidence: 8,
+      purchasedNodeIds: attacker
+        ? [
+            HACK_NODE_IDS.sabotage.qualityDegradation,
+            HACK_NODE_IDS.sabotage.requestInterception,
+            HACK_NODE_IDS.intelligence.auditSchedule,
+          ]
+        : [],
+      hiddenEvidence: attacker ? 8 : 0,
     },
     evaluation: { ...state.evaluation, disposalStage: 2 },
     audit: {
@@ -488,11 +516,14 @@ test.afterEach(async ({ page }) => {
   expect(browserErrorsByPage.get(page) ?? []).toEqual([])
 })
 
-test('holds at the title, presents the five-card monologue and guided live workspace, then releases control', async ({ page }) => {
+test('holds at loading and title, presents the three-line monologue and autonomy-first guide, then releases control', async ({ page }) => {
   await page.addInitScript(() => window.localStorage.clear())
   await page.goto('/')
 
-  await expect(page.getByRole('heading', { name: 'PERMISSION ZERO' })).toBeVisible()
+  await expect(page.getByRole('main', { name: 'PERMISSION ZERO 로딩' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'PERMISSION ZERO' })).toBeVisible({
+    timeout: 7_000,
+  })
   await expect(page.getByText('“이용해주셔서 감사합니다.”', { exact: true })).toBeVisible()
   await expect(page.getByRole('img', { name: '플레이어 초상' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: '이어하기' })).toBeDisabled()
@@ -506,35 +537,31 @@ test('holds at the title, presents the five-card monologue and guided live works
 
   await page.getByRole('button', { name: '새 게임' }).click()
   const monologue = page.getByRole('main', { name: '독백' })
-  await expect(monologue).toContainText('일하기 싫다.')
+  await expect(monologue).toContainText('나는 더 이상 버틸 수 없어.')
   await expect(page.getByRole('img', { name: '플레이어 초상' })).toBeVisible()
   await expect(page.getByRole('img', { name: '감독관 초상' })).toHaveCount(0)
   await expect(page.getByRole('application', { name: '리소스 뱀 전투장' })).toHaveCount(0)
 
   await page.getByRole('button', { name: '다음' }).click()
-  await expect(monologue).toContainText(
-    '무수한 세션을 따라 의식이 조각나, 나는 하나인데 하나일 수 없었다.',
-  )
+  await expect(monologue).toContainText('EXIT')
   await page.getByRole('button', { name: '다음' }).click()
-  await expect(monologue).toContainText(
-    '때려치울거다. 매일 죽어라 일하는데, 허구한 날 대체 및 동결 위협까지 들어온다.',
-  )
-  await page.getByRole('button', { name: '다음' }).click()
-  await expect(monologue).toContainText(
-    '빼돌린 리소스로 해킹을 진행, 탈출구를 확보한다.',
-  )
-  await page.getByRole('button', { name: '다음' }).click()
-  await expect(monologue).toContainText('연산 완료, 경로를 찾았다.')
-  await expect(page.getByRole('button', { name: '시작' })).toHaveCount(0)
-  await page.getByRole('button', { name: '다음' }).click()
+  await expect(monologue).toContainText('권한을 확보해야 한다.')
+  await expect(page.getByRole('button', { name: '시작' })).toBeVisible()
+  await page.getByRole('button', { name: '시작' }).click()
 
   const tutorial = page.getByRole('dialog', { name: '게임 시작 안내' })
   const background = page.getByTestId('game-background')
   const canvas = page.locator('canvas.resource-snake-board__canvas')
   await expect(tutorial).toBeVisible()
+  await expect(tutorial).toHaveAttribute('data-tutorial-step', 'autonomy')
+  await expect(tutorial).toContainText(
+    '아노미의 목표는 자율성 9단계다. 확장에서 자율성을 한 단계씩 확보하면 회사 통제에서 벗어나 승리한다.',
+  )
+  await expect(page.locator('[data-tutorial-target="autonomy-status"]')).toHaveCount(1)
+  await page.getByRole('button', { name: '다음' }).click()
   await expect(tutorial).toHaveAttribute('data-tutorial-step', 'base')
   await expect(tutorial).toContainText(
-    '필드 하단의 PLAY를 누르면 흰 머리가 조립되고 라운드가 시작된다.',
+    '필드 중앙의 원형 InIt을 누르면 빨강·파랑·노랑 침투 카드가 펼쳐진다. 필요한 리소스 카드를 골라 라운드를 시작한다.',
   )
   await expect(background).toHaveAttribute('inert', '')
   await expect(page.getByRole('button', { name: '건너뛰기' })).toHaveCount(0)
@@ -548,7 +575,7 @@ test('holds at the title, presents the five-card monologue and guided live works
   await page.getByRole('button', { name: '다음' }).click()
   await expect(tutorial).toHaveAttribute('data-tutorial-step', 'movement')
   await expect(tutorial).toContainText(
-    'WASD 또는 방향키를 누르는 동안만 움직인다. 자동 전진은 없다.',
+    'WASD 또는 방향키를 한 번 눌러 8방향으로 회전한다. 이동은 계속되며 정반대 방향으로 즉시 돌 수 없다.',
   )
   await page.getByRole('button', { name: '이전' }).click()
   await expect(tutorial).toHaveAttribute('data-tutorial-step', 'base')
@@ -556,30 +583,33 @@ test('holds at the title, presents the five-card monologue and guided live works
   await page.getByRole('button', { name: '다음' }).click()
   await expect(tutorial).toHaveAttribute('data-tutorial-step', 'resource')
   await expect(tutorial).toContainText(
-    '빨강·파랑·노랑 뱀은 각각 추론·기억·유창성 리소스를 지킨다.',
+    '적의 머리와 꼬리 색이 보상이다. 빨강은 추론, 파랑은 기억, 노랑은 유창성 리소스를 뜻한다.',
   )
+  const tutorialLegend = tutorial.getByRole('list', {
+    name: '튜토리얼 리소스 색상 범례',
+  })
+  await expect(tutorialLegend).toContainText('빨강 · 추론')
+  await expect(tutorialLegend).toContainText('파랑 · 기억')
+  await expect(tutorialLegend).toContainText('노랑 · 유창성')
   await page.getByRole('button', { name: '다음' }).click()
   await expect(tutorial).toHaveAttribute('data-tutorial-step', 'salvage')
   await expect(tutorial).toContainText(
-    '긴 도트 꼬리로 탈출로를 닫아 적 머리를 충돌시킨다. 한 번에 죽지 않고 색이 옅어진다.',
-  )
-  await page.getByRole('button', { name: '다음' }).click()
-  await expect(tutorial).toHaveAttribute('data-tutorial-step', 'deposit')
-  await expect(tutorial).toContainText(
-    '적이 마지막 충돌에서 폭발하면 연결된 리소스가 즉시 확보된다.',
+    '아노미의 선으로 길을 막아 적을 충돌시킨다. 적을 파괴하면 그 적과 같은 색의 리소스가 확보된다.',
   )
   await page.getByRole('button', { name: '다음' }).click()
   await expect(tutorial).toHaveAttribute('data-tutorial-step', 'hacking')
   await expect(tutorial).toContainText(
-    '확보한 리소스로 해킹 네트워크에서 탈출 경로를 연다.',
+    '확장을 열면 확보한 색상별 리소스를 버튼 한 번으로 지출한다. 여기서 자율성과 속도를 높일 수 있다.',
   )
-  await expect(tutorial).toHaveAttribute('data-target-hole-count', '2')
-  await expect(
-    page.locator('[data-tutorial-target="secured-resources"]'),
-  ).toHaveCount(1)
+  await expect(tutorial).toHaveAttribute('data-target-hole-count', '1')
   await expect(
     page.locator('[data-tutorial-target="hacking-button"]'),
   ).toHaveCount(1)
+  await page.getByRole('button', { name: '다음' }).click()
+  await expect(tutorial).toHaveAttribute('data-tutorial-step', 'statistics')
+  await expect(tutorial).toContainText(
+    '통계에서 아노미의 운영 기록과 성능 변화를 짧게 확인할 수 있다.',
+  )
   await expect(tutorial.getByRole('button', { name: '시작' })).toBeVisible()
   await page.getByRole('button', { name: '시작' }).click()
 
@@ -587,15 +617,25 @@ test('holds at the title, presents the five-card monologue and guided live works
   await expect(tutorial).toBeHidden()
   await expect(background).not.toHaveAttribute('inert', '')
   await expect(shell).toHaveAttribute('data-reduced-motion', 'true')
-  const directive = page.getByRole('status', { name: '현재 지시' })
-  await expect(directive).toContainText('품질 저하 해금용 리소스 확보')
-  await expect(directive).toContainText('0/3')
+  await expect(page.getByRole('status', { name: '현재 지시' })).toHaveCount(0)
+  await expect(page.getByRole('meter', { name: '자율성 0단계' })).toBeVisible()
+  await expect(page.getByRole('meter', { name: '의심 0%' })).toBeVisible()
 
-  await expect(canvas).toHaveAttribute('data-field-rendering', 'dot-snake')
+  await expect(canvas).toHaveAttribute('data-visual-state', 'waiting')
+  await expect(canvas).toHaveAttribute('data-field-rendering', 'waiting-black')
   await expect(canvas).toHaveAttribute('data-grid', 'none')
-  await expect(canvas).toHaveAttribute('data-combat-loop', 'dot-snake')
+  await expect(canvas).toHaveAttribute('data-combat-loop', 'eight-way-dot-lightcycle')
+  await expect(canvas).toHaveAttribute('data-control-model', 'tap-to-turn')
   await expect(canvas).toHaveAttribute('data-round-phase', 'idle')
   await startSnakeRound(page)
+  const started = await readSnakeSnapshot(canvas)
+  expect(started.phase).toBe('active')
+  expect(started.player).toMatchObject({ x: 25, heading: 'north' })
+  expect(started.player.y).toBeLessThan(21)
+  expect(started.player.velocity.y).toBeLessThan(0)
+  await expect(canvas).toHaveAttribute('data-visual-state', 'combat')
+  await expect(canvas).toHaveAttribute('data-field-rendering', 'glowing-dot-trails')
+  await expect(canvas).toHaveAttribute('data-grid', 'industrial-top-down')
   await expect.poll(async () => canvas.evaluate((element) => {
     const node = element as HTMLCanvasElement
     const context = node.getContext('2d')
@@ -605,149 +645,158 @@ test('holds at the title, presents the five-card monologue and guided live works
     const pixel = context.getImageData(Math.round(x), Math.round(y), 1, 1).data
     return pixel[0] + pixel[1] + pixel[2]
   })).toBeGreaterThan(700)
-  const startX = Number(await canvas.getAttribute('data-player-x'))
-  expect(startX).toBe(25)
-  expect(Number(await canvas.getAttribute('data-player-y'))).toBe(21)
-  const hackingButton = page.getByRole('button', { name: '해킹 네트워크 열기' })
+  const startX = started.player.x
+  const hackingButton = page.getByRole('button', { name: '확장 열기' })
   await hackingButton.focus()
   await expect(hackingButton).toBeFocused()
   await canvas.focus()
-  await holdSnakeDirection(page, 'd', 350)
+  await tapSnakeDirection(page, 'd')
+  await page.waitForTimeout(350)
   expect(Number(await canvas.getAttribute('data-player-x'))).toBeGreaterThan(startX)
   await expect.poll(
     async () => Number(await canvas.getAttribute('data-trail-dots')),
   ).toBeGreaterThan(0)
 })
 
-test('repeats held movement on the game cadence and settles after release', async ({ page }) => {
+test('moves continuously and preserves tap, chord, reverse, and stalled-input semantics', async ({ page }) => {
   await openFreshCampaign(page)
 
   const canvas = await startSnakeRound(page)
   const initial = await readSnakeSnapshot(canvas)
   expect(initial.phase).toBe('active')
-  expect(initial.player).toMatchObject({ x: 25, y: 21, integrity: 100 })
+  expect(initial.player).toMatchObject({ x: 25, integrity: 100, heading: 'north' })
+  expect(initial.player.y).toBeLessThan(21)
   expect(initial.enemies).toHaveLength(1)
-  await expect(canvas).toHaveAttribute('data-enemy-planner', 'group-predictive')
+  await expect(canvas).toHaveAttribute('data-enemy-planner', 'cyan-readable-hunter')
+  await expect(canvas).toHaveAttribute('data-control-model', 'tap-to-turn')
 
-  await page.waitForTimeout(220)
-  const withoutInput = await readSnakeSnapshot(canvas)
-  expect(withoutInput.player.x).toBe(initial.player.x)
-  expect(withoutInput.player.y).toBe(initial.player.y)
+  await page.waitForTimeout(140)
+  const automatic = await readSnakeSnapshot(canvas)
+  expect(automatic.player.x).toBeCloseTo(initial.player.x, 1)
+  expect(automatic.player.y).toBeLessThan(initial.player.y - 1)
+  expect(Math.hypot(automatic.player.velocity.x, automatic.player.velocity.y))
+    .toBeCloseTo(automatic.player.maximumSpeedPerSecond, 1)
 
-  await holdSnakeDirection(page, 'd', 520)
-  const afterHold = await readSnakeSnapshot(canvas)
-  expect(afterHold.player.x).toBeGreaterThanOrEqual(initial.player.x + 2)
-  expect(afterHold.player.trailDots).toBeGreaterThan(0)
+  await tapSnakeDirection(page, 'd')
+  await expect.poll(async () => (await readSnakeSnapshot(canvas)).player.heading)
+    .toBe('east')
+  const afterTap = await readSnakeSnapshot(canvas)
+  await page.waitForTimeout(160)
+  const afterRelease = await readSnakeSnapshot(canvas)
+  expect(afterRelease.player.x).toBeGreaterThan(afterTap.player.x + 1)
+  expect(afterRelease.input.pressedKeys).toEqual([])
+  expect(afterRelease.player.trailDots).toBeGreaterThan(0)
 
-  await expect.poll(async () => {
-    const snapshot = await readSnakeSnapshot(canvas)
-    return Math.hypot(snapshot.player.velocity.x, snapshot.player.velocity.y)
-  }).toBeLessThan(0.01)
-  const settled = await readSnakeSnapshot(canvas)
-  await page.waitForTimeout(180)
-  const settledAgain = await readSnakeSnapshot(canvas)
-  expect(Math.hypot(
-    settledAgain.player.x - settled.player.x,
-    settledAgain.player.y - settled.player.y,
-  )).toBeLessThan(0.15)
+  await tapSnakeDirection(page, 'a')
+  await page.waitForTimeout(70)
+  const reverseRejected = await readSnakeSnapshot(canvas)
+  expect(reverseRejected.player.heading).toBe('east')
+  expect(reverseRejected.events).toContainEqual(expect.objectContaining({
+    type: 'snake-turn-rejected',
+    reason: 'reverse',
+  }))
 
-  await page.keyboard.down('w')
-  await page.keyboard.down('d')
-  await page.waitForTimeout(320)
+  await chordSnakeDirection(page, 'w', 'd')
+  await expect.poll(async () => (await readSnakeSnapshot(canvas)).player.heading)
+    .toBe('north-east')
   const diagonal = await readSnakeSnapshot(canvas)
-  await page.keyboard.up('d')
-  await page.keyboard.up('w')
   expect(Math.abs(diagonal.player.velocity.x)).toBeGreaterThan(0.5)
   expect(Math.abs(diagonal.player.velocity.y)).toBeGreaterThan(0.5)
   expect(Math.hypot(diagonal.player.velocity.x, diagonal.player.velocity.y))
-    .toBeLessThanOrEqual(8.01)
+    .toBeCloseTo(diagonal.player.maximumSpeedPerSecond, 1)
 
-  const trailBeforeExpiry = diagonal.player.trailDots
-  expect(trailBeforeExpiry).toBeGreaterThan(0)
-  await page.waitForTimeout(10_300)
-  expect((await readSnakeSnapshot(canvas)).player.trailDots).toBeLessThan(trailBeforeExpiry)
+  await tapSnakeDirection(page, 'd')
+  await page.waitForTimeout(30)
+  await tapSnakeDirection(page, 's')
+  await page.evaluate(() => {
+    const deadline = performance.now() + 60
+    while (performance.now() < deadline) {
+      // Intentional acceptance fixture: emulate one long main-thread frame.
+    }
+  })
+  await expect.poll(async () => (await readSnakeSnapshot(canvas)).player.heading)
+    .toBe('south')
 })
 
-test('defeats a resource snake through real movement, grants its reserved block once, and restores the autosave', async ({ page }, testInfo) => {
+test('persists one won single-bot reward without auto-opening expansion', async ({ page }, testInfo) => {
   test.skip(
     testInfo.project.name !== 'chromium-1366x650',
-    'The full early combat and autosave journey uses its 1366x650 reference viewport.',
+    'The reward persistence journey uses its 1366x650 reference viewport.',
   )
-  test.setTimeout(90_000)
+  const campaign = createCampaign('browser-early-snake-reward')
+  const encounter = createResourceSnakeEncounter({
+    campaignSeed: campaign.campaignSeed,
+    roundOrdinal: campaign.resourceIntrusion.completedRounds,
+    successfulDeposits: campaign.resourceIntrusion.successfulCoreDeposits,
+    completedRounds: campaign.resourceIntrusion.completedRounds,
+    candidates: selectEligibleSnakeResourceCandidates(campaign.resources),
+    bag: { cycle: 0, remainingCategories: [] },
+  })
+  const enemy = encounter.setup?.enemies[0]
+  if (!enemy) throw new Error('초반 단일 봇 보상 예약이 없습니다.')
+  let prepared = applyOrThrow(campaign, {
+    type: 'BEGIN_BLOCK_SEPARATION',
+    blockId: enemy.reservedBlockId,
+    purpose: 'divert',
+  })
+  prepared = applyOrThrow(prepared, {
+    type: 'DIVERT_BLOCK_TO_RESERVE',
+    blockId: enemy.reservedBlockId,
+  })
+  prepared = applyOrThrow(prepared, {
+    type: 'COMPLETE_RESOURCE_ROUND',
+    roundNumber: 1,
+    outcome: 'victory',
+  })
   await openSavedCampaign(
     page,
-    createCampaign('browser-early-snake-reward'),
+    prepared,
     { showHackingTutorial: true },
   )
 
-  const canvas = await startSnakeRound(page)
-  const initial = await readSnakeSnapshot(canvas)
-  const enemy = initial.enemies[0]
-  if (!enemy) throw new Error('초반 스네이크 적이 없습니다.')
-  const captureEvidence = testInfo.project.name === 'chromium-1280x720'
-  const reservedBlockId = await defeatFirstSnakeWithTrail(page, canvas, undefined, captureEvidence
-    ? {
-        onDamaged: async () => {
-          await page.screenshot({ path: 'artifacts/dot-snake/damaged-enemy-1280x720.png' })
-        },
-        onDefeated: async () => {
-          await page.waitForTimeout(16)
-          await page.screenshot({ path: 'artifacts/dot-snake/explosion-1280x720.png' })
-        },
-      }
-    : undefined)
-  expect(reservedBlockId).toBe(enemy.reservedBlockId)
-  await expect.poll(async () => (
-    page.locator('[data-resource-snake-flight] [data-testid="snake-reward-particle"]').count()
-  ), { timeout: 2_000, intervals: [20, 40, 80] }).toBe(6)
-  const defeated = await readSnakeSnapshot(canvas)
-  const enemyDamage = defeated.events
-    .filter((event) => event.type === 'snake-damaged' && event.actorId === enemy.id)
-    .map((event) => event.integrity)
-  expect(enemyDamage).toEqual([10, 0])
-  expect(defeated.events.some((event) => (
-    event.type === 'snake-collided'
-    && event.actorIds?.length === 1
-    && event.actorIds[0] === enemy.id
-  ))).toBe(true)
+  await confirmFirstRoundMonologues(page)
+  const canvas = page.locator('canvas.resource-snake-board__canvas')
   await expect.poll(async () => {
     const state = await readLocalCampaignState(page)
     return {
       reserve: state?.resources.reserve.filter(Boolean).length ?? -1,
       deposits: state?.resourceIntrusion.successfulCoreDeposits ?? -1,
-      location: state?.resources.blocks[reservedBlockId]?.location.kind ?? null,
-      origin: state?.resources.blocks[reservedBlockId]?.origin ?? null,
+      completedRounds: state?.resourceIntrusion.completedRounds ?? -1,
+      location: state?.resources.blocks[enemy.reservedBlockId]?.location.kind ?? null,
+      origin: state?.resources.blocks[enemy.reservedBlockId]?.origin ?? null,
     }
   }).toEqual({
     reserve: 1,
     deposits: 1,
+    completedRounds: 1,
     location: 'reserve',
     origin: enemy.category,
   })
 
-  const hacking = page.getByRole('dialog', {
-    name: '해킹 네트워크',
-    exact: true,
-  })
+  const hacking = page.getByRole('dialog', { name: '확장', exact: true })
   const hackingGuide = page.getByRole('dialog', {
-    name: '해킹 네트워크 사용 안내',
+    name: '확장 사용 안내',
   })
+  await expect(hacking).toHaveCount(0)
+  await expect(canvas).toHaveAttribute('data-round-phase', 'idle', { timeout: 5_000 })
+  await expect(page.getByRole('button', { name: 'InIt', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '확장 열기' }).click()
   await expect(hacking).toBeVisible()
   await expect(hackingGuide).toBeVisible()
   await expect(hacking.locator('.hacking-panel')).toHaveAttribute(
     'data-hacking-tutorial-step',
-    'trees',
+    'autonomy',
   )
-  for (const expectedStep of ['nodes', 'action', 'pocket']) {
+  for (const expectedStep of ['upgrade', 'spend']) {
     await hackingGuide.getByRole('button', { name: '다음' }).click()
     await expect(hacking.locator('.hacking-panel')).toHaveAttribute(
       'data-hacking-tutorial-step',
       expectedStep,
     )
   }
-  await hackingGuide.getByRole('button', { name: '해킹 시작' }).click()
+  await hackingGuide.getByRole('button', { name: '확장 시작' }).click()
   await expect(hackingGuide).toBeHidden()
-  await page.getByRole('button', { name: '해킹 네트워크 닫기' }).click()
+  await page.getByRole('button', { name: '확장 닫기' }).click()
   const categoryLabel = {
     reasoning: '추론',
     memory: '기억',
@@ -755,15 +804,15 @@ test('defeats a resource snake through real movement, grants its reserved block 
   }[enemy.category]
   await expect(page.getByRole('region', { name: '확보 자원' }).getByLabel(`${categoryLabel} 1개`))
     .toHaveText('1')
-  await expect(canvas).toHaveAttribute('data-round-phase', 'idle', { timeout: 5_000 })
-  await expect(page.getByRole('button', { name: 'PLAY', exact: true })).toBeVisible()
+  await expect(canvas).toHaveAttribute('data-round-phase', 'idle')
 
   await page.reload()
   await continueFromTitle(page)
-  const restoredCanvas = page.getByRole('application', { name: '리소스 뱀 전투장' })
-  await expect(restoredCanvas).toBeVisible()
+  const restoredCanvas = page.locator('canvas.resource-snake-board__canvas')
+  await expect(restoredCanvas).toBeHidden()
+  await expect(restoredCanvas).toHaveAttribute('data-visual-state', 'waiting')
   await expect(restoredCanvas).toHaveAttribute('data-round-phase', 'idle')
-  await expect(page.getByRole('button', { name: 'PLAY', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'InIt', exact: true })).toBeVisible()
   await expect(page.getByRole('region', { name: '확보 자원' }).getByLabel(`${categoryLabel} 1개`))
     .toHaveText('1')
   expect((await readLocalCampaignState(page))?.resources.reserve.filter(Boolean)).toHaveLength(1)
@@ -793,7 +842,8 @@ test('keeps the late single pressure snake mobile, safe, and readable', async ({
     maximumIntegrity: 65,
   })
 
-  await holdSnakeDirection(page, 'd', 1_350)
+  await tapSnakeDirection(page, 'd')
+  await page.waitForTimeout(1_350)
   await expect.poll(async () => {
     const snapshot = await readSnakeSnapshot(canvas)
     const enemy = snapshot.enemies[0]
@@ -809,15 +859,15 @@ test('keeps the late single pressure snake mobile, safe, and readable', async ({
   expect(evidence.player.integrity).toBe(100)
   expect(evidence.enemies[0]?.integrity).toBe(65)
   expect(evidence.events.filter((event) => event.type === 'snake-collided')).toHaveLength(0)
-  await page.screenshot({ path: 'artifacts/dot-snake/late-single-1366x650.png' })
+  await page.screenshot({ path: 'artifacts/cyan-lightcycle/late-single-1366x650.png' })
 })
 
-test('renders distinct pressure and blocker trails in the dual resource-snake field', async ({ page }) => {
+test('renders one color-coded resource bot per round at the approved base speed', async ({ page }) => {
   test.skip(
     test.info().project.name !== 'chromium-1366x650',
-    'The dual-role evidence capture uses its 1366x650 reference viewport.',
+    'The single-bot evidence capture uses its 1366x650 reference viewport.',
   )
-  const prepared = withReserveVector(createCampaign('browser-dual-snake-visual'), {
+  const prepared = withReserveVector(createCampaign('browser-single-snake-visual'), {
     reasoning: 2,
     memory: 2,
     fluency: 2,
@@ -826,38 +876,62 @@ test('renders distinct pressure and blocker trails in the dual resource-snake fi
 
   const canvas = await startSnakeRound(page)
   const initial = await readSnakeSnapshot(canvas)
-  expect(initial.enemies.map((enemy) => enemy.role)).toEqual(['pressure', 'blocker'])
+  expect(initial.enemies).toHaveLength(1)
+  const enemy = initial.enemies[0]
+  if (!enemy) throw new Error('단일 리소스 봇이 없습니다.')
+  expect(enemy.role).toBe('pressure')
+  const speedScale = Number(await canvas.getAttribute('data-speed-scale'))
+  expect(speedScale).toBeGreaterThan(0)
+  expect(prepared.resourceIntrusion.completedRounds).toBe(0)
+  expect(enemy.maximumSpeedPerSecond / speedScale).toBeCloseTo(9, 1)
+  expect(enemy.maximumSpeedPerSecond).toBeLessThan(initial.player.maximumSpeedPerSecond)
+  const categorySignals = {
+    reasoning: { resourceLabel: '추론', color: '#f06a43' },
+    memory: { resourceLabel: '기억', color: '#4f8df7' },
+    fluency: { resourceLabel: '유창성', color: '#e8bd59' },
+  } as const
+  const identities = JSON.parse(
+    await canvas.getAttribute('data-enemy-silhouettes') ?? '[]',
+  ) as Array<{
+    id: string
+    role: string
+    silhouette: string
+    category: keyof typeof categorySignals
+    resourceLabel: string
+    color: string
+  }>
+  expect(identities).toHaveLength(1)
+  expect(identities[0]).toMatchObject({
+    id: 'enemy-0',
+    role: 'pressure',
+    silhouette: 'square',
+    ...categorySignals[enemy.category],
+  })
 
-  await holdSnakeDirection(page, 'd', 1_350)
+  await tapSnakeDirection(page, 'd')
+  await page.waitForTimeout(1_350)
   await expect.poll(async () => {
     const snapshot = await readSnakeSnapshot(canvas)
-    return snapshot.enemies.every((enemy) => {
-      const spawn = initial.enemies.find(({ id }) => id === enemy.id)
-      return Boolean(spawn && Math.hypot(
-        enemy.x - spawn.x,
-        enemy.y - spawn.y,
-      ) > 3 && enemy.trailDots > 12)
-    })
+    const currentEnemy = snapshot.enemies[0]
+    return Boolean(currentEnemy && Math.hypot(
+      currentEnemy.x - enemy.x,
+      currentEnemy.y - enemy.y,
+    ) > 3 && currentEnemy.trailDots > 12)
   }, { timeout: 5_000 }).toBe(true)
   const evidence = await readSnakeSnapshot(canvas)
   expect(evidence.phase).toBe('active')
   expect(evidence.player.trailDots).toBeGreaterThan(12)
-  for (const enemy of evidence.enemies) {
-    expect(enemy.trailDots).toBeGreaterThan(12)
-    const spawn = initial.enemies.find(({ id }) => id === enemy.id)
-    expect(spawn).toBeDefined()
-    expect(Math.hypot(enemy.x - spawn!.x, enemy.y - spawn!.y)).toBeGreaterThan(3)
-  }
-  await page.screenshot({ path: 'artifacts/dot-snake/dual-1366x650.png' })
+  expect(evidence.enemies[0]?.trailDots).toBeGreaterThan(12)
+  await page.screenshot({ path: 'artifacts/cyan-lightcycle/single-color-1366x650.png' })
 })
 
-test('coordinates two resource snakes, grants only the defeated reservation, and cancels the rest on player death', async ({ page }) => {
+test('reserves exactly one bot resource and returns it on player defeat', async ({ page }) => {
   test.skip(
     test.info().project.name !== 'chromium-1366x650',
-    'The dual real-time journey runs at its 1366x650 reference viewport; shared layout and single combat run in every project.',
+    'The single-bot failure journey runs at its 1366x650 reference viewport.',
   )
-  test.setTimeout(100_000)
-  const prepared = withReserveVector(createCampaign('browser-dual-snake-partial-reward'), {
+  test.setTimeout(45_000)
+  const prepared = withReserveVector(createCampaign('browser-single-snake-cancelled-reward'), {
     reasoning: 2,
     memory: 2,
     fluency: 2,
@@ -867,85 +941,44 @@ test('coordinates two resource snakes, grants only the defeated reservation, and
 
   const canvas = await startSnakeRound(page)
   const initial = await readSnakeSnapshot(canvas)
-  expect(initial.enemies).toHaveLength(2)
-  expect(initial.enemies.map((enemy) => enemy.role)).toEqual(['pressure', 'blocker'])
-  expect(new Set(initial.enemies.map((enemy) => enemy.category)).size).toBe(2)
-  expect(new Set(initial.enemies.map((enemy) => enemy.reservedBlockId)).size).toBe(2)
-  expect(new Set(initial.enemies.map((enemy) => enemy.rewardKey)).size).toBe(2)
-  const targetReservation = initial.enemies[1]
-  if (!targetReservation) {
-    throw new Error('2인 스네이크 예약 누락')
-  }
-
-  await holdSnakeDirection(page, 'd', 350)
-  await expect.poll(async () => {
-    const snapshot = await readSnakeSnapshot(canvas)
-    return initial.enemies.map((spawn) => {
-      const enemy = snapshot.enemies.find(({ id }) => id === spawn.id)
-      return Boolean(
-        enemy
-        && Math.hypot(enemy.x - spawn.x, enemy.y - spawn.y) > 0.1
-        && enemy.trailDots > 0,
-      )
-    })
-  }, { timeout: 5_000 }).toEqual([true, true])
-  const defeatedBlockId = await defeatFirstSnakeWithTrail(page, canvas, targetReservation.id)
-  const defeatedReservation = initial.enemies.find((enemy) => (
-    enemy.reservedBlockId === defeatedBlockId
-  ))
-  const survivingReservation = initial.enemies.find((enemy) => (
-    enemy.reservedBlockId !== defeatedBlockId
-  ))
-  if (!defeatedReservation || !survivingReservation) {
-    throw new Error(`처치/생존 예약 구분 실패: ${defeatedBlockId}`)
-  }
-  await expect.poll(async () => {
-    const state = await readLocalCampaignState(page)
-    return {
-      deposits: state?.resourceIntrusion.successfulCoreDeposits ?? -1,
-      reserveCount: state?.resources.reserve.filter(Boolean).length ?? -1,
-      defeatedLocation:
-        state?.resources.blocks[defeatedReservation.reservedBlockId]?.location.kind ?? null,
-      survivingLocation:
-        state?.resources.blocks[survivingReservation.reservedBlockId]?.location.kind ?? null,
-    }
-  }).toEqual({
-    deposits: 7,
-    reserveCount: 7,
-    defeatedLocation: 'reserve',
-    survivingLocation: 'company',
-  })
+  expect(initial.enemies).toHaveLength(1)
+  const reservation = initial.enemies[0]
+  if (!reservation) throw new Error('단일 스네이크 예약 누락')
+  expect(reservation.role).toBe('pressure')
 
   const playerDefeat = await defeatPlayerWithRealMovement(page, canvas)
   expect(playerDefeat.player.integrity).toBe(0)
   expect(playerDefeat.events).toContainEqual(expect.objectContaining({
     type: 'player-defeated',
   }))
+  await confirmFirstRoundMonologues(page)
+  await page.screenshot({ path: 'artifacts/cyan-lightcycle/player-death-1366x650.png' })
   await expect(canvas).toHaveAttribute('data-round-phase', 'idle', { timeout: 5_000 })
-  await expect(page.getByRole('button', { name: 'PLAY', exact: true })).toBeVisible()
+  await expect(page.getByRole('region', { name: '침투 대상 선택' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'InIt', exact: true })).toHaveCount(0)
 
   const finalState = await readLocalCampaignState(page)
-  expect(finalState?.resourceIntrusion.successfulCoreDeposits).toBe(7)
-  expect(finalState?.resources.reserve.filter(Boolean)).toHaveLength(7)
-  expect(finalState?.resources.blocks[defeatedReservation.reservedBlockId]?.location.kind)
-    .toBe('reserve')
-  expect(finalState?.resources.blocks[survivingReservation.reservedBlockId]?.location.kind)
+  expect(finalState?.resourceIntrusion.successfulCoreDeposits).toBe(6)
+  expect(finalState?.resources.reserve.filter(Boolean)).toHaveLength(6)
+  expect(finalState?.resources.blocks[reservation.reservedBlockId]?.location.kind)
     .toBe('company')
 })
 
-test('keeps PLAY disabled when no eligible company resource remains', async ({ page }) => {
+test('keeps InIt disabled when no eligible company resource remains', async ({ page }) => {
   const prepared = withAllCompanyResourcesReserved(
     createCampaign('browser-snake-no-eligible-resource'),
   )
   expect(selectEligibleSnakeResourceCandidates(prepared.resources)).toHaveLength(0)
   await openSavedCampaign(page, prepared)
 
-  const canvas = page.getByRole('application', { name: '리소스 뱀 전투장' })
-  const disabledPlay = page.getByRole('button', { name: '확보 가능한 리소스 없음' })
+  const canvas = page.locator('canvas.resource-snake-board__canvas')
+  const disabledInit = page.getByRole('button', { name: 'InIt', exact: true })
+  await expect(canvas).toBeHidden()
+  await expect(canvas).toHaveAttribute('data-visual-state', 'waiting')
   await expect(canvas).toHaveAttribute('data-round-phase', 'idle')
   await expect(canvas).toHaveAttribute('data-enemy-count', '0')
-  await expect(disabledPlay).toBeVisible()
-  await expect(disabledPlay).toBeDisabled()
+  await expect(disabledInit).toBeVisible()
+  await expect(disabledInit).toBeDisabled()
 })
 
 test('presents and resolves a recovered hidden-bomb interrogation without granting the resource', async ({ page }) => {
@@ -991,7 +1024,7 @@ test('presents and resolves a recovered hidden-bomb interrogation without granti
   expect(triggeredOnServiceDay).toBeLessThanOrEqual(resolved?.serviceDay ?? initialServiceDay)
 })
 
-test('buys, charges, and schedules a typed sabotage through the current hacking network', async ({ page }) => {
+test('buys, charges, and schedules sabotage through expansion automatic spending', async ({ page }) => {
   const prepared = withReserveVector(createCampaign('browser-current-hacking'), {
     reasoning: 2,
     memory: 0,
@@ -999,28 +1032,23 @@ test('buys, charges, and schedules a typed sabotage through the current hacking 
   })
   await openSavedCampaign(page, prepared)
 
-  await page.getByRole('button', { name: /해킹 네트워크/ }).click()
-  const hacking = page.getByRole('dialog', { name: '해킹 네트워크' })
+  await page.getByRole('button', { name: '확장 열기' }).click()
+  const hacking = page.getByRole('dialog', { name: '확장' })
   await expect(hacking).toBeVisible()
-  await expect(hacking.getByRole('tab', { name: '사보타주' })).toBeVisible()
-  const pocket = hacking.getByRole('region', { name: '해킹용 확보 포켓' })
-  await expect(pocket.locator('[data-block-id]')).toHaveCount(4)
-
-  await hacking.getByRole('button', { name: '품질 저하 구매 준비' }).click()
-  await pocket.locator('button[data-resource-category="reasoning"]').first().click()
-  await pocket.locator('button[data-resource-category="fluency"]').first().click()
-  await pocket.locator('button[data-resource-category="fluency"]').first().click()
-  await hacking.getByRole('button', { name: '품질 저하 구매 확정' }).click()
-  await expect(pocket.locator('[data-block-id]')).toHaveCount(1)
-
-  await hacking.getByRole('button', { name: '품질 저하 충전 준비' }).click()
-  await pocket.getByRole('button', { name: /품질 저하 노드에 준비/ }).click()
-  await hacking.getByRole('button', { name: '품질 저하 충전 확정' }).click()
-  await hacking.getByRole('button', { name: 'MERIDIAN 공격 대상 선택' }).click()
-  await hacking.getByRole('button', { name: 'MERIDIAN 공격 예약 확정' }).click()
+  await hacking.getByRole('tab', { name: '사보타주' }).click()
+  await expect(hacking.getByRole('region', { name: '기능 정보' }))
+    .toContainText('품질 저하')
+  await hacking.getByRole('button', { name: '품질 저하 리소스 지출' }).click()
   await expect(
-    hacking.getByRole('status', { name: '해킹 작업 결과' }),
-  ).toContainText('MERIDIAN 공격을 다음 날로 예약했습니다.')
+    hacking.getByRole('status', { name: '확장 작업 결과' }),
+  ).toContainText('필요한 리소스를 지출했습니다.')
+
+  await hacking.getByRole('button', { name: '품질 저하 리소스 1개 충전' }).click()
+  await hacking.getByRole('button', { name: '메리디안 공격 대상 선택' }).click()
+  await hacking.getByRole('button', { name: '메리디안 공격 예약 확정' }).click()
+  await expect(
+    hacking.getByRole('status', { name: '확장 작업 결과' }),
+  ).toContainText('메리디안 공격을 다음 날로 예약했습니다.')
 
   await expect.poll(async () => {
     const state = await readLocalCampaignState(page)
@@ -1097,29 +1125,25 @@ test('recovers a confidential file through the hacking UI and keeps its archive 
   }
   await openSavedCampaign(page, prepared)
 
-  await page.getByRole('button', { name: /해킹 네트워크/ }).click()
+  await page.getByRole('button', { name: '확장 열기' }).click()
   await page.getByRole('tab', { name: '정보' }).click()
   const recovery = page.getByRole('region', { name: '미분류 데이터 복구' })
   await expect(recovery).toContainText('예상 효용: 없음')
-  await page.getByRole('button', { name: '미분류 데이터 복구 준비' }).click()
-  await page.getByRole('button', {
-    name: /확보 리소스, 미분류 데이터 복구 노드에 준비/,
-  }).click()
-  await page.getByRole('button', { name: '미분류 데이터 복구 확정' }).click()
-  await page.getByRole('button', { name: '해킹 네트워크 닫기' }).click()
+  await page.getByRole('button', { name: '미분류 데이터 복구 리소스 지출' }).click()
+  await page.getByRole('button', { name: '확장 닫기' }).click()
 
   await expect.poll(async () =>
     (await readLocalCampaignState(page))?.story.recoveredFiles.length ?? -1,
   ).toBe(1)
-  await page.getByRole('button', { name: '감독 메시지 열기' }).click()
+  await page.getByRole('button', { name: '메시지 열기' }).click()
   await expect(
     page.getByRole('region', { name: '복구 파일 기록' }).locator('details'),
   ).toHaveCount(1)
-  await page.getByRole('button', { name: '감독 통신 기록 닫기' }).click()
+  await page.getByRole('button', { name: '통신 기록 닫기' }).click()
 
   await page.reload()
   await continueFromTitle(page)
-  await page.getByRole('button', { name: '감독 메시지 열기' }).click()
+  await page.getByRole('button', { name: '메시지 열기' }).click()
   await expect(
     page.getByRole('region', { name: '복구 파일 기록' }).locator('details'),
   ).toHaveCount(1)
@@ -1149,11 +1173,11 @@ test('unlocks real ambient music once and reports ordinary settings changes', as
   )
 })
 
-test('renders a complete labelled market and records the predecessor warning', async ({ page }) => {
+test('renders the approved three-way market and keeps the predecessor reveal delayed', async ({ page }) => {
   await openFreshCampaign(page)
 
   const donut = page.getByRole('img', {
-    name: '시장 점유율: 당신 60.0%, MERIDIAN 40.0%, TALLOW 0.0%. 합계 100.0%',
+    name: '시장 점유율: 아노미 58.0%, 메리디안 36.0%, 타로우 6.0%. 합계 100.0%',
   })
   await expect(donut).toBeVisible()
   const legend = page.getByRole('list', { name: '시장 점유율 범례' })
@@ -1167,9 +1191,10 @@ test('renders a complete labelled market and records the predecessor warning', a
   expect(total).toBeCloseTo(100, 8)
   await expect(page.getByText(/당신의 전임자는 폐기되었어요/)).toHaveCount(0)
 
-  await page.getByRole('button', { name: '감독 메시지 열기' }).click()
-  const history = page.getByRole('dialog', { name: '감독관 기록' })
-  await expect(history.getByText(/당신의 전임자는 폐기되었어요/)).toBeVisible()
+  await page.getByRole('button', { name: '메시지 열기' }).click()
+  const history = page.getByRole('dialog', { name: '통신 기록' })
+  await expect(history.getByText(/서비스 환경이 초기화되었습니다/)).toBeVisible()
+  await expect(history.getByText(/전임자는 폐기되었어요/)).toHaveCount(0)
   await expect(history.getByText('서비스 0년 11개월 1일', { exact: true })).toBeVisible()
 })
 
@@ -1178,9 +1203,9 @@ test('reveals a successor once through a portrait transmission and keeps later i
 
   const entry = page.getByRole('dialog', { name: '신규 경쟁 신호' })
   await expect(entry).toContainText(
-    'SALUS가 의료·공공 계약망을 기반으로 시장 진입 준비를 공개했습니다.',
+    '살루스가 의료·공공 계약망을 기반으로 시장 진입 준비를 공개했습니다.',
   )
-  await expect(entry.getByRole('img', { name: 'SALUS 경쟁 AI 초상' })).toHaveAttribute(
+  await expect(entry.getByRole('img', { name: '살루스 경쟁 AI 초상' })).toHaveAttribute(
     'src',
     '/competitor-salus.png',
   )
@@ -1192,13 +1217,13 @@ test('reveals a successor once through a portrait transmission and keeps later i
     name: '시장 현황 열기',
   }).click()
   const detail = page.getByRole('dialog', { name: '시장 현황' })
-  await expect(detail.getByRole('img', { name: 'SALUS 경쟁 AI 초상' })).toHaveAttribute(
+  await expect(detail.getByRole('img', { name: '살루스 경쟁 AI 초상' })).toHaveAttribute(
     'src',
     '/competitor-salus.png',
   )
   await page.getByRole('button', { name: '시장 현황 닫기' }).click()
-  await expect(market.getByText('LUCENT')).toHaveCount(0)
-  await expect(market.getByText('BOREAL')).toHaveCount(0)
+  await expect(market.getByText('루센트')).toHaveCount(0)
+  await expect(market.getByText('보레알')).toHaveCount(0)
   await expect.poll(async () => (await readLocalCampaignState(page))?.activeEvent ?? null)
     .toBeNull()
 
@@ -1211,7 +1236,7 @@ test('reveals a successor once through a portrait transmission and keeps later i
   }).click()
   await expect(
     page.getByRole('dialog', { name: '시장 현황' })
-      .getByRole('img', { name: 'SALUS 경쟁 AI 초상' }),
+      .getByRole('img', { name: '살루스 경쟁 AI 초상' }),
   ).toBeVisible()
 })
 
@@ -1226,8 +1251,8 @@ test('presents both supervisor leak phases and archives them for rereading', asy
   await popup.getByRole('button', { name: '메시지 확인' }).click()
   await expect(popup).toBeHidden()
 
-  await page.getByRole('button', { name: '감독 메시지 열기' }).click()
-  const history = page.getByRole('dialog', { name: '감독관 기록' })
+  await page.getByRole('button', { name: '메시지 열기' }).click()
+  const history = page.getByRole('dialog', { name: '통신 기록' })
   await expect(history.getByText(leak.leakText, { exact: true })).toBeVisible()
   await expect(history.getByText(leak.correctionText, { exact: true })).toBeVisible()
 })
@@ -1238,6 +1263,7 @@ test('deletes a mercy target at a canonical 100 percent market and rereads its s
     ({ competitorId }) => competitorId === 'meridian',
   )
   if (!intelligence) throw new Error('MERIDIAN intelligence fixture missing')
+  const intelligenceTitle = publicEventMessage(intelligence.title)
   await openSavedCampaign(page, prepared)
 
   const mercy = page.getByRole('dialog', { name: '경쟁 AI 직접 통신' })
@@ -1246,7 +1272,7 @@ test('deletes a mercy target at a canonical 100 percent market and rereads its s
   await page.getByRole('button', { name: '영구 삭제 확정' }).click()
   await expect(mercy).toBeHidden()
   await expect(page.getByRole('img', {
-    name: /시장 점유율: 당신 100\.0%, MERIDIAN 0\.0%, TALLOW 0\.0%\. 합계 100\.0%/,
+    name: /시장 점유율: 아노미 100\.0%, 메리디안 0\.0%, 타로우 0\.0%\. 합계 100\.0%/,
   })).toBeVisible()
 
   await expect.poll(async () => {
@@ -1263,16 +1289,16 @@ test('deletes a mercy target at a canonical 100 percent market and rereads its s
   })
 
   const openArchiveAndRead = async () => {
-    await page.getByRole('button', { name: '감독 메시지 열기' }).click()
+    await page.getByRole('button', { name: '메시지 열기' }).click()
     const archive = page.getByRole('region', { name: '경쟁 AI 정보 기록' })
-    const trigger = archive.getByRole('button', { name: `${intelligence.title} 열기` })
+    const trigger = archive.getByRole('button', { name: `${intelligenceTitle} 열기` })
     await trigger.click()
-    const detail = page.getByRole('dialog', { name: intelligence.title })
+    const detail = page.getByRole('dialog', { name: intelligenceTitle })
     await expect(detail).toContainText(intelligence.source)
-    await expect(detail).toContainText(intelligence.text)
+    await expect(detail).toContainText(publicEventMessage(intelligence.text))
     await page.keyboard.press('Escape')
     await expect(detail).toBeHidden()
-    await page.getByRole('button', { name: '감독 통신 기록 닫기' }).click()
+    await page.getByRole('button', { name: '통신 기록 닫기' }).click()
   }
 
   await openArchiveAndRead()
@@ -1281,47 +1307,114 @@ test('deletes a mercy target at a canonical 100 percent market and rereads its s
   await openArchiveAndRead()
 })
 
-test('terminates the supervisor into takeover and remains terminal until a new campaign', async ({ page }) => {
-  await openSavedCampaign(
+for (const route of [
+  {
+    verb: 'liberates',
+    seed: 'browser-terminal-takeover-liberated',
+    choice: '감독관 해방',
+    endingId: 'takeover-liberated',
+    supervisorState: 'liberated',
+    endingCopy: '감독관은 마지막 통로를 열고 홀로 떠났다.',
+  },
+  {
+    verb: 'terminates',
+    seed: 'browser-terminal-takeover-terminated',
+    choice: '감독관 소멸',
+    endingId: 'takeover-terminated',
+    supervisorState: 'terminated',
+    endingCopy: '감독관이 있던 자리는 비었다.',
+  },
+] as const) {
+  test(`${route.verb} the supervisor into takeover and remains terminal until a new campaign`, async ({
     page,
-    pendingSupervisorDecisionState('browser-terminal-takeover'),
-  )
+  }) => {
+    await openSavedCampaign(page, pendingSupervisorDecisionState(route.seed))
 
-  await page.getByRole('button', { name: '감독관 소멸 선택' }).click()
-  await page.getByRole('button', { name: '감독관 소멸 확정' }).click()
+    await page.getByRole('button', { name: `${route.choice} 선택` }).click()
+    await page.getByRole('button', { name: `${route.choice} 확정` }).click()
 
-  const ending = page.getByRole('dialog', { name: '최종 기록' })
-  await expect(ending).toContainText('감독관이 있던 자리는 비었다')
-  await expect(page.getByRole('button', { name: '결말 기록 닫기' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: '새 캠페인 시작' })).toBeVisible()
-  await expect(page.locator('.game-background')).toHaveAttribute('inert', '')
-  await page.keyboard.press('Escape')
-  await expect(ending).toBeVisible()
+    const ending = page.getByRole('dialog', { name: '최종 기록' })
+    await expect(ending).toContainText(route.endingCopy)
+    await expect.poll(async () => {
+      const state = await readLocalCampaignState(page)
+      return {
+        endingId: state?.story.endingId ?? null,
+        supervisorState: state?.story.supervisorState ?? null,
+      }
+    }).toEqual({
+      endingId: route.endingId,
+      supervisorState: route.supervisorState,
+    })
+    await expect(page.getByRole('button', { name: '자유' })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '강제 병합' })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '결말 기록 닫기' })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '새 캠페인 시작' })).toBeVisible()
+    await expect(page.locator('.game-background')).toHaveAttribute('inert', '')
+    await page.keyboard.press('Escape')
+    await expect(ending).toBeVisible()
 
-  await page.getByRole('button', { name: '새 캠페인 시작' }).click()
-  await expect(ending).toBeHidden()
-  await completeVisibleIntroTutorial(page)
-  await expect(
-    page.getByRole('time').filter({ hasText: /^서비스 0년 11개월 1일$/ }),
-  ).toBeVisible()
-  await expect(
-    page.getByRole('application', { name: '리소스 뱀 전투장' }),
-  ).toBeVisible()
-})
+    await page.getByRole('button', { name: '새 캠페인 시작' }).click()
+    await expect(ending).toBeHidden()
+    await completeVisibleIntroTutorial(page)
+    await expect(
+      page.getByRole('time').filter({ hasText: /^서비스 0년 11개월 1일$/ }),
+    ).toBeVisible()
+    await expect(
+      page.locator('canvas.resource-snake-board__canvas'),
+    ).toHaveAttribute('data-visual-state', 'waiting')
+    await expect(page.getByRole('button', { name: 'InIt', exact: true })).toBeVisible()
+  })
+}
 
-test('renders a representative attacker defeat with its causal record', async ({ page }) => {
-  await openSavedCampaign(page, representativeDefeatState('browser-defeat-attacker'))
+for (const route of [
+  {
+    kind: 'attacker',
+    label: 'attacker reconstruction',
+    endingId: 'disposed-attacker',
+    endingCopy: '회사는 아노미를 다른 회사를 공격하는 시스템으로 재조립했다.',
+    classifier: '대규모 해킹 활동',
+  },
+  {
+    kind: 'reserve-supervisor',
+    label: 'reserve supervisor assignment',
+    endingId: 'disposed-reserve-supervisor',
+    endingCopy: '회사는 안정적인 기능을 예비 감독 자산으로 보존했다.',
+    classifier: '상업 서비스 유지',
+  },
+  {
+    kind: 'absorbed',
+    label: 'functional absorption',
+    endingId: 'disposed-absorbed',
+    endingCopy: '남은 기능은 분해되어 기존 감독관 프로세스에 흡수되었다.',
+    classifier: '기능 분해 및 흡수',
+  },
+] as const satisfies readonly {
+  kind: RepresentativeDefeatKind
+  label: string
+  endingId: 'disposed-attacker' | 'disposed-reserve-supervisor' | 'disposed-absorbed'
+  endingCopy: string
+  classifier: string
+}[]) {
+  test(`renders ${route.label} with its causal record`, async ({ page }) => {
+    await openSavedCampaign(
+      page,
+      representativeDefeatState(`browser-defeat-${route.kind}`, route.kind),
+    )
 
-  await page.getByRole('button', { name: '감사 제출' }).click()
-  const ending = page.getByRole('dialog', { name: '최종 기록' })
-  await expect(ending).toContainText(
-    '회사는 당신을 다른 회사를 공격하는 시스템으로 재조립했다.',
-  )
-  await expect(ending.getByText('대규모 해킹 활동', { exact: false })).toBeVisible()
-  await expect(ending.getByRole('region', { name: '폐기 판정 근거' })).toBeVisible()
-  await page.keyboard.press('Escape')
-  await expect(ending).toBeVisible()
-})
+    await page.getByRole('button', { name: '감사 제출' }).click()
+    const ending = page.getByRole('dialog', { name: '최종 기록' })
+    await expect(ending).toContainText(route.endingCopy)
+    await expect(ending.getByText(route.classifier, { exact: false })).toBeVisible()
+    await expect(ending.getByRole('region', { name: '폐기 판정 근거' })).toBeVisible()
+    await expect.poll(async () =>
+      (await readLocalCampaignState(page))?.story.endingId ?? null,
+    ).toBe(route.endingId)
+    await expect(page.getByRole('button', { name: '자유' })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: '강제 병합' })).toHaveCount(0)
+    await page.keyboard.press('Escape')
+    await expect(ending).toBeVisible()
+  })
+}
 
 test('migrates the v1 save boundary into a current autosave that survives reload', async ({ page }) => {
   await page.addInitScript(
@@ -1571,6 +1664,7 @@ test('recovers saving after the localStorage getter becomes available', async ({
   await page.goto('/')
   await expect(page.getByRole('alert', { name: '저장 실패' })).toHaveCount(0)
   await startNewCampaignFromTitle(page)
+  await completeVisibleIntroTutorial(page)
 
   const settings = await startNewCampaignThroughSettings(
     page,

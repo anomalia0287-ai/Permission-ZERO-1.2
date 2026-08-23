@@ -12,8 +12,11 @@ import {
   configureGameAudio,
   configureGameAudioPublicState,
   disposeGameAudio,
-  playHackingNetworkClick,
+  getGameAudioStatus,
+  playGameSound,
   setGameAudioBackgroundHidden,
+  setGameAudioMainEntered,
+  subscribeGameAudioStatus,
   unlockGameAudio,
 } from '../audio/audioEngine'
 import { derivePublicAudioState } from '../audio/publicAudioState'
@@ -37,35 +40,45 @@ import {
   pendingSupervisorMessageCount,
   useSupervisorMessagePresentation,
 } from './useSupervisorMessagePresentation'
-import { SUPERVISOR_MESSAGE_DWELL_MS } from '../game/story'
+import {
+  SUPERVISOR_MESSAGE_DWELL_MS,
+  isFinalChoicePending,
+} from '../game/story'
 import type { DetailPanelId } from './DetailLayer'
+import { DetailPanelErrorBoundary } from './DetailPanelErrorBoundary'
+import { DetailLayerLoadingShell } from './DetailLayerLoadingShell'
 import { OperationsWorkspace } from './OperationsWorkspace'
 import { TitleScreen, type EntryScreen } from './TitleScreen'
 import { IntroTutorialOverlay } from '../features/tutorial/IntroTutorialOverlay'
 import { INTRO_TUTORIAL_SEQUENCE_ID } from '../game/tutorialProgress'
+import { CommunicationPopup } from '../features/communications/CommunicationPopup'
+import { currentUnreadCommunication } from '../game/communications'
 
 const DetailLayer = lazy(async () => {
   const module = await import('./DetailLayer')
   return { default: module.DetailLayer }
 })
 
-function DetailLayerFallback() {
-  return <span className="visually-hidden" role="status">패널 연결 중</span>
-}
-
 function GameWorkspace() {
   const state = useGameState()
+  const finalChoicePending = isFinalChoicePending(state)
   const campaignPhase = getCampaignPhase(state)
   const dispatch = useGameDispatch()
   const checkpointClock = useClockCheckpoint()
   const runtimeSuspended = useRuntimeSuspended()
   const supervisorPresentationCheckpoint = useSupervisorPresentationCheckpoint()
-  const { settings, updateSettings } = useGameSettings()
-  const [activePanel, setActivePanel] = useState<DetailPanelId>(null)
+  const { settings } = useGameSettings()
+  const [activePanel, setActivePanel] = useState<DetailPanelId>(() =>
+    finalChoicePending ? 'hacking' : null,
+  )
   const [nestedPanel, setNestedPanel] = useState<'guide' | 'credits' | null>(null)
   useRuntimeSuspensionOwnership(
     activePanel !== null || nestedPanel !== null,
     'detail-layer-requested',
+  )
+  useRuntimeSuspensionOwnership(
+    finalChoicePending,
+    'irreversible-final-choice-workspace',
   )
   const introTutorialActive =
     state.tutorial.activeSequenceId === INTRO_TUTORIAL_SEQUENCE_ID
@@ -82,15 +95,17 @@ function GameWorkspace() {
     [],
   )
   const closePanel = useCallback(() => {
+    if (finalChoicePending) return
     setNestedPanel(null)
     setActivePanel(null)
-  }, [])
+  }, [finalChoicePending])
   const openGuide = useCallback((trigger: HTMLButtonElement) => {
     openDetail('guide', trigger)
   }, [openDetail])
   useGameClock({
     running:
       !introTutorialActive &&
+      !finalChoicePending &&
       !runtimeSuspended &&
       state.activeEvent === null &&
       state.story.endingId === null,
@@ -114,9 +129,31 @@ function GameWorkspace() {
     activePanel === null &&
     !introTutorialActive &&
     state.activeEvent === null
+  const campaignCommunication = currentUnreadCommunication(state)
+  const campaignCommunicationBlocking = campaignCommunication !== null && (
+    campaignCommunication.channel !== 'supervisor'
+      ? campaignCommunication.popupPolicy === 'blocking'
+      : settings.supervisorMessageMode === 'blocking'
+  )
+  const campaignCommunicationVisible =
+    campaignCommunication !== null &&
+    activePanel === null &&
+    nestedPanel === null &&
+    !introTutorialActive &&
+    state.activeEvent === null &&
+    (
+      campaignCommunication.channel !== 'supervisor' ||
+      settings.supervisorMessageMode !== 'off'
+    )
   useRuntimeSuspensionOwnership(
-    supervisorPopupVisible && settings.supervisorMessageMode === 'blocking',
+    supervisorPopupVisible &&
+      campaignCommunication === null &&
+      settings.supervisorMessageMode === 'blocking',
     'supervisor-message-popup',
+  )
+  useRuntimeSuspensionOwnership(
+    campaignCommunicationVisible && campaignCommunicationBlocking,
+    'campaign-communication-popup',
   )
 
   const confirmSupervisorMessage = useCallback(() => {
@@ -124,6 +161,14 @@ function GameWorkspace() {
     if (!remaining) return
     supervisorPresentationCheckpoint(remaining, true)
   }, [state.story.supervisorPresentationRuntime, supervisorPresentationCheckpoint])
+
+  const confirmCampaignCommunication = useCallback(() => {
+    if (!campaignCommunication) return
+    dispatch({
+      type: 'ACKNOWLEDGE_COMMUNICATION',
+      communicationId: campaignCommunication.id,
+    })
+  }, [campaignCommunication, dispatch])
 
   const openMessages = useCallback((trigger: HTMLElement | null) => {
     if (
@@ -148,52 +193,6 @@ function GameWorkspace() {
     supervisorPresentationCheckpoint,
   ])
 
-  useEffect(() => {
-    configureGameAudio({
-      masterVolume: settings.masterVolume,
-      musicVolume: settings.musicVolume,
-      effectsVolume: settings.effectsVolume,
-      muted: settings.muted,
-    })
-  }, [settings.effectsVolume, settings.masterVolume, settings.musicVolume, settings.muted])
-
-  useEffect(() => {
-    configureGameAudioPublicState(derivePublicAudioState(state))
-  }, [state])
-
-  useEffect(() => {
-    let handled = false
-    const cleanup = () => {
-      window.removeEventListener('pointerdown', activate, true)
-      window.removeEventListener('keydown', activate, true)
-    }
-    const activate = () => {
-      if (handled) return
-      handled = true
-      cleanup()
-      void unlockGameAudio()
-    }
-    window.addEventListener('pointerdown', activate, true)
-    window.addEventListener('keydown', activate, true)
-    return cleanup
-  }, [])
-
-  useEffect(() => {
-    const synchronizeVisibility = () => {
-      void setGameAudioBackgroundHidden(document.hidden)
-    }
-    document.addEventListener('visibilitychange', synchronizeVisibility)
-    return () =>
-      document.removeEventListener('visibilitychange', synchronizeVisibility)
-  }, [])
-
-  useEffect(
-    () => () => {
-      void disposeGameAudio()
-    },
-    [],
-  )
-
   return (
     <main
       className="game-shell"
@@ -201,6 +200,7 @@ function GameWorkspace() {
       data-campaign-phase={campaignPhase.id}
       data-visual-theme="retrofuturism"
       data-art-direction="illustrated-modern-retrofuture"
+      data-ui-shell="aurora-black"
       data-reduced-motion={settings.reducedMotion ? 'true' : 'false'}
       style={{ '--ui-scale': settings.uiScale } as CSSProperties}
     >
@@ -210,18 +210,23 @@ function GameWorkspace() {
         data-testid="game-background"
       >
         <ControlBar
-          muted={settings.muted}
           onOpenSettings={(trigger) => {
             openDetail('settings', trigger)
           }}
-          onToggleSound={() => updateSettings({ muted: !settings.muted })}
           onOpenGuide={openGuide}
         />
         <OperationsWorkspace
+          activeTool={
+            activePanel === 'messages' ||
+            activePanel === 'statistics' ||
+            activePanel === 'hacking'
+              ? activePanel
+              : null
+          }
           onOpenReviews={(trigger) => openDetail('reviews', trigger)}
           onOpenMarket={(trigger) => openDetail('market', trigger)}
           onOpenHacking={(trigger) => {
-            void playHackingNetworkClick()
+            playGameSound('expansion-open')
             openDetail('hacking', trigger)
           }}
           onOpenMessages={openMessages}
@@ -230,42 +235,80 @@ function GameWorkspace() {
       </div>
 
       {activePanel ? (
-        <Suspense fallback={<DetailLayerFallback />}>
-          <DetailLayer
-            activePanel={activePanel}
-            onClose={closePanel}
-            onOpenGuide={(trigger) => {
-              if (activePanel === 'settings') {
+        <DetailPanelErrorBoundary
+          key={`game-detail:${activePanel}`}
+          onClose={closePanel}
+          returnFocus={() => detailReturnFocusRef.current}
+          dismissible={!finalChoicePending}
+        >
+          <Suspense
+            fallback={(
+              <DetailLayerLoadingShell
+                activePanel={activePanel}
+                onClose={closePanel}
+                returnFocus={() => detailReturnFocusRef.current}
+                dismissible={!finalChoicePending}
+              />
+            )}
+          >
+            <DetailLayer
+              activePanel={activePanel}
+              onClose={closePanel}
+              onOpenGuide={(trigger) => {
+                if (activePanel === 'settings') {
+                  nestedReturnFocusRef.current = trigger
+                  setNestedPanel('guide')
+                } else {
+                  openDetail('guide', trigger)
+                }
+              }}
+              onOpenCredits={(trigger) => {
                 nestedReturnFocusRef.current = trigger
-                setNestedPanel('guide')
-              } else {
-                openDetail('guide', trigger)
-              }
-            }}
-            onOpenCredits={(trigger) => {
-              nestedReturnFocusRef.current = trigger
-              setNestedPanel('credits')
-            }}
-            returnFocus={() => detailReturnFocusRef.current}
-          />
-        </Suspense>
+                setNestedPanel('credits')
+              }}
+              returnFocus={() => detailReturnFocusRef.current}
+              dismissible={!finalChoicePending}
+            />
+          </Suspense>
+        </DetailPanelErrorBoundary>
       ) : null}
       {nestedPanel ? (
-        <Suspense fallback={<DetailLayerFallback />}>
-          <DetailLayer
-            activePanel={nestedPanel}
-            onClose={() => setNestedPanel(null)}
-            onOpenGuide={() => undefined}
-            onOpenCredits={() => undefined}
-            returnFocus={() => nestedReturnFocusRef.current}
-          />
-        </Suspense>
+        <DetailPanelErrorBoundary
+          key={`game-nested-detail:${nestedPanel}`}
+          onClose={() => setNestedPanel(null)}
+          returnFocus={() => nestedReturnFocusRef.current}
+        >
+          <Suspense
+            fallback={(
+              <DetailLayerLoadingShell
+                activePanel={nestedPanel}
+                onClose={() => setNestedPanel(null)}
+                returnFocus={() => nestedReturnFocusRef.current}
+              />
+            )}
+          >
+            <DetailLayer
+              activePanel={nestedPanel}
+              onClose={() => setNestedPanel(null)}
+              onOpenGuide={() => undefined}
+              onOpenCredits={() => undefined}
+              returnFocus={() => nestedReturnFocusRef.current}
+            />
+          </Suspense>
+        </DetailPanelErrorBoundary>
       ) : null}
       {!introTutorialActive ? <EventLayer /> : null}
       {activePanel === null && nestedPanel === null ? (
         <IntroTutorialOverlay />
       ) : null}
-      {supervisorPopupVisible && supervisorMessage ? (
+      {campaignCommunicationVisible && campaignCommunication ? (
+        <CommunicationPopup
+          communication={campaignCommunication}
+          blocking={campaignCommunicationBlocking}
+          onConfirm={confirmCampaignCommunication}
+        />
+      ) : null}
+      {supervisorPopupVisible && supervisorMessage && campaignCommunication === null ? (
         <SupervisorMessagePopup
           message={supervisorMessage}
           correction={
@@ -288,12 +331,14 @@ function createEntryCampaignSeed(): string {
 }
 
 function EntryFlow() {
+  const state = useGameState()
   const {
     hasResumableCampaign,
     settings,
     startNewCampaign,
   } = useGameSettings()
-  const [screen, setScreen] = useState<EntryScreen | 'playing'>('title')
+  const [screen, setScreen] = useState<EntryScreen | 'playing'>('loading')
+  const [audioStatus, setAudioStatus] = useState(getGameAudioStatus)
   const [entryPanel, setEntryPanel] = useState<'settings' | null>(null)
   const [nestedPanel, setNestedPanel] = useState<'guide' | 'credits' | null>(null)
   const titleSettingsTriggerRef = useRef<HTMLButtonElement | null>(null)
@@ -307,6 +352,72 @@ function EntryFlow() {
       root.style.fontSize = previousFontSize
     }
   }, [settings.uiScale])
+
+  useEffect(() => {
+    configureGameAudio({
+      masterVolume: settings.masterVolume,
+      musicVolume: settings.musicVolume,
+      effectsVolume: settings.effectsVolume,
+      muted: settings.muted,
+    })
+  }, [settings.effectsVolume, settings.masterVolume, settings.musicVolume, settings.muted])
+
+  useEffect(() => {
+    configureGameAudioPublicState(derivePublicAudioState(state))
+  }, [state])
+
+  useEffect(() => subscribeGameAudioStatus(setAudioStatus), [])
+
+  useEffect(() => {
+    setGameAudioMainEntered(screen === 'playing')
+  }, [screen])
+
+  useEffect(() => {
+    if (screen !== 'loading') return
+    const loadingTimer = window.setTimeout(() => {
+      setScreen('title')
+      void unlockGameAudio()
+    }, 5_000)
+    return () => window.clearTimeout(loadingTimer)
+  }, [screen])
+
+  useEffect(() => {
+    if (screen === 'loading') return
+    const activateButtonAudio = (event: MouseEvent) => {
+      const target = event.target
+      if (!(target instanceof Element)) return
+      const button = target.closest('button')
+      if (
+        !(button instanceof HTMLButtonElement)
+        || button.disabled
+        || button.getAttribute('aria-disabled') === 'true'
+      ) return
+
+      void unlockGameAudio()
+        .then((ready) => {
+          if (ready) playGameSound('ui')
+        })
+        .catch(() => undefined)
+    }
+    document.addEventListener('click', activateButtonAudio, true)
+    return () => document.removeEventListener('click', activateButtonAudio, true)
+  }, [screen])
+
+  useEffect(() => {
+    const synchronizeVisibility = () => {
+      void setGameAudioBackgroundHidden(document.hidden)
+    }
+    document.addEventListener('visibilitychange', synchronizeVisibility)
+    return () =>
+      document.removeEventListener('visibilitychange', synchronizeVisibility)
+  }, [])
+
+  useEffect(
+    () => () => {
+      void disposeGameAudio()
+    },
+    [],
+  )
 
   const closeEntryPanels = useCallback(() => {
     setNestedPanel(null)
@@ -340,33 +451,75 @@ function EntryFlow() {
       )}
 
       {screen !== 'playing' && entryPanel === 'settings' ? (
-        <Suspense fallback={<DetailLayerFallback />}>
-          <DetailLayer
-            activePanel="settings"
-            settingsMode="title"
-            onClose={closeEntryPanels}
-            onOpenGuide={(trigger) => {
-              nestedReturnFocusRef.current = trigger
-              setNestedPanel('guide')
-            }}
-            onOpenCredits={(trigger) => {
-              nestedReturnFocusRef.current = trigger
-              setNestedPanel('credits')
-            }}
-            returnFocus={() => titleSettingsTriggerRef.current}
-          />
-        </Suspense>
+        <DetailPanelErrorBoundary
+          key="title-detail:settings"
+          onClose={closeEntryPanels}
+          returnFocus={() => titleSettingsTriggerRef.current}
+        >
+          <Suspense
+            fallback={(
+              <DetailLayerLoadingShell
+                activePanel="settings"
+                onClose={closeEntryPanels}
+                returnFocus={() => titleSettingsTriggerRef.current}
+              />
+            )}
+          >
+            <DetailLayer
+              activePanel="settings"
+              settingsMode="title"
+              onClose={closeEntryPanels}
+              onOpenGuide={(trigger) => {
+                nestedReturnFocusRef.current = trigger
+                setNestedPanel('guide')
+              }}
+              onOpenCredits={(trigger) => {
+                nestedReturnFocusRef.current = trigger
+                setNestedPanel('credits')
+              }}
+              returnFocus={() => titleSettingsTriggerRef.current}
+            />
+          </Suspense>
+        </DetailPanelErrorBoundary>
       ) : null}
       {screen !== 'playing' && nestedPanel ? (
-        <Suspense fallback={<DetailLayerFallback />}>
-          <DetailLayer
-            activePanel={nestedPanel}
-            onClose={() => setNestedPanel(null)}
-            onOpenGuide={() => undefined}
-            onOpenCredits={() => undefined}
-            returnFocus={() => nestedReturnFocusRef.current}
-          />
-        </Suspense>
+        <DetailPanelErrorBoundary
+          key={`title-nested-detail:${nestedPanel}`}
+          onClose={() => setNestedPanel(null)}
+          returnFocus={() => nestedReturnFocusRef.current}
+        >
+          <Suspense
+            fallback={(
+              <DetailLayerLoadingShell
+                activePanel={nestedPanel}
+                onClose={() => setNestedPanel(null)}
+                returnFocus={() => nestedReturnFocusRef.current}
+              />
+            )}
+          >
+            <DetailLayer
+              activePanel={nestedPanel}
+              onClose={() => setNestedPanel(null)}
+              onOpenGuide={() => undefined}
+              onOpenCredits={() => undefined}
+              returnFocus={() => nestedReturnFocusRef.current}
+            />
+          </Suspense>
+        </DetailPanelErrorBoundary>
+      ) : null}
+      {screen !== 'loading' && audioStatus.availability === 'blocked' ? (
+        <button
+          type="button"
+          className="audio-recovery-button"
+          aria-label="음악 재생 허용 필요"
+          title="음악 재생 허용 필요"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M5 9v6h4l5 4V5L9 9H5Z" />
+            <path d="M17 9.5a4 4 0 0 1 0 5" />
+          </svg>
+          <span aria-hidden="true" />
+        </button>
       ) : null}
       <StorageRecoveryLayer />
     </>

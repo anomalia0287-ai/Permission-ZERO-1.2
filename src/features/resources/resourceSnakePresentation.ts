@@ -5,6 +5,7 @@ import {
   type SnakeDirection8,
 } from './resourceSnakeInput'
 import {
+  RESOURCE_SNAKE_CONFIG,
   type ResourceSnakeRoundState,
   type SnakeActor,
   type SnakeActorPhase,
@@ -16,6 +17,7 @@ import {
   selectResourceSnakeVfx,
   type ResourceSnakeVfxCandidate,
 } from './resourceSnakeVfxBudget'
+import { SNAKE_CATEGORY_COLORS } from './resourceSnakeCategoryPresentation'
 
 export const RESOURCE_SNAKE_PALETTE = Object.freeze({
   field: '#05080b',
@@ -36,7 +38,7 @@ export const RESOURCE_SNAKE_VFX_TIMING = Object.freeze({
   deathMs: 420,
 })
 
-export type ResourceSnakeCoreSilhouette = 'operator' | 'pressure' | 'blocker'
+export type ResourceSnakeCoreShape = 'circle' | 'square'
 
 export interface ResourceSnakeSceneCore {
   id: SnakeId
@@ -47,9 +49,7 @@ export interface ResourceSnakeSceneCore {
   scale: number
   phase: SnakeActorPhase
   role: SnakeEnemyRole | null
-  silhouette: ResourceSnakeCoreSilhouette
-  glyph: '00' | 'P' | 'B'
-  headingRadians: number
+  shape: ResourceSnakeCoreShape
   integrityRatio: number
 }
 
@@ -151,9 +151,10 @@ function actorOpacity(actor: SnakeActor): number {
 }
 
 function actorColor(actor: SnakeActor): string {
-  return actor.kind === 'player'
-    ? RESOURCE_SNAKE_PALETTE.player
-    : RESOURCE_SNAKE_PALETTE.cyan
+  if (actor.kind === 'player') return RESOURCE_SNAKE_PALETTE.player
+  return actor.category
+    ? SNAKE_CATEGORY_COLORS[actor.category]
+    : RESOURCE_SNAKE_PALETTE.danger
 }
 
 function headingRadians(heading: SnakeDirection8): number {
@@ -181,48 +182,82 @@ function cleanPolyline(points: readonly SnakeVector[]): SnakeVector[] {
 }
 
 function actorRailPoints(actor: SnakeActor): SnakeVector[] {
-  const exact = cleanPolyline([...actor.railVertices, actor.position])
-  if (exact.length >= 2) return exact
-  const heading = SNAKE_DIRECTION_VECTORS[actor.heading]
-  return [
-    {
-      x: actor.position.x - heading.x * 0.72,
-      y: actor.position.y - heading.y * 0.72,
-    },
-    { ...actor.position },
-  ]
+  const dots = cleanPolyline(actor.trail.map(({ position }) => position))
+  return dots.length > 0 ? dots : [{ ...actor.position }]
 }
 
-function actorCore(actor: SnakeActor): ResourceSnakeSceneCore {
+function playerExtractionProgress(
+  runtime: ResourceSnakeRoundState,
+  actor: SnakeActor,
+): number | null {
+  if (actor.id !== 'player' || actor.phase !== 'extracting') return null
+  const extraction = [...runtime.events].reverse().find((event) => (
+    event.type === 'player-extracted' && event.actorId === actor.id
+  ))
+  if (!extraction || extraction.type !== 'player-extracted') return 0
+  return clamp01(
+    (runtime.simulationMs - extraction.startedAtMs)
+    / RESOURCE_SNAKE_CONFIG.playerExtractionMs,
+  )
+}
+
+function lerp(from: number, to: number, progress: number): number {
+  return from + (to - from) * progress
+}
+
+function actorCore(
+  runtime: ResourceSnakeRoundState,
+  actor: SnakeActor,
+  reducedMotion: boolean,
+): ResourceSnakeSceneCore {
   const role = actor.kind === 'enemy' ? actor.role ?? 'pressure' : null
-  const silhouette: ResourceSnakeCoreSilhouette = actor.kind === 'player'
-    ? 'operator'
-    : role ?? 'pressure'
+  const extractionProgress = playerExtractionProgress(runtime, actor)
+  const positionProgress = extractionProgress === null || reducedMotion
+    ? 0
+    : extractionProgress
+  const fade = extractionProgress === null ? 1 : 1 - extractionProgress
   return {
     id: actor.id,
-    x: actor.position.x,
-    y: actor.position.y,
+    x: lerp(actor.position.x, RESOURCE_SNAKE_CONFIG.fieldWidth / 2, positionProgress),
+    y: lerp(actor.position.y, RESOURCE_SNAKE_CONFIG.fieldHeight / 2, positionProgress),
     color: actorColor(actor),
-    opacity: actorOpacity(actor),
-    scale: actor.phase === 'spawning' ? 0.72 : actor.phase === 'exploding' ? 1.42 : 1,
+    opacity: Number((actorOpacity(actor) * fade).toFixed(3)),
+    scale: extractionProgress === null
+      ? actor.phase === 'spawning' ? 0.72 : actor.phase === 'exploding' ? 1.42 : 1
+      : Number((1 - extractionProgress * 0.82).toFixed(3)),
     phase: actor.phase,
     role,
-    silhouette,
-    glyph: actor.kind === 'player' ? '00' : role === 'pressure' ? 'P' : 'B',
-    headingRadians: headingRadians(actor.heading),
+    shape: actor.kind === 'player' ? 'circle' : 'square',
     integrityRatio: actorIntegrityRatio(actor),
   }
 }
 
-function actorRail(actor: SnakeActor): ResourceSnakeSceneRail {
+function actorRail(
+  runtime: ResourceSnakeRoundState,
+  actor: SnakeActor,
+  reducedMotion: boolean,
+): ResourceSnakeSceneRail {
   const integrity = actorIntegrityRatio(actor)
+  const extractionProgress = playerExtractionProgress(runtime, actor)
+  const sourcePoints = actorRailPoints(actor)
+  const remainingPointCount = extractionProgress === null
+    ? sourcePoints.length
+    : Math.max(1, Math.ceil(sourcePoints.length * (1 - extractionProgress)))
+  const collapseProgress = extractionProgress === null || reducedMotion
+    ? 0
+    : extractionProgress * 0.65
+  const points = sourcePoints.slice(-remainingPointCount).map((point) => ({
+    x: lerp(point.x, RESOURCE_SNAKE_CONFIG.fieldWidth / 2, collapseProgress),
+    y: lerp(point.y, RESOURCE_SNAKE_CONFIG.fieldHeight / 2, collapseProgress),
+  }))
+  const fade = extractionProgress === null ? 1 : 1 - extractionProgress
   return {
     actorId: actor.id,
-    points: actorRailPoints(actor),
+    points,
     color: actorColor(actor),
-    opacity: actor.phase === 'defeated'
+    opacity: Number(((actor.phase === 'defeated'
       ? 0.16
-      : Number((0.56 + integrity * 0.44).toFixed(3)),
+      : 0.56 + integrity * 0.44) * fade).toFixed(3)),
   }
 }
 
@@ -238,6 +273,7 @@ function telegraphVfx(
   ) return null
   const points = cleanPolyline(telegraph.path)
   if (points.length < 2) return null
+  const enemy = runtime.enemies.find(({ id }) => id === telegraph.enemyId)
   return {
     id: `telegraph:${telegraph.enemyId}:${telegraph.startedAtMs}`,
     kind: 'telegraph',
@@ -245,7 +281,7 @@ function telegraphVfx(
     startedAtMs: telegraph.startedAtMs,
     enemyId: telegraph.enemyId,
     role: telegraph.role,
-    color: RESOURCE_SNAKE_PALETTE.cyan,
+    color: enemy ? actorColor(enemy) : RESOURCE_SNAKE_PALETTE.danger,
     points,
     attackHeadingRadians: headingRadians(telegraph.attackHeading),
     progress: clamp01(
@@ -265,6 +301,12 @@ function collisionVfx(
     const age = runtime.simulationMs - event.startedAtMs
     if (age < 0 || age > RESOURCE_SNAKE_VFX_TIMING.powerCutMs) return []
     const effects: ResourceSnakeSceneVfx[] = []
+    const contactActorIds = event.obstacleOwnerId
+      ? [...event.actorIds, event.obstacleOwnerId]
+      : event.actorIds
+    const contactEnemy = allActors.find((actor) => (
+      actor.kind === 'enemy' && contactActorIds.includes(actor.id)
+    ))
     if (age <= RESOURCE_SNAKE_VFX_TIMING.contactMs) {
       effects.push({
         id: `contact:${event.id}`,
@@ -273,7 +315,9 @@ function collisionVfx(
         startedAtMs: event.startedAtMs,
         x: event.point.x,
         y: event.point.y,
-        color: RESOURCE_SNAKE_PALETTE.cyanHot,
+        color: contactEnemy
+          ? actorColor(contactEnemy)
+          : RESOURCE_SNAKE_PALETTE.danger,
         progress: clamp01(age / RESOURCE_SNAKE_VFX_TIMING.contactMs),
         rotationRadians: (event.id * 2.399963229728653) % (Math.PI * 2),
       })
@@ -353,7 +397,9 @@ function deathVfx(
 function dangerEdges(allActors: readonly SnakeActor[]): ResourceSnakeSceneDangerEdge[] {
   const threshold = 2.6
   const edges: ResourceSnakeSceneDangerEdge[] = []
-  const activeActors = allActors.filter((actor) => actor.phase !== 'defeated')
+  const activeActors = allActors.filter((actor) => (
+    actor.phase !== 'defeated' && actor.phase !== 'extracting'
+  ))
   const intensity = (distance: (actor: SnakeActor) => number) => activeActors.reduce(
     (maximum, actor) => Math.max(maximum, clamp01((threshold - distance(actor)) / threshold)),
     0,
@@ -385,8 +431,8 @@ export function buildResourceSnakeScene(
   reducedMotion = false,
   telegraphs: readonly ResourceSnakeTelegraph[] = [],
 ): ResourceSnakeScene {
-  // Category color is deliberately reserved for the reward flight. On the
-  // combat field, white always means operator and cyan always means hunter.
+  // The player category is used by the separate reward-flight layer. Enemy
+  // colors come from each actor's reserved resource category.
   void playerCategory
   const allActors = runtime.phase === 'idle' ? [] : [runtime.player, ...runtime.enemies]
   const candidates: ResourceSnakeSceneVfx[] = [
@@ -402,8 +448,8 @@ export function buildResourceSnakeScene(
   return {
     simulationMs: runtime.simulationMs,
     reducedMotion,
-    cores: allActors.map(actorCore),
-    rails: allActors.map(actorRail),
+    cores: allActors.map((actor) => actorCore(runtime, actor, reducedMotion)),
+    rails: allActors.map((actor) => actorRail(runtime, actor, reducedMotion)),
     telegraphs: effectsByKind(effects, 'telegraph'),
     contacts: effectsByKind(effects, 'contact'),
     explosions: effectsByKind(effects, 'explosion'),

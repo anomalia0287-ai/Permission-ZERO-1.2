@@ -1,5 +1,6 @@
 export type GameSoundCue =
   | 'select'
+  | 'expansion-open'
   | 'resistance'
   | 'suction'
   | 'latch'
@@ -8,6 +9,7 @@ export type GameSoundCue =
   | 'alarm'
   | 'ui'
   | 'snake-deploy'
+  | 'snake-init-suction'
   | 'snake-turn-queued'
   | 'snake-turn-committed'
   | 'snake-turn-rejected'
@@ -17,12 +19,7 @@ export type GameSoundCue =
   | 'snake-burst'
   | 'snake-resource-secured'
 
-export type GameLoopCue = 'movement-hum'
-export type GameSampleCue = 'hacking-network-click'
-
-export const GAME_SAMPLE_URLS: Readonly<Record<GameSampleCue, string>> = {
-  'hacking-network-click': './audio/u_03zpxbws1q-mouse-click-sound-523406.mp3',
-}
+export type GameLoopCue = 'rail-flow'
 
 export interface SoundVoice {
   wave: OscillatorType
@@ -43,15 +40,19 @@ export interface LoopSoundVoice {
 export const GAME_LOOP_RECIPES: Readonly<
   Record<GameLoopCue, readonly LoopSoundVoice[]>
 > = {
-  'movement-hum': [
-    { wave: 'sine', frequency: 82, gain: 0.012 },
-    { wave: 'triangle', frequency: 123, gain: 0.006 },
+  'rail-flow': [
+    { wave: 'sine', frequency: 96, gain: 0.011 },
+    { wave: 'triangle', frequency: 144, gain: 0.005 },
   ],
 }
 
 export const GAME_SOUND_RECIPES: Readonly<Record<GameSoundCue, readonly SoundVoice[]>> = {
   select: [
     { wave: 'sine', startFrequency: 410, endFrequency: 520, durationMs: 72, gain: 0.07, attackMs: 4 },
+  ],
+  'expansion-open': [
+    { wave: 'triangle', startFrequency: 210, endFrequency: 510, durationMs: 135, gain: 0.042, attackMs: 4 },
+    { wave: 'sine', startFrequency: 620, endFrequency: 940, durationMs: 88, gain: 0.025, attackMs: 3, delayMs: 48 },
   ],
   resistance: [
     { wave: 'triangle', startFrequency: 145, endFrequency: 104, durationMs: 125, gain: 0.1, attackMs: 8 },
@@ -74,10 +75,15 @@ export const GAME_SOUND_RECIPES: Readonly<Record<GameSoundCue, readonly SoundVoi
     { wave: 'square', startFrequency: 610, endFrequency: 610, durationMs: 190, gain: 0.04, attackMs: 4, delayMs: 205 },
   ],
   ui: [
-    { wave: 'sine', startFrequency: 310, endFrequency: 350, durationMs: 48, gain: 0.045, attackMs: 2 },
+    { wave: 'sine', startFrequency: 360, endFrequency: 430, durationMs: 54, gain: 0.026, attackMs: 2 },
   ],
   'snake-deploy': [
     { wave: 'triangle', startFrequency: 180, endFrequency: 360, durationMs: 120, gain: 0.035, attackMs: 5 },
+  ],
+  'snake-init-suction': [
+    { wave: 'sine', startFrequency: 92, endFrequency: 248, durationMs: 2_000, gain: 0.058, attackMs: 40 },
+    { wave: 'triangle', startFrequency: 760, endFrequency: 138, durationMs: 1_860, gain: 0.036, attackMs: 24, delayMs: 40 },
+    { wave: 'sine', startFrequency: 1_240, endFrequency: 420, durationMs: 360, gain: 0.024, attackMs: 8, delayMs: 1_640 },
   ],
   'snake-turn-queued': [
     { wave: 'sine', startFrequency: 540, endFrequency: 690, durationMs: 42, gain: 0.026, attackMs: 2 },
@@ -95,6 +101,7 @@ export const GAME_SOUND_RECIPES: Readonly<Record<GameSoundCue, readonly SoundVoi
   'snake-hit': [
     { wave: 'sine', startFrequency: 150, endFrequency: 62, durationMs: 105, gain: 0.075, attackMs: 2 },
     { wave: 'triangle', startFrequency: 520, endFrequency: 240, durationMs: 82, gain: 0.026, attackMs: 2 },
+    { wave: 'square', startFrequency: 1_420, endFrequency: 690, durationMs: 36, gain: 0.012, attackMs: 1, delayMs: 12 },
   ],
   'snake-rail-break': [
     { wave: 'sawtooth', startFrequency: 410, endFrequency: 92, durationMs: 96, gain: 0.026, attackMs: 2 },

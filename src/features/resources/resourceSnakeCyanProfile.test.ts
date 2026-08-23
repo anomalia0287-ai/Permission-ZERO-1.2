@@ -30,12 +30,20 @@ describe('single cyan readable-hunter profile', () => {
   })
 
   it.each([
-    ['cyan-intro', 10, 1_400, 220, 260, 48],
-    ['cyan-advanced', 12, 1_800, 190, 220, 72],
-    ['cyan-dual-role', 14, 2_200, 160, 180, 96],
+    ['cyan-intro', 10, 1_400, 220, 260, 48, 900],
+    ['cyan-advanced', 12, 1_800, 190, 220, 72, 800],
+    ['cyan-dual-role', 14, 2_200, 160, 180, 96, 700],
   ] as const)(
-    'sets %s to %iHz, %ims lookahead, %ims telegraph, %ims commit, and %i candidates',
-    (stage, planningHz, lookaheadMs, telegraphMs, commitMs, candidateCount) => {
+    'sets %s to %iHz, %ims lookahead, %ims telegraph, %ims commit, %i candidates, and %ims heading hold',
+    (
+      stage,
+      planningHz,
+      lookaheadMs,
+      telegraphMs,
+      commitMs,
+      candidateCount,
+      minimumHeadingHoldMs,
+    ) => {
       expect(cyanLightcycleProfile(stage)).toMatchObject({
         doctrine: 'readable-hunter',
         stage,
@@ -44,6 +52,7 @@ describe('single cyan readable-hunter profile', () => {
         telegraphMs,
         commitMs,
         candidateCount,
+        minimumHeadingHoldMs,
         rolloutStepMs: 50,
         recoverySpeedScale: 0.92,
       })

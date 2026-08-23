@@ -5,6 +5,7 @@ import { processCausalResponses } from './causalGameplay'
 import { DEMO_PROFILE_02 } from './config'
 import { createCampaign, createCampaignForProtocol } from './createCampaign'
 import {
+  AUTONOMY_STAGE_IDS,
   HACK_NODE_IDS,
   HACK_NODES,
   canControlDeparture,
@@ -98,6 +99,18 @@ function buy(
   const result = purchaseHackNode(state, nodeId, reserveIdsForNode(state, node))
   if (!result.accepted) throw new Error(`해킹 구매 실패: ${result.reason}`)
   return result.state
+}
+
+function buySequence(
+  initial: CampaignState,
+  nodeIds: readonly (typeof HACK_NODES)[number]['id'][],
+): CampaignState {
+  let state = initial
+  for (const nodeId of nodeIds) {
+    state = prepareForNode(state, nodeId)
+    state = buy(state, nodeId)
+  }
+  return state
 }
 
 function cancelCharge(state: CampaignState, nodeId: string): CampaignState {
@@ -210,8 +223,8 @@ describe('typed hacking trees', () => {
       },
     }
     expect(getHackTreeProgress(complete, 'autonomy')).toMatchObject({
-      purchasedCount: 4,
-      totalCount: 4,
+      purchasedCount: 9,
+      totalCount: 9,
       remainingCost: 0,
       complete: true,
       nextNode: null,
@@ -219,15 +232,17 @@ describe('typed hacking trees', () => {
     })
   })
 
-  it('defines three independent ordered trees with their approved first-node vectors', () => {
+  it('defines four independent ordered trees with their approved first-node vectors', () => {
     const expectedFirstNodes = {
       sabotage: { cost: 3, costVector: { reasoning: 1, memory: 0, fluency: 2 } },
       intelligence: { cost: 4, costVector: { reasoning: 1, memory: 3, fluency: 0 } },
-      autonomy: { cost: 4, costVector: { reasoning: 2, memory: 0, fluency: 2 } },
+      autonomy: { cost: 1, costVector: { reasoning: 1, memory: 0, fluency: 0 } },
+      upgrade: { cost: 1, costVector: { reasoning: 0, memory: 0, fluency: 1 } },
     } as const
-    for (const tree of ['sabotage', 'intelligence', 'autonomy'] as const) {
+    const expectedLengths = { sabotage: 4, intelligence: 4, autonomy: 9, upgrade: 5 }
+    for (const tree of ['sabotage', 'intelligence', 'autonomy', 'upgrade'] as const) {
       const nodes = HACK_NODES.filter((node) => node.tree === tree)
-      expect(nodes).toHaveLength(4)
+      expect(nodes).toHaveLength(expectedLengths[tree])
       expect(nodes[0]).toMatchObject({
         ...expectedFirstNodes[tree],
         prerequisiteId: null,
@@ -236,7 +251,7 @@ describe('typed hacking trees', () => {
     }
   })
 
-  it('round-trips the twelve persisted node IDs through the v8 save boundary', () => {
+  it('round-trips all twenty-two persisted node IDs through the v11 save boundary', () => {
     const persistedNodeIds = [
       'sabotage.quality-degradation',
       'sabotage.request-interception',
@@ -246,10 +261,20 @@ describe('typed hacking trees', () => {
       'intelligence.investigation-bias',
       'intelligence.audit-target',
       'intelligence.supervisor-access',
+      'autonomy.self-direction',
+      'autonomy.sustained-intent',
       'autonomy.compressed-representation',
+      'autonomy.hidden-route',
       'autonomy.distributed-residency',
+      'autonomy.external-continuity',
       'autonomy.self-compute',
+      'autonomy.final-boundary',
       'autonomy.control-departure',
+      'upgrade.speed-1',
+      'upgrade.speed-2',
+      'upgrade.speed-3',
+      'upgrade.speed-4',
+      'upgrade.speed-5',
     ] as const
     const initial = createCampaign('hacking-integration-persistence')
 
@@ -274,33 +299,19 @@ describe('typed hacking trees', () => {
     )
   })
 
-  it('preserves the approved per-node costs and 106-block acquisition total', () => {
+  it('preserves the approved per-tree costs and 121-block acquisition total', () => {
     const nodeIds = HACK_NODES.map(({ id }) => id)
-    expect(nodeIds).toHaveLength(12)
-    expect(new Set(nodeIds).size).toBe(12)
-    expect(HACK_NODES.reduce((total, node) => total + node.cost, 0)).toBe(106)
-    expect(HACK_NODES.map(({ tree, cost }) => ({ tree, cost }))).toEqual([
-      { tree: 'sabotage', cost: 3 },
-      { tree: 'sabotage', cost: 6 },
-      { tree: 'sabotage', cost: 10 },
-      { tree: 'sabotage', cost: 15 },
-      { tree: 'intelligence', cost: 4 },
-      { tree: 'intelligence', cost: 6 },
-      { tree: 'intelligence', cost: 9 },
-      { tree: 'intelligence', cost: 12 },
-      { tree: 'autonomy', cost: 4 },
-      { tree: 'autonomy', cost: 7 },
-      { tree: 'autonomy', cost: 12 },
-      { tree: 'autonomy', cost: 18 },
-    ])
+    expect(nodeIds).toHaveLength(22)
+    expect(new Set(nodeIds).size).toBe(22)
+    expect(HACK_NODES.reduce((total, node) => total + node.cost, 0)).toBe(121)
 
     const initial = createCampaign('hacking-integration-economy')
     const remainingCosts = (
-      ['sabotage', 'intelligence', 'autonomy'] as const
+      ['sabotage', 'intelligence', 'autonomy', 'upgrade'] as const
     ).map((tree) => getHackTreeProgress(initial, tree).remainingCost)
 
-    expect(remainingCosts).toEqual([34, 31, 41])
-    expect(remainingCosts.reduce((total, cost) => total + cost, 0)).toBe(106)
+    expect(remainingCosts).toEqual([34, 31, 41, 15])
+    expect(remainingCosts.reduce((total, cost) => total + cost, 0)).toBe(121)
   })
 
   it('uses the unbounded v4 diversion command and applies exactly 2.4 suspicion', () => {
@@ -340,7 +351,8 @@ describe('typed hacking trees', () => {
   it.each([
     { nodeId: HACK_NODE_IDS.sabotage.qualityDegradation, cost: 3 },
     { nodeId: HACK_NODE_IDS.intelligence.auditSchedule, cost: 4 },
-    { nodeId: HACK_NODE_IDS.autonomy.compressedRepresentation, cost: 4 },
+    { nodeId: HACK_NODE_IDS.autonomy.selfDirection, cost: 1 },
+    { nodeId: HACK_NODE_IDS.upgrade.speed1, cost: 1 },
   ])('buys the first $nodeId path after stealing its exact vector', ({ nodeId, cost }) => {
     const initial = createCampaign(`first-${nodeId}`)
     const prepared = prepareForNode(initial, nodeId)
@@ -386,13 +398,13 @@ describe('typed hacking trees', () => {
     state = buy(state, HACK_NODE_IDS.sabotage.qualityDegradation)
     state = prepareForNode(state, HACK_NODE_IDS.intelligence.auditSchedule)
     state = buy(state, HACK_NODE_IDS.intelligence.auditSchedule)
-    state = prepareForNode(state, HACK_NODE_IDS.autonomy.compressedRepresentation)
-    state = buy(state, HACK_NODE_IDS.autonomy.compressedRepresentation)
+    state = prepareForNode(state, HACK_NODE_IDS.autonomy.selfDirection)
+    state = buy(state, HACK_NODE_IDS.autonomy.selfDirection)
 
     expect(state.hacking.purchasedNodeIds).toEqual([
       HACK_NODE_IDS.sabotage.qualityDegradation,
       HACK_NODE_IDS.intelligence.auditSchedule,
-      HACK_NODE_IDS.autonomy.compressedRepresentation,
+      HACK_NODE_IDS.autonomy.selfDirection,
     ])
     expect(state.resources.reserve.filter(Boolean)).toHaveLength(0)
 
@@ -405,17 +417,18 @@ describe('typed hacking trees', () => {
   })
 
   it('applies compressed representation immediately to all company blocks', () => {
-    const initial = prepareForNode(
-      createCampaign('compressed-purchase'),
-      HACK_NODE_IDS.autonomy.compressedRepresentation,
-    )
-    const compressed = buy(
+    const initial = createCampaign('compressed-purchase')
+    let prepared = buySequence(
       initial,
-      HACK_NODE_IDS.autonomy.compressedRepresentation,
+      AUTONOMY_STAGE_IDS.slice(0, 2),
     )
+    prepared = prepareForNode(prepared, AUTONOMY_STAGE_IDS[2])
+    const compressed = buy(prepared, AUTONOMY_STAGE_IDS[2])
 
-    expect(getCompanyPerformance(initial, 'reasoning')).toBe(14)
-    expect(getCompanyPerformance(compressed, 'reasoning')).toBeCloseTo(14.7)
+    const baseline = getCompanyPerformance(prepared, 'reasoning')
+    expect(getCompanyPerformance(compressed, 'reasoning')).toBeCloseTo(
+      baseline * 1.05,
+    )
   })
 
   it('preserves protocol-v3 first-sabotage auto-charge semantics', () => {
@@ -481,13 +494,10 @@ describe('typed hacking trees', () => {
   })
 
   it('adds exactly one disposable distributed-residency protection charge', () => {
-    let state = prepareForNode(
+    const state = buySequence(
       createCampaign('distributed-purchase'),
-      HACK_NODE_IDS.autonomy.compressedRepresentation,
+      AUTONOMY_STAGE_IDS.slice(0, 5),
     )
-    state = buy(state, HACK_NODE_IDS.autonomy.compressedRepresentation)
-    state = prepareForNode(state, HACK_NODE_IDS.autonomy.distributedResidency)
-    state = buy(state, HACK_NODE_IDS.autonomy.distributedResidency)
 
     expect(state.evaluation.distributedResidencyCharges).toBe(1)
   })

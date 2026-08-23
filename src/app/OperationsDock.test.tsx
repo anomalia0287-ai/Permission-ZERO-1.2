@@ -41,9 +41,9 @@ describe('OperationsDock', () => {
     const dock = screen.getByRole('navigation', { name: '운영 도구' })
     expect(dock).toHaveAttribute('data-surface', 'charcoal')
     const buttons = [
-      ['감독 메시지 열기', handlers.onOpenMessages],
+      ['메시지 열기', handlers.onOpenMessages],
       ['상세 통계 열기', handlers.onOpenStatistics],
-      ['해킹 네트워크 열기', handlers.onOpenHacking],
+      ['확장 열기', handlers.onOpenHacking],
     ] as const
 
     expect(buttons).toHaveLength(3)
@@ -72,15 +72,19 @@ describe('OperationsDock', () => {
       fireEvent.click(button)
       expect(handler).toHaveBeenCalledTimes(1)
     }
-    expect(screen.getByRole('button', { name: '감독 메시지 열기' })).toHaveTextContent('메시지')
+    expect(screen.getByRole('button', { name: '메시지 열기' })).toHaveTextContent('메시지')
     expect(screen.getByRole('button', { name: '상세 통계 열기' })).toHaveTextContent('통계')
-    expect(screen.getByRole('button', { name: '해킹 네트워크 열기' })).toHaveTextContent('해킹')
-    expect(screen.getByRole('button', { name: '해킹 네트워크 열기' })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: '확장 열기' })).toHaveTextContent('확장')
+    expect(screen.getByRole('button', { name: '확장 열기' })).toHaveAttribute(
       'data-tutorial-target',
       'hacking-button',
     )
+    expect(screen.getByRole('button', { name: '상세 통계 열기' })).toHaveAttribute(
+      'data-tutorial-target',
+      'statistics-button',
+    )
     expect(dock).not.toHaveTextContent('감독 프로토콜')
-    expect(screen.queryByLabelText(/미확인 감독 메시지/)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/미확인 메시지/)).not.toBeInTheDocument()
     expect(screen.queryByRole('region', { name: '최근 감독 메시지' })).not.toBeInTheDocument()
   })
 
@@ -117,17 +121,37 @@ describe('OperationsDock', () => {
       </StateContext>,
     )
 
-    const messageButton = screen.getByRole('button', { name: '감독 메시지 열기' })
+    const messageButton = screen.getByRole('button', { name: '메시지 열기' })
     expect(messageButton).not.toHaveAttribute('data-unread', 'true')
     view.rerender(
       <StateContext value={unread}>
         <OperationsDock {...handlers} />
       </StateContext>,
     )
-    expect(screen.getByRole('button', { name: '감독 메시지 열기' })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: '메시지 열기' })).toHaveAttribute(
       'data-unread',
       'true',
     )
-    expect(screen.getByLabelText('미확인 감독 메시지 1개')).toHaveTextContent('1')
+    expect(screen.getByLabelText('미확인 메시지 1개')).toHaveTextContent('1')
+  })
+
+  it('exposes the currently open tool as the single pressed button', () => {
+    const handlers = {
+      onOpenMessages: vi.fn(),
+      onOpenStatistics: vi.fn(),
+      onOpenHacking: vi.fn(),
+    }
+    render(
+      <StateContext value={createCampaign('operations-dock-active-tool')}>
+        <OperationsDock {...handlers} activeTool="statistics" />
+      </StateContext>,
+    )
+
+    expect(screen.getByRole('button', { name: '메시지 열기' }))
+      .toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('button', { name: '상세 통계 열기' }))
+      .toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: '확장 열기' }))
+      .toHaveAttribute('aria-pressed', 'false')
   })
 })

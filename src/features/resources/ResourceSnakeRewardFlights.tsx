@@ -7,7 +7,7 @@ import {
   type RefObject,
 } from 'react'
 
-import { SNAKE_CATEGORY_COLORS } from './resourceSnakeEncounter'
+import { SNAKE_CATEGORY_COLORS } from './resourceSnakeCategoryPresentation'
 import {
   RESOURCE_SNAKE_CONFIG,
   type ResourceSnakeRoundState,

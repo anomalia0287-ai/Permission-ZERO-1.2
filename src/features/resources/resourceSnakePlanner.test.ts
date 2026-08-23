@@ -19,6 +19,7 @@ import {
   type SnakePlannerActor,
   type SnakePlannerSnapshot,
   type SnakePlannerTrailDot,
+  type SnakePlayerHistorySample,
   type SnakeVector,
 } from './resourceSnakePlanner'
 
@@ -241,6 +242,9 @@ describe('cyan planner decisions', () => {
     expect(plan.directions.length).toBeGreaterThan(0)
     expect(Math.hypot(plan.direction.x, plan.direction.y)).toBeCloseTo(1, 12)
     expect(plan.attackHeading).not.toBe('west')
+    const attack = SNAKE_DIRECTION_VECTORS[plan.attackHeading!]
+    expect(SNAKE_DIRECTION_VECTORS.east.x * attack.x
+      + SNAKE_DIRECTION_VECTORS.east.y * attack.y).toBeGreaterThanOrEqual(0)
   })
 
   it('marks a newly occupied committed prefix fatal but keeps the open plan stable', () => {
@@ -255,6 +259,25 @@ describe('cyan planner decisions', () => {
     }
 
     expect(resourceSnakePlanIsNewlyFatal(open, plan)).toBe(false)
+    expect(resourceSnakePlanIsNewlyFatal({ ...open, trailDots: [hazard] }, plan)).toBe(true)
+  })
+
+  it('invalidates a same-length trail index when a cached dot moves into the committed prefix', () => {
+    const open = snapshot()
+    const plan = planResourceSnakeEnemy(open, 'enemy-0', DUAL_PROFILE, null, () => 0)
+    const harmless: SnakePlannerTrailDot = {
+      id: 7_001,
+      ownerId: 'player',
+      position: { x: 48, y: 22 },
+      spawnedAtMs: open.simulationMs - 1_000,
+      expiresAtMs: open.simulationMs + 5_000,
+    }
+    const hazard: SnakePlannerTrailDot = {
+      ...harmless,
+      position: { ...plan.path[0] },
+    }
+
+    expect(resourceSnakePlanIsNewlyFatal({ ...open, trailDots: [harmless] }, plan)).toBe(false)
     expect(resourceSnakePlanIsNewlyFatal({ ...open, trailDots: [hazard] }, plan)).toBe(true)
   })
 
@@ -428,6 +451,152 @@ describe('cyan planner decisions', () => {
     expect(resourceSnakePlanIsNewlyFatal(state, recovery)).toBe(false)
   })
 
+  it('treats leaving an overlapping mature self dot as a valid escape path', () => {
+    const simulationMs = 9_000
+    const state = snapshot({
+      simulationMs,
+      player: actor('player', { x: 32, y: 18 }, 'north'),
+      enemies: [actor('enemy-0', { x: 10.51, y: 10 }, 'north', {
+        role: 'pressure',
+        maximumSpeedPerSecond: 6.1,
+        velocity: { x: 0, y: -6.1 },
+      })],
+      trailDots: [{
+        id: 1,
+        ownerId: 'enemy-0',
+        position: { x: 10, y: 10 },
+        spawnedAtMs: simulationMs - 1_000,
+        expiresAtMs: simulationMs + 9_000,
+      }],
+      playerHistory: [],
+    })
+
+    const recovery = planResourceSnakeEnemy(
+      state,
+      'enemy-0',
+      INTRO_PROFILE,
+      null,
+      () => 0,
+    )
+
+    expect(recovery).toMatchObject({
+      fallback: false,
+      score: { survives: 1 },
+    })
+    expect(resourceSnakePlanIsNewlyFatal(state, recovery)).toBe(false)
+  })
+
+  it('does not ignore a mature self dot inside navigation reserve when moving toward it', () => {
+    const simulationMs = 9_250
+    const state = snapshot({
+      simulationMs,
+      player: actor('player', { x: 42, y: 19 }, 'west'),
+      enemies: [actor('enemy-0', { x: 10, y: 10 }, 'east', {
+        role: 'pressure',
+        integrity: 25,
+        maximumIntegrity: 50,
+        maximumSpeedPerSecond: 6.1,
+        velocity: { x: 6.1, y: 0 },
+      })],
+      trailDots: [{
+        id: 1,
+        ownerId: 'enemy-0',
+        position: { x: 10.8, y: 10 },
+        spawnedAtMs: simulationMs - 1_000,
+        expiresAtMs: simulationMs + 9_000,
+      }],
+      playerHistory: [],
+    })
+
+    const recovery = planResourceSnakeEnemy(
+      state,
+      'enemy-0',
+      INTRO_PROFILE,
+      null,
+      () => 0,
+    )
+
+    expect(recovery.intent).toBe('escape')
+    expect(recovery.path[0].x).toBeLessThanOrEqual(state.enemies[0].position.x)
+    expect(resourceSnakePlanIsNewlyFatal(state, recovery)).toBe(false)
+  })
+
+  it('does not invent an immediate collision while escaping a cluster of own dots already under the head', () => {
+    const simulationMs = 9_500
+    const enemyPosition = { x: 20, y: 12 }
+    const state = snapshot({
+      simulationMs,
+      player: actor('player', { x: 42, y: 19 }, 'west'),
+      enemies: [actor('enemy-0', enemyPosition, 'south-east', {
+        role: 'pressure',
+        maximumSpeedPerSecond: 6.1,
+        velocity: {
+          x: SNAKE_DIRECTION_VECTORS['south-east'].x * 6.1,
+          y: SNAKE_DIRECTION_VECTORS['south-east'].y * 6.1,
+        },
+      })],
+      trailDots: [
+        { x: 19.75, y: 12 },
+        { x: 20.25, y: 12 },
+        { x: 20, y: 11.75 },
+        { x: 20, y: 12.25 },
+      ].map((position, index) => ({
+        id: index + 1,
+        ownerId: 'enemy-0' as const,
+        position,
+        spawnedAtMs: simulationMs - 1_000 - index * 50,
+        expiresAtMs: simulationMs + 9_000,
+      })),
+      playerHistory: [],
+    })
+
+    const recovery = planResourceSnakeEnemy(
+      state,
+      'enemy-0',
+      INTRO_PROFILE,
+      null,
+      () => 0,
+    )
+
+    expect(recovery.directions.length).toBeGreaterThan(0)
+    expect(recovery.path.length).toBeGreaterThan(0)
+    expect(recovery.commitUntilMs).toBeGreaterThan(simulationMs)
+    expect(recovery).toMatchObject({ fallback: false, score: { survives: 1 } })
+    expect(resourceSnakePlanIsNewlyFatal(state, recovery)).toBe(false)
+  })
+
+  it('can move out of planner reserve around a physically non-overlapping player dot', () => {
+    const simulationMs = 11_535
+    const state = snapshot({
+      simulationMs,
+      player: actor('player', { x: 28.46, y: 17.97 }, 'north'),
+      enemies: [actor('enemy-0', { x: 42.17, y: 20.216 }, 'west', {
+        role: 'pressure',
+        maximumSpeedPerSecond: 6.1,
+        velocity: { x: -6.1, y: 0 },
+      })],
+      trailDots: [{
+        id: 1,
+        ownerId: 'player',
+        position: { x: 42.183, y: 19.694 },
+        spawnedAtMs: simulationMs - 5_000,
+        expiresAtMs: simulationMs + 5_000,
+      }],
+      playerHistory: [],
+    })
+
+    const recovery = planResourceSnakeEnemy(
+      state,
+      'enemy-0',
+      INTRO_PROFILE,
+      null,
+      () => 0,
+    )
+
+    expect(recovery).toMatchObject({ fallback: false, score: { survives: 1 } })
+    expect(resourceSnakePlanIsNewlyFatal(state, recovery)).toBe(false)
+  })
+
   it('recovers inward from the runtime boundary inside the planner reserve', () => {
     const state = snapshot({
       simulationMs: 9_000,
@@ -454,6 +623,57 @@ describe('cyan planner decisions', () => {
     })
     expect(recovery.attackHeading).not.toBe('north')
     expect(resourceSnakePlanIsNewlyFatal(state, recovery)).toBe(false)
+  })
+
+  it('does not emit a 135-degree recovery that the runtime governor must reject', () => {
+    const simulationMs = 45_068.33333333501
+    const state = snapshot({
+      simulationMs,
+      player: actor('player', { x: 30, y: 8 }, 'west'),
+      enemies: [actor('enemy-0', { x: 37.835188393042536, y: 19.004120750380594 }, 'east', {
+        role: 'pressure',
+        integrity: 10,
+        maximumIntegrity: 30,
+        maximumSpeedPerSecond: 8.7,
+        velocity: { x: 8.7, y: 0 },
+        enemyTurnGovernor: {
+          lastHeadingChangeAtMs: 43_101.66666666777,
+          previousHeading: 'north-east',
+          normalTurnAtMs: [],
+          lastEmergencyTurnAtMs: 43_101.66666666777,
+          lockedUntilMs: 44_001.66666666777,
+          lastTurnCause: 'emergency-correction',
+        },
+      })],
+      trailDots: [
+        { x: 38.98059530933988, y: 18.754813834083215 },
+        { x: 38.754321139360194, y: 18.98108800406291 },
+        { x: 38.5280469693805, y: 19.207362174042608 },
+        { x: 38.3017727994008, y: 19.4336363440223 },
+        { x: 38.075498629421105, y: 19.659910514001997 },
+        { x: 37.84922445944141, y: 19.886184683981693 },
+      ].map((position, index) => ({
+        id: 900 + index,
+        ownerId: 'enemy-0' as const,
+        position,
+        spawnedAtMs: simulationMs - 4_800 + index * 40,
+        expiresAtMs: simulationMs + 5_200 + index * 40,
+      })),
+      playerHistory: [],
+    })
+
+    const recovery = planResourceSnakeEnemy(
+      state,
+      'enemy-0',
+      INTRO_PROFILE,
+      null,
+      () => 0,
+    )
+    const origin = SNAKE_DIRECTION_VECTORS.east
+    const attack = SNAKE_DIRECTION_VECTORS[recovery.attackHeading!]
+
+    expect(recovery.intent).toBe('escape')
+    expect(origin.x * attack.x + origin.y * attack.y).toBeGreaterThanOrEqual(0)
   })
 })
 
@@ -516,6 +736,27 @@ describe('cyan group coordination', () => {
     expect(pressure.attackHeading).not.toBe(blocker.attackHeading)
   })
 
+  it('accepts an authoritative 120Hz commitment longer than the old 64-sample cap', () => {
+    const state = dualSnapshot()
+    const sampleCount = 96
+    const samples = Array.from({ length: sampleCount }, (_, index) => ({
+      atMs: state.simulationMs + index * (1_000 / 120),
+      position: { x: 16, y: 3.5 + index * 0.01 },
+    }))
+    const commitment = {
+      enemyId: 'enemy-0' as const,
+      commitUntilMs: samples.at(-1)!.atMs,
+      samples,
+    }
+
+    const group = planResourceSnakeGroup({
+      ...state,
+      committedAllyPaths: [commitment],
+    }, DUAL_PROFILE, [], [], () => 0)
+
+    expect(group.plans.map((plan) => plan.enemyId)).toEqual(['enemy-0', 'enemy-1'])
+  })
+
   it('reassigns the sole surviving enemy to pressure at the next planning boundary', () => {
     const survivingBlocker = actor('enemy-1', { x: 34, y: 8 }, 'south', {
       role: 'blocker', maximumSpeedPerSecond: 11.8,
@@ -562,6 +803,26 @@ describe('planner prediction, scoring, and timed occupancy', () => {
     expect(predictResourceSnakePlayerHypotheses({}, 2_200, 50).all.every(
       (path) => path.length === 0,
     )).toBe(true)
+  })
+
+  it('keeps median-turn prediction identical for chronological and shuffled history', () => {
+    const state = snapshot()
+    const history: SnakePlayerHistorySample[] = [
+      { simulationMs: 3_000, position: { x: 28, y: 18 }, velocity: { x: 12, y: 0 } },
+      { simulationMs: 4_000, position: { x: 29, y: 18 }, velocity: { x: 8.485, y: -8.485 } },
+      { simulationMs: 5_000, position: { x: 30, y: 18 }, velocity: { x: 0, y: -12 } },
+    ]
+
+    const chronological = predictResourceSnakePlayerHypotheses({
+      ...state,
+      playerHistory: history,
+    }, 2_200, 50)
+    const shuffled = predictResourceSnakePlayerHypotheses({
+      ...state,
+      playerHistory: [history[2], history[0], history[1]],
+    }, 2_200, 50)
+
+    expect(shuffled.continueMedianTurn).toEqual(chronological.continueMedianTurn)
   })
 
   it('converts a plan into exact future samples and canonical committed occupancy', () => {

@@ -2,9 +2,14 @@ import { describe, expect, it } from 'vitest'
 
 import {
   CAUSAL_COMMAND_PROTOCOL_VERSION,
+  COMMUNICATION_COMMAND_PROTOCOL_VERSION,
   CURRENT_COMMAND_PROTOCOL_VERSION,
+  CURRENT_MARKET_COMMAND_PROTOCOL_VERSION,
+  EXPANSION_COMMAND_PROTOCOL_VERSION,
+  FINAL_CHOICE_COMMAND_PROTOCOL_VERSION,
   LEGACY_COMMAND_PROTOCOL_VERSION,
   PREVIOUS_COMMAND_PROTOCOL_VERSION,
+  RESOURCE_ROUND_COMMAND_PROTOCOL_VERSION,
   appendCommandProtocolSegment,
   commandProtocolFingerprint,
   commandProtocolVersionAt,
@@ -22,19 +27,24 @@ import type {
 } from './model'
 
 describe('command protocol timeline', () => {
-  it('pins the four supported protocol constants', () => {
+  it('pins the six supported protocol constants and every v5 feature boundary', () => {
     expect(LEGACY_COMMAND_PROTOCOL_VERSION).toBe(1)
     expect(PREVIOUS_COMMAND_PROTOCOL_VERSION).toBe(2)
     expect(CAUSAL_COMMAND_PROTOCOL_VERSION).toBe(3)
-    expect(CURRENT_COMMAND_PROTOCOL_VERSION).toBe(4)
+    expect(EXPANSION_COMMAND_PROTOCOL_VERSION).toBe(5)
+    expect(CURRENT_MARKET_COMMAND_PROTOCOL_VERSION).toBe(5)
+    expect(RESOURCE_ROUND_COMMAND_PROTOCOL_VERSION).toBe(5)
+    expect(COMMUNICATION_COMMAND_PROTOCOL_VERSION).toBe(5)
+    expect(FINAL_CHOICE_COMMAND_PROTOCOL_VERSION).toBe(6)
+    expect(CURRENT_COMMAND_PROTOCOL_VERSION).toBe(6)
   })
 
-  it('creates a fresh native v4 timeline on every call', () => {
+  it('creates a fresh native v6 timeline on every call', () => {
     const first = nativeCommandProtocol()
     const second = nativeCommandProtocol()
 
     expect(first).toEqual({
-      segments: [{ version: 4, startsAtSequence: 1 }],
+      segments: [{ version: 6, startsAtSequence: 1 }],
     })
     expect(second).toEqual(first)
     expect(second).not.toBe(first)
@@ -47,27 +57,27 @@ describe('command protocol timeline', () => {
     [
       { version: 1, legacyCommandCount: 0 },
       0,
-      [{ version: 4, startsAtSequence: 1 }],
+      [{ version: 6, startsAtSequence: 1 }],
     ],
     [
       { version: 1, legacyCommandCount: 31 },
       31,
       [
         { version: 1, startsAtSequence: 1 },
-        { version: 4, startsAtSequence: 32 },
+        { version: 6, startsAtSequence: 32 },
       ],
     ],
     [
       { version: 2, legacyCommandCount: 0 },
       0,
-      [{ version: 4, startsAtSequence: 1 }],
+      [{ version: 6, startsAtSequence: 1 }],
     ],
     [
       { version: 2, legacyCommandCount: 0 },
       19,
       [
         { version: 2, startsAtSequence: 1 },
-        { version: 4, startsAtSequence: 20 },
+        { version: 6, startsAtSequence: 20 },
       ],
     ],
     [
@@ -76,7 +86,7 @@ describe('command protocol timeline', () => {
       [
         { version: 1, startsAtSequence: 1 },
         { version: 2, startsAtSequence: 32 },
-        { version: 4, startsAtSequence: 51 },
+        { version: 6, startsAtSequence: 51 },
       ],
     ],
   ])('migrates %j with %i commands', (legacy, commandCount, segments) => {
@@ -150,14 +160,14 @@ describe('command protocol timeline', () => {
   })
 
   it('returns only a well-formed final version', () => {
-    expect(currentCommandProtocolVersion(nativeCommandProtocol())).toBe(4)
+    expect(currentCommandProtocolVersion(nativeCommandProtocol())).toBe(6)
 
     expect(() =>
       currentCommandProtocolVersion({ segments: [] }),
     ).toThrow(RangeError)
     expect(() =>
       currentCommandProtocolVersion({
-        segments: [{ version: 5, startsAtSequence: 1 }],
+        segments: [{ version: 7, startsAtSequence: 1 }],
       } as unknown as CommandProtocolMetadata),
     ).toThrow(RangeError)
   })
@@ -233,7 +243,7 @@ describe('command protocol timeline', () => {
       requireCurrent: true,
     },
     {
-      label: 'the required current timeline ends before v4',
+      label: 'the required current timeline ends before v6',
       value: { segments: [{ version: 2, startsAtSequence: 1 }] },
       commandCount: 3,
       requireCurrent: true,
@@ -263,7 +273,7 @@ describe('command protocol timeline', () => {
     },
     {
       label: 'a version is unsupported',
-      value: { segments: [{ version: 5, startsAtSequence: 1 }] },
+      value: { segments: [{ version: 7, startsAtSequence: 1 }] },
       commandCount: 1,
       requireCurrent: true,
     },

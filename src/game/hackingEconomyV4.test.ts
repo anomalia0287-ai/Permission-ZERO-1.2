@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 
-import { createCampaign, createCampaignForProtocol } from './createCampaign'
+import { createCampaignForProtocol } from './createCampaign'
 import {
   HACK_NODE_IDS,
-  HACK_NODES,
   grantSelfComputeResource,
+  hackNodesForProtocol,
 } from './hacking'
 import type { CampaignState, CompanyCategory } from './model'
 import { applyCommand } from './reducer'
@@ -58,7 +58,7 @@ function reserveIds(state: CampaignState): string[] {
 describe('command protocol v4 hacking economy', () => {
   it('locks the fixed category-vector table and its totals', () => {
     expect(
-      HACK_NODES.map(({ id, cost, costVector }) => ({ id, cost, costVector })),
+      hackNodesForProtocol(4).map(({ id, cost, costVector }) => ({ id, cost, costVector })),
     ).toEqual([
       { id: 'sabotage.quality-degradation', cost: 3, costVector: { reasoning: 1, memory: 0, fluency: 2 } },
       { id: 'sabotage.request-interception', cost: 6, costVector: { reasoning: 2, memory: 1, fluency: 3 } },
@@ -76,7 +76,7 @@ describe('command protocol v4 hacking economy', () => {
   })
 
   it('starts empty and accepts a nineteenth visible diversion without a storage cap', () => {
-    let state = createCampaign('unbounded-reserve-v4')
+    let state = createCampaignForProtocol('unbounded-reserve-v4', 4)
     expect(state.commandProtocol).toEqual({
       segments: [{ version: 4, startsAtSequence: 1 }],
     })
@@ -96,7 +96,7 @@ describe('command protocol v4 hacking economy', () => {
   })
 
   it('rejects an equal total with the wrong categories and accepts only the exact vector', () => {
-    const wrongInventory = divertVector(createCampaign('wrong-vector-v4'), {
+    const wrongInventory = divertVector(createCampaignForProtocol('wrong-vector-v4', 4), {
       reasoning: 1,
       memory: 2,
       fluency: 0,
@@ -113,7 +113,7 @@ describe('command protocol v4 hacking economy', () => {
     expect(wrong.state.commandSequence).toBe(wrongInventory.commandSequence)
     expect(wrong.state.resources.reserve).toEqual(wrongInventory.resources.reserve)
 
-    const exactInventory = divertVector(createCampaign('exact-vector-v4'), {
+    const exactInventory = divertVector(createCampaignForProtocol('exact-vector-v4', 4), {
       reasoning: 1,
       memory: 0,
       fluency: 2,
@@ -131,7 +131,7 @@ describe('command protocol v4 hacking economy', () => {
   })
 
   it('keeps self-compute neutral for unlocks but allows explicit execution charge and cancellation', () => {
-    let state = createCampaign('neutral-execution-v4')
+    let state = createCampaignForProtocol('neutral-execution-v4', 4)
     state = {
       ...state,
       serviceDay: 361,

@@ -116,6 +116,12 @@ export interface MarketState {
 }
 
 export type ReviewSentiment = 'positive' | 'neutral' | 'negative' | 'prompt'
+export type ReviewSource =
+  | 'starting'
+  | 'init-round'
+  | 'monthly-evaluation'
+  | 'timed'
+export type ReviewRating = 1 | 2 | 3 | 4 | 5
 
 export type ReviewPublicSnapshot =
   | {
@@ -154,6 +160,8 @@ export interface ReviewFeedEntry {
   topics: string[]
   text: string
   snapshot: ReviewPublicSnapshot
+  source: ReviewSource
+  rating: ReviewRating | null
 }
 
 export interface ReviewState {
@@ -216,6 +224,25 @@ export interface SupervisorPresentationRuntime {
   itemStage: 1 | 2 | 3
   phase: 'original' | 'correction'
   remainingDwellMs: number
+}
+
+export type CommunicationChannel = 'anomi' | 'competitor' | 'supervisor'
+export type CommunicationPopupPolicy =
+  | 'blocking'
+  | 'nonblocking'
+  | 'history-only'
+
+export interface CampaignCommunication {
+  id: string
+  sequence: number
+  channel: CommunicationChannel
+  senderId: string
+  senderName: string
+  portraitSrc: string
+  serviceDay: number
+  message: string
+  popupPolicy: CommunicationPopupPolicy
+  read: boolean
 }
 
 export type DefeatClassifier =
@@ -362,6 +389,15 @@ export type GameCommand =
   | { type: 'DIVERT_BLOCK_TO_RESERVE'; blockId: string }
   | { type: 'RECORD_INTRUSION_RADAR_DETECTION' }
   | {
+      type: 'COMPLETE_RESOURCE_ROUND'
+      roundNumber: number
+      outcome: 'victory' | 'defeat'
+    }
+  | {
+      type: 'ACKNOWLEDGE_COMMUNICATION'
+      communicationId: string
+    }
+  | {
       type: 'MOVE_BLOCK_FOR_AUDIT'
       blockId: string
       targetCategory: CompanyCategory
@@ -408,7 +444,7 @@ export interface CommandLogEntry {
   command: GameCommand
 }
 
-export type CommandProtocolVersion = 1 | 2 | 3 | 4
+export type CommandProtocolVersion = 1 | 2 | 3 | 4 | 5 | 6
 
 export interface CommandProtocolSegment {
   version: CommandProtocolVersion
@@ -600,6 +636,9 @@ export interface CausalKnowledgeProjection {
 
 export interface ResourceIntrusionProgress {
   successfulCoreDeposits: number
+  completedRounds: number
+  lastOutcome: 'victory' | 'defeat' | null
+  communications: CampaignCommunication[]
 }
 
 export interface CampaignState {

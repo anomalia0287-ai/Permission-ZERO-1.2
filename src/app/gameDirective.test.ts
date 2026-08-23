@@ -53,13 +53,13 @@ describe('getGameDirective', () => {
     expect(getGameDirective(ready)).toEqual({
       id: 'unlock-quality-degradation',
       eyebrow: '현재 지시',
-      title: '해킹 네트워크에서 품질 저하 해금',
+      title: '확장에서 품질 저하 해금',
       detail: '필요 리소스 준비 완료',
       progress: '3/3',
     })
   })
 
-  it('advances beyond the tutorial after the first forbidden permission is unlocked', () => {
+  it('advances to the active intervention phase after the first forbidden permission is unlocked', () => {
     const initial = createCampaign('directive-concealment')
     const advanced: CampaignState = {
       ...initial,
@@ -70,8 +70,8 @@ describe('getGameDirective', () => {
     }
 
     expect(getGameDirective(advanced)).toMatchObject({
-      id: 'concealment',
-      eyebrow: '은폐 단계',
+      id: 'intervention',
+      eyebrow: '개입 단계',
     })
     expect(getGameDirective(advanced).title).not.toContain('품질 저하 해금용')
   })

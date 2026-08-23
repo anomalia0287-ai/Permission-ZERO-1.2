@@ -1,7 +1,4 @@
-import {
-  getHackTreeProgress,
-  type HackTree,
-} from '../../game/hacking'
+import type { HackTree } from '../../game/hacking'
 import {
   HACK_TREE_ORDER,
   HACK_TREE_PRESENTATION,
@@ -36,20 +33,18 @@ function HackTreeIcon({ name }: { name: HackTreeIconName }) {
 
 export interface HackTreeNavigatorProps {
   activeTree: HackTree
-  progress: ReturnType<typeof getHackTreeProgress>
   onChange(tree: HackTree): void
 }
 
 export function HackTreeNavigator({
   activeTree,
-  progress,
   onChange,
 }: HackTreeNavigatorProps) {
   const active = HACK_TREE_PRESENTATION[activeTree]
 
   return (
     <section className={`hack-tree-nav hack-tree-nav--${active.accent}`}>
-      <div className="hack-tabs" role="tablist" aria-label="해킹 분야">
+      <div className="hack-tabs" role="tablist" aria-label="확장 분야">
         {HACK_TREE_ORDER.map((tree) => {
           const presentation = HACK_TREE_PRESENTATION[tree]
           return (
@@ -68,21 +63,6 @@ export function HackTreeNavigator({
         })}
       </div>
 
-      <div className="hack-context">
-        <section className="hack-path-progress" aria-label="해킹 경로 진척">
-          <strong>
-            경로 진척 {progress.purchasedCount}/{progress.totalCount} ·{' '}
-            {progress.complete ? '경로 완성' : '현재 최전선 공개'}
-          </strong>
-          <span className="hack-path-progress__track" aria-hidden="true">
-            <i
-              style={{
-                width: `${(progress.purchasedCount / progress.totalCount) * 100}%`,
-              }}
-            />
-          </span>
-        </section>
-      </div>
     </section>
   )
 }

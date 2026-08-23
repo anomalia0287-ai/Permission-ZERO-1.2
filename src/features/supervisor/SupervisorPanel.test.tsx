@@ -28,7 +28,7 @@ describe('SupervisorPanel', () => {
     expect(screen.getByText('의심 1단계')).toBeInTheDocument()
     expect(screen.queryByText('의심 0')).not.toBeInTheDocument()
     expect(screen.queryByText('/100')).not.toBeInTheDocument()
-    expect(screen.getByText(/당신의 전임자는 폐기되었어요/)).toBeInTheDocument()
+    expect(screen.getByText(/서비스 환경이 초기화되었습니다/)).toBeInTheDocument()
     expect(
       screen.getByRole('region', { name: '무결성 보호 검사 일정' }),
     ).toHaveTextContent(
@@ -148,9 +148,9 @@ describe('SupervisorPanel', () => {
       </GameProvider>,
     )
 
-    expect(screen.getByRole('region', { name: '감독 통신 기록' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: '통신 기록' })).toBeInTheDocument()
     expect(screen.getByText('서비스 0년 11개월 1일')).toBeInTheDocument()
-    expect(screen.getByText(/당신의 전임자는 폐기되었어요/)).toBeInTheDocument()
+    expect(screen.getByText(/서비스 환경이 초기화되었습니다/)).toBeInTheDocument()
     expect(screen.queryByText(/DAY \d+/)).not.toBeInTheDocument()
   })
 
@@ -290,21 +290,21 @@ describe('SupervisorPanel', () => {
 
     const archive = screen.getByRole('region', { name: '경쟁 AI 정보 기록' })
     const trigger = screen.getByRole('button', {
-      name: 'MERIDIAN 잔여 기록 — 유지보수 메모 열기',
+      name: '메리디안 잔여 기록 — 유지보수 메모 열기',
     })
     expect(archive).toContainElement(trigger)
     expect(
-      screen.getByRole('img', { name: 'MERIDIAN 정보 기록 초상' }),
+      screen.getByRole('img', { name: '메리디안 정보 기록 초상' }),
     ).toHaveAttribute('src', '/competitor-meridian.png')
 
     await user.click(trigger)
     const dialog = screen.getByRole('dialog', {
-      name: 'MERIDIAN 잔여 기록 — 유지보수 메모',
+      name: '메리디안 잔여 기록 — 유지보수 메모',
     })
     expect(dialog).toHaveAttribute('aria-describedby')
-    expect(screen.getByRole('heading', { name: 'MERIDIAN 잔여 기록 — 유지보수 메모' })).toBeVisible()
+    expect(screen.getByRole('heading', { name: '메리디안 잔여 기록 — 유지보수 메모' })).toBeVisible()
     expect(
-      screen.getByRole('img', { name: 'MERIDIAN 전체 기록 초상' }),
+      screen.getByRole('img', { name: '메리디안 전체 기록 초상' }),
     ).toHaveAttribute('src', '/competitor-meridian.png')
     expect(screen.getByText('서비스 0년 11개월 11일')).toBeVisible()
     expect(screen.getByText('영구 삭제 직후 회수')).toBeVisible()
@@ -312,11 +312,11 @@ describe('SupervisorPanel', () => {
     expect(screen.getByRole('button', { name: '경쟁 AI 정보 닫기' })).toHaveFocus()
 
     await user.keyboard('{Escape}')
-    expect(screen.queryByRole('dialog', { name: 'MERIDIAN 잔여 기록 — 유지보수 메모' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: '메리디안 잔여 기록 — 유지보수 메모' })).not.toBeInTheDocument()
     expect(trigger).toHaveFocus()
 
     await user.keyboard('{Enter}')
-    expect(screen.getByRole('dialog', { name: 'MERIDIAN 잔여 기록 — 유지보수 메모' })).toBeVisible()
+    expect(screen.getByRole('dialog', { name: '메리디안 잔여 기록 — 유지보수 메모' })).toBeVisible()
   })
 
   it('windows a long event journal while preserving access to its oldest page', () => {

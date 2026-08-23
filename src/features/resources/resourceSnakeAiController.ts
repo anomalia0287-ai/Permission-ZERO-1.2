@@ -16,8 +16,10 @@ import { resourceSnakeHeadingFromVector } from './resourceSnakeTrajectory'
 import type {
   SnakeEnemyDirectionChange,
   SnakeEnemyRole,
+  SnakeEnemyTurnPolicy,
   SnakeId,
 } from './resourceSnakeRuntime'
+import { RESOURCE_SNAKE_CONFIG } from './resourceSnakeRuntime'
 
 export type ResourceSnakeAiPhase =
   | 'deploy'
@@ -59,6 +61,7 @@ export interface ResourceSnakeAiControllerResult {
   state: ResourceSnakeAiControllerState
   commands: Record<string, SnakeVector>
   commandSchedules: Record<string, SnakeEnemyDirectionChange[]>
+  turnPolicies: Record<string, SnakeEnemyTurnPolicy>
   telegraphs: ResourceSnakeTelegraph[]
   planned: boolean
   observedPlanningMs: number
@@ -89,6 +92,7 @@ function plannerProfile(profile: CyanLightcycleProfile): SnakePlannerProfile {
     candidateCount: profile.candidateCount,
     planningHz: profile.planningHz,
     commitMs: profile.commitMs,
+    minimumHeadingHoldMs: profile.minimumHeadingHoldMs,
     rolloutStepMs: profile.rolloutStepMs,
   }
 }
@@ -189,12 +193,51 @@ function planReadyForTelegraph(
   }
 }
 
+function planTurnCanCommit(
+  snapshot: SnakePlannerSnapshot,
+  plan: SnakePlan,
+  profile: CyanLightcycleProfile,
+): boolean {
+  const actor = snapshot.enemies.find((candidate) => candidate.id === plan.enemyId)
+  if (!actor) return false
+  const currentHeading = actor.heading
+    ?? resourceSnakeHeadingFromVector(actor.velocity, 'south')
+  const requestedHeading = headingForPlan(plan, currentHeading)
+  if (requestedHeading === currentHeading) return true
+  const governor = actor.enemyTurnGovernor
+  if (!governor) return true
+  const atMs = plan.commandAtMs
+  if (atMs + EPSILON < governor.lockedUntilMs) return false
+  if (
+    governor.lastHeadingChangeAtMs !== null
+    && atMs - governor.lastHeadingChangeAtMs
+      < profile.minimumHeadingHoldMs - EPSILON
+  ) return false
+  const recentNormalTurns = governor.normalTurnAtMs.filter((turnAtMs) => (
+    Number.isFinite(turnAtMs)
+    && atMs - turnAtMs
+      < RESOURCE_SNAKE_CONFIG.enemyNormalTurnWindowMs - EPSILON
+  ))
+  if (
+    recentNormalTurns.length
+    >= RESOURCE_SNAKE_CONFIG.enemyMaximumNormalTurnsPerWindow
+  ) return false
+  if (
+    governor.previousHeading === requestedHeading
+    && governor.lastHeadingChangeAtMs !== null
+    && atMs - governor.lastHeadingChangeAtMs
+      < RESOURCE_SNAKE_CONFIG.enemyReturnHeadingLockMs - EPSILON
+  ) return false
+  return true
+}
+
 function planSafeForRecovery(
   snapshot: SnakePlannerSnapshot,
   plan: SnakePlan | null,
   planIsFatal: (snapshot: SnakePlannerSnapshot, plan: SnakePlan) => boolean,
 ): plan is SnakePlan {
   if (!plan || plan.directions.length === 0 || plan.path.length === 0) return false
+  if (plan.commitUntilMs <= snapshot.simulationMs + EPSILON) return false
   try {
     return !planIsFatal(snapshot, plan)
   } catch {
@@ -223,13 +266,33 @@ function timedPhase(
   return enemy
 }
 
+function headingForPlanAtMs(
+  plan: SnakePlan,
+  atMs: number,
+  fallback: SnakeDirection8,
+): SnakeDirection8 {
+  let heading = plan.originHeading ?? fallback
+  for (const change of plan.headingChanges ?? []) {
+    if (plan.plannedAtMs + change.offsetMs > atMs + EPSILON) continue
+    heading = change.heading
+  }
+  return heading
+}
+
 function commandForEnemy(
   snapshot: SnakePlannerSnapshot,
   enemy: ResourceSnakeAiEnemyState,
 ): SnakeVector | null {
   if (enemy.phase === 'defeated') return null
   if (enemy.phase === 'recover') {
-    const direction = SNAKE_DIRECTION_VECTORS[enemy.recoveryHeading]
+    const heading = enemy.plan
+      ? headingForPlanAtMs(
+          enemy.plan,
+          snapshot.simulationMs,
+          enemy.recoveryHeading,
+        )
+      : enemy.recoveryHeading
+    const direction = SNAKE_DIRECTION_VECTORS[heading]
     return { x: direction.x * 0.92, y: direction.y * 0.92 }
   }
   if (enemy.phase === 'commit' && enemy.plan) {
@@ -254,7 +317,7 @@ function commandScheduleForEnemy(
     direction: { ...command },
   }]
   if (
-    (enemy.phase !== 'telegraph' && enemy.phase !== 'commit')
+    (enemy.phase !== 'telegraph' && enemy.phase !== 'commit' && enemy.phase !== 'recover')
     || !enemy.plan
     || !enemy.plan.headingChanges
   ) return schedule
@@ -267,11 +330,12 @@ function commandScheduleForEnemy(
       || atMs > horizonMs + EPSILON
     ) continue
     const direction = SNAKE_DIRECTION_VECTORS[change.heading]
+    const speedScale = enemy.phase === 'recover' ? 0.92 : enemy.plan.speedScale
     schedule.push({
       atMs,
       direction: {
-        x: direction.x * enemy.plan.speedScale,
-        y: direction.y * enemy.plan.speedScale,
+        x: direction.x * speedScale,
+        y: direction.y * speedScale,
       },
     })
   }
@@ -331,12 +395,7 @@ export function advanceResourceSnakeAiController(
     enemies[actor.id] = timedPhase(enemy, atMs)
   }
 
-  const needsImmediatePlan = Object.values(enemies).some((enemy) => (
-    enemy.phase === 'cruise' || enemy.phase === 'recover'
-  ))
-  const shouldPlan = active && (
-    needsImmediatePlan || atMs + EPSILON >= state.nextPlanningAtMs
-  )
+  const shouldPlan = active && atMs + EPSILON >= state.nextPlanningAtMs
   let observedPlanningMs = 0
   let timingHistoryMs = [...state.timingHistoryMs]
   let nextPlanningAtMs = state.nextPlanningAtMs
@@ -406,12 +465,19 @@ export function advanceResourceSnakeAiController(
               : actorHeading(snapshot, actor.id),
             safePlanConfirmations: 0,
           }
+        } else if (!planTurnCanCommit(snapshot, planned, profile)) {
+          enemy = {
+            ...enemy,
+            plan: null,
+            advertisedHeading: null,
+            safePlanConfirmations: 0,
+          }
         } else {
           enemy = beginTelegraph(enemy, planned, atMs)
         }
       } else if (enemy.phase === 'recover') {
         const safe = planReadyForTelegraph(snapshot, planned, planIsFatal)
-        if (safe) {
+        if (safe && planTurnCanCommit(snapshot, planned, profile)) {
           if (enemy.safePlanConfirmations === 1) {
             enemy = beginTelegraph(enemy, planned, atMs)
           } else {
@@ -436,7 +502,7 @@ export function advanceResourceSnakeAiController(
             plan: recoveryPlan,
             recoveryHeading: recoveryPlan
               ? headingForPlan(recoveryPlan, actorHeading(snapshot, actor.id))
-              : enemy.recoveryHeading,
+              : actorHeading(snapshot, actor.id),
             safePlanConfirmations: 0,
           }
         }
@@ -453,8 +519,12 @@ export function advanceResourceSnakeAiController(
   }
   const commands: Record<string, SnakeVector> = {}
   const commandSchedules: Record<string, SnakeEnemyDirectionChange[]> = {}
+  const turnPolicies: Record<string, SnakeEnemyTurnPolicy> = {}
   const telegraphs: ResourceSnakeTelegraph[] = []
   for (const enemy of Object.values(enemies)) {
+    turnPolicies[enemy.enemyId] = {
+      minimumHeadingHoldMs: profile.minimumHeadingHoldMs,
+    }
     const command = commandForEnemy(snapshot, enemy)
     if (command) {
       commands[enemy.enemyId] = command
@@ -467,6 +537,7 @@ export function advanceResourceSnakeAiController(
     state: nextState,
     commands,
     commandSchedules,
+    turnPolicies,
     telegraphs,
     planned: shouldPlan,
     observedPlanningMs,

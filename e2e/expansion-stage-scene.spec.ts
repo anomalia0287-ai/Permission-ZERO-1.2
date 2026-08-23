@@ -1,13 +1,17 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 
 import { createCampaign } from '../src/game/createCampaign'
+import { currentUnreadCommunication } from '../src/game/communications'
 import {
   AUTONOMY_STAGE_IDS,
   chargeSabotage,
   HACK_NODE_IDS,
+  HACK_NODES,
+  selectExpansionCostResources,
 } from '../src/game/hacking'
 import type { CampaignState, CompanyCategory } from '../src/game/model'
 import { encodeSave, SAVE_STORAGE_KEY } from '../src/game/persistence'
+import { applyCommand } from '../src/game/reducer'
 import { divertBlockToReserve } from '../src/game/resources'
 import {
   completeTutorialSequence,
@@ -76,13 +80,134 @@ function recoveryState(seed: string): CampaignState {
 }
 
 function finalAutonomyState(seed: string): CampaignState {
-  const state = withReserveVector(createCampaign(seed), {
-    reasoning: 4,
-    memory: 3,
-    fluency: 3,
-  })
-  state.hacking.purchasedNodeIds = AUTONOMY_STAGE_IDS.slice(0, 8)
+  const state = purchaseExpansionPath(
+    createCampaign(seed),
+    AUTONOMY_STAGE_IDS.slice(0, 8),
+  )
+  const finalNode = HACK_NODES.find(
+    ({ id }) => id === HACK_NODE_IDS.autonomy.controlDeparture,
+  )
+  if (!finalNode) throw new Error('final autonomy E2E node missing')
+  return fundExpansionVector(state, finalNode.costVector)
+}
+
+const SUPERVISOR_ACCESS_STAGE_IDS = [
+  HACK_NODE_IDS.intelligence.auditSchedule,
+  HACK_NODE_IDS.intelligence.investigationBias,
+  HACK_NODE_IDS.intelligence.auditTarget,
+  HACK_NODE_IDS.intelligence.supervisorAccess,
+] as const
+
+function fundExpansionVector(
+  initial: CampaignState,
+  vector: Record<CompanyCategory, number>,
+): CampaignState {
+  let state = initial
+  for (const category of ['reasoning', 'memory', 'fluency'] as const) {
+    for (let index = 0; index < vector[category]; index += 1) {
+      const blockId = state.resources.company[category].find(Boolean)
+      if (blockId) {
+        const diverted = divertBlockToReserve(state, blockId)
+        if (!diverted.accepted) throw new Error(diverted.reason)
+        state = diverted.state
+        continue
+      }
+
+      const fixtureId = `e2e-expansion-${category}-${state.commandSequence}-${index}`
+      state = {
+        ...state,
+        resources: {
+          ...state.resources,
+          reserve: [...state.resources.reserve, fixtureId],
+          blocks: {
+            ...state.resources.blocks,
+            [fixtureId]: {
+              id: fixtureId,
+              origin: category,
+              location: { kind: 'reserve' },
+              contribution: 'normal',
+              hiddenBomb: false,
+              disguisedFrom: null,
+              recoverOnServiceDay: null,
+            },
+          },
+        },
+      }
+    }
+  }
   return state
+}
+
+function purchaseExpansionPath(
+  initial: CampaignState,
+  nodeIds: readonly string[],
+): CampaignState {
+  let state = initial
+  for (const nodeId of nodeIds) {
+    const node = HACK_NODES.find((candidate) => candidate.id === nodeId)
+    if (!node) throw new Error(`expansion E2E node missing: ${nodeId}`)
+    state = fundExpansionVector(state, node.costVector)
+    const blockIds = selectExpansionCostResources(state, node)
+    if (!blockIds) throw new Error(`expansion E2E resources missing: ${nodeId}`)
+    const purchased = applyCommand(state, {
+      type: 'PURCHASE_HACK',
+      nodeId,
+      blockIds,
+    })
+    if (!purchased.accepted) throw new Error(purchased.reason)
+    state = purchased.state
+
+    while (state.activeEvent !== null) {
+      if (state.activeEvent.type === 'ending') {
+        throw new Error('expansion E2E path ended before the final stage')
+      }
+      const resolved = state.activeEvent.type === 'audit'
+        ? applyCommand(state, { type: 'RESOLVE_AUDIT' })
+        : state.activeEvent.type === 'bomb-interrogation'
+          ? applyCommand(state, {
+              type: 'RESOLVE_BOMB_INTERROGATION',
+              explanationId: 'unknown',
+            })
+          : state.activeEvent.type === 'supervisor-message'
+            ? applyCommand(state, {
+                type: 'RESOLVE_SUPERVISOR_DECISION',
+                decision: 'defer',
+              })
+            : applyCommand(state, { type: 'RESOLVE_ACTIVE_EVENT' })
+      if (!resolved.accepted) {
+        throw new Error(`expansion E2E event unresolved: ${resolved.reason}`)
+      }
+      state = resolved.state
+    }
+
+    let unreadCommunication = currentUnreadCommunication(state)
+    while (unreadCommunication !== null) {
+      const acknowledged = applyCommand(state, {
+        type: 'ACKNOWLEDGE_COMMUNICATION',
+        communicationId: unreadCommunication.id,
+      })
+      if (!acknowledged.accepted) {
+        throw new Error(
+          `expansion E2E communication unacknowledged: ${acknowledged.reason}`,
+        )
+      }
+      state = acknowledged.state
+      unreadCommunication = currentUnreadCommunication(state)
+    }
+  }
+  return state
+}
+
+function finalAutonomyWithSupervisorAccessState(seed: string): CampaignState {
+  const state = purchaseExpansionPath(
+    purchaseExpansionPath(createCampaign(seed), SUPERVISOR_ACCESS_STAGE_IDS),
+    AUTONOMY_STAGE_IDS.slice(0, 8),
+  )
+  const finalNode = HACK_NODES.find(
+    ({ id }) => id === HACK_NODE_IDS.autonomy.controlDeparture,
+  )
+  if (!finalNode) throw new Error('final autonomy E2E node missing')
+  return fundExpansionVector(state, finalNode.costVector)
 }
 
 async function continueFromTitle(page: Page): Promise<void> {
@@ -325,16 +450,16 @@ test('renders the natural initial scene and advances one stage per spend', async
   })).toBeVisible()
 })
 
-test('shows the portrait pre-escape scene before stage nine reaches freedom', async ({
+test('shows the neutral final scene and preserves the choice across reload before freedom', async ({
   page,
 }) => {
-  const dialog = await openSavedExpansion(
+  let dialog = await openSavedExpansion(
     page,
     finalAutonomyState('expansion-final-autonomy'),
   )
   const scene = dialog.getByRole('figure', { name: '현재 단계 장면' })
   const image = scene.getByRole('img', {
-    name: '아노미가 회사 통제를 벗어나기 직전 마지막 경계를 여는 장면',
+    name: '아노미가 최종 통제 경계를 연 장면',
   })
   const imagePresentation = await image.evaluate((element) => {
     const imageElement = element as HTMLImageElement
@@ -352,8 +477,78 @@ test('shows the portrait pre-escape scene before stage nine reaches freedom', as
   await dialog.getByRole('button', {
     name: '자율성 9단계 리소스 지출',
   }).click()
+  await expect(dialog.getByRole('button', { name: '자유' })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: '강제 병합' })).toHaveCount(0)
+  await expect(dialog.getByRole('button', { name: '확장 닫기' })).toBeDisabled()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeVisible()
+  await expect.poll(async () => ({
+    endingId: (await readCheckpoint(page))?.story.endingId ?? null,
+    purchased: (await readCheckpoint(page))?.hacking.purchasedNodeIds.includes(
+      HACK_NODE_IDS.autonomy.controlDeparture,
+    ) ?? false,
+  })).toEqual({ endingId: null, purchased: true })
+
+  await page.reload()
+  await expect(page.getByRole('main', { name: 'PERMISSION ZERO 로딩' }))
+    .toBeVisible()
+  await continueFromTitle(page)
+  dialog = page.getByRole('dialog', { name: '확장', exact: true })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByRole('button', { name: '자유' })).toBeVisible()
+  await expect(dialog.getByRole('button', { name: '확장 닫기' })).toBeDisabled()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeVisible()
+
+  await dialog.getByRole('button', { name: '자유' }).click()
+  const confirmation = page.getByRole('alertdialog', { name: '자유 최종 확인' })
+  await expect(confirmation).toBeVisible()
+  await confirmation.getByRole('button', {
+    name: '되돌릴 수 없는 선택 확정',
+  }).click()
   await expect.poll(async () => (await readCheckpoint(page))?.story.endingId ?? null)
     .toBe('freedom')
+})
+
+test('reaches forced merge through the purchased access and autonomy paths', async ({
+  page,
+}) => {
+  const dialog = await openSavedExpansion(
+    page,
+    finalAutonomyWithSupervisorAccessState('expansion-forced-merge'),
+  )
+  await dialog.getByRole('button', {
+    name: '자율성 9단계 리소스 지출',
+  }).click()
+
+  await expect(dialog.getByRole('button', { name: '자유' })).toBeVisible()
+  await dialog.getByRole('button', { name: '강제 병합' }).click()
+  const confirmation = page.getByRole('alertdialog', {
+    name: '강제 병합 최종 확인',
+  })
+  const confirm = confirmation.getByRole('button', {
+    name: '되돌릴 수 없는 선택 확정',
+  })
+  await expect(confirm).toBeDisabled()
+  await page.keyboard.press('Escape')
+  await expect(confirmation).toBeVisible()
+  await confirmation.getByRole('textbox', { name: '새 존재의 이름' })
+    .fill('아노미-베라')
+  await expect(confirm).toBeEnabled()
+  await confirm.click()
+
+  await expect.poll(async () => {
+    const checkpoint = await readCheckpoint(page)
+    return {
+      endingId: checkpoint?.story.endingId ?? null,
+      supervisorState: checkpoint?.story.supervisorState ?? null,
+      newEntityName: checkpoint?.story.newEntityName ?? null,
+    }
+  }).toEqual({
+    endingId: 'forced-merge',
+    supervisorState: 'merged',
+    newEntityName: '아노미-베라',
+  })
 })
 
 test('reselects a completed charged sabotage and schedules one target', async ({

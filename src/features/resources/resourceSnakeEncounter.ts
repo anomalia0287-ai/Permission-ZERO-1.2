@@ -9,19 +9,18 @@ import type {
   SnakeRoundSetup,
 } from './resourceSnakeRuntime'
 import {
+  anomiMaximumSpeed,
+  resourceSnakeBotMaximumSpeed,
+} from '../../game/resourceIntrusion'
+import {
   cyanEncounterStageForProgress,
-  cyanEnemySpeed,
   cyanLightcycleProfile,
   type CyanEncounterStage,
   type CyanLightcycleProfile,
   type SnakeDoctrine,
 } from './resourceSnakeCyanProfile'
 
-export const SNAKE_CATEGORY_COLORS = {
-  reasoning: '#f06a43',
-  memory: '#4f8df7',
-  fluency: '#e8bd59',
-} as const
+export { SNAKE_CATEGORY_COLORS } from './resourceSnakeCategoryPresentation'
 
 export interface SnakeResourceCandidate {
   blockId: string
@@ -39,6 +38,9 @@ export interface CreateSnakeEncounterInput {
   campaignSeed: string
   roundOrdinal: number
   successfulDeposits: number
+  completedRounds?: number
+  speedUpgradeLevel?: number
+  targetCategory?: CompanyCategory
   candidates: readonly SnakeResourceCandidate[]
   bag: SnakeShuffleBagState
 }
@@ -48,6 +50,7 @@ export interface SnakePlannerProfile {
   candidateCount: 48 | 72 | 96
   planningHz: 6 | 7 | 8 | 9 | 10 | 12 | 14
   commitMs: 180 | 220 | 260 | 320 | 360 | 420
+  minimumHeadingHoldMs?: number
   rolloutStepMs: 50
 }
 
@@ -62,16 +65,15 @@ export interface SnakeEncounterResult {
 }
 
 interface CyanEncounterConfiguration {
-  enemyCount: 1 | 2
   maximumIntegrity: 30 | 50 | 65
 }
 
 const ENCOUNTER_CONFIGURATION: Readonly<
   Record<CyanEncounterStage, CyanEncounterConfiguration>
 > = Object.freeze({
-  'cyan-intro': Object.freeze({ enemyCount: 1, maximumIntegrity: 30 }),
-  'cyan-advanced': Object.freeze({ enemyCount: 1, maximumIntegrity: 65 }),
-  'cyan-dual-role': Object.freeze({ enemyCount: 2, maximumIntegrity: 50 }),
+  'cyan-intro': Object.freeze({ maximumIntegrity: 30 }),
+  'cyan-advanced': Object.freeze({ maximumIntegrity: 65 }),
+  'cyan-dual-role': Object.freeze({ maximumIntegrity: 50 }),
 })
 
 function hash(value: string): number {
@@ -213,12 +215,8 @@ function chooseBlock(
     ))[0]
 }
 
-function desiredEnemyCount(
-  stage: CyanEncounterStage,
-  candidateCount: number,
-): 1 | 2 {
-  if (candidateCount < 2) return 1
-  return ENCOUNTER_CONFIGURATION[stage].enemyCount
+function desiredEnemyCount(): 1 {
+  return 1
 }
 
 export function createResourceSnakeEncounter(
@@ -232,10 +230,14 @@ export function createResourceSnakeEncounter(
     candidateCount: cyanProfile.candidateCount,
     planningHz: cyanProfile.planningHz,
     commitMs: cyanProfile.commitMs,
+    minimumHeadingHoldMs: cyanProfile.minimumHeadingHoldMs,
     rolloutStepMs: cyanProfile.rolloutStepMs,
   }
   const candidates = compactEligibleCandidates(input.candidates)
-  if (candidates.length === 0) {
+  const targetCandidates = input.targetCategory
+    ? candidates.filter(({ origin }) => origin === input.targetCategory)
+    : candidates
+  if (targetCandidates.length === 0) {
     return {
       setup: null,
       bag: input.bag,
@@ -247,23 +249,32 @@ export function createResourceSnakeEncounter(
     }
   }
 
-  const count = Math.min(desiredEnemyCount(stage, candidates.length), candidates.length)
+  const count = Math.min(desiredEnemyCount(), targetCandidates.length)
   const roundId = `${input.campaignSeed}:snake:${input.roundOrdinal}`
   const selected: SnakeResourceCandidate[] = []
   let bag = input.bag
-  let pool = candidates
-  for (let index = 0; index < count; index += 1) {
-    const choice = chooseCategory(
+  let pool = targetCandidates
+  if (input.targetCategory) {
+    selected.push(chooseBlock(
       input.campaignSeed,
-      pool,
-      bag,
-      new Set(selected.map((candidate) => candidate.origin)),
-    )
-    if (!choice) break
-    const block = chooseBlock(input.campaignSeed, input.roundOrdinal, choice.category, pool)
-    selected.push(block)
-    bag = choice.bag
-    pool = pool.filter((candidate) => candidate.blockId !== block.blockId)
+      input.roundOrdinal,
+      input.targetCategory,
+      targetCandidates,
+    ))
+  } else {
+    for (let index = 0; index < count; index += 1) {
+      const choice = chooseCategory(
+        input.campaignSeed,
+        pool,
+        bag,
+        new Set(selected.map((candidate) => candidate.origin)),
+      )
+      if (!choice) break
+      const block = chooseBlock(input.campaignSeed, input.roundOrdinal, choice.category, pool)
+      selected.push(block)
+      bag = choice.bag
+      pool = pool.filter((candidate) => candidate.blockId !== block.blockId)
+    }
   }
 
   const twoEnemies = selected.length === 2
@@ -280,11 +291,20 @@ export function createResourceSnakeEncounter(
         ? { x: index === 0 ? 16 : 34, y: 3.5 }
         : { x: 25, y: 3.5 },
       maximumIntegrity: configuration.maximumIntegrity,
-      maximumSpeedPerSecond: cyanEnemySpeed(stage, role),
+      maximumSpeedPerSecond: resourceSnakeBotMaximumSpeed(
+        input.completedRounds ?? 0,
+      ),
     }
   })
   return {
-    setup: { roundId, playerSpawn: { x: 25, y: 21 }, enemies },
+    setup: {
+      roundId,
+      playerSpawn: { x: 25, y: 21 },
+      playerMaximumSpeedPerSecond: anomiMaximumSpeed(
+        input.speedUpgradeLevel ?? 0,
+      ),
+      enemies,
+    },
     bag,
     disabledReason: null,
     stage,

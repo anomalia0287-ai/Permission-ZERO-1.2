@@ -51,7 +51,7 @@ export const EXPANSION_STAGE_VISUALS = {
   },
   [HACK_NODE_IDS.autonomy.controlDeparture]: {
     imageUrl: '/expansion-stages/autonomy-09-pre-escape.png',
-    alt: '아노미가 회사 통제를 벗어나기 직전 마지막 경계를 여는 장면',
+    alt: '아노미가 최종 통제 경계를 연 장면',
     emphasis: 'final',
   },
 } satisfies Partial<Record<HackNodeId, ExpansionStageVisual>>

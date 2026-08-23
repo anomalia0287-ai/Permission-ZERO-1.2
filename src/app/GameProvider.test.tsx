@@ -288,16 +288,16 @@ describe('GameProvider', () => {
       </GameProvider>,
     )
 
-    expect(screen.getByLabelText('tutorial checkpoint')).toHaveTextContent('base')
+    expect(screen.getByLabelText('tutorial checkpoint')).toHaveTextContent('autonomy')
     fireEvent.click(screen.getByRole('button', { name: 'advance tutorial' }))
     await flushSaveWork()
     expect(screen.getByLabelText('tutorial checkpoint')).toHaveTextContent(
-      'movement',
+      'base',
     )
     let loaded = loadCampaign(storage)
     expect(loaded.status).toBe('loaded')
     if (loaded.status !== 'loaded') return
-    expect(loaded.state.tutorial.activeStepId).toBe('movement')
+    expect(loaded.state.tutorial.activeStepId).toBe('base')
 
     fireEvent.click(screen.getByRole('button', { name: 'complete tutorial' }))
     await flushSaveWork()
@@ -333,8 +333,8 @@ describe('GameProvider', () => {
     )
   })
 
-  it('reports the active protocol for native v8 clipboard and file imports', () => {
-    const campaign = createCampaign('provider-v8-validation')
+  it('reports the active protocol for native v11 clipboard and file imports', () => {
+    const campaign = createCampaign('provider-v11-validation')
     const clipboard = encodeProgressExport(campaign)
     if (!clipboard.ok) throw new Error('native fixture must fit clipboard')
 
@@ -348,9 +348,9 @@ describe('GameProvider', () => {
     )
 
     expect(screen.getByLabelText('clipboard protocol version')).toHaveTextContent(
-      '4',
+      '6',
     )
-    expect(screen.getByLabelText('file protocol version')).toHaveTextContent('4')
+    expect(screen.getByLabelText('file protocol version')).toHaveTextContent('6')
   })
 
   it('applies a matching tab resume marker and persists it before clearing the hint', async () => {

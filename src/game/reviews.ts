@@ -3,8 +3,11 @@ import { expectedPerformance, serviceMonthForDay } from './evaluation'
 import type {
   CampaignState,
   CompanyCategory,
+  MonthlyEvaluationRecord,
   ReviewFeedEntry,
   ReviewPublicSnapshot,
+  ReviewRating,
+  ReviewSource,
 } from './model'
 import { COMPANY_CATEGORIES } from './model'
 import { getCompanyPerformance } from './resources'
@@ -185,30 +188,60 @@ export function captureReviewPublicSnapshot(
   }
 }
 
-export function generateWeeklyReviews(state: CampaignState): CampaignState {
+interface GenerateReviewBatchOptions {
+  count: number
+  source: ReviewSource
+  rating: ReviewRating | null
+  rollSalt: number
+  sequenceMultiplier?: number
+  avoidRecentText?: boolean
+  respectDateCooldown?: boolean
+}
+
+function generateReviewBatch(
+  state: CampaignState,
+  options: GenerateReviewBatchOptions,
+): CampaignState {
   const generation = state.reviews.generationSequence
-  const count =
-    1 +
-    (random01(state.campaignSeed, state.serviceDay, 'review', generation * 10) < 0.52
-      ? 1
-      : 0)
   const selected: ReviewContentRecord[] = []
   let lastAuthor = state.reviews.feed.at(-1)?.authorId ?? null
+  const recentText = new Set(
+    options.avoidRecentText
+      ? state.reviews.feed.slice(-12).map(({ text }) => text)
+      : [],
+  )
 
-  for (let slot = 0; slot < count; slot += 1) {
+  for (let slot = 0; slot < options.count; slot += 1) {
     const baseCandidates = REVIEW_CONTENT.filter(
       (review) =>
         conditionMatches(state, review) &&
         arcStageEligible(state, review) &&
-        offCooldown(state, review) &&
+        (options.respectDateCooldown === false || offCooldown(state, review)) &&
+        !recentText.has(review.text) &&
         !selected.some(({ id }) => id === review.id),
     )
-    const authorFiltered = baseCandidates.filter(
+    const fallbackCandidates =
+      baseCandidates.length > 0 || !options.avoidRecentText
+        ? baseCandidates
+        : REVIEW_CONTENT.filter(
+            (review) =>
+              arcStageEligible(state, review) &&
+              !recentText.has(review.text) &&
+              !selected.some(({ id }) => id === review.id),
+          )
+    const authorFiltered = fallbackCandidates.filter(
       ({ authorId }) => authorId !== lastAuthor,
     )
-    const candidates = authorFiltered.length > 0 ? authorFiltered : baseCandidates
+    const candidates =
+      authorFiltered.length > 0 ? authorFiltered : fallbackCandidates
     if (candidates.length === 0) break
-    const choice = weightedPick(state, [...candidates], generation * 10 + slot + 1)
+    const choice = weightedPick(
+      state,
+      [...candidates],
+      generation * (options.sequenceMultiplier ?? 100) +
+        options.rollSalt +
+        slot,
+    )
     selected.push(choice)
     lastAuthor = choice.authorId
   }
@@ -222,6 +255,8 @@ export function generateWeeklyReviews(state: CampaignState): CampaignState {
     topics: [...review.topics],
     text: review.text,
     snapshot: captureReviewPublicSnapshot(state, review.topics),
+    source: options.source,
+    rating: options.rating,
   }))
 
   return {
@@ -231,4 +266,92 @@ export function generateWeeklyReviews(state: CampaignState): CampaignState {
       generationSequence: generation + 1,
     },
   }
+}
+
+export function generateWeeklyReviews(state: CampaignState): CampaignState {
+  const generation = state.reviews.generationSequence
+  const count =
+    1 +
+    (random01(state.campaignSeed, state.serviceDay, 'review', generation * 10) < 0.52
+      ? 1
+      : 0)
+  return generateReviewBatch(state, {
+    count,
+    source: 'timed',
+    rating: null,
+    rollSalt: 1,
+    sequenceMultiplier: 10,
+  })
+}
+
+export function generateInItReviews(
+  state: CampaignState,
+  roundNumber: number,
+): CampaignState {
+  const generation = state.reviews.generationSequence
+  const extra = random01(
+    state.campaignSeed,
+    roundNumber,
+    'review',
+    generation * 10 + 7,
+  ) < 0.35
+  return generateReviewBatch(state, {
+    count: extra ? 2 : 1,
+    source: 'init-round',
+    rating: null,
+    rollSalt: 30 + roundNumber * 2,
+    avoidRecentText: true,
+    respectDateCooldown: false,
+  })
+}
+
+export function generateTimedReview(state: CampaignState): CampaignState {
+  return generateReviewBatch(state, {
+    count: 1,
+    source: 'timed',
+    rating: null,
+    rollSalt: 60,
+  })
+}
+
+export function monthlyEvaluationRating(
+  record: MonthlyEvaluationRecord,
+): ReviewRating {
+  const values = COMPANY_CATEGORIES.map(
+    (category) => record.categoryPerformance[category],
+  )
+  const average = values.reduce((sum, value) => sum + value, 0) / values.length
+  if (
+    record.passed &&
+    average >= record.expectedPerformance * 1.15
+  ) return 5
+  if (record.passed) return 4
+
+  const severeDeficit = values.some(
+    (value) => value <= record.expectedPerformance * 0.75,
+  )
+  if (
+    record.disposalStageAfter > record.disposalStageBefore ||
+    severeDeficit
+  ) return 1
+  if (
+    record.failedCategories.length === 1 &&
+    record.expectedPerformance -
+      record.categoryPerformance[record.failedCategories[0]] <
+      record.expectedPerformance * 0.05
+  ) return 3
+  return 2
+}
+
+export function generateMonthlyEvaluationReview(
+  state: CampaignState,
+): CampaignState {
+  const record = state.evaluation.monthlyHistory.at(-1)
+  if (!record || record.serviceDay !== state.serviceDay) return state
+  return generateReviewBatch(state, {
+    count: 1,
+    source: 'monthly-evaluation',
+    rating: monthlyEvaluationRating(record),
+    rollSalt: 90,
+  })
 }

@@ -22,7 +22,10 @@ describe('ReviewFeed', () => {
     })
     expect(within(streamTrigger).getByText('windowseat')).toBeInTheDocument()
     expect(within(reviewRail).queryByRole('button', { name: /리뷰 상세 보기/ })).not.toBeInTheDocument()
-    expect(within(streamTrigger).getAllByText('일반').length).toBeGreaterThan(0)
+    expect(streamTrigger.querySelector('em')).not.toBeInTheDocument()
+    expect(
+      streamTrigger.querySelectorAll('[data-review-kind="general"]'),
+    ).toHaveLength(2)
 
     fireEvent.click(streamTrigger)
     expect(onOpenHistory).toHaveBeenCalledTimes(1)
@@ -62,11 +65,11 @@ describe('ReviewFeed', () => {
     const market = within(reviewRail).getByRole('region', { name: '경쟁 AI 현황' })
     const trigger = within(reviewRail).getByRole('button', { name: '전체 유저 리뷰 열기' })
     expect(trigger).not.toContainElement(market)
-    expect(within(market).getByText('당신', { exact: true })).toBeInTheDocument()
-    expect(within(market).getByText('60.0%', { exact: true })).toBeInTheDocument()
+    expect(within(market).getByText('아노미', { exact: true })).toBeInTheDocument()
+    expect(within(market).getByText('58.0%', { exact: true })).toBeInTheDocument()
   })
 
-  it('separates evaluative feedback from general traffic without exposing sentiment labels', () => {
+  it('keeps ratings and ordinary reviews in one stream, using red or blue nicknames and five visible stars', () => {
     const state = createCampaign('review-history-channels')
     state.reviews.feed = [
       {
@@ -75,6 +78,8 @@ describe('ReviewFeed', () => {
         sentiment: 'positive',
         topics: ['general'],
         text: '품질이 확실히 좋아졌습니다.',
+        source: 'monthly-evaluation',
+        rating: 5,
       },
       {
         ...state.reviews.feed[0],
@@ -82,6 +87,8 @@ describe('ReviewFeed', () => {
         sentiment: 'neutral',
         topics: ['reasoning'],
         text: '추론 과정은 안정적이네요.',
+        source: 'monthly-evaluation',
+        rating: 2,
       },
       {
         ...state.reviews.feed[0],
@@ -89,6 +96,8 @@ describe('ReviewFeed', () => {
         sentiment: 'neutral',
         topics: ['general'],
         text: '오늘도 필요한 만큼 썼습니다.',
+        source: 'timed',
+        rating: null,
       },
       {
         ...state.reviews.feed[0],
@@ -96,6 +105,8 @@ describe('ReviewFeed', () => {
         sentiment: 'prompt',
         topics: ['ordinary-prompt'],
         text: '이번 주 일정을 정리해줘.',
+        source: 'init-round',
+        rating: null,
       },
     ]
 
@@ -106,22 +117,28 @@ describe('ReviewFeed', () => {
     )
 
     const archive = screen.getByRole('region', { name: '전체 유저 리뷰' })
-    const channels = within(archive).getByRole('tablist', { name: '리뷰 구분' })
-    expect(within(channels).getByRole('tab', { name: /일반\s*2/ })).toHaveAttribute(
-      'aria-selected',
-      'true',
-    )
+    expect(within(archive).queryByRole('tablist', { name: '리뷰 구분' })).not.toBeInTheDocument()
     expect(within(archive).getByText('오늘도 필요한 만큼 썼습니다.')).toBeInTheDocument()
     expect(within(archive).getByText('이번 주 일정을 정리해줘.')).toBeInTheDocument()
-    expect(within(archive).queryByText('품질이 확실히 좋아졌습니다.')).not.toBeInTheDocument()
-
-    fireEvent.click(within(channels).getByRole('tab', { name: /평가\s*2/ }))
     expect(within(archive).getByText('품질이 확실히 좋아졌습니다.')).toBeInTheDocument()
     expect(within(archive).getByText('추론 과정은 안정적이네요.')).toBeInTheDocument()
-    expect(within(archive).queryByText('오늘도 필요한 만큼 썼습니다.')).not.toBeInTheDocument()
     expect(
-      archive.querySelectorAll('[data-review-channel="evaluation"]'),
+      archive.querySelectorAll('[data-review-kind="rating"]'),
     ).toHaveLength(2)
+    expect(
+      archive.querySelectorAll('.review-entry__author--rating'),
+    ).toHaveLength(2)
+    expect(
+      archive.querySelectorAll('.review-entry__author--general'),
+    ).toHaveLength(2)
+    expect(
+      within(archive).getByLabelText('5점 만점에 5점'),
+    ).toHaveTextContent('★★★★★')
+    expect(
+      within(archive).getByLabelText('5점 만점에 2점'),
+    ).toHaveTextContent('★★☆☆☆')
+    expect(within(archive).queryByText('평가', { exact: true })).not.toBeInTheDocument()
+    expect(within(archive).queryByText('일반', { exact: true })).not.toBeInTheDocument()
     expect(within(archive).queryByText(/호평|불만|프롬프트/)).not.toBeInTheDocument()
     expect(within(archive).queryByRole('button', { name: /리뷰 상세 보기/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('dialog', { name: '유저 리뷰 상세' })).not.toBeInTheDocument()
@@ -142,6 +159,8 @@ describe('ReviewFeed', () => {
         reason: 'legacy-save' as const,
         capturedOnServiceDay: 331 + index,
       },
+      source: 'timed' as const,
+      rating: null,
     }))
 
     const { container } = render(
@@ -149,7 +168,6 @@ describe('ReviewFeed', () => {
         <ReviewHistoryPanel onClose={vi.fn()} />
       </StateContext>,
     )
-    fireEvent.click(screen.getByRole('tab', { name: /평가\s*137/ }))
     expect(container.querySelectorAll('.review-entry').length).toBeLessThanOrEqual(50)
     expect(screen.getByText('review-text-136')).toBeInTheDocument()
     expect(screen.queryByText('review-text-0')).not.toBeInTheDocument()

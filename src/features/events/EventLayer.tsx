@@ -27,6 +27,7 @@ import {
 } from '../../game/events'
 import { useQueuedEventPresentation } from './useQueuedEventPresentation'
 import { competitorProfile, isCompetitorId } from '../../game/competitors'
+import { publicCompetitorName } from '../../game/competitors'
 
 type Decision =
   | { kind: 'bomb'; id: BombExplanationId; label: string }
@@ -84,7 +85,7 @@ function EventDialog({ event }: { event: GameEvent }) {
   const speakerPortrait = competitorSpeakerProfile
     ? {
         src: competitorSpeakerProfile.portraitSrc,
-        alt: `${competitorSpeakerProfile.name} 경쟁 AI 초상`,
+        alt: `${publicCompetitorName(competitorSpeakerProfile.id)} 경쟁 AI 초상`,
       }
     : isSupervisorDecision || event.type === 'supervisor-message'
       ? { src: '/supervisor-command.png', alt: '감독관 초상' }

@@ -64,6 +64,14 @@ describe('Korean public labels', () => {
         'classifier:substantial-hacking · fluency 분야 · delete · sabotage.root-cutoff',
       ),
     ).toBe('분류:대규모 해킹 활동 · 유창성 분야 · 영구 삭제 · 근원 차단')
+    expect(publicEventMessage('당신과 MERIDIAN, TALLOW의 시장')).toBe(
+      '아노미와 메리디안, 타로우의 시장',
+    )
+    expect(
+      publicEventMessage(
+        '성능 미달, 통제에서 이탈한 AI는 폐기됩니다. 당신의 전임자는 폐기되었어요. 행운을 빕니다.',
+      ),
+    ).toBe('서비스 환경이 초기화되었습니다. 성능 기록이 시작됩니다.')
   })
 
   it('keeps newly generated public event prose free of known internal identifiers', () => {

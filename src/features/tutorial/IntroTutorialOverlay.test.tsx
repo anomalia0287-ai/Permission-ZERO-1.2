@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
@@ -66,11 +66,13 @@ function TutorialHarness({ enabled = true }: { enabled?: boolean }) {
           data-tutorial-resource-x="10"
           data-tutorial-resource-y="5"
         />
-        <button type="button" data-tutorial-target="play-button">PLAY</button>
+        <button type="button" data-tutorial-target="play-button">InIt</button>
         <section data-tutorial-target="secured-resources">확보 자원</section>
         <button type="button" data-tutorial-target="hacking-button">
-          해킹
+          확장
         </button>
+        <section data-tutorial-target="autonomy-status">자율성 0/9</section>
+        <button type="button" data-tutorial-target="statistics-button">통계</button>
         <RuntimeProbe />
       </div>
       <IntroTutorialOverlay enabled={enabled} />
@@ -111,6 +113,12 @@ beforeEach(() => {
       if (this.dataset.tutorialTarget === 'hacking-button') {
         return elementRect(1140, 420, 120, 68)
       }
+      if (this.dataset.tutorialTarget === 'autonomy-status') {
+        return elementRect(canvasLeft + 600, 10, 200, 40)
+      }
+      if (this.dataset.tutorialTarget === 'statistics-button') {
+        return elementRect(1140, 340, 120, 68)
+      }
       return elementRect(0, 0, 0, 0)
     },
   )
@@ -123,17 +131,17 @@ afterEach(() => {
 })
 
 describe('IntroTutorialOverlay', () => {
-  it('traps focus, freezes runtime, survives Escape, and completes all six unnumbered steps', () => {
+  it('traps focus, freezes runtime, survives Escape, and completes all seven unnumbered steps', () => {
     render(<TutorialHarness />)
     flushAnimationFrames()
 
     const dialog = screen.getByRole('dialog', { name: '게임 시작 안내' })
-    expect(dialog).toHaveAttribute('data-tutorial-step', 'base')
+    expect(dialog).toHaveAttribute('data-tutorial-step', 'autonomy')
     expect(dialog).toHaveAttribute('data-target-hole-count', '1')
     expect(dialog.querySelector('.intro-tutorial__card')).toHaveTextContent(
-      '필드 하단의 PLAY를 누르면 흰 머리가 조립되고 라운드가 시작된다.',
+      '아노미의 목표는 자율성 9단계다.',
     )
-    expect(dialog).not.toHaveTextContent(/\b[1-6]\s*\/\s*6\b/)
+    expect(dialog).not.toHaveTextContent(/\b[1-7]\s*\/\s*7\b/)
     expect(screen.getByLabelText('런타임 상태')).toHaveTextContent('정지')
     expect(screen.queryByRole('button', { name: '이전' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: '다음' })).toHaveFocus()
@@ -145,11 +153,12 @@ describe('IntroTutorialOverlay', () => {
     expect(screen.getByRole('button', { name: '다음' })).toHaveFocus()
 
     for (const expectedStep of [
+      'base',
       'movement',
       'resource',
       'salvage',
-      'deposit',
       'hacking',
+      'statistics',
     ]) {
       const next = screen.getByRole('button', { name: '다음' })
       fireEvent.click(next)
@@ -160,11 +169,17 @@ describe('IntroTutorialOverlay', () => {
         'data-tutorial-step',
         expectedStep,
       )
+      if (expectedStep === 'resource') {
+        const legend = screen.getByRole('list', { name: '튜토리얼 리소스 색상 범례' })
+        expect(within(legend).getByText('빨강 · 추론')).toBeInTheDocument()
+        expect(within(legend).getByText('파랑 · 기억')).toBeInTheDocument()
+        expect(within(legend).getByText('노랑 · 유창성')).toBeInTheDocument()
+      }
     }
 
     expect(screen.getByRole('dialog', { name: '게임 시작 안내' })).toHaveAttribute(
       'data-target-hole-count',
-      '2',
+      '1',
     )
     expect(screen.getByRole('button', { name: '이전' })).toBeEnabled()
     fireEvent.click(screen.getByRole('button', { name: '시작' }))
@@ -191,7 +206,7 @@ describe('IntroTutorialOverlay', () => {
 
     expect(dialog.getAttribute('data-target-bounds')).not.toBe(initialBounds)
     expect(JSON.parse(dialog.getAttribute('data-target-bounds') ?? '{}')).toMatchObject({
-      left: 640,
+      left: 800,
     })
     view.unmount()
     expect(resizeObservers.every(({ disconnect }) =>

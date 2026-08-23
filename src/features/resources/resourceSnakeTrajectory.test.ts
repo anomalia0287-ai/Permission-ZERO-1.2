@@ -67,7 +67,7 @@ describe('eight-direction lightcycle trajectories', () => {
       for (let index = 1; index < candidate.headingChanges.length; index += 1) {
         const before = SNAKE_DIRECTION_VECTORS[candidate.headingChanges[index - 1].heading]
         const after = SNAKE_DIRECTION_VECTORS[candidate.headingChanges[index].heading]
-        expect(before.x * after.x + before.y * after.y).toBeGreaterThan(-0.999_999)
+        expect(before.x * after.x + before.y * after.y).toBeGreaterThanOrEqual(0)
       }
     }
   })
@@ -89,6 +89,53 @@ describe('eight-direction lightcycle trajectories', () => {
     expect(candidate.path[2]).toEqual({ x: 11.8, y: 10 })
     expect(candidate.path[3].x).toBeCloseTo(11.92, 10)
     expect(candidate.path[3].y).toBeCloseTo(9.52, 10)
+  })
+
+  it('keeps every projected follow-up turn outside the runtime minimum heading hold', () => {
+    const profile = {
+      ...PROFILES[2],
+      minimumHeadingHoldMs: 700,
+    }
+    const candidates = generateResourceSnakeLightcycleCandidates({
+      actor: enemy(),
+      profile,
+      telegraphMs: 160,
+    })
+
+    for (const candidate of candidates) {
+      const advertisedTurn = candidate.headingChanges[1]
+      const followUpTurn = candidate.headingChanges[2]
+      expect(followUpTurn.offsetMs - advertisedTurn.offsetMs).toBeGreaterThanOrEqual(700)
+    }
+  })
+
+  it('does not advertise a first turn before the authoritative rolling budget opens', () => {
+    const profile = {
+      ...PROFILES[2],
+      minimumHeadingHoldMs: 700,
+    }
+    const input = {
+      actor: enemy({
+        enemyTurnGovernor: {
+          lastHeadingChangeAtMs: 4_700,
+          previousHeading: 'south' as const,
+          normalTurnAtMs: [4_000, 4_700],
+          lastEmergencyTurnAtMs: null,
+          lockedUntilMs: 0,
+          lastTurnCause: 'normal' as const,
+        },
+      }),
+      profile,
+      telegraphMs: 160,
+      plannedAtMs: 5_000,
+    }
+    const candidate = generateResourceSnakeLightcycleCandidates(input)
+      .find((entry) => entry.attackHeading === 'north')!
+
+    expect(candidate.headingChanges.slice(0, 2)).toEqual([
+      { offsetMs: 0, heading: 'east' },
+      { offsetMs: 1_000, heading: 'north' },
+    ])
   })
 
   it('returns cache-isolated deterministic structures', () => {

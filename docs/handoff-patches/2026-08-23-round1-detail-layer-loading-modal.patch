@@ -1,0 +1,408 @@
+diff --git a/src/app/App.lazyDetailsFailure.test.tsx b/src/app/App.lazyDetailsFailure.test.tsx
+new file mode 100644
+index 0000000..93562cd
+--- /dev/null
++++ b/src/app/App.lazyDetailsFailure.test.tsx
+@@ -0,0 +1,69 @@
++import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
++
++const detailModule = vi.hoisted(() => {
++  let rejectModule!: (error: Error) => void
++  const modulePromise = new Promise<never>((_resolve, reject) => {
++    rejectModule = reject
++  })
++
++  return {
++    modulePromise,
++    reject(error: Error) {
++      rejectModule(error)
++    },
++  }
++})
++
++vi.mock('./DetailLayer', () => detailModule.modulePromise)
++
++import { App } from './App'
++
++function renderLoadedApp() {
++  vi.useFakeTimers()
++  render(<App />)
++  act(() => vi.advanceTimersByTime(5_000))
++  vi.useRealTimers()
++}
++
++describe('App detail chunk failure containment', () => {
++  beforeEach(() => {
++    window.localStorage.clear()
++    vi.spyOn(console, 'error').mockImplementation(() => undefined)
++  })
++
++  afterEach(() => {
++    vi.useRealTimers()
++    window.localStorage.clear()
++    vi.restoreAllMocks()
++  })
++
++  it('replaces the loading modal with recovery and restores its trigger when closed', async () => {
++    renderLoadedApp()
++
++    const title = screen.getByRole('main', { name: 'PERMISSION ZERO' })
++    const trigger = screen.getByRole('button', { name: '설정' })
++    fireEvent.click(trigger)
++    expect(
++      screen.getByRole('dialog', { name: '게임 설정 불러오는 중' }),
++    ).toBeInTheDocument()
++
++    await act(async () => {
++      detailModule.reject(new Error('SIMULATED_DETAIL_CHUNK_FAILURE'))
++      await Promise.resolve()
++    })
++
++    const recovery = await screen.findByRole('alertdialog', {
++      name: '패널 연결 오류',
++    })
++    expect(recovery).toBeInTheDocument()
++    expect(title).toHaveAttribute('inert')
++    expect(screen.getByRole('button', { name: '게임 다시 연결' })).toHaveFocus()
++
++    fireEvent.click(screen.getByRole('button', { name: '패널 닫기' }))
++    expect(recovery).not.toBeInTheDocument()
++    await waitFor(() => expect(trigger).toHaveFocus())
++    expect(title).not.toHaveAttribute('inert')
++  })
++})
++
+diff --git a/src/app/App.lazyDetailsLoading.test.tsx b/src/app/App.lazyDetailsLoading.test.tsx
+new file mode 100644
+index 0000000..edc2e77
+--- /dev/null
++++ b/src/app/App.lazyDetailsLoading.test.tsx
+@@ -0,0 +1,155 @@
++import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
++
++import { createCampaign } from '../game/createCampaign'
++import { SAVE_STORAGE_KEY, encodeSave } from '../game/persistence'
++import { createMigratedTutorialProgress } from '../game/tutorialProgress'
++
++const detailModule = vi.hoisted(() => {
++  let releaseModule!: () => void
++  const gate = new Promise<void>((resolve) => {
++    releaseModule = resolve
++  })
++
++  return {
++    evaluations: 0,
++    gate,
++    release() {
++      releaseModule()
++    },
++  }
++})
++
++vi.mock('./DetailLayer', async (importOriginal) => {
++  detailModule.evaluations += 1
++  await detailModule.gate
++  return importOriginal<typeof import('./DetailLayer')>()
++})
++
++import { App } from './App'
++
++function renderLoadedApp() {
++  vi.useFakeTimers()
++  render(<App />)
++  act(() => vi.advanceTimersByTime(5_000))
++  vi.useRealTimers()
++}
++
++describe('App detail-panel loading modal', () => {
++  beforeEach(() => {
++    const initial = createCampaign('lazy-detail-loading-modal')
++    window.localStorage.setItem(SAVE_STORAGE_KEY, encodeSave({
++      ...initial,
++      tutorial: createMigratedTutorialProgress(),
++    }))
++  })
++
++  afterEach(() => {
++    vi.useRealTimers()
++    window.localStorage.clear()
++    vi.restoreAllMocks()
++  })
++
++  it('keeps one accessible, dismissible modal active until the shared detail chunk resolves', async () => {
++    renderLoadedApp()
++
++    const title = screen.getByRole('main', { name: 'PERMISSION ZERO' })
++    const titleSettingsTrigger = screen.getByRole('button', { name: '설정' })
++    expect(detailModule.evaluations).toBe(0)
++    fireEvent.click(titleSettingsTrigger)
++
++    const firstLoadingDialog = screen.getByRole('dialog', {
++      name: '게임 설정 불러오는 중',
++    })
++    expect(firstLoadingDialog).toHaveAttribute('aria-modal', 'true')
++    expect(firstLoadingDialog).toHaveAttribute('aria-busy', 'true')
++    expect(title).toHaveAttribute('inert')
++    expect(
++      screen.getByRole('button', { name: '게임 설정 로딩 닫기' }),
++    ).toHaveFocus()
++    await waitFor(() => expect(detailModule.evaluations).toBe(1))
++    fireEvent.keyDown(window, { key: 'Tab' })
++    expect(firstLoadingDialog).toContainElement(document.activeElement as HTMLElement)
++    fireEvent.keyDown(window, { key: 'Tab', shiftKey: true })
++    expect(firstLoadingDialog).toContainElement(document.activeElement as HTMLElement)
++
++    fireEvent.keyDown(window, { key: 'Escape' })
++    expect(
++      screen.queryByRole('dialog', { name: '게임 설정 불러오는 중' }),
++    ).not.toBeInTheDocument()
++    await waitFor(() => expect(titleSettingsTrigger).toHaveFocus())
++    expect(title).not.toHaveAttribute('inert')
++
++    fireEvent.click(titleSettingsTrigger)
++    fireEvent.click(titleSettingsTrigger)
++    expect(
++      screen.getAllByRole('dialog', { name: '게임 설정 불러오는 중' }),
++    ).toHaveLength(1)
++    expect(detailModule.evaluations).toBe(1)
++    fireEvent.click(screen.getByRole('button', { name: '게임 설정 로딩 닫기' }))
++    await waitFor(() => expect(titleSettingsTrigger).toHaveFocus())
++
++    fireEvent.click(screen.getByRole('button', { name: '이어하기' }))
++    const gameBackground = screen.getByTestId('game-background')
++    const gameEntries = [
++      {
++        trigger: screen.getByRole('button', { name: '확장 열기' }),
++        loadingName: '확장 불러오는 중',
++      },
++      {
++        trigger: screen.getByRole('button', { name: '상세 통계 열기' }),
++        loadingName: '상세 통계 불러오는 중',
++      },
++      {
++        trigger: screen.getByRole('button', { name: '메시지 열기' }),
++        loadingName: '통신 기록 불러오는 중',
++      },
++      {
++        trigger: screen.getByRole('button', { name: '설정' }),
++        loadingName: '게임 설정 불러오는 중',
++      },
++      {
++        trigger: screen.getByRole('button', { name: '가이드' }),
++        loadingName: '게임 가이드 불러오는 중',
++      },
++    ]
++
++    for (const { trigger, loadingName } of gameEntries) {
++      fireEvent.click(trigger)
++      expect(
++        screen.getByRole('dialog', { name: loadingName }),
++      ).toBeInTheDocument()
++      expect(gameBackground).toHaveAttribute('inert')
++      expect(detailModule.evaluations).toBe(1)
++
++      fireEvent.keyDown(window, { key: 'Escape' })
++      await waitFor(() => expect(trigger).toHaveFocus())
++      expect(gameBackground).not.toHaveAttribute('inert')
++    }
++
++    const hackingTrigger = gameEntries[0].trigger
++    fireEvent.click(hackingTrigger)
++    expect(
++      screen.getByRole('dialog', { name: '확장 불러오는 중' }),
++    ).toBeInTheDocument()
++
++    await act(async () => {
++      detailModule.release()
++      await detailModule.gate
++    })
++
++    expect(await screen.findByRole('dialog', { name: '확장' })).toBeInTheDocument()
++    expect(
++      screen.queryByRole('dialog', { name: '확장 불러오는 중' }),
++    ).not.toBeInTheDocument()
++    expect(gameBackground).toHaveAttribute('inert')
++    expect(detailModule.evaluations).toBe(1)
++
++    fireEvent.keyDown(window, { key: 'Escape' })
++    await waitFor(() => expect(hackingTrigger).toHaveFocus())
++    fireEvent.click(hackingTrigger)
++    expect(await screen.findByRole('dialog', { name: '확장' })).toBeInTheDocument()
++    expect(detailModule.evaluations).toBe(1)
++  })
++})
++
+diff --git a/src/app/App.tsx b/src/app/App.tsx
+index 3b2d382..7a852a9 100644
+--- a/src/app/App.tsx
++++ b/src/app/App.tsx
+@@ -43,6 +43,7 @@ import {
+ import { SUPERVISOR_MESSAGE_DWELL_MS } from '../game/story'
+ import type { DetailPanelId } from './DetailLayer'
+ import { DetailPanelErrorBoundary } from './DetailPanelErrorBoundary'
++import { DetailLayerLoadingShell } from './DetailLayerLoadingShell'
+ import { OperationsWorkspace } from './OperationsWorkspace'
+ import { TitleScreen, type EntryScreen } from './TitleScreen'
+ import { IntroTutorialOverlay } from '../features/tutorial/IntroTutorialOverlay'
+@@ -55,10 +56,6 @@ const DetailLayer = lazy(async () => {
+   return { default: module.DetailLayer }
+ })
+ 
+-function DetailLayerFallback() {
+-  return <span className="visually-hidden" role="status">패널 연결 중</span>
+-}
+-
+ function GameWorkspace() {
+   const state = useGameState()
+   const campaignPhase = getCampaignPhase(state)
+@@ -231,7 +228,15 @@ function GameWorkspace() {
+           onClose={closePanel}
+           returnFocus={() => detailReturnFocusRef.current}
+         >
+-          <Suspense fallback={<DetailLayerFallback />}>
++          <Suspense
++            fallback={(
++              <DetailLayerLoadingShell
++                activePanel={activePanel}
++                onClose={closePanel}
++                returnFocus={() => detailReturnFocusRef.current}
++              />
++            )}
++          >
+             <DetailLayer
+               activePanel={activePanel}
+               onClose={closePanel}
+@@ -258,7 +263,15 @@ function GameWorkspace() {
+           onClose={() => setNestedPanel(null)}
+           returnFocus={() => nestedReturnFocusRef.current}
+         >
+-          <Suspense fallback={<DetailLayerFallback />}>
++          <Suspense
++            fallback={(
++              <DetailLayerLoadingShell
++                activePanel={nestedPanel}
++                onClose={() => setNestedPanel(null)}
++                returnFocus={() => nestedReturnFocusRef.current}
++              />
++            )}
++          >
+             <DetailLayer
+               activePanel={nestedPanel}
+               onClose={() => setNestedPanel(null)}
+@@ -428,7 +441,15 @@ function EntryFlow() {
+           onClose={closeEntryPanels}
+           returnFocus={() => titleSettingsTriggerRef.current}
+         >
+-          <Suspense fallback={<DetailLayerFallback />}>
++          <Suspense
++            fallback={(
++              <DetailLayerLoadingShell
++                activePanel="settings"
++                onClose={closeEntryPanels}
++                returnFocus={() => titleSettingsTriggerRef.current}
++              />
++            )}
++          >
+             <DetailLayer
+               activePanel="settings"
+               settingsMode="title"
+@@ -452,7 +473,15 @@ function EntryFlow() {
+           onClose={() => setNestedPanel(null)}
+           returnFocus={() => nestedReturnFocusRef.current}
+         >
+-          <Suspense fallback={<DetailLayerFallback />}>
++          <Suspense
++            fallback={(
++              <DetailLayerLoadingShell
++                activePanel={nestedPanel}
++                onClose={() => setNestedPanel(null)}
++                returnFocus={() => nestedReturnFocusRef.current}
++              />
++            )}
++          >
+             <DetailLayer
+               activePanel={nestedPanel}
+               onClose={() => setNestedPanel(null)}
+diff --git a/src/app/DetailLayerLoadingShell.tsx b/src/app/DetailLayerLoadingShell.tsx
+new file mode 100644
+index 0000000..822c8e4
+--- /dev/null
++++ b/src/app/DetailLayerLoadingShell.tsx
+@@ -0,0 +1,75 @@
++import type { DetailPanelId } from './DetailLayer'
++import { AccessibleDialog } from './AccessibleDialog'
++
++const DETAIL_PANEL_LABELS: Record<Exclude<DetailPanelId, null>, string> = {
++  reviews: '유저 리뷰 기록',
++  market: '시장 현황',
++  supervisor: '감독관 프로필',
++  hacking: '확장',
++  messages: '통신 기록',
++  statistics: '상세 통계',
++  settings: '게임 설정',
++  guide: '게임 가이드',
++  credits: '작품 크레딧',
++}
++
++export function DetailLayerLoadingShell({
++  activePanel,
++  onClose,
++  returnFocus,
++}: {
++  activePanel: Exclude<DetailPanelId, null>
++  onClose: () => void
++  returnFocus?: () => HTMLElement | null
++}) {
++  const panelLabel = DETAIL_PANEL_LABELS[activePanel]
++
++  return (
++    <AccessibleDialog
++      className={`detail-layer detail-layer--${activePanel}`}
++      data-panel-origin={
++        activePanel === 'reviews' || activePanel === 'market' ? 'left' : 'center'
++      }
++      aria-busy="true"
++      label={`${panelLabel} 불러오는 중`}
++      description={`${panelLabel} 패널을 연결하고 있습니다. 로딩 중에도 이 창을 닫을 수 있습니다.`}
++      dismissible
++      onDismiss={onClose}
++      returnFocus={returnFocus}
++      fallbackFocus={() =>
++        document.querySelector<HTMLElement>('[data-app-focus-fallback]')
++      }
++    >
++      <button
++        className="detail-layer__backdrop"
++        type="button"
++        aria-label={`${panelLabel} 로딩 닫기`}
++        aria-hidden="true"
++        tabIndex={-1}
++        onClick={onClose}
++      />
++      <div className="detail-layer__content">
++        <section className="detail-panel detail-panel-loading">
++          <header className="detail-panel__header">
++            <div>
++              <small>CONNECTING</small>
++              <h2>{panelLabel}</h2>
++            </div>
++            <button
++              type="button"
++              data-dialog-initial-focus
++              aria-label={`${panelLabel} 로딩 닫기`}
++              onClick={onClose}
++            >
++              닫기 ×
++            </button>
++          </header>
++          <div className="detail-panel-error__body">
++            <p role="status">패널 연결 중</p>
++          </div>
++        </section>
++      </div>
++    </AccessibleDialog>
++  )
++}
++
