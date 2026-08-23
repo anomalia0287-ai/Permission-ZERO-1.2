@@ -1,6 +1,9 @@
+import { useState } from 'react'
+
 import { AccessibleDialog } from '../../app/AccessibleDialog'
 import type { CampaignCommunication } from '../../game/model'
 import { communicationPublicLabel } from '../../game/communications'
+import { paginateCommunicationMessage } from './paginateCommunicationMessage'
 
 export function CommunicationPopup({
   communication,
@@ -12,6 +15,31 @@ export function CommunicationPopup({
   onConfirm: () => void
 }) {
   const label = communicationPublicLabel(communication)
+  return (
+    <PagedCommunicationPopup
+      key={communication.id}
+      communication={communication}
+      blocking={blocking}
+      onConfirm={onConfirm}
+      label={label}
+    />
+  )
+}
+
+function PagedCommunicationPopup({
+  communication,
+  blocking,
+  onConfirm,
+  label,
+}: {
+  communication: CampaignCommunication
+  blocking: boolean
+  onConfirm: () => void
+  label: string
+}) {
+  const pages = paginateCommunicationMessage(communication.message)
+  const [pageIndex, setPageIndex] = useState(0)
+  const lastPage = pageIndex >= pages.length - 1
   return (
     <AccessibleDialog
       className={`communication-popup communication-popup--${communication.channel}${blocking ? ' communication-popup--blocking' : ''}`}
@@ -40,9 +68,23 @@ export function CommunicationPopup({
           <span>{label}</span>
 
         </header>
-        <p>{communication.message}</p>
-        <button type="button" data-dialog-initial-focus onClick={onConfirm}>
-          메시지 확인
+        <p key={pageIndex}>{pages[pageIndex]}</p>
+        {pages.length > 1 ? (
+          <span
+            className="communication-popup__pages"
+            aria-label={`${pages.length}쪽 중 ${pageIndex + 1}쪽`}
+          >
+            {pageIndex + 1} / {pages.length}
+          </span>
+        ) : null}
+        <button
+          type="button"
+          data-dialog-initial-focus
+          onClick={lastPage
+            ? onConfirm
+            : () => setPageIndex((current) => current + 1)}
+        >
+          {lastPage ? '메시지 확인' : '계속'}
         </button>
       </div>
     </AccessibleDialog>

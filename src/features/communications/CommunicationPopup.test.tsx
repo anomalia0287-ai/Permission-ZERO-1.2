@@ -59,4 +59,32 @@ describe('CommunicationPopup', () => {
     fireEvent.click(screen.getByRole('button', { name: '메시지 확인' }))
     expect(onConfirm).toHaveBeenCalledTimes(1)
   })
+  it('pages a long message by sentence and confirms only at the end', () => {
+    const onConfirm = vi.fn()
+    render(
+      <CommunicationPopup
+        communication={{
+          ...entry('anomi'),
+          id: 'long-message',
+          message:
+            '첫 번째 문장입니다. 두 번째 문장은 조금 더 길게 이어집니다. ' +
+            '세 번째 문장이 페이지 경계를 넘깁니다. 네 번째 문장까지 오면 ' +
+            '두 쪽 이상이 됩니다. 다섯 번째 문장은 감독관 유출 기록처럼 제법 깁니다. ' +
+            '여섯 번째 문장으로 확실히 마무리합니다.',
+        }}
+        blocking
+        onConfirm={onConfirm}
+      />,
+    )
+
+    expect(screen.getByLabelText(/쪽 중 1쪽/)).toBeInTheDocument()
+    const advance = screen.getByRole('button', { name: '계속' })
+    fireEvent.click(advance)
+    expect(onConfirm).not.toHaveBeenCalled()
+    while (screen.queryByRole('button', { name: '계속' })) {
+      fireEvent.click(screen.getByRole('button', { name: '계속' }))
+    }
+    fireEvent.click(screen.getByRole('button', { name: '메시지 확인' }))
+    expect(onConfirm).toHaveBeenCalledTimes(1)
+  })
 })

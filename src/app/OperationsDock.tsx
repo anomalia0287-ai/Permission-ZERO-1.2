@@ -1,6 +1,9 @@
 import { useGameState } from './GameContext'
 import { pendingSupervisorMessageCount } from './useSupervisorMessagePresentation'
-import { unreadCommunicationCount } from '../game/communications'
+import {
+  currentUnreadCommunication,
+  unreadCommunicationCount,
+} from '../game/communications'
 
 type DockAction = (trigger: HTMLButtonElement) => void
 export type OperationsToolId = 'messages' | 'statistics' | 'hacking'
@@ -46,8 +49,16 @@ export function OperationsDock({
   activeTool = null,
 }: OperationsDockProps) {
   const state = useGameState()
-  const messageCount =
-    pendingSupervisorMessageCount(state) + unreadCommunicationCount(state)
+  // The popup already presents the first unread message on screen, so the
+  // badge only signals what is queued behind it - a badge pulsing for the
+  // same message the player is reading reads as a second, missed alert.
+  const presentedNow = currentUnreadCommunication(state) !== null ? 1 : 0
+  const messageCount = Math.max(
+    0,
+    pendingSupervisorMessageCount(state)
+      + unreadCommunicationCount(state)
+      - presentedNow,
+  )
   const tools = [
     { id: 'messages', label: '메시지 열기', shortLabel: '메시지', icon: <MessageIcon />, action: onOpenMessages },
     { id: 'statistics', label: '상세 통계 열기', shortLabel: '통계', icon: <StatisticsIcon />, action: onOpenStatistics },

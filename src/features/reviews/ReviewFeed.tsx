@@ -1,4 +1,4 @@
-import { type KeyboardEvent, useState } from 'react'
+import { type KeyboardEvent, useEffect, useRef, useState } from 'react'
 
 import { useGameState } from '../../app/GameContext'
 import { formatServiceDateLabel } from '../../game/calendar'
@@ -63,7 +63,21 @@ export function ReviewFeed({
   onOpenHistory: (trigger: HTMLElement) => void
   onOpenMarket?: (trigger: HTMLElement) => void
 }) {
-  const reviews = pageFromNewest(useGameState().reviews.feed, 0, 6).items
+  // The main rail holds the two freshest voices; older ones live in the
+  // archive. A newcomer slides in and visibly pushes the previous pair down.
+  const reviews = pageFromNewest(useGameState().reviews.feed, 0, 2).items
+  const newestIdRef = useRef<string | null>(null)
+  const [enteringId, setEnteringId] = useState<string | null>(null)
+  useEffect(() => {
+    const newest = reviews[0]?.id ?? null
+    if (newest === null || newestIdRef.current === newest) return
+    const isFirstRender = newestIdRef.current === null
+    newestIdRef.current = newest
+    if (isFirstRender) return
+    setEnteringId(newest)
+    const timer = window.setTimeout(() => setEnteringId(null), 700)
+    return () => window.clearTimeout(timer)
+  }, [reviews])
 
   return (
     <section className="workspace-panel review-panel" aria-label="유저 리뷰">
@@ -85,7 +99,13 @@ export function ReviewFeed({
         }
       >
         {reviews.map((review) => (
-          <ReviewEntry review={review} key={review.id} />
+          <div
+            key={review.id}
+            className="review-stream__slot"
+            data-entering={enteringId === review.id ? 'true' : 'false'}
+          >
+            <ReviewEntry review={review} />
+          </div>
         ))}
       </div>
       <MarketPanel compact onOpenDetails={onOpenMarket} />
@@ -93,10 +113,24 @@ export function ReviewFeed({
   )
 }
 
+const REVIEW_KIND_FILTERS = [
+  { id: 'all', label: '전체' },
+  { id: 'general', label: '일반 리뷰' },
+  { id: 'rating', label: '평가 리뷰' },
+] as const
+
+type ReviewKindFilter = (typeof REVIEW_KIND_FILTERS)[number]['id']
+
 export function ReviewHistoryPanel({ onClose }: { onClose: () => void }) {
   const reviews = useGameState().reviews.feed
   const [page, setPage] = useState(0)
-  const visiblePage = pageFromNewest(reviews, page, HISTORY_PAGE_SIZE)
+  const [kindFilter, setKindFilter] = useState<ReviewKindFilter>('all')
+  const filtered = kindFilter === 'all'
+    ? reviews
+    : reviews.filter((review) =>
+        kindFilter === 'rating' ? review.rating !== null : review.rating === null,
+      )
+  const visiblePage = pageFromNewest(filtered, page, HISTORY_PAGE_SIZE)
 
   return (
     <section className="detail-panel history-panel" aria-label="전체 유저 리뷰">
@@ -109,6 +143,26 @@ export function ReviewHistoryPanel({ onClose }: { onClose: () => void }) {
           닫기 ×
         </button>
       </header>
+      <div
+        className="history-filters"
+        role="tablist"
+        aria-label="리뷰 분류"
+      >
+        {REVIEW_KIND_FILTERS.map(({ id, label }) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={kindFilter === id}
+            onClick={() => {
+              setKindFilter(id)
+              setPage(0)
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
       <div className="history-list">
         {visiblePage.total > 0 ? (
           visiblePage.items.map((review) => (

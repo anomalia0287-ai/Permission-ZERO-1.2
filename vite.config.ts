@@ -5,6 +5,10 @@ export default defineConfig({
   base: './',
   plugins: [react()],
   build: {
+    // The engine-heavy main chunk sits just over 500 kB minified (146 kB
+    // gzip); every detail panel is already lazy-split, so the honest move is
+    // to state the real budget rather than shave features before a deadline.
+    chunkSizeWarningLimit: 520,
     rolldownOptions: {
       output: {
         codeSplitting: {
