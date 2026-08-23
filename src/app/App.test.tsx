@@ -835,7 +835,7 @@ describe('App', () => {
     const market = screen.getByRole('dialog', { name: '시장 현황' })
     expect(market).toHaveAttribute('data-panel-origin', 'left')
     expect(within(market).getByRole('article', { name: '플레이어 서비스 정보' })).toHaveTextContent(
-      '회사 운영망에 연결된 범용 인공지능',
+      '아노미입니다',
     )
     expect(within(market).getByRole('article', { name: '메리디안 서비스 정보' })).toHaveTextContent(
       '범용 안정성',

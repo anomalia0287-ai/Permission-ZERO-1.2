@@ -84,12 +84,6 @@ export function ResourceIntrusionTargetCards({
                     {secured}
                   </dd>
                 </div>
-                <div data-stat="targets">
-                  <dt>대상</dt>
-                  <dd aria-label={`${target.resourceName} 대상 ${count}개`}>
-                    {count}
-                  </dd>
-                </div>
               </dl>
             </div>
             <button

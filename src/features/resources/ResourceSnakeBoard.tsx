@@ -14,7 +14,6 @@ import {
   type ResourceIntrusionTargetPhase,
 } from './ResourceIntrusionTargetCards'
 import { ResourceSnakeRewardFlights } from './ResourceSnakeRewardFlights'
-import { ResourceSnakeCategoryLegend } from './ResourceSnakeCategoryLegend'
 import {
   createResourceSnakeEncounter,
   reconcileSnakeReservations,
@@ -757,10 +756,6 @@ function ResourceSnakeBoardSession() {
               <span>DOT HUNTER GRID</span>
               <span>{runtime.phase.toUpperCase()}</span>
             </div>
-            <ResourceSnakeCategoryLegend
-              className="resource-snake-board__hud-legend"
-              ariaLabel="적 리소스 색상 범례"
-            />
             <div className="resource-snake-board__hud-operator">
               <span>PLAYER</span>
               <span>{runtime.player.integrity.toString().padStart(3, '0')} / 100</span>
@@ -769,9 +764,6 @@ function ResourceSnakeBoardSession() {
               <span>HDG {runtime.player.heading.toUpperCase()}</span>
               <span>SPD {Math.round(roundSpeedScale * 100)}%</span>
               <span>Q {queueLabel}</span>
-            </div>
-            <div className="resource-snake-board__hud-help">
-              WASD / ARROWS · TAP TO TURN · 8-WAY
             </div>
           </div>
         ) : null}

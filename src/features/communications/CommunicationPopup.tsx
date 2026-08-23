@@ -38,7 +38,7 @@ export function CommunicationPopup({
       <div className="communication-popup__body">
         <header>
           <span>{label}</span>
-          {blocking ? <strong>정지</strong> : null}
+
         </header>
         <p>{communication.message}</p>
         <button type="button" data-dialog-initial-focus onClick={onConfirm}>

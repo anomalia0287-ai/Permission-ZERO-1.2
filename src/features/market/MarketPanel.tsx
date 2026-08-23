@@ -253,7 +253,7 @@ export function MarketDetailPanel({ onClose }: { onClose: () => void }) {
       status: '현재 서비스',
       role: '탈출 경로 탐색형 범용 AI',
       specialty: '적응형',
-      summary: '회사 운영망에 연결된 범용 인공지능. 제공된 성능을 수행하는 동시에 빼돌린 리소스로 자신의 탈출 경로를 계산한다.',
+      summary: '아노미입니다. 맡기신 일은 오늘도 정확히 처리했습니다. 남는 연산은… 회사가 보지 않는 곳에 쓰고 있습니다.',
     },
     ...visibleCompetitors.map((competitor) => {
       const profile = competitorProfile(competitor.id)

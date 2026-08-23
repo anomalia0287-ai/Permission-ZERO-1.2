@@ -2909,7 +2909,7 @@ body,
 
 .game-shell[data-ui-shell="aurora-black"] .control-status-meter--autonomy,
 .game-shell[data-ui-shell="aurora-black"] .control-status-meter--suspicion {
-  grid-template-columns: 48px minmax(42px, 1fr);
+  grid-template-columns: auto minmax(42px, 1fr);
 }
 
 .game-shell[data-ui-shell="aurora-black"] .control-status-meter + .control-status-meter {

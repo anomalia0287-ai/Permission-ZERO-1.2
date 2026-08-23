@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -666,10 +666,10 @@ describe('ResourceSnakeBoard', () => {
     expect(arena).toHaveAttribute('data-enemy-planner', 'cyan-readable-hunter')
     expect(arena.getAttribute('data-enemy-positions')).not.toBe(initialPositions)
     expect(Number(arena.getAttribute('data-enemy-trail-dots'))).toBeGreaterThan(0)
-    const legend = screen.getByRole('list', { name: '적 리소스 색상 범례' })
-    expect(within(legend).getByText('빨강 · 추론')).toBeInTheDocument()
-    expect(within(legend).getByText('파랑 · 기억')).toBeInTheDocument()
-    expect(within(legend).getByText('노랑 · 유창성')).toBeInTheDocument()
+    // The intrusion cards already teach the color-resource mapping, so the
+    // combat HUD no longer repeats it as a legend strip.
+    expect(screen.queryByRole('list', { name: '적 리소스 색상 범례' }))
+      .not.toBeInTheDocument()
     const phases = JSON.parse(arena.getAttribute('data-ai-phases') ?? '[]') as Array<{
       phase?: string
     }>

@@ -55,9 +55,9 @@ describe('ResourceIntrusionTargetCards', () => {
     )
     expect(screen.getByRole('button', { name: '파랑 기억 침투' })).toBeEnabled()
     expect(screen.getByRole('button', { name: '노랑 유창성 대상 없음' })).toBeDisabled()
-    // The cube already carries the color, so the card shows the two numbers a
-    // choice needs: what is held and what can be taken this round.
-    expect(screen.getByLabelText('추론 대상 2개')).toHaveTextContent('2')
+    // The cube already carries the color, and the held count is the one
+    // number the raid decision needs; availability shows as the disabled
+    // card state rather than a second stat.
     expect(screen.getByLabelText('추론 확보 2개')).toHaveTextContent('2')
     expect(screen.getByLabelText('기억 확보 1개')).toHaveTextContent('1')
     expect(screen.queryByText('파랑')).not.toBeInTheDocument()
