@@ -477,9 +477,9 @@ test('renders the natural initial scene and advances one stage per spend', async
     .toHaveCount(0)
   await expect(rail.locator('[data-stage-status="current"]')).toHaveCount(1)
   await expect(scene).toHaveAttribute('data-phase', 'stable', { timeout: 1_000 })
-  await expect(scene.locator('img')).toHaveCount(0)
+  await expect(scene.locator('img')).toHaveCount(1)
   await expect(scene.getByRole('img', {
-    name: '자율성 2단계 장면 이미지 없음',
+    name: '아노미가 회사 서버에서 첫 자율 권한을 확보하는 장면',
   })).toBeVisible()
 })
 
@@ -503,7 +503,7 @@ test('shows the neutral final scene and preserves the choice across reload befor
     }
   })
   expect(imagePresentation.naturalWidth / imagePresentation.naturalHeight)
-    .toBeCloseTo(2 / 3, 2)
+    .toBeCloseTo(1448 / 1086, 2)
   expect(imagePresentation.objectFit).toBe('contain')
   await expect(scene).toHaveAttribute('data-emphasis', 'final')
 
@@ -600,7 +600,7 @@ test('reselects a completed charged sabotage and schedules one target', async ({
   const scene = dialog.getByRole('figure', { name: '현재 단계 장면' })
   await expect(scene).toHaveAttribute('data-phase', 'stable', { timeout: 1_000 })
   await expect(scene.getByRole('img', {
-    name: '품질 저하 장면 이미지 없음',
+    name: '후드 쓴 침입자가 품질 저하 공격을 준비하는 장면',
   })).toBeVisible()
   await dialog.getByRole('button', { name: '메리디안 공격 대상 선택' })
     .click()
