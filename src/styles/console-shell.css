@@ -411,3 +411,35 @@
     animation: none;
   }
 }
+
+/* ---------- market profile cards must never clip their copy ----------
+   A grid item with overflow:hidden gets an automatic minimum size of 0, so
+   the profile rows were free to shrink below their text and the introduction
+   was cut mid-sentence. The rows now size to their content explicitly. */
+.market-profile-list {
+  grid-auto-rows: max-content;
+}
+
+.market-profile-card {
+  position: relative;
+  height: max-content;
+  min-height: 128px;
+}
+
+/* The portrait fills its column without feeding its intrinsic height back
+   into the row: explicitly placed in column 1 and absolutely positioned, its
+   containing block becomes that grid area, so it tracks the 104px/84px column
+   widths from the base styles automatically. */
+.market-profile-card > img {
+  position: absolute;
+  inset: 0;
+  grid-area: 1 / 1 / 2 / 2;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.market-profile-card__copy {
+  grid-row: 1;
+  grid-column: 2;
+}
