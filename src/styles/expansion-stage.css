@@ -345,6 +345,16 @@
   background: #e8733e;
 }
 
+.expansion-stage-operations__trust-gate {
+  margin: 0;
+  padding: 7px 8px;
+  border: 1px solid var(--hack-line);
+  background: #f8f9fa;
+  font-size: 0.53rem;
+  line-height: 1.4;
+  color: #b3541e;
+}
+
 .expansion-stage-operations__spend ul {
   display: grid;
   gap: 4px;

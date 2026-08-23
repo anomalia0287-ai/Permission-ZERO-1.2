@@ -210,6 +210,8 @@ function finishAdvancedDay(state: CampaignState): CampaignState {
   return enqueueMemoryLeak(withDueStory)
 }
 
+const HISTORICAL_PROTOCOL_VERSION = 1 as const
+
 function advanceHistoricalOneDay(state: CampaignState): CampaignState {
   if (state.story.endingId !== null) return state
   const dated = {
@@ -224,7 +226,10 @@ function advanceHistoricalOneDay(state: CampaignState): CampaignState {
   }
   const advanced = advanceCompetitorsDaily(
     restoreDisguiseBlocks(
-      decreaseSuspicionDaily(sabotageResolution.state),
+      decreaseSuspicionDaily(
+        sabotageResolution.state,
+        HISTORICAL_PROTOCOL_VERSION,
+      ),
     ),
   )
   if (advanced.story.endingId !== null) return advanced
@@ -293,7 +298,7 @@ export function tryAdvanceOneDay(
 
   const advanced = advanceCompetitorsDaily(
     restoreDisguiseBlocks(
-      decreaseSuspicionDaily(sabotageResolution.state),
+      decreaseSuspicionDaily(sabotageResolution.state, protocolVersion),
     ),
   )
   if (advanced.story.endingId !== null) {

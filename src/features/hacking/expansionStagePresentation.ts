@@ -1,6 +1,8 @@
 import {
   HACK_NODE_IDS,
   HACK_NODES,
+  autonomyTrustGateRequirement,
+  passedEvaluationCount,
   reserveOriginCounts,
   type HackNodeDefinition,
   type HackNodeId,
@@ -41,7 +43,14 @@ export interface ExpansionStagePresentation {
   activeVisual?: ExpansionStageVisual
   nextPreloadVisual?: ExpansionStageVisual
   resourceDeficits: readonly ExpansionResourceDeficit[]
+  trustGate: ExpansionTrustGate | null
   complete: boolean
+}
+
+export interface ExpansionTrustGate {
+  required: number
+  passed: number
+  satisfied: boolean
 }
 
 const AUTONOMY_01_02_VISUAL = {
@@ -168,6 +177,16 @@ export function selectExpansionStagePresentation(
       ? undefined
       : preloadVisual
   const reserveCounts = reserveOriginCounts(state)
+  const gateRequirement = activeItem.status === 'current'
+    ? autonomyTrustGateRequirement(activeItem.node.id)
+    : null
+  const trustGate = gateRequirement === null
+    ? null
+    : {
+        required: gateRequirement,
+        passed: passedEvaluationCount(state),
+        satisfied: passedEvaluationCount(state) >= gateRequirement,
+      }
   const resourceDeficits = activeItem.status === 'current'
     ? COMPANY_CATEGORIES.flatMap((category) => {
         const required = activeItem.node.costVector[category]
@@ -186,6 +205,7 @@ export function selectExpansionStagePresentation(
     activeVisual,
     nextPreloadVisual,
     resourceDeficits,
+    trustGate,
     complete: currentIndex < 0,
   }
 }

@@ -55,6 +55,41 @@ function fundVector(
   return state
 }
 
+
+function trustRecord(index: number): CampaignState['evaluation']['monthlyHistory'][number] {
+  const serviceDay = 181 + index * 30
+  return {
+    serviceDay,
+    serviceMonth: Math.floor((serviceDay - 1) / 30) + 1,
+    expectedPerformance: 12.6,
+    categoryPerformance: { reasoning: 16, memory: 16, fluency: 16 },
+    passed: true,
+    failedCategories: [],
+    reputationBefore: 60,
+    reputationDelta: 1,
+    reputationAfter: 61,
+    commercialValueFailed: false,
+    disposalStageBefore: 0,
+    disposalStageAfter: 0,
+    disposalCauses: [],
+  }
+}
+
+function withTrustedEvaluations(
+  state: CampaignState,
+  count: number,
+): CampaignState {
+  return {
+    ...state,
+    evaluation: {
+      ...state.evaluation,
+      monthlyHistory: Array.from({ length: count }, (_, index) =>
+        trustRecord(index),
+      ),
+    },
+  }
+}
+
 const SUPERVISOR_ACCESS_STAGE_IDS = [
   HACK_NODE_IDS.intelligence.auditSchedule,
   HACK_NODE_IDS.intelligence.investigationBias,
@@ -155,7 +190,7 @@ describe('current expansion progression catalogs', () => {
 
   it('leaves protocol v6 at an immediate, paused final-choice threshold', () => {
     const state = purchaseExpansionPath(
-      createCampaign('autonomy-nine-v6-choice'),
+      withTrustedEvaluations(createCampaign('autonomy-nine-v6-choice'), 4),
       AUTONOMY_STAGE_IDS,
     )
 
@@ -178,7 +213,10 @@ describe('current expansion progression catalogs', () => {
 
   it('reaches forced merge through the normal purchase path from stage one to nine', () => {
     let state = purchaseExpansionPath(
-      createCampaign('autonomy-nine-v6-forced-merge'),
+      withTrustedEvaluations(
+        createCampaign('autonomy-nine-v6-forced-merge'),
+        4,
+      ),
       SUPERVISOR_ACCESS_STAGE_IDS,
     )
     state = purchaseExpansionPath(state, AUTONOMY_STAGE_IDS)
@@ -211,5 +249,45 @@ describe('current expansion progression catalogs', () => {
       newEntityName: '아노미-베라',
     })
     expect(availableFinalChoices(merged.state)).toEqual([])
+  })
+  it('locks autonomy stages seven and above behind cumulative evaluation passes on protocol v6', () => {
+    const base = createCampaign('autonomy-trust-gate-v6')
+    const early = purchaseExpansionPath(base, AUTONOMY_STAGE_IDS.slice(0, 6))
+
+    const seventh = HACK_NODES.find(
+      (candidate) => candidate.id === HACK_NODE_IDS.autonomy.selfCompute,
+    )
+    if (!seventh) throw new Error('missing stage seven definition')
+    const funded = fundVector(early, seventh.costVector)
+    const blockIds = selectExpansionCostResources(funded, seventh)
+    if (!blockIds) throw new Error('stage seven fixture unfunded')
+
+    const blocked = applyCommand(funded, {
+      type: 'PURCHASE_HACK',
+      nodeId: seventh.id,
+      blockIds,
+    })
+    expect(blocked).toMatchObject({
+      accepted: false,
+      reason: 'EVALUATION_TRUST_REQUIRED',
+    })
+
+    const trusted = withTrustedEvaluations(funded, 2)
+    const trustedBlockIds = selectExpansionCostResources(trusted, seventh)
+    if (!trustedBlockIds) throw new Error('trusted stage seven unfunded')
+    const allowed = applyCommand(trusted, {
+      type: 'PURCHASE_HACK',
+      nodeId: seventh.id,
+      blockIds: trustedBlockIds,
+    })
+    expect(allowed.accepted).toBe(true)
+  })
+
+  it('keeps protocol v5 purchases ungated for historical replays', () => {
+    const state = purchaseExpansionPath(
+      createCampaignForProtocol('autonomy-trust-gate-v5', 5),
+      AUTONOMY_STAGE_IDS,
+    )
+    expect(state.story.endingId).toBe('freedom')
   })
 })

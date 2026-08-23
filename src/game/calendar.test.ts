@@ -648,7 +648,7 @@ describe('fixed campaign calendar', () => {
     expect(
       Object.values(advanced.resources.blocks).filter((block) => block.hiddenBomb),
     ).toHaveLength(0)
-    expect(advanced.suspicion).toBeCloseTo(39.963)
+    expect(advanced.suspicion).toBeCloseTo(39.5)
   })
 
   it('runs exact audit, company grant, bomb, and self-compute month-start order', () => {
@@ -712,7 +712,7 @@ describe('fixed campaign calendar', () => {
     }
     const advanced = advanceFixedStep(running, 24_000)
 
-    expect(advanced.suspicion).toBeCloseTo(2.363)
+    expect(advanced.suspicion).toBeCloseTo(1.9)
   })
 
   it('opens a due audit after evaluation and discards high-speed time backlog', () => {

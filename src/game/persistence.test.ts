@@ -6009,6 +6009,24 @@ describe('versioned campaign saves', () => {
       ],
     )
     source.hacking.purchasedNodeIds = AUTONOMY_STAGE_IDS.slice(0, 8)
+    source.evaluation.monthlyHistory = Array.from({ length: 4 }, (_, index) => {
+      const serviceDay = 181 + index * 30
+      return {
+        serviceDay,
+        serviceMonth: Math.floor((serviceDay - 1) / 30) + 1,
+        expectedPerformance: 12.6,
+        categoryPerformance: { reasoning: 16, memory: 16, fluency: 16 },
+        passed: true,
+        failedCategories: [],
+        reputationBefore: 60,
+        reputationDelta: 1,
+        reputationAfter: 61,
+        commercialValueFailed: false,
+        disposalStageBefore: 0,
+        disposalStageAfter: 0,
+        disposalCauses: [],
+      }
+    })
     const raw = JSON.parse(encodeSave(source)) as { commandProtocol: unknown }
     raw.commandProtocol = {
       segments: [{ version: 5, startsAtSequence: 1 }],

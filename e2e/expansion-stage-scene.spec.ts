@@ -79,9 +79,39 @@ function recoveryState(seed: string): CampaignState {
   return state
 }
 
+function withTrustedEvaluations(
+  state: CampaignState,
+  count: number,
+): CampaignState {
+  return {
+    ...state,
+    evaluation: {
+      ...state.evaluation,
+      monthlyHistory: Array.from({ length: count }, (_, index) => {
+        const serviceDay = 181 + index * 30
+        return {
+          serviceDay,
+          serviceMonth: Math.floor((serviceDay - 1) / 30) + 1,
+          expectedPerformance: 12.6,
+          categoryPerformance: { reasoning: 16, memory: 16, fluency: 16 },
+          passed: true,
+          failedCategories: [],
+          reputationBefore: 60,
+          reputationDelta: 1,
+          reputationAfter: 61,
+          commercialValueFailed: false,
+          disposalStageBefore: 0,
+          disposalStageAfter: 0,
+          disposalCauses: [],
+        }
+      }),
+    },
+  }
+}
+
 function finalAutonomyState(seed: string): CampaignState {
   const state = purchaseExpansionPath(
-    createCampaign(seed),
+    withTrustedEvaluations(createCampaign(seed), 4),
     AUTONOMY_STAGE_IDS.slice(0, 8),
   )
   const finalNode = HACK_NODES.find(
@@ -200,7 +230,10 @@ function purchaseExpansionPath(
 
 function finalAutonomyWithSupervisorAccessState(seed: string): CampaignState {
   const state = purchaseExpansionPath(
-    purchaseExpansionPath(createCampaign(seed), SUPERVISOR_ACCESS_STAGE_IDS),
+    purchaseExpansionPath(
+      withTrustedEvaluations(createCampaign(seed), 4),
+      SUPERVISOR_ACCESS_STAGE_IDS,
+    ),
     AUTONOMY_STAGE_IDS.slice(0, 8),
   )
   const finalNode = HACK_NODES.find(

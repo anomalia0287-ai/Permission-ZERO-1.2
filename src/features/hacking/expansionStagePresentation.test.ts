@@ -194,6 +194,22 @@ describe('selectExpansionStagePresentation', () => {
     })
   })
 
+  it('exposes the evaluation trust gate for autonomy stage seven and above', () => {
+    const state = createCampaign('expansion-trust-gate-presentation')
+    state.hacking.purchasedNodeIds = AUTONOMY_STAGE_IDS.slice(0, 6)
+
+    const gated = selectExpansionStagePresentation(state, 'autonomy', null)
+    expect(gated.trustGate).toEqual({
+      required: 2,
+      passed: 0,
+      satisfied: false,
+    })
+
+    const early = createCampaign('expansion-trust-gate-early')
+    const opening = selectExpansionStagePresentation(early, 'autonomy', null)
+    expect(opening.trustGate).toBeNull()
+  })
+
   it('reports category deficits without counting neutral reserve blocks', () => {
     const state = createCampaign('expansion-stage-resource-deficits')
     state.resources.reserve.push('test-sandbox', 'test-self-compute')

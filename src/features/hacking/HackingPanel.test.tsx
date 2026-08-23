@@ -43,6 +43,31 @@ function Probe() {
   )
 }
 
+function withTrustedEvaluations(
+  state: ReturnType<typeof createCampaign>,
+  count: number,
+): ReturnType<typeof createCampaign> {
+  state.evaluation.monthlyHistory = Array.from({ length: count }, (_, index) => {
+    const serviceDay = 181 + index * 30
+    return {
+      serviceDay,
+      serviceMonth: Math.floor((serviceDay - 1) / 30) + 1,
+      expectedPerformance: 12.6,
+      categoryPerformance: { reasoning: 16, memory: 16, fluency: 16 },
+      passed: true,
+      failedCategories: [],
+      reputationBefore: 60,
+      reputationDelta: 1,
+      reputationAfter: 61,
+      commercialValueFailed: false,
+      disposalStageBefore: 0,
+      disposalStageAfter: 0,
+      disposalCauses: [],
+    }
+  })
+  return state
+}
+
 function withReserveVector(
   initial: CampaignState,
   vector: Record<CompanyCategory, number>,
@@ -353,12 +378,50 @@ describe('HackingPanel stage-scene expansion UI', () => {
       .toHaveTextContent('원인 미상 사건으로 게시됩니다')
   })
 
-  it('shows the neutral final scene and requires an explicit freedom confirmation at stage nine', () => {
-    const state = withReserveVector(createCampaign('stage-nine-freedom-ui'), {
-      reasoning: 4,
-      memory: 3,
-      fluency: 3,
+  it('locks the stage seven spend button behind the evaluation trust gate', () => {
+    const state = withReserveVector(createCampaign('stage-seven-trust-gate'), {
+      reasoning: 3,
+      memory: 2,
+      fluency: 2,
     })
+    state.hacking.purchasedNodeIds = AUTONOMY_STAGE_IDS.slice(0, 6)
+    renderHacking(storageForState(state))
+
+    const spend = screen.getByRole('button', {
+      name: '자율성 7단계 운영 신뢰 부족',
+    })
+    expect(spend).toBeDisabled()
+    expect(screen.getByLabelText('자율성 7단계 운영 신뢰 조건'))
+      .toHaveTextContent('월간 평가 통과 2회 필요 · 현재 0회')
+  })
+
+  it('unlocks the stage seven spend button once enough evaluations passed', () => {
+    const state = withTrustedEvaluations(
+      withReserveVector(createCampaign('stage-seven-trusted'), {
+        reasoning: 3,
+        memory: 2,
+        fluency: 2,
+      }),
+      2,
+    )
+    state.hacking.purchasedNodeIds = AUTONOMY_STAGE_IDS.slice(0, 6)
+    renderHacking(storageForState(state))
+
+    expect(screen.getByRole('button', { name: '자율성 7단계 리소스 지출' }))
+      .toBeEnabled()
+    expect(screen.queryByLabelText('자율성 7단계 운영 신뢰 조건'))
+      .not.toBeInTheDocument()
+  })
+
+  it('shows the neutral final scene and requires an explicit freedom confirmation at stage nine', () => {
+    const state = withTrustedEvaluations(
+      withReserveVector(createCampaign('stage-nine-freedom-ui'), {
+        reasoning: 4,
+        memory: 3,
+        fluency: 3,
+      }),
+      4,
+    )
     state.hacking.purchasedNodeIds = AUTONOMY_STAGE_IDS.slice(0, 8)
     const onClose = vi.fn()
     render(

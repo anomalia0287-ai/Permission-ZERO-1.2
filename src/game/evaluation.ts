@@ -1,5 +1,9 @@
 import { DEMO_PROFILE_02 } from './config'
 import {
+  CURRENT_COMMAND_PROTOCOL_VERSION,
+  FINAL_CHOICE_COMMAND_PROTOCOL_VERSION,
+} from './commandProtocol'
+import {
   appendEvent,
   createGameEvent,
   enqueueBlockingEvent,
@@ -8,6 +12,7 @@ import {
 import {
   COMPANY_CATEGORIES,
   type CampaignState,
+  type CommandProtocolVersion,
   type CompanyCategory,
   type DisposalCause,
 } from './model'
@@ -520,13 +525,17 @@ export function resolveAudit(state: CampaignState): AuditResolution {
   }
 }
 
-export function decreaseSuspicionDaily(state: CampaignState): CampaignState {
+export function decreaseSuspicionDaily(
+  state: CampaignState,
+  protocolVersion: CommandProtocolVersion = CURRENT_COMMAND_PROTOCOL_VERSION,
+): CampaignState {
   if (state.suspicion <= 0) return state
+  const dailyDecrease =
+    protocolVersion >= FINAL_CHOICE_COMMAND_PROTOCOL_VERSION
+      ? DEMO_PROFILE_02.suspicion.naturalDailyDecrease
+      : DEMO_PROFILE_02.suspicion.legacyNaturalDailyDecrease
   return {
     ...state,
-    suspicion: Math.max(
-      0,
-      state.suspicion - DEMO_PROFILE_02.suspicion.naturalDailyDecrease,
-    ),
+    suspicion: Math.max(0, state.suspicion - dailyDecrease),
   }
 }

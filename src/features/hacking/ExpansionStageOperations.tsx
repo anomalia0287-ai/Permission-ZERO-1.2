@@ -65,7 +65,9 @@ export function ExpansionStageOperations(
 
   const activeItem = props.presentation.activeItem
   const resourceDeficits = props.presentation.resourceDeficits
-  const canSpend = resourceDeficits.length === 0
+  const trustGate = props.presentation.trustGate
+  const trustGateBlocked = trustGate !== null && !trustGate.satisfied
+  const canSpend = resourceDeficits.length === 0 && !trustGateBlocked
   const activeSabotage = activeItem.status === 'complete' &&
     activeItem.node.tree === 'sabotage'
   const charged = activeSabotage
@@ -99,13 +101,30 @@ export function ExpansionStageOperations(
           <button
             type="button"
             aria-label={`${activeItem.node.label} ${
-              canSpend ? '리소스 지출' : '필요 리소스 부족'
+              canSpend
+                ? '리소스 지출'
+                : trustGateBlocked
+                  ? '운영 신뢰 부족'
+                  : '필요 리소스 부족'
             }`}
             disabled={!canSpend}
             onClick={() => props.onPurchase(activeItem.node)}
           >
-            {canSpend ? '리소스 지출' : '필요 리소스 부족'}
+            {canSpend
+              ? '리소스 지출'
+              : trustGateBlocked
+                ? '운영 신뢰 부족'
+                : '필요 리소스 부족'}
           </button>
+          {trustGateBlocked && trustGate ? (
+            <p
+              className="expansion-stage-operations__trust-gate"
+              aria-label={`${activeItem.node.label} 운영 신뢰 조건`}
+            >
+              월간 평가 통과 {trustGate.required}회 필요 · 현재{' '}
+              {trustGate.passed}회
+            </p>
+          ) : null}
           {resourceDeficits.length > 0 ? (
             <ul aria-label={`${activeItem.node.label} 부족 리소스`}>
               {resourceDeficits.map(({ category, missing }) => {

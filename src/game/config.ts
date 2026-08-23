@@ -40,9 +40,15 @@ export const DEMO_PROFILE_02 = {
     commercialReputationThreshold: 20,
     commercialFailureMonthsPerDisposal: 3,
     maximumDisposalStage: 3,
+    autonomyTrustGates: {
+      'autonomy.self-compute': 2,
+      'autonomy.final-boundary': 3,
+      'autonomy.control-departure': 4,
+    },
   },
   suspicion: {
-    naturalDailyDecrease: 0.037,
+    naturalDailyDecrease: 0.5,
+    legacyNaturalDailyDecrease: 0.037,
     auditFailureIncrease: 25,
   },
   audit: {

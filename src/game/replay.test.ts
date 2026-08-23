@@ -5,6 +5,7 @@ import legacyV1TransferEnvelope from '../test/legacy-v1-transfer-save.json'
 import { appendCommandProtocolSegment } from './commandProtocol'
 import { createCampaign, createCampaignForProtocol } from './createCampaign'
 import {
+  passedEvaluationCount,
   AUTONOMY_STAGE_IDS,
   HACK_NODE_IDS,
   HACK_NODES,
@@ -205,6 +206,14 @@ function autonomyReplayFixture(
         apply({ type: 'BEGIN_BLOCK_SEPARATION', blockId, purpose: 'divert' })
         apply({ type: 'DIVERT_BLOCK_TO_RESERVE', blockId })
       }
+    }
+  }
+
+  if (protocolVersion >= 6) {
+    // Protocol v6 gates autonomy stages seven and above behind cumulative
+    // evaluation passes, so the fixture banks four clean months first.
+    while (passedEvaluationCount(state) < 4) {
+      advanceToNextMonth()
     }
   }
 

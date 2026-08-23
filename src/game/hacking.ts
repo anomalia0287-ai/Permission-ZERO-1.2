@@ -6,6 +6,7 @@ import type { CausalFailureReason } from './causality'
 import {
   CURRENT_COMMAND_PROTOCOL_VERSION,
   EXPANSION_COMMAND_PROTOCOL_VERSION,
+  FINAL_CHOICE_COMMAND_PROTOCOL_VERSION,
   commandProtocolVersionForNextCommand,
 } from './commandProtocol'
 import { DEMO_PROFILE_02 } from './config'
@@ -550,6 +551,17 @@ function activeCompetitor(competitor: CompetitorState): boolean {
   )
 }
 
+const AUTONOMY_TRUST_GATES: Readonly<Record<string, number>> =
+  DEMO_PROFILE_02.evaluation.autonomyTrustGates
+
+export function autonomyTrustGateRequirement(nodeId: HackNodeId): number | null {
+  return AUTONOMY_TRUST_GATES[nodeId] ?? null
+}
+
+export function passedEvaluationCount(state: CampaignState): number {
+  return state.evaluation.monthlyHistory.filter((record) => record.passed).length
+}
+
 export function purchaseHackNode(
   state: CampaignState,
   nodeId: HackNodeId,
@@ -567,6 +579,15 @@ export function purchaseHackNode(
     !state.hacking.purchasedNodeIds.includes(node.prerequisiteId)
   ) {
     return { accepted: false, state, reason: 'PREREQUISITE_REQUIRED' }
+  }
+  if (protocolVersion >= FINAL_CHOICE_COMMAND_PROTOCOL_VERSION) {
+    const requiredPasses = autonomyTrustGateRequirement(nodeId)
+    if (
+      requiredPasses !== null &&
+      passedEvaluationCount(state) < requiredPasses
+    ) {
+      return { accepted: false, state, reason: 'EVALUATION_TRUST_REQUIRED' }
+    }
   }
   const usesTypedCost = protocolVersion >= 4
   const requiredCost = usesTypedCost ? node.cost : node.legacyCost
