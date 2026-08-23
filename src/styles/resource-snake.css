@@ -662,6 +662,15 @@
   animation: none;
 }
 
+.resource-intrusion-targets__risk {
+  grid-column: 1 / -1;
+  margin: 2px 0 0;
+  color: rgb(232 115 62 / 78%);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-align: center;
+}
+
 .resource-intrusion-targets[data-reduced-motion='true']
   .resource-intrusion-target-card[data-phase] {
   animation: intrusion-card-fade 150ms ease-out both;

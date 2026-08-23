@@ -86,6 +86,9 @@ export function ResourceIntrusionTargetCards({
           </article>
         )
       })}
+      <p className="resource-intrusion-targets__risk" aria-label="침입 위험 고지">
+        침입 실패는 흔적을 남긴다 — 의심 +5
+      </p>
     </section>
   )
 }
