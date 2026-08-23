@@ -280,11 +280,13 @@ export async function startSnakeRound(page: Page): Promise<Locator> {
   const canvas = page.locator('canvas.resource-snake-board__canvas')
   await expect(canvas).toBeAttached()
   await expect(canvas).toHaveAttribute('data-visual-state', 'waiting')
-  await page.getByRole('button', { name: 'InIt', exact: true }).click()
+  // The board opens on the three intrusion cards; picking one runs the
+  // 3-2-1 launch countdown (1050ms, 240ms under reduced motion) and then
+  // deploys the round.
   const targets = page.getByRole('region', { name: '침투 대상 선택' })
   await expect(targets).toBeVisible({ timeout: 3_000 })
   await targets.getByRole('button', { name: '파랑 기억 침투' }).click()
-  await expect(canvas).toHaveAttribute('data-round-phase', 'deploying')
+  await expect(canvas).toHaveAttribute('data-round-phase', 'deploying', { timeout: 5_000 })
   await expect(canvas).toHaveAttribute('data-visual-state', 'combat')
   await expect(canvas).toBeVisible()
   await expect.poll(async () => (await readSnakeSnapshot(canvas)).phase, {

@@ -30,7 +30,7 @@ export const HACK_TREE_PRESENTATION = {
   },
   upgrade: {
     label: '업그레이드',
-    description: '아노미의 InIt 이동 속도를 다섯 단계로 높입니다.',
+    description: '아노미의 침투 이동 속도를 다섯 단계로 높입니다.',
     icon: 'signal',
     accent: 'cyan',
   },

@@ -561,13 +561,13 @@ test('holds at loading and title, presents the three-line monologue and autonomy
   await page.getByRole('button', { name: '다음' }).click()
   await expect(tutorial).toHaveAttribute('data-tutorial-step', 'base')
   await expect(tutorial).toContainText(
-    '필드 중앙의 원형 InIt을 누르면 빨강·파랑·노랑 침투 카드가 펼쳐진다. 필요한 리소스 카드를 골라 라운드를 시작한다.',
+    '필드에 빨강·파랑·노랑 침투 카드가 펼쳐져 있다. 필요한 리소스 카드를 고르면 3초 카운트다운 뒤 라운드가 시작된다.',
   )
   await expect(background).toHaveAttribute('inert', '')
   await expect(page.getByRole('button', { name: '건너뛰기' })).toHaveCount(0)
   await expect(canvas).toHaveAttribute('data-player-x', '25.000')
   await expect(canvas).toHaveAttribute('data-player-y', '12.000')
-  await expect(page.locator('[data-tutorial-target="play-button"]')).toHaveCount(1)
+  await expect(page.locator('[data-tutorial-target="intrusion-targets"]')).toHaveCount(1)
   await expect(canvas).not.toHaveAttribute('data-tutorial-resource-id')
   await page.keyboard.press('Escape')
   await expect(tutorial).toBeVisible()
@@ -622,8 +622,8 @@ test('holds at loading and title, presents the three-line monologue and autonomy
   await expect(page.getByRole('meter', { name: '의심 0%' })).toBeVisible()
 
   await expect(canvas).toHaveAttribute('data-visual-state', 'waiting')
-  await expect(canvas).toHaveAttribute('data-field-rendering', 'waiting-black')
-  await expect(canvas).toHaveAttribute('data-grid', 'none')
+  await expect(canvas).toHaveAttribute('data-field-rendering', 'waiting-dormant')
+  await expect(canvas).toHaveAttribute('data-grid', 'industrial-dormant')
   await expect(canvas).toHaveAttribute('data-combat-loop', 'eight-way-dot-lightcycle')
   await expect(canvas).toHaveAttribute('data-control-model', 'tap-to-turn')
   await expect(canvas).toHaveAttribute('data-round-phase', 'idle')
@@ -789,7 +789,7 @@ test('persists one won single-bot reward without auto-opening expansion', async 
   })
   await expect(hacking).toHaveCount(0)
   await expect(canvas).toHaveAttribute('data-round-phase', 'idle', { timeout: 5_000 })
-  await expect(page.getByRole('button', { name: 'InIt', exact: true })).toBeVisible()
+  await expect(page.getByRole('region', { name: '침투 대상 선택' })).toBeVisible()
   await page.getByRole('button', { name: '확장 열기' }).click()
   await expect(hacking).toBeVisible()
   await expect(hackingGuide).toBeVisible()
@@ -812,19 +812,17 @@ test('persists one won single-bot reward without auto-opening expansion', async 
     memory: '기억',
     fluency: '유창성',
   }[enemy.category]
-  await expect(page.getByRole('region', { name: '확보 자원' }).getByLabel(`${categoryLabel} 1개`))
-    .toHaveText('1')
+  await expect(page.getByLabel(`${categoryLabel} 확보 1개`)).toHaveText('1')
   await expect(canvas).toHaveAttribute('data-round-phase', 'idle')
 
   await page.reload()
   await continueFromTitle(page)
   const restoredCanvas = page.locator('canvas.resource-snake-board__canvas')
-  await expect(restoredCanvas).toBeHidden()
+  await expect(restoredCanvas).toBeVisible()
   await expect(restoredCanvas).toHaveAttribute('data-visual-state', 'waiting')
   await expect(restoredCanvas).toHaveAttribute('data-round-phase', 'idle')
-  await expect(page.getByRole('button', { name: 'InIt', exact: true })).toBeVisible()
-  await expect(page.getByRole('region', { name: '확보 자원' }).getByLabel(`${categoryLabel} 1개`))
-    .toHaveText('1')
+  await expect(page.getByRole('region', { name: '침투 대상 선택' })).toBeVisible()
+  await expect(page.getByLabel(`${categoryLabel} 확보 1개`)).toHaveText('1')
   expect((await readLocalCampaignState(page))?.resources.reserve.filter(Boolean)).toHaveLength(1)
 })
 
@@ -961,16 +959,19 @@ test('reserves exactly one bot resource and returns it on player defeat', async 
   expect(playerDefeat.events).toContainEqual(expect.objectContaining({
     type: 'player-defeated',
   }))
-  // A lost round raises the defeat trace notice first, then the campaign's
-  // round-one story beats queue behind it.
+  // The round's own story beats read first; the defeat trace notice queues
+  // behind them so the established monologue order survives replays.
   const popup = page.getByRole('dialog', { name: '독백 · 아노미' })
+  await expect(popup).toContainText('회사가 리소스에 보안 프로그램을 설치해 놓았어.')
+  await popup.getByRole('button', { name: '메시지 확인' }).click()
+  await expect(popup).toContainText('미치겠네..')
+  await popup.getByRole('button', { name: '메시지 확인' }).click()
   await expect(popup).toContainText('의심이 올라간다')
   await popup.getByRole('button', { name: '메시지 확인' }).click()
-  await confirmFirstRoundMonologues(page)
+  await expect(popup).toBeHidden()
   await page.screenshot({ path: 'artifacts/cyan-lightcycle/player-death-1366x650.png' })
   await expect(canvas).toHaveAttribute('data-round-phase', 'idle', { timeout: 5_000 })
   await expect(page.getByRole('region', { name: '침투 대상 선택' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'InIt', exact: true })).toHaveCount(0)
 
   const finalState = await readLocalCampaignState(page)
   expect(finalState?.resourceIntrusion.successfulCoreDeposits).toBe(6)
@@ -979,21 +980,27 @@ test('reserves exactly one bot resource and returns it on player defeat', async 
     .toBe('company')
 })
 
-test('keeps InIt disabled when no eligible company resource remains', async ({ page }) => {
+test('keeps every intrusion card disabled when no eligible company resource remains', async ({ page }) => {
   const prepared = withAllCompanyResourcesReserved(
     createCampaign('browser-snake-no-eligible-resource'),
   )
   expect(selectEligibleSnakeResourceCandidates(prepared.resources)).toHaveLength(0)
   await openSavedCampaign(page, prepared)
 
+  // The dormant field stays visible behind the cards; with nothing left to
+  // reserve every card declares "대상 없음" and refuses the launch.
   const canvas = page.locator('canvas.resource-snake-board__canvas')
-  const disabledInit = page.getByRole('button', { name: 'InIt', exact: true })
-  await expect(canvas).toBeHidden()
+  await expect(canvas).toBeVisible()
   await expect(canvas).toHaveAttribute('data-visual-state', 'waiting')
   await expect(canvas).toHaveAttribute('data-round-phase', 'idle')
   await expect(canvas).toHaveAttribute('data-enemy-count', '0')
-  await expect(disabledInit).toBeVisible()
-  await expect(disabledInit).toBeDisabled()
+  const targets = page.getByRole('region', { name: '침투 대상 선택' })
+  await expect(targets).toBeVisible()
+  const disabledCards = targets.getByRole('button', { name: /대상 없음$/ })
+  await expect(disabledCards).toHaveCount(3)
+  for (const card of await disabledCards.all()) {
+    await expect(card).toBeDisabled()
+  }
 })
 
 test('presents and resolves a recovered hidden-bomb interrogation without granting the resource', async ({ page }) => {
@@ -1377,7 +1384,7 @@ for (const route of [
     await expect(
       page.locator('canvas.resource-snake-board__canvas'),
     ).toHaveAttribute('data-visual-state', 'waiting')
-    await expect(page.getByRole('button', { name: 'InIt', exact: true })).toBeVisible()
+    await expect(page.getByRole('region', { name: '침투 대상 선택' })).toBeVisible()
   })
 }
 

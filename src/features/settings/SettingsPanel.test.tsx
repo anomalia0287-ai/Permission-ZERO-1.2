@@ -389,7 +389,7 @@ describe('SettingsPanel', () => {
     expect(screen.getByText('속도 업그레이드')).toBeInTheDocument()
     expect(screen.getByText(/자율성 9단계에 도달하면 즉시 승리/)).toBeInTheDocument()
     expect(
-      screen.getByText(/InIt을 누르면 빨강·파랑·노랑 침투 카드가 중앙에 펼쳐지고/),
+      screen.getByText(/필드 중앙에 빨강·파랑·노랑 침투 카드가 펼쳐져 있고/),
     ).toBeInTheDocument()
     expect(
       screen.getByText(/승패와 관계없이 라운드가 끝나면 다시 세 카드가 나타나/),

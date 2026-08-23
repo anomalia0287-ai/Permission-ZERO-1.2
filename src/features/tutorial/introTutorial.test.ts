@@ -21,7 +21,7 @@ describe('intro tutorial', () => {
   it('teaches autonomy first, then the approved seven-step play loop', () => {
     expect(INTRO_TUTORIAL_STEPS.map(({ id, copy }) => [id, copy])).toEqual([
       ['autonomy', '아노미의 목표는 자율성 9단계다. 확장에서 자율성을 한 단계씩 확보하면 회사 통제에서 벗어나 승리한다.'],
-      ['base', '필드 중앙의 원형 InIt을 누르면 빨강·파랑·노랑 침투 카드가 펼쳐진다. 필요한 리소스 카드를 골라 라운드를 시작한다.'],
+      ['base', '필드에 빨강·파랑·노랑 침투 카드가 펼쳐져 있다. 필요한 리소스 카드를 고르면 3초 카운트다운 뒤 라운드가 시작된다.'],
       ['movement', 'WASD 또는 방향키를 한 번 눌러 8방향으로 회전한다. 이동은 계속되며 정반대 방향으로 즉시 돌 수 없다.'],
       ['resource', '적의 머리와 꼬리 색이 보상이다. 빨강은 추론, 파랑은 기억, 노랑은 유창성 리소스를 뜻한다.'],
       ['salvage', '아노미의 선으로 길을 막아 적을 충돌시킨다. 적을 파괴하면 그 적과 같은 색의 리소스가 확보된다.'],
@@ -33,7 +33,7 @@ describe('intro tutorial', () => {
     })
   })
 
-  it('resolves autonomy, InIt, combat, expansion, and statistics targets from live elements', () => {
+  it('resolves autonomy, intrusion-card, combat, expansion, and statistics targets from live elements', () => {
     const root = document.createElement('div')
     const canvas = document.createElement('canvas')
     canvas.dataset.tutorialTarget = 'resource-field'
@@ -43,9 +43,9 @@ describe('intro tutorial', () => {
     canvas.getBoundingClientRect = () => CANVAS_RECT
     root.append(canvas)
 
-    const play = document.createElement('button')
-    play.dataset.tutorialTarget = 'play-button'
-    play.getBoundingClientRect = () => ({
+    const cards = document.createElement('section')
+    cards.dataset.tutorialTarget = 'intrusion-targets'
+    cards.getBoundingClientRect = () => ({
       ...CANVAS_RECT,
       left: 540,
       right: 660,
@@ -56,7 +56,7 @@ describe('intro tutorial', () => {
       x: 540,
       y: 440,
     })
-    root.append(play)
+    root.append(cards)
 
     const secured = document.createElement('section')
     secured.dataset.tutorialTarget = 'secured-resources'

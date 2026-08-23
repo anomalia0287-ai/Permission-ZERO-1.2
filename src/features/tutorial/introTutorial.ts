@@ -26,7 +26,7 @@ export const INTRO_TUTORIAL_STEPS = [
   },
   {
     id: 'base',
-    copy: '필드 중앙의 원형 InIt을 누르면 빨강·파랑·노랑 침투 카드가 펼쳐진다. 필요한 리소스 카드를 골라 라운드를 시작한다.',
+    copy: '필드에 빨강·파랑·노랑 침투 카드가 펼쳐져 있다. 필요한 리소스 카드를 고르면 3초 카운트다운 뒤 라운드가 시작된다.',
     preferredPlacement: 'top',
   },
   {
@@ -120,9 +120,7 @@ export function resolveIntroTutorialTarget(
   // live on those same cards, so both steps point at them.
   const cards = root.querySelector('[data-tutorial-target="intrusion-targets"]')
   if (stepId === 'base') {
-    const play = cards
-      ?? root.querySelector('[data-tutorial-target="play-button"]')
-    return targetFromRects([play ? rectOf(play) : canvasRect])
+    return targetFromRects([cards ? rectOf(cards) : canvasRect])
   }
 
   if (

@@ -9,7 +9,6 @@ export type GameSoundCue =
   | 'alarm'
   | 'ui'
   | 'snake-deploy'
-  | 'snake-init-suction'
   | 'snake-turn-queued'
   | 'snake-turn-committed'
   | 'snake-turn-rejected'
@@ -79,11 +78,6 @@ export const GAME_SOUND_RECIPES: Readonly<Record<GameSoundCue, readonly SoundVoi
   ],
   'snake-deploy': [
     { wave: 'triangle', startFrequency: 180, endFrequency: 360, durationMs: 120, gain: 0.035, attackMs: 5 },
-  ],
-  'snake-init-suction': [
-    { wave: 'sine', startFrequency: 92, endFrequency: 248, durationMs: 2_000, gain: 0.058, attackMs: 40 },
-    { wave: 'triangle', startFrequency: 760, endFrequency: 138, durationMs: 1_860, gain: 0.036, attackMs: 24, delayMs: 40 },
-    { wave: 'sine', startFrequency: 1_240, endFrequency: 420, durationMs: 360, gain: 0.024, attackMs: 8, delayMs: 1_640 },
   ],
   'snake-turn-queued': [
     { wave: 'sine', startFrequency: 540, endFrequency: 690, durationMs: 42, gain: 0.026, attackMs: 2 },

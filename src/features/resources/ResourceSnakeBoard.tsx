@@ -70,7 +70,6 @@ const MOVEMENT_KEYS = new Set([
   'arrowup', 'arrowleft', 'arrowdown', 'arrowright',
 ])
 
-const INTRUSION_OPENING_MS = 2_000
 // The launch beat: the chosen card locks in, the rest fall away, and a short
 // 3-2-1 marks the fixed moment the round begins (the anticipation window).
 const TARGET_LAUNCH_MS = 1_050
@@ -78,8 +77,6 @@ const TARGET_LAUNCH_REDUCED_MS = 240
 const LAUNCH_COUNT_STEP_MS = 350
 
 type ResourceIntrusionBoardPhase =
-  | 'ready'
-  | 'opening'
   | ResourceIntrusionTargetPhase
   | 'combat'
 
@@ -274,9 +271,8 @@ function ResourceSnakeBoardSession() {
   const { settings } = useGameSettings()
   const runtimeSuspended = useRuntimeSuspended()
   const [runtime, setRuntime] = useState(createIdleResourceSnakeState)
-  // The board opens on the target cards. The old circular InIt gate was a
-  // one-time click that carried no decision, so it only delayed the first
-  // round; the cards themselves are the entry point.
+  // The cards are the entry point: the board opens on them and returns to
+  // them after every round, so there is no separate gate to press first.
   const [boardPhase, setBoardPhase] = useState<ResourceIntrusionBoardPhase>('choosing')
   const [selectedCategory, setSelectedCategory] = useState<CompanyCategory | null>(null)
   const [canvasRevision, setCanvasRevision] = useState(0)
@@ -305,7 +301,6 @@ function ResourceSnakeBoardSession() {
   })
   const completedRoundIdRef = useRef<string | null>(null)
   const [initialCompletedRoundCount] = useState(gameState.resourceIntrusion.completedRounds)
-  const openingTimerRef = useRef<number | null>(null)
   const launchTimerRef = useRef<number | null>(null)
   const countdownTimersRef = useRef(new Set<number>())
   const [launchCountdown, setLaunchCountdown] = useState<number | null>(null)
@@ -329,9 +324,6 @@ function ResourceSnakeBoardSession() {
   }, [])
 
   useEffect(() => () => {
-    if (openingTimerRef.current !== null) {
-      window.clearTimeout(openingTimerRef.current)
-    }
     if (launchTimerRef.current !== null) {
       window.clearTimeout(launchTimerRef.current)
     }
@@ -409,34 +401,12 @@ function ResourceSnakeBoardSession() {
     commitRuntime(deployed)
   }, [commitRuntime])
 
-  const openTargets = useCallback(() => {
-    if (
-      boardPhase !== 'ready'
-      || runtimeRef.current.phase !== 'idle'
-      || candidatesRef.current.length === 0
-    ) return
-    setBoardPhase('opening')
-    const played = playGameSound('snake-init-suction')
-    if (!played) {
-      void unlockGameAudio().then((ready) => {
-        if (ready) playGameSound('snake-init-suction')
-      })
-    }
-    if (openingTimerRef.current !== null) {
-      window.clearTimeout(openingTimerRef.current)
-    }
-    openingTimerRef.current = window.setTimeout(() => {
-      openingTimerRef.current = null
-      setBoardPhase('choosing')
-    }, INTRUSION_OPENING_MS)
-  }, [boardPhase])
-
   const roundCompletedInSession = gameState.resourceIntrusion.completedRounds
     > initialCompletedRoundCount
   const visibleBoardPhase: ResourceIntrusionBoardPhase = (
     runtime.phase === 'idle'
     && roundCompletedInSession
-    && (boardPhase === 'combat' || boardPhase === 'ready')
+    && boardPhase === 'combat'
   ) ? 'choosing' : boardPhase
 
   const selectTarget = useCallback((targetCategory: CompanyCategory) => {
@@ -838,27 +808,6 @@ function ResourceSnakeBoardSession() {
             reducedMotion={settings.reducedMotion}
             onSelect={selectTarget}
           />
-        ) : null}
-        {runtime.phase === 'idle' && (
-          visibleBoardPhase === 'ready' || visibleBoardPhase === 'opening'
-        ) ? (
-          <button
-            className={`resource-snake-board__play resource-snake-board__play--round${
-              visibleBoardPhase === 'opening'
-                ? ' resource-snake-board__play--opening'
-                : ''
-            }`}
-            type="button"
-            data-tutorial-target="play-button"
-            data-opening={visibleBoardPhase === 'opening' ? 'true' : 'false'}
-            aria-label="InIt"
-            aria-busy={visibleBoardPhase === 'opening' ? 'true' : 'false'}
-            title={candidates.length === 0 ? '확보 가능한 리소스 없음' : 'InIt'}
-            onClick={openTargets}
-            disabled={candidates.length === 0 || visibleBoardPhase === 'opening'}
-          >
-            InIt
-          </button>
         ) : null}
       </div>
       <ResourceSnakeRewardFlights

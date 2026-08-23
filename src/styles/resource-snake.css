@@ -232,107 +232,16 @@
   font-size: 0.52rem;
 }
 
-.resource-snake-board__play {
-  position: absolute;
-  z-index: 4;
-  left: 50%;
-  bottom: clamp(22px, 7%, 54px);
-  width: clamp(112px, 14%, 150px);
-  min-height: 46px;
-  padding: 0 20px;
-  transform: translateX(-50%);
-  border: 1px solid rgba(33, 230, 255, 0.76);
-  border-radius: 0;
-  background:
-    linear-gradient(180deg, rgba(33, 230, 255, 0.13), rgba(2, 8, 12, 0.94)),
-    #071118;
-  color: var(--snake-cyan-hot);
-  box-shadow: none;
-  clip-path: none;
-  font: 750 0.72rem/1 var(--font-mono, monospace);
-  letter-spacing: 0.24em;
-  text-indent: 0.24em;
-  cursor: pointer;
-  transition:
-    color 120ms ease,
-    background-color 120ms ease,
-    box-shadow 120ms ease,
-    transform 180ms cubic-bezier(0.2, 0.72, 0.22, 1),
-    opacity 180ms ease;
-}
 
-.resource-snake-board__play::before {
-  position: absolute;
-  top: 7px;
-  right: 8px;
-  width: 18px;
-  height: 2px;
-  background: var(--snake-cyan);
-  box-shadow: -92px 28px 0 rgba(33, 230, 255, 0.45);
-  content: none;
-}
 
-.resource-snake-board__play:hover:not(:disabled),
-.resource-snake-board__play:focus-visible {
-  color: #ffffff;
-  background-color: rgba(18, 69, 81, 0.74);
-  box-shadow: none;
-  outline: 1px solid var(--snake-cyan-hot);
-  outline-offset: 4px;
-}
 
-.resource-snake-board__play:active:not(:disabled) {
-  transform: translateX(-50%) scale(0.97);
-}
 
-.resource-snake-board__play:disabled {
-  cursor: default;
-  opacity: 0.42;
-}
 
-.resource-snake-board__play--deploying {
-  transform: translateX(-50%) scaleX(0.08);
-  opacity: 0;
-  pointer-events: none;
-}
 
-.resource-snake-board__play--round {
-  top: 50%;
-  bottom: auto;
-  width: clamp(74px, 8vw, 92px);
-  min-height: 0;
-  aspect-ratio: 1;
-  padding: 0;
-  transform: translate(-50%, -50%);
-  border-radius: 50%;
-  letter-spacing: 0.12em;
-  text-indent: 0.12em;
-}
 
-.resource-snake-board__play--round:active:not(:disabled) {
-  transform: translate(-50%, -50%) scale(0.96);
-}
 
-.resource-snake-board__play--opening,
-.resource-snake-board__play--opening:disabled {
-  opacity: 1;
-  animation: intrusion-init-collapse 2s cubic-bezier(0.16, 1, 0.3, 1) both;
-  pointer-events: none;
-}
 
-.resource-snake-board__play--round::after {
-  position: absolute;
-  inset: -9px;
-  border: 1px solid rgba(33, 230, 255, 0.45);
-  border-radius: 50%;
-  opacity: 0;
-  content: '';
-  pointer-events: none;
-}
 
-.resource-snake-board__play--opening::after {
-  animation: intrusion-init-ring 2s ease-in both;
-}
 
 .resource-intrusion-targets {
   position: absolute;
@@ -532,36 +441,7 @@
   }
 }
 
-@keyframes intrusion-init-collapse {
-  0% {
-    transform: translate(-50%, -50%) scale(1);
-  }
 
-  72% {
-    transform: translate(-50%, -50%) scale(0.86);
-  }
-
-  100% {
-    transform: translate(-50%, -50%) scale(0.18);
-    opacity: 0;
-  }
-}
-
-@keyframes intrusion-init-ring {
-  0% {
-    opacity: 0;
-    transform: scale(1.28);
-  }
-
-  22% {
-    opacity: 0.72;
-  }
-
-  100% {
-    opacity: 0;
-    transform: scale(0.12);
-  }
-}
 
 @keyframes intrusion-card-dismiss {
   from {
@@ -666,10 +546,6 @@
     opacity: 0;
   }
 
-  .resource-snake-board__play {
-    transition: none;
-  }
-
   .resource-snake-reward-flight span {
     animation-name: resource-snake-reward-pulse;
     animation-duration: 180ms;
@@ -680,17 +556,6 @@
     animation-delay: 0ms;
   }
 
-  .resource-snake-board__play--opening,
-  .resource-snake-board__play--opening::after {
-    animation: none;
-  }
-}
-
-.resource-snake-board__arena[data-reduced-motion='true']
-  .resource-snake-board__play--opening,
-.resource-snake-board__arena[data-reduced-motion='true']
-  .resource-snake-board__play--opening::after {
-  animation: none;
 }
 
 .resource-intrusion-targets__risk {

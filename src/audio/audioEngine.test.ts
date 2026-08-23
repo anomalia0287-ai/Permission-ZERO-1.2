@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { GameAudioEngine } from './audioEngine'
-import { GAME_SOUND_RECIPES } from './gameSounds'
 
 class FakeAudioParam {
   value = 1
@@ -521,17 +520,7 @@ describe('GameAudioEngine', () => {
     expect(engine.play('select')).toBe(true)
   })
 
-  it('defines a bounded two-second InIt suction cue', () => {
-    const suction = GAME_SOUND_RECIPES['snake-init-suction']
-
-    expect(suction).toHaveLength(3)
-    expect(Math.max(...suction.map((voice) => (
-      (voice.delayMs ?? 0) + voice.durationMs
-    )))).toBe(2_000)
-    expect(Math.max(...suction.map(({ gain }) => gain))).toBeLessThanOrEqual(0.07)
-  })
-
-  it('releases every long suction voice after playback completes', async () => {
+  it('releases every voice of a chord after playback completes', async () => {
     const context = new FakeAudioContext()
     const engine = new GameAudioEngine(
       () => context as unknown as AudioContext,
@@ -539,13 +528,13 @@ describe('GameAudioEngine', () => {
     )
     await engine.unlock()
 
-    expect(engine.play('snake-init-suction')).toBe(true)
-    const suctionSources = [...context.oscillators]
-    expect(suctionSources).toHaveLength(3)
-    expect(engine.play('snake-hit')).toBe(false)
-
-    suctionSources.forEach((oscillator) => oscillator.finish())
     expect(engine.play('snake-hit')).toBe(true)
+    const chordSources = [...context.oscillators]
+    expect(chordSources).toHaveLength(3)
+    expect(engine.play('snake-burst')).toBe(false)
+
+    chordSources.forEach((oscillator) => oscillator.finish())
+    expect(engine.play('snake-burst')).toBe(true)
   })
 
   it('degrades silently when Web Audio is unavailable', async () => {

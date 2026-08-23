@@ -212,7 +212,9 @@ test('keeps one dark operations console around the lit game field', async ({
   await expect(statusMetrics.getByRole('meter', { name: '자율성 0단계' })).toBeVisible()
   await expect(statusMetrics.getByRole('meter', { name: '의심 0%' })).toBeVisible()
   await expect(dock.locator('.operations-dock__button')).toHaveCount(3)
-  await expect(dock.getByRole('region', { name: '확보 자원' })).toContainText('추론0')
+  // Secured counts live on the intrusion cards now, not in the dock.
+  await expect(dock.getByRole('region', { name: '확보 자원' })).toHaveCount(0)
+  await expect(page.getByLabel('추론 확보 0개')).toHaveText('0')
   await expect(resourceField.getByText('사내 리소스망', { exact: true })).toHaveCount(0)
   await expect(canvas).not.toHaveAccessibleName(/사내 리소스망/)
 
@@ -234,7 +236,7 @@ test('keeps one dark operations console around the lit game field', async ({
   await expectInsideViewport(page, canvas)
   await expectInsideViewport(page, dock)
 
-  await expect(page.getByRole('button', { name: 'InIt', exact: true })).toBeVisible()
+  await expect(page.getByRole('region', { name: '침투 대상 선택' })).toBeVisible()
   await expect(canvas).toHaveAttribute('data-round-phase', 'idle')
   await expect(canvas).toHaveAttribute('data-visual-state', 'waiting')
   await expect(canvas).toHaveAttribute('data-field-rendering', 'waiting-dormant')
@@ -471,48 +473,46 @@ test('uses the full central workspace without an empty tail below the resource b
   expect(canvasSizing.objectFit).toBe('fill')
 })
 
-test('uses the former portrait rail for inventory while keeping identities out of the HUD', async ({
+test('keeps identities out of the HUD and the secured counts on the intrusion cards', async ({
   page,
 }) => {
   await openFreshCampaign(page)
   const dock = page.getByRole('navigation', { name: '운영 도구' })
-  const inventory = dock.getByRole('region', { name: '확보 자원' })
 
-  await expect(inventory).toBeVisible()
-  await expect(inventory.getByLabel('추론 0개')).toHaveText('0')
-  await expect(inventory.getByLabel('기억 0개')).toHaveText('0')
-  await expect(inventory.getByLabel('유창성 0개')).toHaveText('0')
+  // The dock is a pure tool rail: the old inventory region moved onto the
+  // intrusion cards, where the counts sit next to the choice they inform.
+  await expect(dock.getByRole('region', { name: '확보 자원' })).toHaveCount(0)
+  const targets = page.getByRole('region', { name: '침투 대상 선택' })
+  await expect(targets.getByLabel('추론 확보 0개')).toHaveText('0')
+  await expect(targets.getByLabel('기억 확보 0개')).toHaveText('0')
+  await expect(targets.getByLabel('유창성 확보 0개')).toHaveText('0')
   await expect(dock.locator('img')).toHaveCount(0)
   await expect(page.getByRole('button', { name: '감독관 프로필' })).toHaveCount(0)
   await expect(page.getByRole('meter', { name: '자율성 0단계' })).toBeVisible()
   await expect(page.getByRole('meter', { name: '의심 0%' })).toBeVisible()
 })
 
-test('reclaims the stage with a vertical color-coded inventory and flush light icon rail', async ({
+test('reclaims the stage with a flush dark tool rail beside the wide arena', async ({
   page,
 }, testInfo) => {
   await openFreshCampaign(page)
   const dock = page.getByRole('navigation', { name: '운영 도구' })
-  const inventory = dock.getByRole('region', { name: '확보 자원' })
   const tools = dock.locator('.operations-dock__tools')
   const buttons = tools.locator('.operations-dock__button--tool')
   const canvas = page.locator('canvas.resource-snake-board__canvas')
-  const [dockBox, inventoryBox, toolsBox, canvasBox] = await Promise.all([
+  const [dockBox, toolsBox, canvasBox] = await Promise.all([
     dock.boundingBox(),
-    inventory.boundingBox(),
     tools.boundingBox(),
     canvas.boundingBox(),
   ])
 
   expect(dockBox).not.toBeNull()
-  expect(inventoryBox).not.toBeNull()
   expect(toolsBox).not.toBeNull()
   expect(canvasBox).not.toBeNull()
-  if (!dockBox || !inventoryBox || !toolsBox || !canvasBox) return
+  if (!dockBox || !toolsBox || !canvasBox) return
 
   expect(dockBox.width).toBeLessThanOrEqual(92)
   expect(canvasBox.width).toBeGreaterThanOrEqual(900)
-  expect(inventoryBox.height / inventoryBox.width).toBeGreaterThan(2.5)
   expect(Math.abs(toolsBox.x - dockBox.x)).toBeLessThanOrEqual(2)
   expect(dockBox.width - toolsBox.width).toBeLessThanOrEqual(2)
 
@@ -543,16 +543,6 @@ test('reclaims the stage with a vertical color-coded inventory and flush light i
     expect(Math.max(iconColor.red, iconColor.green, iconColor.blue))
       .toBeGreaterThanOrEqual(120)
   }
-  await expect(
-    inventory.locator('[data-resource-category="reasoning"] i'),
-  ).toHaveCSS('background-color', 'rgb(240, 106, 67)')
-  await expect(
-    inventory.locator('[data-resource-category="memory"] i'),
-  ).toHaveCSS('background-color', 'rgb(79, 141, 247)')
-  await expect(
-    inventory.locator('[data-resource-category="fluency"] i'),
-  ).toHaveCSS('background-color', 'rgb(232, 189, 89)')
-
   await buttons.first().hover()
   await expect(buttons.first()).toHaveCSS('border-top-color', 'rgb(255, 107, 61)')
   await page.screenshot({
@@ -711,10 +701,9 @@ test('renders a flat industrial cyan-lightcycle arena with readable live intent'
     category,
     ...categorySignals[category],
   }])
-  const resourceLegend = page.getByRole('list', { name: '적 리소스 색상 범례' })
-  await expect(resourceLegend).toContainText('빨강 · 추론')
-  await expect(resourceLegend).toContainText('파랑 · 기억')
-  await expect(resourceLegend).toContainText('노랑 · 유창성')
+  // The intrusion cards teach the color-resource mapping before the round
+  // starts, so the combat HUD no longer repeats it as a legend strip.
+  await expect(page.getByRole('list', { name: '적 리소스 색상 범례' })).toHaveCount(0)
 
   await tapSnakeDirection(page, 'd')
   let telegraphs: Array<{

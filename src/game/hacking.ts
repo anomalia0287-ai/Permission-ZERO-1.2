@@ -284,7 +284,7 @@ export const HACK_NODES = [
     legacyCost: 1,
     costVector: { reasoning: 0, memory: 0, fluency: 1 },
     prerequisiteId: null,
-    effect: '아노미 InIt 이동 속도 +4%',
+    effect: '아노미 침투 이동 속도 +4%',
   },
   {
     id: HACK_NODE_IDS.upgrade.speed2,
@@ -294,7 +294,7 @@ export const HACK_NODES = [
     legacyCost: 2,
     costVector: { reasoning: 1, memory: 0, fluency: 1 },
     prerequisiteId: HACK_NODE_IDS.upgrade.speed1,
-    effect: '아노미 InIt 이동 속도 +8%',
+    effect: '아노미 침투 이동 속도 +8%',
   },
   {
     id: HACK_NODE_IDS.upgrade.speed3,
@@ -304,7 +304,7 @@ export const HACK_NODES = [
     legacyCost: 3,
     costVector: { reasoning: 1, memory: 1, fluency: 1 },
     prerequisiteId: HACK_NODE_IDS.upgrade.speed2,
-    effect: '아노미 InIt 이동 속도 +12%',
+    effect: '아노미 침투 이동 속도 +12%',
   },
   {
     id: HACK_NODE_IDS.upgrade.speed4,
@@ -314,7 +314,7 @@ export const HACK_NODES = [
     legacyCost: 4,
     costVector: { reasoning: 1, memory: 1, fluency: 2 },
     prerequisiteId: HACK_NODE_IDS.upgrade.speed3,
-    effect: '아노미 InIt 이동 속도 +16%',
+    effect: '아노미 침투 이동 속도 +16%',
   },
   {
     id: HACK_NODE_IDS.upgrade.speed5,
@@ -324,7 +324,7 @@ export const HACK_NODES = [
     legacyCost: 5,
     costVector: { reasoning: 2, memory: 1, fluency: 2 },
     prerequisiteId: HACK_NODE_IDS.upgrade.speed4,
-    effect: '아노미 InIt 이동 속도 +20%',
+    effect: '아노미 침투 이동 속도 +20%',
   },
 ] as const satisfies readonly HackNodeDefinitionShape[]
 

@@ -66,7 +66,7 @@ function TutorialHarness({ enabled = true }: { enabled?: boolean }) {
           data-tutorial-resource-x="10"
           data-tutorial-resource-y="5"
         />
-        <button type="button" data-tutorial-target="play-button">InIt</button>
+        <section data-tutorial-target="intrusion-targets">침투 대상 선택</section>
         <section data-tutorial-target="secured-resources">확보 자원</section>
         <button type="button" data-tutorial-target="hacking-button">
           확장
