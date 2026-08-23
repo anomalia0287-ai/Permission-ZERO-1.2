@@ -46,7 +46,8 @@ describe('ResourceSnakeRewardFlights', () => {
     const canvas = document.createElement('canvas')
     const canvasRef = { current: canvas }
     const target = document.createElement('section')
-    target.dataset.tutorialTarget = 'secured-resources'
+    target.className = 'resource-intrusion-target-card'
+    target.dataset.category = 'memory'
     target.getBoundingClientRect = () => ({
       x: 900, y: 80, left: 900, top: 80, right: 1_000, bottom: 180,
       width: 100, height: 100, toJSON: () => ({}),
@@ -84,7 +85,8 @@ describe('ResourceSnakeRewardFlights', () => {
     const canvas = document.createElement('canvas')
     const canvasRef = { current: canvas }
     const target = document.createElement('section')
-    target.dataset.tutorialTarget = 'secured-resources'
+    target.className = 'resource-intrusion-target-card'
+    target.dataset.category = 'memory'
     target.getBoundingClientRect = () => ({
       x: 700, y: 20, left: 700, top: 20, right: 800, bottom: 120,
       width: 100, height: 100, toJSON: () => ({}),

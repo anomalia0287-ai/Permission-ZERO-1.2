@@ -464,6 +464,21 @@ export function resourceSnakeShakeOffset(
   reducedMotion: boolean,
 ): { x: number; y: number } {
   if (reducedMotion) return { x: 0, y: 0 }
+  // A death lands much harder than a graze: bigger amplitude, longer decay.
+  const death = [...runtime.events].reverse().find((event) => (
+    event.type === 'snake-died'
+    && runtime.simulationMs >= event.startedAtMs
+    && runtime.simulationMs - event.startedAtMs <= 460
+  ))
+  if (death && death.type === 'snake-died') {
+    const age = runtime.simulationMs - death.startedAtMs
+    const amplitude = Math.max(0, 9 * (1 - age / 460))
+    const phase = death.id * 1.618 + age * 0.21
+    return {
+      x: Number((Math.sin(phase) * amplitude).toFixed(3)),
+      y: Number((Math.cos(phase * 1.37) * amplitude).toFixed(3)),
+    }
+  }
   const collision = [...runtime.events].reverse().find((event) => (
     event.type === 'snake-collided'
     && runtime.simulationMs >= event.startedAtMs

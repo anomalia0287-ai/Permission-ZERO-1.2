@@ -141,7 +141,6 @@ export function ResourceSnakeRewardFlights({
 
   useEffect(() => {
     const canvas = canvasRef.current
-    const target = document.querySelector('[data-tutorial-target="secured-resources"]')
     for (const event of runtime.events) {
       if (
         event.type !== 'resource-reward-resolved'
@@ -149,6 +148,16 @@ export function ResourceSnakeRewardFlights({
         || handledRewardKeysRef.current.has(event.rewardKey)
       ) continue
       handledRewardKeysRef.current.add(event.rewardKey)
+      // Secured counts live on the intrusion cards now, so the reward flies
+      // home to the card whose number it is about to raise.
+      const enemyCategory = runtime.enemies.find(
+        (candidate) => candidate.rewardKey === event.rewardKey,
+      )?.category
+      const target = enemyCategory
+        ? document.querySelector(
+            `.resource-intrusion-target-card[data-category="${enemyCategory}"]`,
+          )
+        : null
       if (!canvas || !target) continue
       try {
         const flight = createRewardFlight(

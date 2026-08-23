@@ -71,7 +71,11 @@ const MOVEMENT_KEYS = new Set([
 ])
 
 const INTRUSION_OPENING_MS = 2_000
-const TARGET_LAUNCH_MS = 240
+// The launch beat: the chosen card locks in, the rest fall away, and a short
+// 3-2-1 marks the fixed moment the round begins (the anticipation window).
+const TARGET_LAUNCH_MS = 1_050
+const TARGET_LAUNCH_REDUCED_MS = 240
+const LAUNCH_COUNT_STEP_MS = 350
 
 type ResourceIntrusionBoardPhase =
   | 'ready'
@@ -303,6 +307,10 @@ function ResourceSnakeBoardSession() {
   const [initialCompletedRoundCount] = useState(gameState.resourceIntrusion.completedRounds)
   const openingTimerRef = useRef<number | null>(null)
   const launchTimerRef = useRef<number | null>(null)
+  const countdownTimersRef = useRef(new Set<number>())
+  const [launchCountdown, setLaunchCountdown] = useState<number | null>(null)
+  const [deathFlash, setDeathFlash] = useState<'player' | 'enemy' | null>(null)
+  const handledDeathIdsRef = useRef(new Set<number>())
   const candidates = useMemo(
     () => selectEligibleSnakeResourceCandidates(gameState.resources),
     [gameState.resources],
@@ -437,16 +445,39 @@ function ResourceSnakeBoardSession() {
       || runtimeRef.current.phase !== 'idle'
       || !candidatesRef.current.some(({ origin }) => origin === targetCategory)
     ) return
+    // The card click is a user gesture, so it is the reliable place to
+    // unlock audio for the whole round.
+    if (!playGameSound('latch')) {
+      void unlockGameAudio().then((ready) => {
+        if (ready) playGameSound('latch')
+      })
+    }
     setSelectedCategory(targetCategory)
     setBoardPhase('launching')
+    const reduced = settings.reducedMotion
+    const launchMs = reduced ? TARGET_LAUNCH_REDUCED_MS : TARGET_LAUNCH_MS
+    if (!reduced) {
+      setLaunchCountdown(3)
+      for (let step = 1; step < 3; step += 1) {
+        const timer = window.setTimeout(() => {
+          countdownTimersRef.current.delete(timer)
+          setLaunchCountdown(3 - step)
+          playGameSound('ui')
+        }, LAUNCH_COUNT_STEP_MS * step)
+        countdownTimersRef.current.add(timer)
+      }
+    }
     if (launchTimerRef.current !== null) {
       window.clearTimeout(launchTimerRef.current)
     }
+    for (const timer of countdownTimersRef.current) window.clearTimeout(timer)
+    countdownTimersRef.current.clear()
     launchTimerRef.current = window.setTimeout(() => {
       launchTimerRef.current = null
+      setLaunchCountdown(null)
       deploySelectedTarget(targetCategory)
-    }, TARGET_LAUNCH_MS)
-  }, [deploySelectedTarget, visibleBoardPhase])
+    }, launchMs)
+  }, [deploySelectedTarget, settings.reducedMotion, visibleBoardPhase])
 
   useEffect(() => {
     const clearInput = (publish: boolean) => {
@@ -659,6 +690,18 @@ function ResourceSnakeBoardSession() {
   const browserSnapshot = serializeBrowserSnakeSnapshot(runtime, aiPresentation.roles)
   const roundSpeedScale = resourceSnakeRoundSpeedScale(runtime.simulationMs)
   const shake = resourceSnakeShakeOffset(runtime, settings.reducedMotion)
+
+  useEffect(() => {
+    if (settings.reducedMotion) return
+    const death = runtime.events.find((event) =>
+      event.type === 'snake-died' && !handledDeathIdsRef.current.has(event.id),
+    )
+    if (!death || death.type !== 'snake-died') return
+    handledDeathIdsRef.current.add(death.id)
+    setDeathFlash(death.actorId === 'player' ? 'player' : 'enemy')
+    const timer = window.setTimeout(() => setDeathFlash(null), 560)
+    return () => window.clearTimeout(timer)
+  }, [runtime.events, settings.reducedMotion])
   const visibleInput = runtimeSuspended
     ? { ...runtime.input, pendingChord: null, pressedKeys: [], queuedTurns: [] }
     : runtime.input
@@ -765,6 +808,23 @@ function ResourceSnakeBoardSession() {
               <span>SPD {Math.round(roundSpeedScale * 100)}%</span>
               <span>Q {queueLabel}</span>
             </div>
+          </div>
+        ) : null}
+        {deathFlash ? (
+          <div
+            className="resource-snake-board__death-flash"
+            data-death-kind={deathFlash}
+            aria-hidden="true"
+          />
+        ) : null}
+        {launchCountdown !== null && visibleBoardPhase === 'launching' ? (
+          <div
+            className="resource-snake-board__countdown"
+            aria-live="assertive"
+            aria-label={`침투 시작까지 ${launchCountdown}`}
+            key={launchCountdown}
+          >
+            {launchCountdown}
           </div>
         ) : null}
         {runtime.phase === 'idle' && (

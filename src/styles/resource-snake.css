@@ -745,3 +745,103 @@
     font-size: 0.5rem;
   }
 }
+
+
+/* ---------- launch countdown ---------- */
+
+.resource-snake-board__countdown {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: grid;
+  place-items: center;
+  color: #f4f8fb;
+  font: 800 clamp(64px, 9vw, 120px)/1 "Cascadia Code", Consolas, monospace;
+  text-shadow: 0 0 34px rgba(255, 107, 61, 0.55);
+  pointer-events: none;
+  animation: snake-countdown-tick 350ms ease-out both;
+}
+
+@keyframes snake-countdown-tick {
+  from {
+    opacity: 0;
+    transform: scale(1.5);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* The chosen card locks in while the others fall away. */
+.resource-intrusion-target-card[data-phase='launching'][data-selected='true'] {
+  border-color: var(--target-card-color);
+  box-shadow:
+    0 0 0 1px var(--target-card-color),
+    0 0 42px color-mix(in srgb, var(--target-card-color) 55%, transparent);
+  transform: translateY(-6px) scale(1.03);
+  transition: transform 260ms ease, box-shadow 260ms ease;
+}
+
+.resource-intrusion-target-card[data-phase='launching'][data-selected='false'] {
+  opacity: 0.18;
+  transform: translateY(26px) scale(0.94);
+  filter: saturate(0.4);
+  transition: opacity 320ms ease, transform 320ms ease, filter 320ms ease;
+}
+
+/* A raid that just landed makes its number visibly rise. */
+.resource-intrusion-target-card__stats dd[data-pulse='true'] {
+  animation: intrusion-secured-pulse 900ms ease-out both;
+}
+
+@keyframes intrusion-secured-pulse {
+  0% {
+    text-shadow: 0 0 0 transparent;
+    transform: scale(1);
+  }
+
+  25% {
+    text-shadow: 0 0 22px currentcolor;
+    transform: scale(1.35);
+  }
+
+  100% {
+    text-shadow: 0 0 0 transparent;
+    transform: scale(1);
+  }
+}
+
+[data-reduced-motion='true'] .resource-snake-board__countdown,
+[data-reduced-motion='true'] .resource-intrusion-target-card__stats dd[data-pulse='true'] {
+  animation: none;
+}
+
+
+/* ---------- death flash ---------- */
+
+.resource-snake-board__death-flash {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  animation: snake-death-flash 560ms ease-out both;
+}
+
+.resource-snake-board__death-flash[data-death-kind='enemy'] {
+  background:
+    radial-gradient(60% 60% at 50% 45%, rgba(126, 231, 255, 0.34), transparent 70%);
+}
+
+.resource-snake-board__death-flash[data-death-kind='player'] {
+  background:
+    radial-gradient(70% 70% at 50% 50%, rgba(255, 82, 60, 0.4), transparent 74%),
+    linear-gradient(rgba(255, 60, 40, 0.14), rgba(255, 60, 40, 0.14));
+}
+
+@keyframes snake-death-flash {
+  0% { opacity: 0; }
+  18% { opacity: 1; }
+  100% { opacity: 0; }
+}

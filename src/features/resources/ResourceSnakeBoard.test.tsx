@@ -91,7 +91,7 @@ function startTargetedResourceRound(
   targetName = '파랑 기억 침투',
 ): void {
   fireEvent.click(screen.getByRole('button', { name: targetName }))
-  act(() => vi.advanceTimersByTime(240))
+  act(() => vi.advanceTimersByTime(1_050))
 }
 
 describe('ResourceSnakeBoard', () => {
@@ -181,7 +181,7 @@ describe('ResourceSnakeBoard', () => {
       .toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '파랑 기억 침투' }))
-    act(() => vi.advanceTimersByTime(239))
+    act(() => vi.advanceTimersByTime(1_049))
     expect(arena).toHaveAttribute('data-round-phase', 'idle')
     act(() => vi.advanceTimersByTime(1))
 

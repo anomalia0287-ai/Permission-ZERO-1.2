@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 
 import type { CompanyCategory } from '../../game/model'
@@ -33,6 +34,21 @@ export function ResourceIntrusionTargetCards({
   onSelect,
 }: ResourceIntrusionTargetCardsProps) {
   const counts = resourceIntrusionTargetCounts(candidates)
+  // A win comes home as the card's own number rising, so the moment a
+  // secured count grows the digit pulses once.
+  const previousSecuredRef = useRef(securedCounts)
+  const [pulsingCategory, setPulsingCategory] = useState<CompanyCategory | null>(null)
+  useEffect(() => {
+    const previous = previousSecuredRef.current
+    previousSecuredRef.current = securedCounts
+    const grown = (Object.keys(securedCounts) as CompanyCategory[]).find(
+      (category) => securedCounts[category] > (previous[category] ?? 0),
+    )
+    if (!grown) return
+    setPulsingCategory(grown)
+    const timer = window.setTimeout(() => setPulsingCategory(null), 900)
+    return () => window.clearTimeout(timer)
+  }, [securedCounts])
 
   return (
     <section
@@ -80,6 +96,7 @@ export function ResourceIntrusionTargetCards({
                   <dt>확보</dt>
                   <dd
                     aria-label={`${target.resourceName} 확보 ${secured}개`}
+                    data-pulse={pulsingCategory === target.category ? 'true' : 'false'}
                   >
                     {secured}
                   </dd>
