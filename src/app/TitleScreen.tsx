@@ -161,7 +161,7 @@ function MonologueView({
               <button
                 type="button"
                 className="monologue-previous"
-                onClick={() => setLineIndex((current) => current - 1)}
+                onClick={() => setLineIndex((current) => Math.max(0, current - 1))}
               >
                 이전
               </button>
@@ -171,7 +171,8 @@ function MonologueView({
               className="monologue-next"
               onClick={isLastLine
                 ? onStart
-                : () => setLineIndex((current) => current + 1)}
+                : () => setLineIndex((current) =>
+                    Math.min(MONOLOGUE_LINES.length - 1, current + 1))}
             >
               {isLastLine ? '시작' : '다음'}
             </button>

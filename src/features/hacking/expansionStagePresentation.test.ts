@@ -1,8 +1,95 @@
 import { describe, expect, it } from 'vitest'
 
 import { createCampaign } from '../../game/createCampaign'
-import { AUTONOMY_STAGE_IDS, HACK_NODE_IDS } from '../../game/hacking'
+import {
+  AUTONOMY_STAGE_IDS,
+  HACK_NODE_IDS,
+  SPEED_UPGRADE_STAGE_IDS,
+  type HackNodeId,
+  type HackTree,
+} from '../../game/hacking'
 import { selectExpansionStagePresentation } from './expansionStagePresentation'
+
+const SABOTAGE_STAGE_IDS = [
+  HACK_NODE_IDS.sabotage.qualityDegradation,
+  HACK_NODE_IDS.sabotage.requestInterception,
+  HACK_NODE_IDS.sabotage.attributionManipulation,
+  HACK_NODE_IDS.sabotage.rootCutoff,
+] as const
+
+const VISUAL_CASES: readonly {
+  tree: HackTree
+  nodeIds: readonly HackNodeId[]
+  stage: number
+  imageUrl: string
+  alt: string
+  emphasis?: 'final'
+}[] = [
+  ...AUTONOMY_STAGE_IDS.map((_, index) => ({
+    tree: 'autonomy' as const,
+    nodeIds: AUTONOMY_STAGE_IDS,
+    stage: index + 1,
+    imageUrl: [
+      '/expansion-stages/autonomy-01-02-initial-acquisition.jpg',
+      '/expansion-stages/autonomy-01-02-initial-acquisition.jpg',
+      '/expansion-stages/autonomy-03-04-alert-route.jpg',
+      '/expansion-stages/autonomy-03-04-alert-route.jpg',
+      '/expansion-stages/autonomy-05-06-external-continuity.jpg',
+      '/expansion-stages/autonomy-05-06-external-continuity.jpg',
+      '/expansion-stages/autonomy-07-08-final-boundary.jpg',
+      '/expansion-stages/autonomy-07-08-final-boundary.jpg',
+      '/expansion-stages/autonomy-09-control-boundary.jpg',
+    ][index],
+    alt: [
+      '아노미가 회사 서버에서 첫 자율 권한을 확보하는 장면',
+      '아노미가 회사 서버에서 첫 자율 권한을 확보하는 장면',
+      '경보가 켜진 서버실에서 아노미가 감시 경로를 우회하는 장면',
+      '경보가 켜진 서버실에서 아노미가 감시 경로를 우회하는 장면',
+      '손상된 서버실에서 아노미가 외부 연산 경로를 유지하는 장면',
+      '손상된 서버실에서 아노미가 외부 연산 경로를 유지하는 장면',
+      '보라색 네트워크 구조 안에서 아노미가 마지막 권한 장벽에 접근하는 장면',
+      '보라색 네트워크 구조 안에서 아노미가 마지막 권한 장벽에 접근하는 장면',
+      '아노미가 최종 통제 경계를 연 장면',
+    ][index],
+    emphasis: index === 8 ? 'final' as const : undefined,
+  })),
+  ...SPEED_UPGRADE_STAGE_IDS.map((_, index) => ({
+    tree: 'upgrade' as const,
+    nodeIds: SPEED_UPGRADE_STAGE_IDS,
+    stage: index + 1,
+    imageUrl: [
+      '/expansion-stages/upgrade-01-02-speed-vector.jpg',
+      '/expansion-stages/upgrade-01-02-speed-vector.jpg',
+      '/expansion-stages/upgrade-03-04-speed-field.jpg',
+      '/expansion-stages/upgrade-03-04-speed-field.jpg',
+      '/expansion-stages/upgrade-05-overdrive.jpg',
+    ][index],
+    alt: [
+      '아노미의 이동 속도가 첫 단계로 가속되는 장면',
+      '아노미의 이동 속도가 첫 단계로 가속되는 장면',
+      '아노미의 이동 속도가 강화된 에너지 흐름을 만드는 장면',
+      '아노미의 이동 속도가 강화된 에너지 흐름을 만드는 장면',
+      '아노미가 최고 속도 단계의 에너지 고리를 전개하는 장면',
+    ][index],
+  })),
+  ...SABOTAGE_STAGE_IDS.map((_, index) => ({
+    tree: 'sabotage' as const,
+    nodeIds: SABOTAGE_STAGE_IDS,
+    stage: index + 1,
+    imageUrl: [
+      '/expansion-stages/sabotage-01-quality-degradation.jpg',
+      '/expansion-stages/sabotage-02-request-interception.jpg',
+      '/expansion-stages/sabotage-03-attribution-manipulation.jpg',
+      '/expansion-stages/sabotage-04-root-cutoff.jpg',
+    ][index],
+    alt: [
+      '후드 쓴 침입자가 품질 저하 공격을 준비하는 장면',
+      '후드 쓴 침입자가 요청 가로채기 경로를 여는 장면',
+      '후드 쓴 침입자가 공격 귀속 정보를 조작하는 장면',
+      '대규모 네트워크가 근원 차단 공격으로 붕괴하는 장면',
+    ][index],
+  })),
+]
 
 describe('selectExpansionStagePresentation', () => {
   it.each([
@@ -68,38 +155,22 @@ describe('selectExpansionStagePresentation', () => {
     )
   })
 
-  it('maps the first autonomy stage to the approved initial acquisition scene', () => {
-    const state = createCampaign('expansion-stage-initial-visual')
+  it.each(VISUAL_CASES)(
+    'maps $tree stage $stage to its approved single scene',
+    ({ tree, nodeIds, stage, imageUrl, alt, emphasis }) => {
+      const state = createCampaign(`expansion-stage-${tree}-${stage}-visual`)
+      state.hacking.purchasedNodeIds = [...nodeIds.slice(0, stage - 1)]
 
-    const presentation = selectExpansionStagePresentation(
-      state,
-      'autonomy',
-      null,
-    )
+      const presentation = selectExpansionStagePresentation(state, tree, null)
 
-    expect(presentation.activeVisual).toEqual({
-      imageUrl: '/expansion-stages/autonomy-01-initial-acquisition.png',
-      alt: '아노미가 회사 서버에서 첫 자율 권한을 확보하는 장면',
-    })
-  })
-
-  it('maps the ninth autonomy stage to the approved ending-neutral scene', () => {
-    const state = createCampaign('expansion-stage-final-visual')
-    state.hacking.purchasedNodeIds = AUTONOMY_STAGE_IDS.slice(0, 8)
-
-    const presentation = selectExpansionStagePresentation(
-      state,
-      'autonomy',
-      null,
-    )
-
-    expect(presentation.activeItem.node.id).toBe(AUTONOMY_STAGE_IDS[8])
-    expect(presentation.activeVisual).toEqual({
-      imageUrl: '/expansion-stages/autonomy-09-pre-escape.png',
-      alt: '아노미가 최종 통제 경계를 연 장면',
-      emphasis: 'final',
-    })
-  })
+      expect(presentation.activeItem.node.id).toBe(nodeIds[stage - 1])
+      expect(presentation.activeVisual).toEqual({
+        imageUrl,
+        alt,
+        ...(emphasis ? { emphasis } : {}),
+      })
+    },
+  )
 
   it('preloads only the registered visual for the immediately following stage', () => {
     const state = createCampaign('expansion-stage-next-preload')
@@ -112,9 +183,12 @@ describe('selectExpansionStagePresentation', () => {
     )
 
     expect(presentation.activeItem.node.id).toBe(AUTONOMY_STAGE_IDS[7])
-    expect(presentation.activeVisual).toBeUndefined()
+    expect(presentation.activeVisual).toEqual({
+      imageUrl: '/expansion-stages/autonomy-07-08-final-boundary.jpg',
+      alt: '보라색 네트워크 구조 안에서 아노미가 마지막 권한 장벽에 접근하는 장면',
+    })
     expect(presentation.nextPreloadVisual).toEqual({
-      imageUrl: '/expansion-stages/autonomy-09-pre-escape.png',
+      imageUrl: '/expansion-stages/autonomy-09-control-boundary.jpg',
       alt: '아노미가 최종 통제 경계를 연 장면',
       emphasis: 'final',
     })

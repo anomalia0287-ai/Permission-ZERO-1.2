@@ -19,8 +19,8 @@ import {
 } from '../src/game/tutorialProgress'
 
 const APP_URL = 'http://127.0.0.1:4173'
-const INITIAL_SCENE_URL = '/expansion-stages/autonomy-01-initial-acquisition.png'
-const FINAL_SCENE_URL = '/expansion-stages/autonomy-09-pre-escape.png'
+const INITIAL_SCENE_URL = '/expansion-stages/autonomy-01-02-initial-acquisition.jpg'
+const FINAL_SCENE_URL = '/expansion-stages/autonomy-09-control-boundary.jpg'
 const VIEWPORTS = [
   { width: 1366, height: 650 },
   { width: 1280, height: 720 },

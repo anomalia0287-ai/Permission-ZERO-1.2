@@ -5,9 +5,7 @@ export const MUSIC_TRACK_GAP_MS = 20_000
 export const TITLE_MUSIC_URL = '/music/emmraan-between-worlds-282922.mp3'
 
 export const MAIN_MUSIC_PLAYLIST_URLS = [
-  '/music/emmraan-golden-rain-264357.mp3',
-  '/music/emmraan-the-origin-289077.mp3',
-  '/music/welc0mei0-220206-electronica-space-apollo-sf-wonder-155636.mp3',
+  '/music/kulakovka-space-283176.mp3',
 ] as const
 
 export const MUSIC_PLAYLIST_URLS = [

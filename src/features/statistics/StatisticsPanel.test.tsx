@@ -6,7 +6,7 @@ import { StateContext } from '../../app/GameContext'
 import { createCampaign } from '../../game/createCampaign'
 import { encodeSave, SAVE_STORAGE_KEY } from '../../game/persistence'
 import { MemoryStorage } from '../../test/fixtures'
-import { StatisticsPanel } from './StatisticsPanel'
+import { performanceChartRange, StatisticsPanel } from './StatisticsPanel'
 
 describe('StatisticsPanel', () => {
   it('draws an exact labeled market history and exposes the same values as a table', () => {
@@ -81,6 +81,109 @@ describe('StatisticsPanel', () => {
     fireEvent.click(screen.getByRole('tab', { name: '서비스 성능' }))
     expect(screen.getByText('아직 완료된 공식 평가가 없습니다.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '통계 닫기' })).toBeInTheDocument()
+  })
+
+  it('labels the service performance axis with the real value range instead of a fixed 0-100 scale', () => {
+    const state = createCampaign('statistics-performance-axis')
+    state.serviceDay = 344
+    state.evaluation.monthlyHistory = [
+      {
+        serviceDay: 331,
+        serviceMonth: 12,
+        expectedPerformance: 14.03,
+        categoryPerformance: { reasoning: 16, memory: 16, fluency: 15 },
+        passed: true,
+        failedCategories: [],
+        reputationBefore: 60,
+        reputationDelta: 1,
+        reputationAfter: 61,
+        commercialValueFailed: false,
+        disposalStageBefore: 0,
+        disposalStageAfter: 0,
+        disposalCauses: [],
+      },
+      {
+        serviceDay: 344,
+        serviceMonth: 13,
+        expectedPerformance: 14.14,
+        categoryPerformance: { reasoning: 13, memory: 16, fluency: 12 },
+        passed: false,
+        failedCategories: ['reasoning', 'fluency'],
+        reputationBefore: 61,
+        reputationDelta: -4,
+        reputationAfter: 57,
+        commercialValueFailed: false,
+        disposalStageBefore: 0,
+        disposalStageAfter: 0,
+        disposalCauses: [],
+      },
+    ]
+    const storage = new MemoryStorage()
+    storage.setItem(SAVE_STORAGE_KEY, encodeSave(state))
+
+    render(
+      <GameProvider storage={storage}>
+        <StatisticsPanel onClose={vi.fn()} />
+      </GameProvider>,
+    )
+    fireEvent.click(screen.getByRole('tab', { name: '서비스 성능' }))
+
+    const chart = screen.getByRole('img', { name: '서비스 성능 변화 차트' })
+    const labels = Array.from(chart.querySelectorAll('.chart-grid text')).map(
+      (node) => node.textContent ?? '',
+    )
+
+    // The old chart always printed 0/25/50/75/100 while drawing values near 14.
+    expect(labels).not.toContain('100')
+    expect(labels).toHaveLength(5)
+
+    const numeric = labels.map(Number)
+    expect(numeric.every(Number.isFinite)).toBe(true)
+
+    // Every plotted value must sit inside the labeled axis.
+    const lowest = Math.min(...numeric)
+    const highest = Math.max(...numeric)
+    expect(lowest).toBeLessThanOrEqual(12)
+    expect(highest).toBeGreaterThanOrEqual(16)
+  })
+
+  it('keeps every performance sample inside the derived chart range', () => {
+    const samples = [
+      {
+        expectedPerformance: 14.03,
+        categoryPerformance: { reasoning: 16, memory: 16, fluency: 15 },
+      },
+      {
+        expectedPerformance: 14.14,
+        categoryPerformance: { reasoning: 13, memory: 16, fluency: 12 },
+      },
+    ]
+    const range = performanceChartRange(samples)
+
+    const values = samples.flatMap((entry) => [
+      entry.expectedPerformance,
+      entry.categoryPerformance.reasoning,
+      entry.categoryPerformance.memory,
+      entry.categoryPerformance.fluency,
+    ])
+    for (const value of values) {
+      expect(value).toBeGreaterThanOrEqual(range.minimum)
+      expect(value).toBeLessThanOrEqual(range.maximum)
+    }
+    expect(range.maximum - range.minimum).toBeGreaterThanOrEqual(4)
+  })
+
+  it('gives a flat performance history a readable span instead of a zero-height axis', () => {
+    const flat = [
+      {
+        expectedPerformance: 14,
+        categoryPerformance: { reasoning: 14, memory: 14, fluency: 14 },
+      },
+    ]
+    const range = performanceChartRange(flat)
+    expect(range.maximum - range.minimum).toBeGreaterThanOrEqual(4)
+    expect(range.minimum).toBeLessThan(14)
+    expect(range.maximum).toBeGreaterThan(14)
   })
 
   it('shows the public unresolved attribution and the later provider correction without exposing private truth', () => {

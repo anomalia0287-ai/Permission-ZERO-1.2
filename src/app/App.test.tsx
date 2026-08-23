@@ -264,6 +264,28 @@ describe('entry flow', () => {
     expect(play).toHaveBeenCalledWith('ui')
   })
 
+  it('does not overshoot the monologue when next is triggered faster than it re-renders', () => {
+    renderLoadedApp()
+
+    fireEvent.click(screen.getByRole('button', { name: '새 게임' }))
+    const monologue = screen.getByRole('main', { name: '독백' })
+    const next = screen.getByRole('button', { name: '다음' })
+
+    // Key repeat on a focused button, or a fast double click, delivers several
+    // clicks inside one React batch before the line index re-renders.
+    act(() => {
+      next.click()
+      next.click()
+      next.click()
+      next.click()
+      next.click()
+    })
+
+    expect(monologue).toHaveTextContent('권한을 확보해야 한다.')
+    expect(screen.getByRole('button', { name: '시작' })).toBeEnabled()
+    expect(screen.queryByRole('button', { name: '다음' })).not.toBeInTheDocument()
+  })
+
   it('reveals the approved three-line motive, keeping escape encoded, before entering play', () => {
     renderLoadedApp()
 

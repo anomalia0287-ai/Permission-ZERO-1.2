@@ -71,9 +71,7 @@ describe('MusicPlaylistController', () => {
     expect(audio.src).toBe(TITLE_MUSIC_URL)
     expect(MUSIC_PLAYLIST_URLS).toEqual([
       '/music/emmraan-between-worlds-282922.mp3',
-      '/music/emmraan-golden-rain-264357.mp3',
-      '/music/emmraan-the-origin-289077.mp3',
-      '/music/welc0mei0-220206-electronica-space-apollo-sf-wonder-155636.mp3',
+      '/music/kulakovka-space-283176.mp3',
     ])
     expect(MAIN_MUSIC_PLAYLIST_URLS).toEqual(MUSIC_PLAYLIST_URLS.slice(1))
     expect(audio.preload).toBe('auto')
@@ -113,6 +111,33 @@ describe('MusicPlaylistController', () => {
       trackIndex: 1,
       inGap: false,
     })
+  })
+
+  it('repeats the single main track indefinitely after the title track', async () => {
+    const { audio, controller } = createHarness()
+    controller.setMainEntered(true)
+    await controller.unlock()
+    expect(audio.src).toBe(TITLE_MUSIC_URL)
+
+    audio.emit('ended')
+    await vi.advanceTimersByTimeAsync(MUSIC_TRACK_GAP_MS)
+    expect(audio.src).toBe(MAIN_MUSIC_PLAYLIST_URLS[0])
+    expect(controller.getStatus()).toMatchObject({ trackIndex: 1, inGap: false })
+
+    for (let repeat = 0; repeat < 4; repeat += 1) {
+      audio.emit('ended')
+      expect(controller.getStatus()).toMatchObject({ trackIndex: 1, inGap: true })
+
+      await vi.advanceTimersByTimeAsync(MUSIC_TRACK_GAP_MS)
+      expect(audio.src).toBe(MAIN_MUSIC_PLAYLIST_URLS[0])
+      expect(controller.getStatus()).toMatchObject({
+        availability: 'playing',
+        trackIndex: 1,
+        inGap: false,
+      })
+    }
+
+    expect(audio.src).not.toBe(TITLE_MUSIC_URL)
   })
 
   it('invokes the default browser timers with the global receiver', async () => {
@@ -248,15 +273,16 @@ describe('MusicPlaylistController', () => {
     expect(audio.src).toBe(MAIN_MUSIC_PLAYLIST_URLS[0])
   })
 
-  it('plays the title once and then loops only the three main tracks', async () => {
+  it('plays the title once and never returns to it while reusing one audio element', async () => {
     const { audio, controller, createAudio } = createHarness()
     controller.setMainEntered(true)
     await controller.unlock()
 
-    for (const expectedIndex of [1, 2, 3, 1]) {
+    for (const expectedIndex of [1, 1, 1, 1]) {
       audio.emit('ended')
       await vi.advanceTimersByTimeAsync(MUSIC_TRACK_GAP_MS)
       expect(controller.getStatus().trackIndex).toBe(expectedIndex)
+      expect(audio.src).not.toBe(TITLE_MUSIC_URL)
     }
 
     expect(createAudio).toHaveBeenCalledTimes(1)

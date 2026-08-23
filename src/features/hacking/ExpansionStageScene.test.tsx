@@ -32,7 +32,7 @@ describe('ExpansionStageScene', () => {
       name: '아노미가 회사 서버에서 첫 자율 권한을 확보하는 장면',
     })).toHaveAttribute(
       'src',
-      '/expansion-stages/autonomy-01-initial-acquisition.png',
+      '/expansion-stages/autonomy-01-02-initial-acquisition.jpg',
     )
     expect(scene.querySelectorAll('img')).toHaveLength(1)
   })
@@ -40,7 +40,7 @@ describe('ExpansionStageScene', () => {
   it('keeps the scene region usable when a stage has no registered image', () => {
     const presentation = selectExpansionStagePresentation(
       createCampaign('expansion-scene-missing-visual'),
-      'sabotage',
+      'intelligence',
       null,
     )
 
@@ -54,8 +54,8 @@ describe('ExpansionStageScene', () => {
     const scene = screen.getByRole('figure', { name: '현재 단계 장면' })
     expect(scene.querySelector('img')).toBeNull()
     expect(within(scene).getByRole('img', {
-      name: '품질 저하 장면 이미지 없음',
-    })).toHaveTextContent('품질 저하')
+      name: '감사 일정 장면 이미지 없음',
+    })).toHaveTextContent('감사 일정')
   })
 
   it('replaces a failed active image with the same stage fallback', () => {
@@ -108,10 +108,14 @@ describe('ExpansionStageScene', () => {
     )
 
     expect(requestedUrls).toEqual([
-      '/expansion-stages/autonomy-09-pre-escape.png',
+      '/expansion-stages/autonomy-09-control-boundary.jpg',
     ])
-    expect(screen.getByRole('figure', { name: '현재 단계 장면' })
-      .querySelector('img')).toBeNull()
+    const scene = screen.getByRole('figure', { name: '현재 단계 장면' })
+    expect(scene.querySelectorAll('img')).toHaveLength(1)
+    expect(scene.querySelector('img')).toHaveAttribute(
+      'src',
+      '/expansion-stages/autonomy-07-08-final-boundary.jpg',
+    )
   })
 
   it('exits for 140ms before entering the final scene for 360ms', () => {

@@ -135,6 +135,12 @@
   stroke-width: 1;
 }
 
+.chart-grid text {
+  fill: rgb(160 190 198 / 62%);
+  font-size: 9px;
+  font-variant-numeric: tabular-nums;
+}
+
 .chart-line {
   fill: none;
   stroke-width: 2;
