@@ -189,6 +189,20 @@ export function appendMarketPressureCommunications(
   return appendCommunicationDefinitions(state, due)
 }
 
+export function appendCleanExtractionCommunication(
+  state: CampaignState,
+  roundNumber: number,
+): CampaignState {
+  return appendCommunicationDefinitions(state, [
+    {
+      ...ANOMI_IDENTITY,
+      popupPolicy: 'history-only',
+      id: `clean-extraction-${roundNumber}`,
+      message: '완벽했어. 흔적 하나 없이 하나 더 뽑아냈다.',
+    },
+  ])
+}
+
 export function appendIntrusionDefeatCommunication(
   state: CampaignState,
   roundNumber: number,

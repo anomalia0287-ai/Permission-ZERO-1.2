@@ -9,6 +9,7 @@ export type CompanyCategory = (typeof COMPANY_CATEGORIES)[number]
 export type RandomStream =
   | 'allocation'
   | 'audit'
+  | 'clean-extraction'
   | 'audit-target'
   | 'bomb'
   | 'review'

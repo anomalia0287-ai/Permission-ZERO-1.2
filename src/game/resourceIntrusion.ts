@@ -1,11 +1,16 @@
 import type { CampaignState, CommandProtocolVersion } from './model'
+import type { CompanyCategory } from './model'
 import {
+  appendCleanExtractionCommunication,
   appendIntrusionDefeatCommunication,
   appendRoundCommunications,
 } from './communications'
 import { FINAL_CHOICE_COMMAND_PROTOCOL_VERSION } from './commandProtocol'
 import { DEMO_PROFILE_02 } from './config'
+import { COMPANY_CATEGORIES } from './model'
+import { divertBlockToReserve } from './resources'
 import { generateInItReviews } from './reviews'
+import { random01 } from './rng'
 
 export const ANOMI_BASE_MAXIMUM_SPEED = 12
 export const ANOMI_SPEED_UPGRADE_GAIN = 0.04
@@ -54,9 +59,9 @@ export function completeResourceRound(
   if (!Number.isInteger(roundNumber) || roundNumber !== expectedRound) {
     return { accepted: false, state, reason: 'ROUND_SEQUENCE_MISMATCH' }
   }
-  const tracedDefeat =
-    outcome === 'defeat' &&
+  const currentEra =
     protocolVersion >= FINAL_CHOICE_COMMAND_PROTOCOL_VERSION
+  const tracedDefeat = outcome === 'defeat' && currentEra
   let completedState: CampaignState = {
     ...state,
     suspicion: tracedDefeat
@@ -78,6 +83,9 @@ export function completeResourceRound(
       expectedRound,
     )
   }
+  if (outcome === 'victory' && currentEra) {
+    completedState = applyCleanExtractionBonus(completedState)
+  }
   return {
     accepted: true,
     state: generateInItReviews(
@@ -85,4 +93,49 @@ export function completeResourceRound(
       expectedRound,
     ),
   }
+}
+
+// A flawless round sometimes yields one extra block whose extraction left
+// no trace: the block moves to reserve without the usual suspicion cost.
+// The roll is seeded per round so replays stay deterministic, and the
+// probability sits near the uncertainty peak that sustains anticipation
+// (Fiorillo, Tobler & Schultz 2003).
+function applyCleanExtractionBonus(state: CampaignState): CampaignState {
+  const roll = random01(
+    state.campaignSeed,
+    state.serviceDay,
+    'clean-extraction',
+    state.commandSequence,
+  )
+  if (roll >= DEMO_PROFILE_02.resources.cleanExtractionChance) return state
+
+  const source = [...COMPANY_CATEGORIES]
+    .sort(
+      (left, right) =>
+        companyBlockCount(state, right) - companyBlockCount(state, left),
+    )
+    .find((category) => companyBlockCount(state, category) > 0)
+  if (!source) return state
+  const blockId = state.resources.company[source].find(Boolean)
+  if (!blockId) return state
+
+  const suspicionBefore = state.suspicion
+  const diverted = divertBlockToReserve(state, blockId)
+  if (!diverted.accepted) return state
+  const rewarded: CampaignState = {
+    ...diverted.state,
+    // The clean extraction is the reward: undo the diversion suspicion.
+    suspicion: suspicionBefore,
+  }
+  return appendCleanExtractionCommunication(
+    rewarded,
+    rewarded.resourceIntrusion.completedRounds,
+  )
+}
+
+function companyBlockCount(
+  state: CampaignState,
+  category: CompanyCategory,
+): number {
+  return state.resources.company[category].filter(Boolean).length
 }

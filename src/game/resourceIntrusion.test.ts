@@ -104,6 +104,58 @@ describe('persisted InIt round progression', () => {
     )).toBe(false)
   })
 
+  it('sometimes rewards a victory with one trace-free extra block', () => {
+    // Find seeds on both sides of the 0.4 threshold so the test pins the
+    // deterministic roll rather than luck.
+    const rolls = new Map<string, boolean>()
+    for (let index = 0; index < 40 && rolls.size < 2; index += 1) {
+      const seed = `clean-extraction-${index}`
+      const initial = createCampaign(seed)
+      const result = applyCommand(initial, {
+        type: 'COMPLETE_RESOURCE_ROUND',
+        roundNumber: 1,
+        outcome: 'victory',
+      })
+      if (!result.accepted) throw new Error(result.reason)
+      const bonus = result.state.resourceIntrusion.communications.some(
+        ({ id }) => id === 'clean-extraction-1',
+      )
+      if (!rolls.has(String(bonus))) {
+        rolls.set(String(bonus), true)
+        const reserveDelta =
+          result.state.resources.reserve.length -
+          initial.resources.reserve.length
+        expect(result.state.suspicion).toBe(initial.suspicion)
+        expect(reserveDelta).toBe(bonus ? 1 : 0)
+        if (bonus) {
+          const notice = result.state.resourceIntrusion.communications.find(
+            ({ id }) => id === 'clean-extraction-1',
+          )
+          expect(notice).toMatchObject({
+            channel: 'anomi',
+            popupPolicy: 'history-only',
+          })
+        }
+      }
+    }
+    expect([...rolls.keys()].sort()).toEqual(['false', 'true'])
+  })
+
+  it('keeps protocol v5 victories free of the clean-extraction bonus', () => {
+    for (let index = 0; index < 40; index += 1) {
+      const initial = createCampaignForProtocol(`clean-v5-${index}`, 5)
+      const result = applyCommand(initial, {
+        type: 'COMPLETE_RESOURCE_ROUND',
+        roundNumber: 1,
+        outcome: 'victory',
+      })
+      if (!result.accepted) throw new Error(result.reason)
+      expect(
+        result.state.resources.reserve.length,
+      ).toBe(initial.resources.reserve.length)
+    }
+  })
+
   it('leaves protocol v5 defeats penalty-free for historical replays', () => {
     const initial = createCampaignForProtocol('round-defeat-v5', 5)
     const defeat = applyCommand(initial, {

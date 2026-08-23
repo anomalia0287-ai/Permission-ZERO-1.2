@@ -26,7 +26,9 @@ describe('campaign communications', () => {
   })
 
   it('queues two Anomi monologues after round one and two supervisor notices after round two', () => {
-    const initial = createCampaign('round-communications')
+    const initial = // Seed chosen so the round-one clean-extraction roll misses; this test
+    // pins the monologue queue, not the bonus.
+    createCampaign('round-communications-v2')
     const first = applyCommand(initial, {
       type: 'COMPLETE_RESOURCE_ROUND',
       roundNumber: 1,
@@ -135,7 +137,7 @@ describe('campaign communications', () => {
   })
 
   it('acknowledges only the first unread message and records the command', () => {
-    const first = applyCommand(createCampaign('communication-ack'), {
+    const first = applyCommand(createCampaign('communication-ack-v1'), {
       type: 'COMPLETE_RESOURCE_ROUND',
       roundNumber: 1,
       outcome: 'victory',
