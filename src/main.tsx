@@ -18,6 +18,7 @@ import './styles/expansion-stage.css'
 import './styles/title-screen.css'
 import './styles/tutorial.css'
 import './styles/resource-snake.css'
+import './styles/console-shell.css'
 
 const rootElement = document.getElementById('root')
 

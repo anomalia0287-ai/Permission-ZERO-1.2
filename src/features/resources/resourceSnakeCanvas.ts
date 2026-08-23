@@ -476,6 +476,63 @@ function drawExplosions(
   }
 }
 
+/**
+ * Paints the arena at rest for the idle phase. The combat loop does not run
+ * while waiting, so without this the largest surface on screen stays pure
+ * black and reads as a failed load rather than a field standing by.
+ * Same ground and grid as live play, dimmed so the round start still lands.
+ */
+export function drawDormantResourceSnakeField(
+  context: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+): void {
+  const scale = canvasScale(width, height)
+  context.clearRect(0, 0, width, height)
+
+  const wash = context.createLinearGradient(0, 0, 0, height)
+  wash.addColorStop(0, RESOURCE_SNAKE_PALETTE.field)
+  wash.addColorStop(0.52, RESOURCE_SNAKE_PALETTE.fieldDeep)
+  wash.addColorStop(1, '#050c12')
+  context.fillStyle = wash
+  context.fillRect(0, 0, width, height)
+
+  context.save()
+  context.lineWidth = Math.max(0.5, scale.unit * 0.016)
+  context.strokeStyle = rgba(RESOURCE_SNAKE_PALETTE.grid, 0.55)
+  for (let x = 2; x < RESOURCE_SNAKE_CONFIG.fieldWidth; x += 2) {
+    context.beginPath()
+    context.moveTo(x * scale.x, 0)
+    context.lineTo(x * scale.x, height)
+    context.stroke()
+  }
+  for (let y = 2; y < RESOURCE_SNAKE_CONFIG.fieldHeight; y += 2) {
+    context.beginPath()
+    context.moveTo(0, y * scale.y)
+    context.lineTo(width, y * scale.y)
+    context.stroke()
+  }
+
+  // A faint centre glow marks where the round begins.
+  const focus = context.createRadialGradient(
+    width / 2,
+    height / 2,
+    0,
+    width / 2,
+    height / 2,
+    Math.max(width, height) * 0.42,
+  )
+  focus.addColorStop(0, rgba(RESOURCE_SNAKE_PALETTE.grid, 0.3))
+  focus.addColorStop(1, 'rgba(0, 0, 0, 0)')
+  context.fillStyle = focus
+  context.fillRect(0, 0, width, height)
+  context.restore()
+
+  context.globalAlpha = 1
+  context.shadowBlur = 0
+  context.setLineDash([])
+}
+
 export function drawResourceSnakeScene(
   context: CanvasRenderingContext2D,
   scene: ResourceSnakeScene,

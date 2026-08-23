@@ -94,8 +94,11 @@
   touch-action: none;
 }
 
+/* Waiting no longer hides the canvas: the arena paints a dormant field so the
+   largest surface on screen reads as standing by rather than failed to load.
+   It stays dimmer than live play so the round start still registers. */
 .resource-snake-board__canvas[data-visual-state='waiting'] {
-  visibility: hidden;
+  opacity: 0.78;
 }
 
 .resource-snake-board__canvas:focus-visible {

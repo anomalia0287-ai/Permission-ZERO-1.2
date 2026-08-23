@@ -54,7 +54,10 @@ import {
   buildResourceSnakeScene,
   resourceSnakeShakeOffset,
 } from './resourceSnakePresentation'
-import { drawResourceSnakeScene } from './resourceSnakeCanvas'
+import {
+  drawDormantResourceSnakeField,
+  drawResourceSnakeScene,
+} from './resourceSnakeCanvas'
 import { ResourceBoard } from './ResourceBoard'
 import { useResourceSnakeAudioFeedback } from './useResourceSnakeAudioFeedback'
 import { useResourceSnakeRewards } from './useResourceSnakeRewards'
@@ -619,6 +622,10 @@ function ResourceSnakeBoardSession() {
     const context = canvasContextRef.current
     if (!canvas || !context) return
     const startedAt = performance.now()
+    if (runtime.phase === 'idle') {
+      drawDormantResourceSnakeField(context, canvas.width, canvas.height)
+      return
+    }
     const scene = buildResourceSnakeScene(
       runtime,
       acquiredCategory,
@@ -734,9 +741,9 @@ function ResourceSnakeBoardSession() {
           data-combat-loop="eight-way-dot-lightcycle"
           data-control-model="tap-to-turn"
           data-field-rendering={
-            runtime.phase === 'idle' ? 'waiting-black' : 'glowing-dot-trails'
+            runtime.phase === 'idle' ? 'waiting-dormant' : 'glowing-dot-trails'
           }
-          data-grid={runtime.phase === 'idle' ? 'none' : 'industrial-top-down'}
+          data-grid={runtime.phase === 'idle' ? 'industrial-dormant' : 'industrial-top-down'}
           aria-keyshortcuts="ArrowUp ArrowRight ArrowDown ArrowLeft W A S D"
           tabIndex={0}
         />

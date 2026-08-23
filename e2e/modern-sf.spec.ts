@@ -64,16 +64,6 @@ async function maximumRgbChannel(locator: Locator): Promise<number> {
   })
 }
 
-async function minimumRgbChannel(locator: Locator): Promise<number> {
-  return locator.evaluate((element) => {
-    const value = getComputedStyle(element).backgroundColor
-    const match = value.match(/[\d.]+/g)
-    if (!match || match.length < 3) return 0
-    const scale = value.startsWith('color(') ? 255 : 1
-    return Math.min(Number(match[0]), Number(match[1]), Number(match[2])) * scale
-  })
-}
-
 async function maximumTextRgbChannel(locator: Locator): Promise<number> {
   return locator.evaluate((element) => {
     const value = getComputedStyle(element).color
@@ -189,7 +179,7 @@ test('frames the minimal title and player monologue as readable retro-future gam
   expect(errors).toEqual([])
 })
 
-test('keeps a light retro-future instrument shell around the dark game fields', async ({
+test('keeps one dark operations console around the lit game field', async ({
   page,
 }, testInfo) => {
   const errors: string[] = []
@@ -247,8 +237,8 @@ test('keeps a light retro-future instrument shell around the dark game fields', 
   await expect(page.getByRole('button', { name: 'InIt', exact: true })).toBeVisible()
   await expect(canvas).toHaveAttribute('data-round-phase', 'idle')
   await expect(canvas).toHaveAttribute('data-visual-state', 'waiting')
-  await expect(canvas).toHaveAttribute('data-field-rendering', 'waiting-black')
-  await expect(canvas).toHaveAttribute('data-grid', 'none')
+  await expect(canvas).toHaveAttribute('data-field-rendering', 'waiting-dormant')
+  await expect(canvas).toHaveAttribute('data-grid', 'industrial-dormant')
   await expect(canvas).toHaveAttribute('data-combat-loop', 'eight-way-dot-lightcycle')
   await expect(canvas).toHaveAttribute('data-control-model', 'tap-to-turn')
   await expect(canvas).toHaveAttribute('data-enemy-planner', 'cyan-readable-hunter')
@@ -260,35 +250,29 @@ test('keeps a light retro-future instrument shell around the dark game fields', 
   expect(activeSnake.player.y).toBeLessThanOrEqual(21)
   expect(activeSnake.enemies).toHaveLength(1)
 
-  const controlBarColor = await rgbChannels(
-    page.locator('.control-bar'),
-    'backgroundColor',
-  )
-  expect(controlBarColor.red - controlBarColor.green).toBeGreaterThan(100)
-  expect(controlBarColor.red - controlBarColor.blue).toBeGreaterThan(100)
+  // The shell is one dark operations console: chrome recedes into the same
+  // ink-navy housing as the expansion overlay, so the field is the lit surface.
+  expect(await maximumRgbChannel(page.locator('.control-bar'))).toBeLessThan(56)
   const reputationColor = await rgbChannels(
     page.locator('.reputation-cluster'),
     'color',
   )
   expect(Math.min(reputationColor.red, reputationColor.green, reputationColor.blue))
-    .toBeGreaterThanOrEqual(245)
-  expect(await minimumRgbChannel(reviewRail)).toBeGreaterThan(190)
+    .toBeGreaterThanOrEqual(120)
+  expect(await maximumRgbChannel(reviewRail)).toBeLessThan(56)
   await expect(reviewStream).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
-  expect(await minimumRgbChannel(page.locator('.operations-dock'))).toBeGreaterThan(190)
+  expect(await maximumRgbChannel(page.locator('.operations-dock'))).toBeLessThan(56)
   expect(
     await maximumRgbChannel(resourceField.locator('.resource-snake-board__arena')),
   ).toBeLessThan(40)
   await expect(resourceField.getByRole('status', { name: /확보 리소스/ })).toHaveCount(0)
+  // Dock tools sit flush on the console instead of painted ivory chips.
   const toolColor = await rgbChannels(
     dock.getByRole('button', { name: '상세 통계 열기' }),
     'backgroundColor',
   )
-  expect(Math.min(toolColor.red, toolColor.green, toolColor.blue))
-    .toBeGreaterThanOrEqual(245)
-  expect(
-    Math.max(toolColor.red, toolColor.green, toolColor.blue) -
-      Math.min(toolColor.red, toolColor.green, toolColor.blue),
-  ).toBeLessThanOrEqual(16)
+  expect(Math.max(toolColor.red, toolColor.green, toolColor.blue))
+    .toBeLessThanOrEqual(56)
   await expect(
     market.locator('[data-market-id="player"] strong'),
   ).toHaveCSS('color', 'rgb(255, 107, 61)')
@@ -551,12 +535,13 @@ test('reclaims the stage with a vertical color-coded inventory and flush light i
     elements.every((element) => getComputedStyle(element).display === 'none'),
   )).toBe(true)
 
-  expect(await minimumRgbChannel(dock)).toBeGreaterThanOrEqual(238)
+  expect(await maximumRgbChannel(dock)).toBeLessThanOrEqual(56)
   for (const button of await buttons.all()) {
-    expect(await minimumRgbChannel(button)).toBeGreaterThanOrEqual(245)
+    expect(await maximumRgbChannel(button)).toBeLessThanOrEqual(56)
+    // Icons now read light on the dark console instead of dark on ivory.
     const iconColor = await rgbChannels(button, 'color')
     expect(Math.max(iconColor.red, iconColor.green, iconColor.blue))
-      .toBeLessThanOrEqual(90)
+      .toBeGreaterThanOrEqual(120)
   }
   await expect(
     inventory.locator('[data-resource-category="reasoning"] i'),
@@ -657,10 +642,11 @@ test('renders a flat industrial cyan-lightcycle arena with readable live intent'
   await openFreshCampaign(page)
   const canvas = page.locator('canvas.resource-snake-board__canvas')
   const viewport = viewportName(testInfo.project.name)
-  await expect(canvas).toBeHidden()
+  // The idle arena now paints a dormant field instead of hiding the canvas.
+  await expect(canvas).toBeVisible()
   await expect(canvas).toHaveAttribute('data-visual-state', 'waiting')
-  await expect(canvas).toHaveAttribute('data-field-rendering', 'waiting-black')
-  await expect(canvas).toHaveAttribute('data-grid', 'none')
+  await expect(canvas).toHaveAttribute('data-field-rendering', 'waiting-dormant')
+  await expect(canvas).toHaveAttribute('data-grid', 'industrial-dormant')
   await expect(canvas).toHaveAttribute('data-combat-loop', 'eight-way-dot-lightcycle')
   await expect(canvas).toHaveAttribute('data-control-model', 'tap-to-turn')
   await expect(canvas).toHaveAttribute('data-player-silhouette', 'circle')

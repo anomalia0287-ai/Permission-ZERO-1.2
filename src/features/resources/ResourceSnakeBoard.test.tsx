@@ -128,8 +128,8 @@ describe('ResourceSnakeBoard', () => {
     const arena = screen.getByRole('application', { name: '리소스 뱀 전투장' })
     expect(arena).toHaveAttribute('data-round-phase', 'idle')
     expect(arena).toHaveAttribute('data-visual-state', 'waiting')
-    expect(arena).toHaveAttribute('data-field-rendering', 'waiting-black')
-    expect(arena).toHaveAttribute('data-grid', 'none')
+    expect(arena).toHaveAttribute('data-field-rendering', 'waiting-dormant')
+    expect(arena).toHaveAttribute('data-grid', 'industrial-dormant')
     expect(arena).toHaveAttribute('width', '1000')
     expect(arena).toHaveAttribute('height', '480')
     expect(screen.queryByLabelText('라이트사이클 전투 상태')).not.toBeInTheDocument()
@@ -152,6 +152,8 @@ describe('ResourceSnakeBoard', () => {
       height: 640,
     } as DOMRect)
     vi.spyOn(resourceSnakeCanvasModule, 'drawResourceSnakeScene')
+      .mockImplementation(() => undefined)
+    vi.spyOn(resourceSnakeCanvasModule, 'drawDormantResourceSnakeField')
       .mockImplementation(() => undefined)
 
     render(
@@ -234,8 +236,8 @@ describe('ResourceSnakeBoard', () => {
     expect(arena).toHaveAttribute('data-enemy-count', '0')
     expect(arena).toHaveAttribute('data-combat-loop', 'eight-way-dot-lightcycle')
     expect(arena).toHaveAttribute('data-control-model', 'tap-to-turn')
-    expect(arena).toHaveAttribute('data-field-rendering', 'waiting-black')
-    expect(arena).toHaveAttribute('data-grid', 'none')
+    expect(arena).toHaveAttribute('data-field-rendering', 'waiting-dormant')
+    expect(arena).toHaveAttribute('data-grid', 'industrial-dormant')
     expect(arena).toHaveAttribute('data-player-silhouette', 'circle')
     expect(arena).toHaveAttribute('data-speed-scale', '0.500')
 
@@ -622,6 +624,8 @@ describe('ResourceSnakeBoard', () => {
       height: 480,
     } as DOMRect)
     const draw = vi.spyOn(resourceSnakeCanvasModule, 'drawResourceSnakeScene')
+      .mockImplementation(() => undefined)
+    vi.spyOn(resourceSnakeCanvasModule, 'drawDormantResourceSnakeField')
       .mockImplementation(() => undefined)
     let diagnosticClock = 0
     vi.spyOn(performance, 'now').mockImplementation(() => {

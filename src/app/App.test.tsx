@@ -502,8 +502,8 @@ describe('App', () => {
 
     const canvas = screen.getByRole('application', { name: '리소스 뱀 전투장' })
     expect(canvas).toHaveAttribute('data-combat-loop', 'eight-way-dot-lightcycle')
-    expect(canvas).toHaveAttribute('data-field-rendering', 'waiting-black')
-    expect(canvas).toHaveAttribute('data-grid', 'none')
+    expect(canvas).toHaveAttribute('data-field-rendering', 'waiting-dormant')
+    expect(canvas).toHaveAttribute('data-grid', 'industrial-dormant')
     expect(canvas).toHaveAttribute('data-player-shape', 'circle')
     expect(canvas).toHaveAttribute('data-round-phase', 'idle')
     expect(canvas).toHaveAttribute('data-player-integrity', '100')

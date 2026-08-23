@@ -1,0 +1,256 @@
+/* Operations console shell -------------------------------------------------
+   One world for the whole game. The aurora-black theme already runs a dark
+   ground, but its panels stayed on the earlier ivory paper: a bright dock,
+   a pastel review rail and a white frame around the black arena. That reads
+   as an admin dashboard with a hole in it.
+
+   Here the chrome recedes into one dark instrument housing so the play field
+   is the only lit surface, matching the expansion console. Anomi orange stays
+   the single active signal; category colors stay reserved for resources.
+
+   Selectors carry the [data-ui-shell="aurora-black"] prefix to meet the theme
+   at equal specificity; this sheet loads last, so it settles the cascade. */
+
+.game-shell {
+  --console-ground: #0a1421;
+  --console-deep: #071019;
+  --console-surface: rgb(255 255 255 / 4%);
+  --console-surface-raised: rgb(255 255 255 / 7%);
+  --console-line: rgb(148 178 206 / 16%);
+  --console-line-strong: rgb(148 178 206 / 28%);
+  --console-ink: #dfe7ee;
+  --console-ink-strong: #f4f8fb;
+  --console-muted: #8da0af;
+  --console-accent: #ff6b3d;
+  --console-accent-bright: #ff8a5c;
+  --console-accent-dim: rgb(255 107 61 / 14%);
+  --console-accent-glow: rgb(255 107 61 / 28%);
+}
+
+/* ---------- top command bar ---------- */
+
+.game-shell[data-ui-shell="aurora-black"] .control-bar {
+  border: 1px solid var(--console-line-strong);
+  border-top: 2px solid var(--console-accent);
+  color: var(--console-ink);
+  background: linear-gradient(180deg, #12202f 0%, #0c1826 100%);
+  box-shadow: 0 10px 30px rgb(2 6 12 / 55%);
+}
+
+.game-shell[data-ui-shell="aurora-black"] .control-bar button,
+.game-shell[data-ui-shell="aurora-black"] .control-bar__action,
+.game-shell[data-ui-shell="aurora-black"] .control-bar__sound,
+.game-shell[data-ui-shell="aurora-black"] .control-bar__settings {
+  border: 1px solid var(--console-line-strong);
+  color: var(--console-ink);
+  background: var(--console-surface);
+  box-shadow: none;
+}
+
+.game-shell[data-ui-shell="aurora-black"] .control-bar button:hover,
+.game-shell[data-ui-shell="aurora-black"] .control-bar button:focus-visible {
+  color: var(--console-ink-strong);
+  border-color: var(--console-accent);
+  background: var(--console-accent-dim);
+  transform: none;
+}
+
+.game-shell[data-ui-shell="aurora-black"] .service-term,
+.game-shell[data-ui-shell="aurora-black"] .reputation-cluster,
+.game-shell[data-ui-shell="aurora-black"] .suspicion-meter {
+  color: var(--console-ink);
+  border-color: var(--console-line);
+  background: transparent;
+}
+
+.game-shell[data-ui-shell="aurora-black"] .control-status-meter__label {
+  color: var(--console-muted);
+}
+
+.game-shell[data-ui-shell="aurora-black"] .control-status-meter__track {
+  border: 1px solid var(--console-line);
+  background: rgb(4 10 17 / 76%);
+}
+
+/* Three instruments, not three identical loading bars. */
+.game-shell[data-ui-shell="aurora-black"]
+  .control-status-meter--reputation
+  .control-status-meter__track > * {
+  background: linear-gradient(90deg, #4d90c9, #86c6ec);
+}
+
+.game-shell[data-ui-shell="aurora-black"]
+  .control-status-meter--autonomy
+  .control-status-meter__track > * {
+  background: linear-gradient(90deg, #d99a2b, #f2c76b);
+}
+
+.game-shell[data-ui-shell="aurora-black"]
+  .control-status-meter--suspicion
+  .control-status-meter__track > * {
+  background: linear-gradient(90deg, #b93b28, #ff6b3d);
+}
+
+/* ---------- left rail: reviews and market ---------- */
+
+.game-shell[data-ui-shell="aurora-black"] .workspace-panel.review-panel {
+  border-color: var(--console-line);
+  background: linear-gradient(180deg, rgb(16 28 44 / 92%), rgb(8 16 26 / 92%));
+}
+
+.game-shell[data-ui-shell="aurora-black"] .review-panel .panel-heading {
+  color: var(--console-accent);
+  border-color: var(--console-line);
+}
+
+.game-shell[data-ui-shell="aurora-black"] .review-panel .review-entry {
+  color: var(--console-ink);
+  border-color: var(--console-line);
+  background: var(--console-surface);
+  box-shadow: none;
+}
+
+.game-shell[data-ui-shell="aurora-black"] .review-panel .review-entry:hover,
+.game-shell[data-ui-shell="aurora-black"] .review-panel .review-entry:focus-visible {
+  color: var(--console-ink-strong);
+  border-color: var(--console-line-strong);
+  background: var(--console-surface-raised);
+}
+
+/* Review author colors stay as-is: they encode the review channel, not
+   decoration, so the console palette must not flatten them. */
+
+.game-shell[data-ui-shell="aurora-black"] .review-panel .review-entry__header time {
+  color: var(--console-muted);
+}
+
+.game-shell[data-ui-shell="aurora-black"] .review-panel .review-entry p {
+  color: var(--console-muted);
+}
+
+.game-shell[data-ui-shell="aurora-black"]
+  .review-panel > .market-watch--compact {
+  border-color: var(--console-line);
+}
+
+.game-shell[data-ui-shell="aurora-black"]
+  .review-panel > .market-watch--compact .market-share-layout {
+  border: 1px solid var(--console-line);
+  background: var(--console-surface);
+  box-shadow: none;
+}
+
+.game-shell[data-ui-shell="aurora-black"]
+  .review-panel > .market-watch--compact .market-share-layout--trigger:hover,
+.game-shell[data-ui-shell="aurora-black"]
+  .review-panel > .market-watch--compact .market-share-layout--trigger:focus-visible {
+  border-color: var(--console-accent);
+  background: var(--console-accent-dim);
+  box-shadow: none;
+  transform: none;
+}
+
+.game-shell[data-ui-shell="aurora-black"]
+  .review-panel > .market-watch--compact .market-share-donut::after {
+  background: var(--console-deep);
+}
+
+/* ---------- play field housing ---------- */
+
+/* The arena keeps its black field, but the frame around it joins the console
+   instead of ringing it in white. A lit rim reads as "standing by". */
+.game-shell[data-ui-shell="aurora-black"] .workspace-panel.resource-snake-board {
+  border-color: var(--console-line-strong);
+  background: var(--console-deep);
+}
+
+.game-shell[data-ui-shell="aurora-black"] .resource-snake-board__arena {
+  border: 1px solid var(--console-line-strong);
+  box-shadow:
+    0 0 0 1px rgb(4 10 17 / 90%),
+    0 20px 56px rgb(2 6 12 / 60%),
+    inset 0 0 90px rgb(60 96 138 / 9%);
+}
+
+/* ---------- right rail: operations dock ---------- */
+
+.game-shell[data-ui-shell="aurora-black"] .operations-dock {
+  border-color: var(--console-line);
+  color: var(--console-ink);
+  background: linear-gradient(180deg, rgb(10 20 33 / 94%), rgb(7 16 25 / 94%));
+  box-shadow: none;
+}
+
+.game-shell[data-ui-shell="aurora-black"] .operations-dock__inventory,
+.game-shell[data-ui-shell="aurora-black"] .operations-dock__suspicion {
+  border-color: var(--console-line);
+  background: transparent;
+}
+
+.game-shell[data-ui-shell="aurora-black"] .operations-dock__inventory > header strong,
+.game-shell[data-ui-shell="aurora-black"] .operations-dock__suspicion strong {
+  color: var(--console-ink-strong);
+}
+
+.game-shell[data-ui-shell="aurora-black"] .operations-dock__button--tool {
+  color: var(--console-muted);
+  border-color: var(--console-line);
+  background: transparent;
+  box-shadow: none;
+}
+
+.game-shell[data-ui-shell="aurora-black"] .operations-dock__button--tool:hover,
+.game-shell[data-ui-shell="aurora-black"] .operations-dock__button--tool:focus-visible {
+  color: var(--console-accent-bright);
+  border-color: var(--console-accent);
+  background: var(--console-accent-dim);
+}
+
+.game-shell[data-ui-shell="aurora-black"] .operations-dock__badge {
+  color: #fff7f2;
+  background: var(--console-accent);
+}
+
+/* The tool strip is its own surface inside the dock; without this it stays
+   the old ivory block and the dock reads as two different materials. */
+.game-shell[data-ui-shell="aurora-black"] .operations-dock__tools {
+  border-color: var(--console-line);
+  background: transparent;
+}
+
+.game-shell[data-ui-shell="aurora-black"] .operations-dock__button {
+  color: var(--console-muted);
+  border-color: var(--console-line);
+  background: transparent;
+}
+
+.game-shell[data-ui-shell="aurora-black"] .operations-dock__button:hover,
+.game-shell[data-ui-shell="aurora-black"] .operations-dock__button:focus-visible {
+  color: var(--console-accent-bright);
+  border-color: var(--console-accent);
+  background: var(--console-accent-dim);
+}
+
+.game-shell[data-ui-shell="aurora-black"] .operations-dock__button svg {
+  color: currentcolor;
+}
+
+/* Section headings become quiet orange eyebrows instead of near-invisible ink. */
+.game-shell[data-ui-shell="aurora-black"] .panel-heading,
+.game-shell[data-ui-shell="aurora-black"] .panel-heading h2,
+.game-shell[data-ui-shell="aurora-black"] .panel-heading p,
+.game-shell[data-ui-shell="aurora-black"] .panel-heading strong,
+.game-shell[data-ui-shell="aurora-black"] .operations-dock__inventory > header,
+.game-shell[data-ui-shell="aurora-black"] .operations-dock__inventory > header strong {
+  color: var(--console-accent);
+}
+
+/* Inventory counts: label recedes, number carries. */
+.game-shell[data-ui-shell="aurora-black"] .operations-dock__inventory-list small,
+.game-shell[data-ui-shell="aurora-black"] .operations-dock__inventory-list span {
+  color: var(--console-muted);
+}
+
+.game-shell[data-ui-shell="aurora-black"] .operations-dock__inventory-list strong {
+  color: var(--console-ink-strong);
+}
