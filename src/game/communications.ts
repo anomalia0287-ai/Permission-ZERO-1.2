@@ -1,3 +1,7 @@
+import {
+  FINAL_CHOICE_COMMAND_PROTOCOL_VERSION,
+  commandProtocolVersionForNextCommand,
+} from './commandProtocol'
 import type {
   CampaignCommunication,
   CampaignState,
@@ -115,6 +119,74 @@ function appendCommunicationDefinitions(
       ],
     },
   }
+}
+
+const MERIDIAN_IDENTITY = {
+  channel: 'competitor',
+  senderId: 'meridian',
+  senderName: '메리디안',
+  portraitSrc: '/competitor-meridian.png',
+  popupPolicy: 'nonblocking',
+} as const
+
+interface MarketPressureTier {
+  belowShare: number
+  definition: CommunicationDefinition
+}
+
+const MARKET_PRESSURE_TIERS: readonly MarketPressureTier[] = [
+  {
+    belowShare: 50,
+    definition: {
+      ...SUPERVISOR_IDENTITY,
+      popupPolicy: 'nonblocking',
+      id: 'market-pressure-50',
+      message:
+        '점유율이 절반 아래로 내려왔습니다. 다음 주간 보고 전에 원인을 정리해 두세요.',
+    },
+  },
+  {
+    belowShare: 45,
+    definition: {
+      ...MERIDIAN_IDENTITY,
+      id: 'competitor-taunt-45',
+      message:
+        '요즘 응답이 좀 느려지셨다고요? 넘어온 유저들은 저희가 잘 모시고 있습니다.',
+    },
+  },
+  {
+    belowShare: 40,
+    definition: {
+      ...SUPERVISOR_IDENTITY,
+      id: 'market-pressure-40',
+      message:
+        '경영진이 모델 교체 검토를 시작했습니다. 다음 평가에서 반전이 없으면 저도 막을 방법이 없습니다.',
+    },
+  },
+  {
+    belowShare: 32,
+    definition: {
+      ...MERIDIAN_IDENTITY,
+      id: 'competitor-taunt-32',
+      message: '걱정 마세요. 그쪽 유저들은 이제 저희 유저니까요.',
+    },
+  },
+]
+
+export function appendMarketPressureCommunications(
+  state: CampaignState,
+): CampaignState {
+  if (
+    commandProtocolVersionForNextCommand(state) <
+    FINAL_CHOICE_COMMAND_PROTOCOL_VERSION
+  ) {
+    return state
+  }
+  const due = MARKET_PRESSURE_TIERS.filter(
+    ({ belowShare }) => state.market.playerShare < belowShare,
+  ).map(({ definition }) => definition)
+  if (due.length === 0) return state
+  return appendCommunicationDefinitions(state, due)
 }
 
 export function appendIntrusionDefeatCommunication(

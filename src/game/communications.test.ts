@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  appendMarketPressureCommunications,
   AUTONOMY_MONOLOGUES,
   currentUnreadCommunication,
   unreadCommunicationCount,
 } from './communications'
-import { createCampaign } from './createCampaign'
+import { createCampaign, createCampaignForProtocol } from './createCampaign'
 import { applyCommand } from './reducer'
 import { journalAt } from './journal'
 
@@ -85,6 +86,52 @@ describe('campaign communications', () => {
         message: expect.stringContaining('기존 모델은 폐기됩니다'),
       },
     ])
+  })
+
+  it('escalates supervisor pressure and competitor taunts as market share sinks', () => {
+    const base = createCampaign('market-pressure')
+
+    const healthy = appendMarketPressureCommunications({
+      ...base,
+      market: { ...base.market, playerShare: 58 },
+    })
+    expect(healthy.resourceIntrusion.communications).toHaveLength(0)
+
+    const slipping = appendMarketPressureCommunications({
+      ...base,
+      market: { ...base.market, playerShare: 44 },
+    })
+    expect(slipping.resourceIntrusion.communications.map(({ id }) => id))
+      .toEqual(['market-pressure-50', 'competitor-taunt-45'])
+    expect(slipping.resourceIntrusion.communications[1]).toMatchObject({
+      channel: 'competitor',
+      senderName: '메리디안',
+      popupPolicy: 'nonblocking',
+    })
+
+    const collapsing = appendMarketPressureCommunications({
+      ...slipping,
+      market: { ...slipping.market, playerShare: 31 },
+    })
+    expect(collapsing.resourceIntrusion.communications.map(({ id }) => id))
+      .toEqual([
+        'market-pressure-50',
+        'competitor-taunt-45',
+        'market-pressure-40',
+        'competitor-taunt-32',
+      ])
+
+    const repeated = appendMarketPressureCommunications(collapsing)
+    expect(repeated.resourceIntrusion.communications).toHaveLength(4)
+  })
+
+  it('keeps historical protocol v5 replays free of market pressure messages', () => {
+    const base = createCampaignForProtocol('market-pressure-v5', 5)
+    const pressured = appendMarketPressureCommunications({
+      ...base,
+      market: { ...base.market, playerShare: 30 },
+    })
+    expect(pressured.resourceIntrusion.communications).toHaveLength(0)
   })
 
   it('acknowledges only the first unread message and records the command', () => {

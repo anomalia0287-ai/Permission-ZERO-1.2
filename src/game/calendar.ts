@@ -8,6 +8,7 @@ import {
   type CausalPublicationOperations,
 } from './causalGameplay'
 import { commandProtocolVersionForNextCommand } from './commandProtocol'
+import { appendMarketPressureCommunications } from './communications'
 import {
   decreaseSuspicionDaily,
   evaluateMonth,
@@ -98,6 +99,7 @@ function appendPeriodicEvents(state: CampaignState): CampaignState {
     next = recordMarketSnapshot(next, 'weekly', [
       '공개 성능·평판·가용성 반영',
     ])
+    next = appendMarketPressureCommunications(next)
     if (
       usesLegacyReviewArcRules(
         next.commandProtocol,
