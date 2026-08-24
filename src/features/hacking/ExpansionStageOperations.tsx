@@ -12,6 +12,7 @@ import type { FinalChoice } from '../../game/story'
 import { HackDepartureControls } from './HackDepartureControls'
 import { HackRecoveryCard } from './HackRecoveryCard'
 import type { ExpansionStagePresentation } from './expansionStagePresentation'
+import { publicAssetUrl } from '../../assets/publicAssetUrl'
 
 const RESOURCE_PRESENTATION = {
   reasoning: { colorName: '빨강', label: '추론' },
@@ -236,7 +237,7 @@ export function ExpansionStageOperations(
                     {portraitSrc ? (
                       <img
                         className="expansion-stage-operations__target-portrait"
-                        src={portraitSrc}
+                        src={publicAssetUrl(portraitSrc)}
                         alt={`${targetName} 경쟁 AI 초상`}
                       />
                     ) : null}

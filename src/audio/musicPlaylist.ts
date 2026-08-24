@@ -1,11 +1,12 @@
 import type { AudioMixSettings } from './audioEngine'
+import { publicAssetUrl } from '../assets/publicAssetUrl'
 
 export const MUSIC_TRACK_GAP_MS = 20_000
 
-export const TITLE_MUSIC_URL = '/music/emmraan-between-worlds-282922.mp3'
+export const TITLE_MUSIC_URL = publicAssetUrl('/music/emmraan-between-worlds-282922.mp3')
 
 export const MAIN_MUSIC_PLAYLIST_URLS = [
-  '/music/kulakovka-space-283176.mp3',
+  publicAssetUrl('/music/kulakovka-space-283176.mp3'),
 ] as const
 
 export const MUSIC_PLAYLIST_URLS = [

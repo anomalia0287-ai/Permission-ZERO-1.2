@@ -24,6 +24,10 @@ interface CommunicationDefinition {
   popupPolicy: CommunicationPopupPolicy
 }
 
+// Portrait paths here are save data: every stored communication is validated
+// against these definitions by exact match, so a value that changes with the
+// build's base would mark every existing campaign corrupt. They stay raw and
+// are resolved with publicAssetUrl() where they are rendered.
 const ANOMI_IDENTITY = {
   channel: 'anomi',
   senderId: 'anomi',

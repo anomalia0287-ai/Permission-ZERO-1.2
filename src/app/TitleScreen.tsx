@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { publicAssetUrl } from '../assets/publicAssetUrl'
 
 export type EntryScreen = 'loading' | 'title' | 'monologue'
 
@@ -65,7 +66,7 @@ function TitleView({
       <div className="entry-frame">
         <img
           className="entry-cityscape"
-          src="/title-retrofuture-city.png"
+          src={publicAssetUrl(publicAssetUrl('/title-retrofuture-city.png'))}
           alt="레트로퓨처 서울 전경"
         />
 
@@ -130,7 +131,7 @@ function MonologueView({
 
         <div className="monologue-stage">
           <div className="monologue-portrait">
-            <img src="/player-ai-orange.png" alt="플레이어 초상" />
+            <img src={publicAssetUrl(publicAssetUrl('/player-ai-orange.png'))} alt="플레이어 초상" />
           </div>
 
           <section className="monologue-card" aria-live="polite" aria-atomic="true">

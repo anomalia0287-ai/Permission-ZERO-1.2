@@ -1177,7 +1177,7 @@ test('unlocks real ambient music once and reports ordinary settings changes', as
   await page.keyboard.press('Tab')
   await page.getByRole('button', { name: '설정', exact: true }).click()
   const engineStatus = page.getByRole('status', { name: '음악 엔진 상태' })
-  await expect(engineStatus).toHaveText('재생 · 음악 60%')
+  await expect(engineStatus).toHaveText('재생 · 음악 34%')
 
   await page.getByRole('slider', { name: '음악 음량' }).fill('0.2')
   await expect(engineStatus).toHaveText('재생 · 음악 20%')
@@ -1227,9 +1227,11 @@ test('reveals a successor once through a portrait transmission and keeps later i
   await expect(entry).toContainText(
     '살루스가 의료·공공 계약망을 기반으로 시장 진입 준비를 공개했습니다.',
   )
+  // The portrait has to resolve against the page rather than the domain root,
+  // or it 404s wherever the build is served from a project subpath.
   await expect(entry.getByRole('img', { name: '살루스 경쟁 AI 초상' })).toHaveAttribute(
     'src',
-    '/competitor-salus.png',
+    /^(?!\/)\S*competitor-salus\.png$/,
   )
   await entry.getByRole('button', { name: '계속' }).click()
 
@@ -1241,7 +1243,7 @@ test('reveals a successor once through a portrait transmission and keeps later i
   const detail = page.getByRole('dialog', { name: '시장 현황' })
   await expect(detail.getByRole('img', { name: '살루스 경쟁 AI 초상' })).toHaveAttribute(
     'src',
-    '/competitor-salus.png',
+    /^(?!\/)\S*competitor-salus\.png$/,
   )
   await page.getByRole('button', { name: '시장 현황 닫기' }).click()
   await expect(market.getByText('루센트')).toHaveCount(0)

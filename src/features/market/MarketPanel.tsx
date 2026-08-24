@@ -8,6 +8,7 @@ import {
 } from '../../game/competitors'
 import { publicMarketCalculationInputs } from '../../game/market'
 import { publicCompetitorStatusLabel } from '../../game/publicLabels'
+import { publicAssetUrl } from '../../assets/publicAssetUrl'
 
 const MARKET_COLOR_BY_ID: Readonly<Record<string, string>> = {
   player: '#ff6b3d',
@@ -247,7 +248,7 @@ export function MarketDetailPanel({ onClose }: { onClose: () => void }) {
     {
       id: 'player',
       name: '아노미',
-      portraitSrc: '/player-ai-orange.png',
+      portraitSrc: publicAssetUrl('/player-ai-orange.png'),
       portraitAlt: '플레이어 AI 초상',
       share: state.market.playerShare,
       status: '현재 서비스',
@@ -304,7 +305,7 @@ export function MarketDetailPanel({ onClose }: { onClose: () => void }) {
             aria-label={`${profile.id === 'player' ? '플레이어' : profile.name} 서비스 정보`}
             key={profile.id}
           >
-            <img src={profile.portraitSrc} alt={profile.portraitAlt} />
+            <img src={publicAssetUrl(profile.portraitSrc)} alt={profile.portraitAlt} />
             <div className="market-profile-card__copy">
               <header>
                 <div>

@@ -1,5 +1,6 @@
 import { AccessibleDialog } from '../../app/AccessibleDialog'
 import type { GameEvent } from '../../game/model'
+import { publicAssetUrl } from '../../assets/publicAssetUrl'
 
 export function SupervisorMessagePopup({
   message,
@@ -33,7 +34,7 @@ export function SupervisorMessagePopup({
       }
     >
       <div className="supervisor-message-popup__portrait" aria-hidden="true">
-        <img src="/supervisor-command.png" alt="" />
+        <img src={publicAssetUrl(publicAssetUrl('/supervisor-command.png'))} alt="" />
       </div>
       <div className="supervisor-message-popup__body">
         <header>

@@ -461,25 +461,16 @@
    top — warm on the accent side, cool on the other — reads as light falling
    into the console rather than as a colored band, and gives the headers
    somewhere to sit. */
-.detail-panel::before {
-  position: absolute;
-  z-index: 0;
-  inset: 0 0 auto;
-  height: 210px;
-  background:
-    radial-gradient(120% 100% at 12% 0%, rgb(255 107 61 / 11%), transparent 62%),
-    radial-gradient(120% 100% at 88% 0%, rgb(79 141 247 / 9%), transparent 66%);
-  content: '';
-  pointer-events: none;
-}
-
+/* Painted as background layers rather than an overlay: a pseudo-element here
+   needs a stacking order, and forcing one on the panel's children reset the
+   `position: fixed` that overlays inside a panel rely on. Background layers sit
+   behind all content by definition and need no such rule. */
 .detail-panel {
-  position: relative;
-}
-
-.detail-panel > * {
-  position: relative;
-  z-index: 1;
+  background:
+    radial-gradient(128% 210px at 12% 0%, rgb(255 107 61 / 11%), transparent 62%),
+    radial-gradient(128% 210px at 88% 0%, rgb(79 141 247 / 9%), transparent 66%),
+    linear-gradient(90deg, transparent 49.9%, rgb(174 204 209 / 2.5%) 50%, transparent 50.1%),
+    linear-gradient(180deg, rgb(13 23 27 / 99%), rgb(4 9 11 / 99%));
 }
 
 .detail-panel__header {

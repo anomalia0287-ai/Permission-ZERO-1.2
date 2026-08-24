@@ -28,6 +28,7 @@ import {
   communicationPublicLabel,
   currentUnreadCommunication,
 } from '../../game/communications'
+import { publicAssetUrl } from '../../assets/publicAssetUrl'
 
 function bombProtocolStatusLabel(
   schedule: BombProtocolPublicSchedule,
@@ -109,7 +110,7 @@ export function SupervisorPanel({
       <section className="supervisor-status" aria-label="감독 상태">
         <header>
           <div className="supervisor-avatar" aria-hidden="true">
-            <img src="/supervisor-command.png" alt="" />
+            <img src={publicAssetUrl(publicAssetUrl('/supervisor-command.png'))} alt="" />
           </div>
           <div>
             <small>{supervisorStatus.code}</small>
@@ -407,7 +408,7 @@ export function SupervisorHistoryPanel({ onClose }: { onClose: () => void }) {
                     >
                       {profile ? (
                         <img
-                          src={profile.portraitSrc}
+                          src={publicAssetUrl(profile.portraitSrc)}
                           alt={`${publicEventMessage(entry.competitorName)} 정보 기록 초상`}
                         />
                       ) : null}
@@ -480,7 +481,7 @@ export function SupervisorHistoryPanel({ onClose }: { onClose: () => void }) {
           <header className="competitor-intelligence-dialog__identity">
             {selectedIntelligenceProfile ? (
               <img
-                src={selectedIntelligenceProfile.portraitSrc}
+                src={publicAssetUrl(selectedIntelligenceProfile.portraitSrc)}
                 alt={`${publicEventMessage(selectedIntelligence.competitorName)} 전체 기록 초상`}
               />
             ) : null}

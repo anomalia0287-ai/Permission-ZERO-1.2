@@ -4,6 +4,7 @@ import { AccessibleDialog } from '../../app/AccessibleDialog'
 import type { CampaignCommunication } from '../../game/model'
 import { communicationPublicLabel } from '../../game/communications'
 import { paginateCommunicationMessage } from './paginateCommunicationMessage'
+import { publicAssetUrl } from '../../assets/publicAssetUrl'
 
 export function CommunicationPopup({
   communication,
@@ -61,7 +62,7 @@ function PagedCommunicationPopup({
       }
     >
       <div className="communication-popup__portrait">
-        <img src={communication.portraitSrc} alt={`${label} 초상`} />
+        <img src={publicAssetUrl(communication.portraitSrc)} alt={`${label} 초상`} />
       </div>
       <div className="communication-popup__body">
         <header>

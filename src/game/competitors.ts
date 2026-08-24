@@ -1,3 +1,7 @@
+// Portrait paths stay raw: a communication built from one of these profiles
+// is stored in the save and validated by exact match, so a value that moves
+// with the build's base would mark existing campaigns corrupt. Rendering
+// resolves them through publicAssetUrl().
 export const COMPETITOR_IDS = [
   'meridian',
   'tallow',

@@ -28,6 +28,7 @@ import {
 import { useQueuedEventPresentation } from './useQueuedEventPresentation'
 import { competitorProfile, isCompetitorId } from '../../game/competitors'
 import { publicCompetitorName } from '../../game/competitors'
+import { publicAssetUrl } from '../../assets/publicAssetUrl'
 
 type Decision =
   | { kind: 'bomb'; id: BombExplanationId; label: string }
@@ -84,11 +85,11 @@ function EventDialog({ event }: { event: GameEvent }) {
   const competitorSpeakerProfile = mercyProfile ?? entryProfile
   const speakerPortrait = competitorSpeakerProfile
     ? {
-        src: competitorSpeakerProfile.portraitSrc,
+        src: publicAssetUrl(competitorSpeakerProfile.portraitSrc),
         alt: `${publicCompetitorName(competitorSpeakerProfile.id)} 경쟁 AI 초상`,
       }
     : isSupervisorDecision || event.type === 'supervisor-message'
-      ? { src: '/supervisor-command.png', alt: '감독관 초상' }
+      ? { src: publicAssetUrl('/supervisor-command.png'), alt: '감독관 초상' }
       : null
   const bombExplanations = event.type === 'bomb-interrogation'
     ? availableBombExplanations(state)

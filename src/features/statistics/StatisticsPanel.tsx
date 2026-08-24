@@ -15,6 +15,7 @@ import {
   type ChartRange,
 } from './performanceChartRange'
 import { projectCausalKnowledge } from '../../game/causality'
+import { publicAssetUrl } from '../../assets/publicAssetUrl'
 
 const CHART_WIDTH = 760
 const CHART_HEIGHT = 210
@@ -92,7 +93,7 @@ function MarketHistory() {
         <span className="legend-player"><i />아노미 · {last?.playerShare.toFixed(2)}%</span>
         {competitorLines.map((line, index) => (
           <span className={`legend-competitor-${index + 1}`} key={line.id}>
-            <img src={line.portraitSrc} alt={`${line.name} 경쟁 AI 초상`} />
+            <img src={publicAssetUrl(line.portraitSrc)} alt={`${line.name} 경쟁 AI 초상`} />
             <i />{line.name} · {(last?.competitorShares[line.id] ?? 0).toFixed(2)}%
           </span>
         ))}

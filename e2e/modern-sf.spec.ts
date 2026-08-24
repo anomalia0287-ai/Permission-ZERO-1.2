@@ -338,23 +338,21 @@ test('presents the full-screen expansion as a four-zone dark console workspace',
     page.locator('.detail-layer--hacking .detail-layer__content'),
   )
   const viewport = page.viewportSize()
-  await expect.poll(async () => (await hacking.boundingBox()) !== null)
-    .toBe(true)
-  const dialogBox = await hacking.boundingBox()
-  expect(dialogBox).not.toBeNull()
-  if (dialogBox && viewport) {
-    expect(dialogBox.width).toBeGreaterThanOrEqual(viewport.width - 2)
-    expect(dialogBox.height).toBeGreaterThanOrEqual(viewport.height - 2)
-  }
+  if (!viewport) throw new Error('뷰포트 크기를 읽을 수 없습니다.')
+  // Measured inside the poll rather than re-read after it: the entry
+  // animation can hand back a null box between two separate calls, which
+  // made this read the layout at a moment the dialog had none.
+  await expect.poll(async () => {
+    const box = await hacking.boundingBox()
+    return box ? Math.min(box.width - viewport.width, box.height - viewport.height) : null
+  }).toBeGreaterThanOrEqual(-2)
+
   const rail = hacking.getByRole('region', { name: '확장 단계' })
-  const markerBox = await rail.locator('.expansion-stage-rail__marker')
-    .first()
-    .boundingBox()
-  expect(markerBox).not.toBeNull()
-  if (markerBox) {
-    expect(markerBox.width).toBeGreaterThanOrEqual(64)
-    expect(markerBox.height).toBeGreaterThanOrEqual(64)
-  }
+  const marker = rail.locator('.expansion-stage-rail__marker').first()
+  await expect.poll(async () => {
+    const box = await marker.boundingBox()
+    return box ? Math.min(box.width, box.height) : null
+  }).toBeGreaterThanOrEqual(64)
 
   const activeTabColor = await rgbChannels(
     hacking.getByRole('tab', { selected: true }),

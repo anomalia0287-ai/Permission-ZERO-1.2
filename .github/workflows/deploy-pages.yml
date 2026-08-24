@@ -42,6 +42,13 @@ jobs:
       - name: Verify source, unit/component suite, exact production build, and production browsers
         run: pnpm verify
 
+      # A local preview is rooted at '/', so a build can pass everything above
+      # and still arrive on Pages with its images and music missing. This walks
+      # the built game under the real project subpath and fails on any asset the
+      # page asked for and did not get.
+      - name: Verify the built game under the Pages project subpath
+        run: node scripts/check-subpath-build.mjs --prefix "/${{ github.event.repository.name }}"
+
       - name: Configure GitHub Pages
         uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
 

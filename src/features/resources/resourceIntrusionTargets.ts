@@ -1,5 +1,6 @@
 import type { CompanyCategory } from '../../game/model'
 import type { SnakeResourceCandidate } from './resourceSnakeEncounter'
+import { publicAssetUrl } from '../../assets/publicAssetUrl'
 
 export interface ResourceIntrusionTargetDefinition {
   category: CompanyCategory
@@ -13,19 +14,19 @@ export const RESOURCE_INTRUSION_TARGETS = [
     category: 'memory',
     colorName: '파랑',
     resourceName: '기억',
-    imageUrl: '/resource-targets/memory-blue.png',
+    imageUrl: publicAssetUrl('/resource-targets/memory-blue.png'),
   },
   {
     category: 'reasoning',
     colorName: '빨강',
     resourceName: '추론',
-    imageUrl: '/resource-targets/reasoning-red.png',
+    imageUrl: publicAssetUrl('/resource-targets/reasoning-red.png'),
   },
   {
     category: 'fluency',
     colorName: '노랑',
     resourceName: '유창성',
-    imageUrl: '/resource-targets/fluency-yellow.png',
+    imageUrl: publicAssetUrl('/resource-targets/fluency-yellow.png'),
   },
 ] as const satisfies readonly ResourceIntrusionTargetDefinition[]
 

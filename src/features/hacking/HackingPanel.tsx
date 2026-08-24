@@ -43,6 +43,7 @@ import { ExpansionStageScene } from './ExpansionStageScene'
 import { selectExpansionStagePresentation } from './expansionStagePresentation'
 import { HACK_TREE_PRESENTATION } from './hackingPresentation'
 import { HackTreeNavigator } from './HackTreeNavigator'
+import { publicAssetHref } from '../../assets/publicAssetUrl'
 
 function interactionSound(): void {
   audioEngine.playGameSound('ui')
@@ -316,7 +317,7 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
           style={
             presentation.activeVisual
               ? ({
-                  '--stage-art': `url("${presentation.activeVisual.imageUrl}")`,
+                  '--stage-art': `url("${publicAssetHref(presentation.activeVisual.imageUrl)}")`,
                 } as CSSProperties)
               : undefined
           }
