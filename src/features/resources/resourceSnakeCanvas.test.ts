@@ -32,6 +32,7 @@ function recordingContext() {
   const target: Record<string, unknown> = {
     canvas: { width: 1_000, height: 480 },
     createLinearGradient: vi.fn(() => gradient),
+    createRadialGradient: vi.fn(() => gradient),
   }
   const context = new Proxy(target, {
     get(object, property: string) {

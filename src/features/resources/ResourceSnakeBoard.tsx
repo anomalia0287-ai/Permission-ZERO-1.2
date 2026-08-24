@@ -55,6 +55,7 @@ import {
 } from './resourceSnakePresentation'
 import {
   drawDormantResourceSnakeField,
+  synchronizeResourceSnakeCanvasSize,
   drawResourceSnakeScene,
 } from './resourceSnakeCanvas'
 import { ResourceBoard } from './ResourceBoard'
@@ -605,7 +606,13 @@ function ResourceSnakeBoardSession() {
     const canvas = canvasRef.current
     if (!canvas || navigator.userAgent.includes('jsdom')) return
     canvasContextRef.current = canvas.getContext('2d')
-    const resize = () => setCanvasRevision((revision) => revision + 1)
+    // The backing store follows the element's real size. Left at its authored
+    // 1000x480 it was stretched to fill the arena, so the field arrived
+    // upscaled and soft and every square dot rendered as a tall bar.
+    const resize = () => {
+      synchronizeResourceSnakeCanvasSize(canvas)
+      setCanvasRevision((revision) => revision + 1)
+    }
     resize()
     let observer: ResizeObserver | null = null
     if (typeof ResizeObserver === 'function') {

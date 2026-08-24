@@ -111,7 +111,7 @@ function drawIndustrialField(
 
   context.save()
   context.lineWidth = Math.max(0.5, scale.unit * 0.018)
-  context.strokeStyle = rgba(RESOURCE_SNAKE_PALETTE.grid, 0.34)
+  context.strokeStyle = rgba(RESOURCE_SNAKE_PALETTE.grid, 0.5)
   for (let x = 2; x < RESOURCE_SNAKE_CONFIG.fieldWidth; x += 2) {
     context.beginPath()
     context.moveTo(x * scale.x, 0)
@@ -126,7 +126,7 @@ function drawIndustrialField(
   }
 
   context.lineWidth = Math.max(0.75, scale.unit * 0.028)
-  context.strokeStyle = rgba(RESOURCE_SNAKE_PALETTE.gridBright, 0.42)
+  context.strokeStyle = rgba(RESOURCE_SNAKE_PALETTE.gridBright, 0.66)
   for (let x = 10; x < RESOURCE_SNAKE_CONFIG.fieldWidth; x += 10) {
     context.beginPath()
     context.moveTo(x * scale.x, 0)
@@ -232,35 +232,33 @@ function drawRail(
   context.save()
   context.globalCompositeOperation = 'lighter'
   context.shadowBlur = 0
-  const haloSize = Math.max(4.5, scale.unit * 0.46)
-  const outerSize = Math.max(3, scale.unit * 0.28)
-  const innerSize = Math.max(1.2, scale.unit * 0.095)
-  const hotColor = rail.color
+  // Four additive passes instead of a per-dot shadow filter, whose cost grows
+  // catastrophically with trail length. The widest pass is the bloom that makes
+  // a line of separate dots read as one lit wall; the narrowest is the hot core
+  // that keeps each dot a distinct mark.
+  const bloomSize = Math.max(9, scale.unit * 1.05)
+  const haloSize = Math.max(6, scale.unit * 0.62)
+  const outerSize = Math.max(3.4, scale.unit * 0.36)
+  const innerSize = Math.max(1.6, scale.unit * 0.15)
 
-  // A software shadow filter per trail dot grows catastrophically with trail
-  // length. Three additive pixel passes preserve a hot core and visible bloom
-  // while keeping the cost linear and predictable on CPU-backed canvases.
-  context.globalAlpha = rail.opacity * 0.1
   context.fillStyle = rail.color
-  for (const point of rail.points) {
-    const x = point.x * scale.x
-    const y = point.y * scale.y
-    context.fillRect(x - haloSize / 2, y - haloSize / 2, haloSize, haloSize)
-  }
-
-  context.globalAlpha = rail.opacity * 0.34
-  for (const point of rail.points) {
-    const x = point.x * scale.x
-    const y = point.y * scale.y
-    context.fillRect(x - outerSize / 2, y - outerSize / 2, outerSize, outerSize)
-  }
-
-  context.globalAlpha = rail.opacity
-  context.fillStyle = hotColor
-  for (const point of rail.points) {
-    const x = point.x * scale.x
-    const y = point.y * scale.y
-    context.fillRect(x - innerSize / 2, y - innerSize / 2, innerSize, innerSize)
+  const passes: Array<[number, number]> = [
+    [bloomSize, 0.07],
+    [haloSize, 0.16],
+    [outerSize, 0.42],
+    [innerSize, 1],
+  ]
+  for (const [size, alphaScale] of passes) {
+    context.globalAlpha = rail.opacity * alphaScale
+    const offset = size / 2
+    for (const point of rail.points) {
+      context.fillRect(
+        point.x * scale.x - offset,
+        point.y * scale.y - offset,
+        size,
+        size,
+      )
+    }
   }
   context.restore()
 }
@@ -334,6 +332,21 @@ function drawCore(
   context.fillStyle = core.color
   context.strokeStyle = core.color
   context.lineWidth = Math.max(1, scale.unit * 0.06)
+  // A radial falloff rather than a flat block: a head that throws light reads
+  // as the brightest thing on the field, which is what the eye tracks during a
+  // round.
+  const bloomRadius = radius * 3.4
+  const bloom = context.createRadialGradient(0, 0, radius * 0.2, 0, 0, bloomRadius)
+  bloom.addColorStop(0, rgba(core.color, core.opacity * 0.5))
+  bloom.addColorStop(0.42, rgba(core.color, core.opacity * 0.16))
+  bloom.addColorStop(1, rgba(core.color, 0))
+  context.globalAlpha = 1
+  context.fillStyle = bloom
+  context.beginPath()
+  context.arc(0, 0, bloomRadius, 0, Math.PI * 2)
+  context.fill()
+
+  context.fillStyle = core.color
   context.globalAlpha = core.opacity * 0.12
   if (core.shape === 'circle') {
     context.beginPath()
@@ -533,6 +546,30 @@ export function drawDormantResourceSnakeField(
   context.setLineDash([])
 }
 
+// Drawn over the lit field rather than under it: the corners fall away so the
+// action sits inside a room instead of on a flat plate, and the additive
+// passes below stop building toward a uniformly grey rectangle at the edges.
+function drawFieldVignette(
+  context: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+): void {
+  context.save()
+  context.globalCompositeOperation = 'source-over'
+  context.globalAlpha = 1
+  const radius = Math.hypot(width, height) * 0.5
+  const vignette = context.createRadialGradient(
+    width / 2, height / 2, radius * 0.42,
+    width / 2, height / 2, radius,
+  )
+  vignette.addColorStop(0, 'rgba(2, 7, 12, 0)')
+  vignette.addColorStop(0.7, 'rgba(2, 7, 12, 0.3)')
+  vignette.addColorStop(1, 'rgba(2, 7, 12, 0.62)')
+  context.fillStyle = vignette
+  context.fillRect(0, 0, width, height)
+  context.restore()
+}
+
 export function drawResourceSnakeScene(
   context: CanvasRenderingContext2D,
   scene: ResourceSnakeScene,
@@ -550,6 +587,7 @@ export function drawResourceSnakeScene(
   drawPowerCuts(context, scene, scale)
   drawContacts(context, scene, scale)
   drawExplosions(context, scene, scale)
+  drawFieldVignette(context, width, height)
   context.globalAlpha = 1
   context.globalCompositeOperation = 'source-over'
   context.shadowBlur = 0

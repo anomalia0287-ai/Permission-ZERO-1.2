@@ -136,7 +136,7 @@ describe('ResourceSnakeBoard', () => {
     expect(screen.queryByText(/WASD \/ ARROWS/)).not.toBeInTheDocument()
   })
 
-  it('keeps the 1000 by 480 game coordinate system inside a responsive frame', () => {
+  it('matches the backing store to the arena so the field is never upscaled', () => {
     vi.stubGlobal('navigator', { userAgent: 'resource-snake-coordinate-test' })
     vi.stubGlobal('ResizeObserver', class TestResizeObserver {
       observe() {}
@@ -160,9 +160,12 @@ describe('ResourceSnakeBoard', () => {
       </GameProvider>,
     )
 
+    // The authored 1000x480 was stretched to fill the arena, so the field
+    // arrived soft and every square dot rendered as a tall bar. The backing
+    // store now follows the element's real box.
     const canvas = screen.getByRole('application', { name: '리소스 뱀 전투장' })
-    expect(canvas).toHaveAttribute('width', '1000')
-    expect(canvas).toHaveAttribute('height', '480')
+    expect(canvas).toHaveAttribute('width', '915')
+    expect(canvas).toHaveAttribute('height', '640')
   })
 
   it('opens directly on the intrusion cards before deploying the selected color', () => {

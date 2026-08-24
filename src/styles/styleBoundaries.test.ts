@@ -110,8 +110,12 @@ describe('style module boundaries', () => {
 
     expect(detailSource).toMatch(/\.detail-layer\s*\{[^}]*position:\s*fixed;/s)
     expect(detailSource).toMatch(/\.detail-layer\s*\{[^}]*inset:\s*0;/s)
+    // Edge to edge through the layer's own box rather than viewport units:
+    // 100vw/100vh ignore a classic scrollbar's footprint and made the panel
+    // measurably larger than the space it was given on platforms that reserve
+    // one. The layer already spans inset: 0, so percentages fill it exactly.
     expect(detailSource).toMatch(
-      /\.detail-layer--hacking \.detail-layer__content\s*\{[^}]*width:\s*100vw;[^}]*height:\s*100vh;/s,
+      /\.detail-layer--hacking \.detail-layer__content\s*\{[^}]*width:\s*100%;[^}]*height:\s*100%;/s,
     )
 
     const remodelSource = readFileSync(
