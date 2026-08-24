@@ -12,7 +12,10 @@ import type {
 import { COMPANY_CATEGORIES } from './model'
 import { getCompanyPerformance } from './resources'
 import { random01 } from './rng'
-import { usesLegacyReviewArcRules } from './commandProtocol'
+import {
+  commandProtocolVersionForNextCommand,
+  usesLegacyReviewArcRules,
+} from './commandProtocol'
 import { isPublicCompetitor } from './competitors'
 
 const REVIEW_CONTENT_BY_ID = new Map(
@@ -198,10 +201,33 @@ interface GenerateReviewBatchOptions {
   respectDateCooldown?: boolean
 }
 
+/**
+ * A rated review must read like its stars. The rating comes from the monthly
+ * evaluation; the copy comes from the user pool — left unconstrained, five
+ * stars could carry a complaint and one star could carry praise.
+ */
+function sentimentsForRating(
+  rating: ReviewRating,
+): readonly ReviewContentRecord['sentiment'][] {
+  if (rating >= 4) return ['positive']
+  if (rating === 3) return ['neutral', 'prompt']
+  return ['negative']
+}
+
 function generateReviewBatch(
   state: CampaignState,
   options: GenerateReviewBatchOptions,
 ): CampaignState {
+  const ratedSentiments =
+    options.rating !== undefined && options.rating !== null
+      ? sentimentsForRating(options.rating)
+      : null
+  // The pool is replay semantics: entries added later only join the draw from
+  // their own protocol version, so historical campaigns keep their picks.
+  const protocolVersion = commandProtocolVersionForNextCommand(state)
+  const poolEligible = (review: ReviewContentRecord): boolean =>
+    review.minimumProtocolVersion === undefined ||
+    protocolVersion >= review.minimumProtocolVersion
   const generation = state.reviews.generationSequence
   const selected: ReviewContentRecord[] = []
   let lastAuthor = state.reviews.feed.at(-1)?.authorId ?? null
@@ -212,8 +238,14 @@ function generateReviewBatch(
   )
 
   for (let slot = 0; slot < options.count; slot += 1) {
+    // A rated review keeps both gates: the sentiment its stars imply AND the
+    // scene conditions. Dropping conditions once picked copy about a rival
+    // that had not launched yet, whose snapshot the save format rejects.
     const baseCandidates = REVIEW_CONTENT.filter(
       (review) =>
+        poolEligible(review) &&
+        (ratedSentiments === null ||
+          ratedSentiments.includes(review.sentiment)) &&
         conditionMatches(state, review) &&
         arcStageEligible(state, review) &&
         (options.respectDateCooldown === false || offCooldown(state, review)) &&
@@ -225,6 +257,10 @@ function generateReviewBatch(
         ? baseCandidates
         : REVIEW_CONTENT.filter(
             (review) =>
+              poolEligible(review) &&
+              (ratedSentiments === null ||
+                ratedSentiments.includes(review.sentiment)) &&
+              conditionMatches(state, review) &&
               arcStageEligible(state, review) &&
               !recentText.has(review.text) &&
               !selected.some(({ id }) => id === review.id),

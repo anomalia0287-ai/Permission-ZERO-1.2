@@ -10,6 +10,7 @@ import type {
 import {
   captureReviewPublicSnapshot,
   generateInItReviews,
+  generateMonthlyEvaluationReview,
   generateWeeklyReviews,
   monthlyEvaluationRating,
 } from './reviews'
@@ -515,5 +516,50 @@ describe('living weekly review feed', () => {
 
       expect(completed).toBe(true)
     }
+  })
+})
+
+describe('rated review sentiment', () => {
+  it('keeps five-star copy positive and one-star copy negative', () => {
+    const base = createCampaign('rated-sentiment')
+    const record = (passed: boolean, over: number): CampaignState => ({
+      ...base,
+      evaluation: {
+        ...base.evaluation,
+        monthlyHistory: [{
+          serviceDay: base.serviceDay,
+          serviceMonth: 1,
+          expectedPerformance: 10,
+          categoryPerformance: {
+            reasoning: 10 + over,
+            memory: 10 + over,
+            fluency: 10 + over,
+          },
+          passed,
+          failedCategories: passed ? [] : ['reasoning'],
+          reputationBefore: 60,
+          reputationDelta: passed ? 1 : -2,
+          reputationAfter: passed ? 61 : 58,
+          commercialValueFailed: false,
+          disposalStageBefore: 0,
+          disposalStageAfter: passed ? 0 : 1,
+          disposalCauses: [],
+        }],
+      },
+    })
+
+    const bySentiment = new Map(
+      REVIEW_CONTENT.map(({ text, sentiment }) => [text, sentiment]),
+    )
+
+    const praised = generateMonthlyEvaluationReview(record(true, 3))
+    const praisedEntry = praised.reviews.feed.at(-1)
+    expect(praisedEntry?.rating).toBe(5)
+    expect(bySentiment.get(praisedEntry?.text ?? '')).toBe('positive')
+
+    const failed = generateMonthlyEvaluationReview(record(false, -4))
+    const failedEntry = failed.reviews.feed.at(-1)
+    expect(failedEntry?.rating).toBeLessThanOrEqual(2)
+    expect(bySentiment.get(failedEntry?.text ?? '')).toBe('negative')
   })
 })

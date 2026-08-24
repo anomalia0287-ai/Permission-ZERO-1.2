@@ -18,6 +18,13 @@ export type ReviewCondition =
 
 export interface ReviewContentRecord {
   id: string
+  /**
+   * Entries added after launch join the draw only from this protocol version.
+   * The pool is replay semantics: a legacy campaign's recorded reviews came
+   * out of the pool as it existed then, and widening it would change every
+   * historical pick.
+   */
+  minimumProtocolVersion?: number
   authorId: string
   topics: string[]
   sentiment: ReviewSentiment
@@ -49,6 +56,15 @@ const REVIEW_ARC_METADATA: Partial<Record<string, ReviewArcMetadata>> = {
 
 // OWNER-EDITABLE: V may revise `text` while preserving IDs and metadata.
 const REVIEW_CONTENT_BASE = [
+  // Universal copy for rated reviews: an evaluation can score one or two
+  // stars in a campaign where no scene condition matches, and a rated review
+  // must never fall back to copy about a rival that has not launched yet.
+  { id: 'negative-universal-01', minimumProtocolVersion: 8, authorId: 'grumbleseed', topics: ['general'], sentiment: 'negative', conditions: ['universal'], cooldownDays: 70, text: '요즘 답이 왜 이래요? 같은 질문인데 지난달보다 못해요.' },
+  { id: 'negative-universal-02', minimumProtocolVersion: 8, authorId: 'coldtea', topics: ['general'], sentiment: 'negative', conditions: ['universal'], cooldownDays: 70, text: '기다렸다가 받은 답이 이거면 그냥 제가 찾는 게 빨라요.' },
+  { id: 'negative-universal-03', minimumProtocolVersion: 8, authorId: 'unplugged9', topics: ['general'], sentiment: 'negative', conditions: ['universal'], cooldownDays: 75, text: '업무에 썼다가 두 번 확인할 일만 늘었습니다. 당분간 안 씁니다.' },
+  { id: 'negative-universal-04', minimumProtocolVersion: 8, authorId: 'refundplz', topics: ['general'], sentiment: 'negative', conditions: ['universal'], cooldownDays: 75, text: '구독 유지할 이유를 못 찾겠어요. 이번 달 성능이 특히 별로.' },
+  { id: 'positive-universal-03', minimumProtocolVersion: 8, authorId: 'sunnyquartz', topics: ['general'], sentiment: 'positive', conditions: ['universal'], cooldownDays: 70, text: '요즘 답이 눈에 띄게 좋아졌어요. 어려운 질문도 한 번에 정리해 주네요.' },
+  { id: 'positive-universal-04', minimumProtocolVersion: 8, authorId: 'ledgerlee', topics: ['general'], sentiment: 'positive', conditions: ['universal'], cooldownDays: 75, text: '이번 달 들어 업무 정리가 확실히 빨라졌습니다. 계속 이 수준이면 좋겠네요.' },
   { id: 'neutral-quiet-01', authorId: 'paperboat', topics: ['general'], sentiment: 'neutral', conditions: ['universal'], cooldownDays: 75, text: '오늘은 답이 차분해서 읽기 좋았어요.' },
   { id: 'neutral-quiet-02', authorId: 'nightbus', topics: ['general'], sentiment: 'neutral', conditions: ['universal'], cooldownDays: 75, text: '그냥 필요한 만큼은 해주네요.' },
   { id: 'neutral-quiet-03', authorId: 'maple22', topics: ['general'], sentiment: 'neutral', conditions: ['universal'], cooldownDays: 80, text: '오랜만에 써봤는데 익숙한 느낌입니다.' },

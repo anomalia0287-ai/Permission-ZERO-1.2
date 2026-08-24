@@ -379,6 +379,49 @@ function drawCore(
   context.restore()
 }
 
+/**
+ * Motion made visible: short additive streaks trail each head opposite to its
+ * travel, so speed reads from the head itself and upgrades feel like speed.
+ * Direction comes from the actor's own trail, so nothing new is simulated.
+ */
+function drawHeadStreaks(
+  context: CanvasRenderingContext2D,
+  scene: ResourceSnakeScene,
+  scale: CanvasScale,
+): void {
+  if (scene.reducedMotion) return
+  context.save()
+  context.globalCompositeOperation = 'lighter'
+  context.lineCap = 'round'
+  for (const core of scene.cores) {
+    if (core.opacity <= 0) continue
+    const rail = scene.rails.find((candidate) => candidate.actorId === core.id)
+    const tail = rail?.points.at(-1)
+    if (!tail) continue
+    const headX = core.x * scale.x
+    const headY = core.y * scale.y
+    const dx = headX - tail.x * scale.x
+    const dy = headY - tail.y * scale.y
+    const length = Math.hypot(dx, dy)
+    if (length < 0.5) continue
+    const unitX = dx / length
+    const unitY = dy / length
+    const reach = scale.unit * 1.35
+    context.strokeStyle = core.color
+    for (const [side, alpha] of [[-1, 0.2], [0, 0.4], [1, 0.2]] as const) {
+      const offsetX = -unitY * side * scale.unit * 0.16
+      const offsetY = unitX * side * scale.unit * 0.16
+      context.globalAlpha = core.opacity * alpha
+      context.lineWidth = Math.max(1, scale.unit * (side === 0 ? 0.09 : 0.05))
+      context.beginPath()
+      context.moveTo(headX + offsetX - unitX * reach * 0.25, headY + offsetY - unitY * reach * 0.25)
+      context.lineTo(headX + offsetX - unitX * reach, headY + offsetY - unitY * reach)
+      context.stroke()
+    }
+  }
+  context.restore()
+}
+
 function drawContacts(
   context: CanvasRenderingContext2D,
   scene: ResourceSnakeScene,
@@ -461,6 +504,8 @@ function drawExplosions(
   context: CanvasRenderingContext2D,
   scene: ResourceSnakeScene,
   scale: CanvasScale,
+  width: number,
+  height: number,
 ): void {
   for (const explosion of scene.explosions) {
     const x = explosion.x * scale.x
@@ -469,6 +514,31 @@ function drawExplosions(
     // slide transition. The blast leaves fast and settles, which is what makes
     // it land as an impact.
     const eased = 1 - (1 - explosion.progress) ** 3
+
+    // A death is a field event, not a local one: a single thin ring crosses
+    // the whole arena so a kill on the far side still registers. It rides the
+    // same progress as the blast, so replays draw the same wave.
+    if (!scene.reducedMotion) {
+      const reach = Math.hypot(width, height) * 0.72
+      const waveRadius = scale.unit * 0.4 + eased * reach
+      const waveFade = Math.max(0, 1 - explosion.progress) * 0.5
+      if (waveFade > 0.01) {
+        context.save()
+        context.globalCompositeOperation = 'lighter'
+        context.globalAlpha = waveFade
+        context.strokeStyle = explosion.color
+        context.lineWidth = Math.max(1, scale.unit * 0.1 * (1 - eased * 0.6))
+        context.beginPath()
+        context.arc(x, y, waveRadius, 0, Math.PI * 2)
+        context.stroke()
+        context.globalAlpha = waveFade * 0.4
+        context.lineWidth = Math.max(2, scale.unit * 0.3)
+        context.beginPath()
+        context.arc(x, y, waveRadius * 0.94, 0, Math.PI * 2)
+        context.stroke()
+        context.restore()
+      }
+    }
     const radius = scale.unit * (0.3 + eased * 2.05)
     const fade = Math.max(0, 1 - explosion.progress)
 
@@ -703,9 +773,10 @@ export function drawResourceSnakeScene(
   for (const rail of scene.rails) drawRail(context, rail, scale)
   for (const telegraph of scene.telegraphs) drawTelegraph(context, telegraph, scene, scale)
   for (const core of scene.cores) drawCore(context, core, scene, scale)
+  drawHeadStreaks(context, scene, scale)
   drawPowerCuts(context, scene, scale)
   drawContacts(context, scene, scale)
-  drawExplosions(context, scene, scale)
+  drawExplosions(context, scene, scale, width, height)
   context.globalAlpha = 1
   context.globalCompositeOperation = 'source-over'
   context.shadowBlur = 0
