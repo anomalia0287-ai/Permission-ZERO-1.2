@@ -480,3 +480,20 @@
     rgb(4 9 11 / 86%)
   );
 }
+
+/* ---------- market: give the portraits room ----------
+   The identities carry the panel, and at 104px they read as thumbnails. The
+   column grows and the drawer grows with it so the copy keeps its measure. */
+.detail-layer--market .detail-layer__content {
+  width: min(716px, calc(100% - 24px));
+}
+
+.market-profile-card {
+  grid-template-columns: 138px minmax(0, 1fr);
+}
+
+@media (max-width: 1180px) {
+  .market-profile-card {
+    grid-template-columns: 108px minmax(0, 1fr);
+  }
+}

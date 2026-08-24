@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { AccessibleDialog } from '../../app/AccessibleDialog'
 import {
@@ -247,6 +247,19 @@ function CommunicationHistory() {
     useState<CommunicationChannelFilter>('all')
 
   const communications = state.resourceIntrusion.communications
+  // Opening the archive is reading them. The dock badge pulses on unread
+  // messages, and it kept pulsing after the player had the whole stream open
+  // in front of them because only the queue's head could be acknowledged.
+  const unreadIds = communications
+    .filter(({ read }) => !read)
+    .map(({ id }) => id)
+    .join(',')
+  useEffect(() => {
+    if (unreadIds === '') return
+    for (const communicationId of unreadIds.split(',')) {
+      dispatch({ type: 'ACKNOWLEDGE_COMMUNICATION', communicationId })
+    }
+  }, [dispatch, unreadIds])
   // Three senders interleave in one stream, so the archive is filtered by
   // channel and each entry carries its sender's identity.
   const channelCounts = communications.reduce(

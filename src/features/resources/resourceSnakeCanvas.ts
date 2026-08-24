@@ -402,6 +402,29 @@ function drawContacts(
       context.stroke()
       context.rotate((Math.PI * 2) / 3)
     }
+
+    // Sparks off the point of contact. Their angles come from the contact's own
+    // rotation, so the same collision throws the same sparks on every replay.
+    // They are brightest at the moment of impact and gone well before the arcs,
+    // which is what makes a graze feel like metal rather than a fading ring.
+    const sparkLife = Math.max(0, 1 - contact.progress / 0.55)
+    if (sparkLife > 0) {
+      context.globalCompositeOperation = 'lighter'
+      context.globalAlpha = sparkLife
+      context.shadowBlur = scale.unit * 0.3
+      context.lineWidth = Math.max(1, scale.unit * 0.05)
+      context.lineCap = 'round'
+      for (let spark = 0; spark < 7; spark += 1) {
+        const angle = contact.rotationRadians + spark * 2.399963229728653
+        const reach = scale.unit * (0.34 + ((spark * 37) % 11) / 11 * 0.9)
+        const near = reach * (0.3 + contact.progress * 0.9)
+        const far = near + reach * (0.5 + sparkLife * 0.6)
+        context.beginPath()
+        context.moveTo(Math.cos(angle) * near, Math.sin(angle) * near)
+        context.lineTo(Math.cos(angle) * far, Math.sin(angle) * far)
+        context.stroke()
+      }
+    }
     context.restore()
   }
 }
@@ -442,15 +465,40 @@ function drawExplosions(
   for (const explosion of scene.explosions) {
     const x = explosion.x * scale.x
     const y = explosion.y * scale.y
-    const radius = scale.unit * (0.44 + explosion.progress * 1.7)
+    // Eased rather than linear: a shape growing at a constant rate reads as a
+    // slide transition. The blast leaves fast and settles, which is what makes
+    // it land as an impact.
+    const eased = 1 - (1 - explosion.progress) ** 3
+    const radius = scale.unit * (0.3 + eased * 2.05)
+    const fade = Math.max(0, 1 - explosion.progress)
+
     context.save()
     context.translate(x, y)
+    context.globalCompositeOperation = 'lighter'
+
+    // The bang: a white-hot core over the actor's color, gone within the first
+    // third of the effect so the eye reads a flash and not a growing disc.
+    const flashLife = Math.max(0, 1 - explosion.progress / 0.34)
+    if (flashLife > 0) {
+      const flashRadius = scale.unit * (0.9 + eased * 1.5)
+      const flash = context.createRadialGradient(0, 0, 0, 0, 0, flashRadius)
+      flash.addColorStop(0, `rgba(255, 255, 255, ${(flashLife * 0.9).toFixed(3)})`)
+      flash.addColorStop(0.3, rgba(explosion.color, flashLife * 0.72))
+      flash.addColorStop(1, rgba(explosion.color, 0))
+      context.globalAlpha = 1
+      context.fillStyle = flash
+      context.beginPath()
+      context.arc(0, 0, flashRadius, 0, Math.PI * 2)
+      context.fill()
+    }
+
     context.rotate(Math.PI / 4 + explosion.progress * 0.22)
-    context.globalAlpha = Math.max(0, 1 - explosion.progress)
+    context.globalAlpha = fade
     context.strokeStyle = explosion.color
     context.shadowColor = explosion.color
     context.shadowBlur = scale.unit * 0.9
-    context.lineWidth = Math.max(1.5, scale.unit * 0.09)
+    // The shockwave thins as it expands instead of holding one weight.
+    context.lineWidth = Math.max(1, scale.unit * 0.2 * (1 - eased * 0.78))
     tracePolygon(context, [
       { x: radius, y: 0 },
       { x: 0, y: radius },
@@ -461,8 +509,8 @@ function drawExplosions(
     for (let ray = 0; ray < 8; ray += 1) {
       context.rotate(Math.PI / 4)
       context.beginPath()
-      context.moveTo(radius * 0.64, 0)
-      context.lineTo(radius * 1.35, 0)
+      context.moveTo(radius * 0.6, 0)
+      context.lineTo(radius * (1.25 + fade * 0.5), 0)
       context.stroke()
     }
     context.restore()
@@ -578,6 +626,9 @@ export function drawResourceSnakeScene(
 ): void {
   const scale = canvasScale(width, height)
   drawIndustrialField(context, scene, width, height, scale)
+  // Under the actors, not over them: the vignette is the room falling away at
+  // its edges, and a light source inside that room should not be dimmed by it.
+  drawFieldVignette(context, width, height)
   for (const edge of scene.dangerEdges) {
     drawDangerEdge(context, edge, scene, width, height, scale)
   }
@@ -587,7 +638,6 @@ export function drawResourceSnakeScene(
   drawPowerCuts(context, scene, scale)
   drawContacts(context, scene, scale)
   drawExplosions(context, scene, scale)
-  drawFieldVignette(context, width, height)
   context.globalAlpha = 1
   context.globalCompositeOperation = 'source-over'
   context.shadowBlur = 0

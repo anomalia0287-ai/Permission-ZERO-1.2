@@ -73,9 +73,12 @@ const MOVEMENT_KEYS = new Set([
 
 // The launch beat: the chosen card locks in, the rest fall away, and a short
 // 3-2-1 marks the fixed moment the round begins (the anticipation window).
-const TARGET_LAUNCH_MS = 1_050
+// Three ticks of half a second each: long enough to read every number, short
+// enough that the wait before a round never feels like a loading screen.
+const LAUNCH_COUNT_START = 3
+const LAUNCH_COUNT_STEP_MS = 500
+const TARGET_LAUNCH_MS = LAUNCH_COUNT_START * LAUNCH_COUNT_STEP_MS
 const TARGET_LAUNCH_REDUCED_MS = 240
-const LAUNCH_COUNT_STEP_MS = 350
 
 type ResourceIntrusionBoardPhase =
   | ResourceIntrusionTargetPhase
@@ -425,24 +428,29 @@ function ResourceSnakeBoardSession() {
     }
     setSelectedCategory(targetCategory)
     setBoardPhase('launching')
+    // Any countdown still running belongs to an abandoned selection and is
+    // cleared before this one is scheduled — clearing afterwards cancelled the
+    // ticks this call had just created, which left the overlay stuck on 3.
+    if (launchTimerRef.current !== null) {
+      window.clearTimeout(launchTimerRef.current)
+      launchTimerRef.current = null
+    }
+    for (const timer of countdownTimersRef.current) window.clearTimeout(timer)
+    countdownTimersRef.current.clear()
+
     const reduced = settings.reducedMotion
     const launchMs = reduced ? TARGET_LAUNCH_REDUCED_MS : TARGET_LAUNCH_MS
     if (!reduced) {
-      setLaunchCountdown(3)
-      for (let step = 1; step < 3; step += 1) {
+      setLaunchCountdown(LAUNCH_COUNT_START)
+      for (let step = 1; step < LAUNCH_COUNT_START; step += 1) {
         const timer = window.setTimeout(() => {
           countdownTimersRef.current.delete(timer)
-          setLaunchCountdown(3 - step)
+          setLaunchCountdown(LAUNCH_COUNT_START - step)
           playGameSound('ui')
         }, LAUNCH_COUNT_STEP_MS * step)
         countdownTimersRef.current.add(timer)
       }
     }
-    if (launchTimerRef.current !== null) {
-      window.clearTimeout(launchTimerRef.current)
-    }
-    for (const timer of countdownTimersRef.current) window.clearTimeout(timer)
-    countdownTimersRef.current.clear()
     launchTimerRef.current = window.setTimeout(() => {
       launchTimerRef.current = null
       setLaunchCountdown(null)

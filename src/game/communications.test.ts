@@ -31,7 +31,7 @@ describe('campaign communications', () => {
     ])
   })
 
-  it('queues two Anomi monologues after round one and two supervisor notices after round two', () => {
+  it('queues two Anomi monologues after round one, then one supervisor notice per round', () => {
     const initial = // Seed chosen so the round-one clean-extraction roll misses; this test
     // pins the monologue queue, not the bonus.
     createCampaign('round-communications-v2')
@@ -78,15 +78,8 @@ describe('campaign communications', () => {
         message: expect.stringContaining('성능 로그에서 평소와 다른 움직임'),
       },
       {
-        id: 'round-2-disposal',
-        sequence: 3,
-        channel: 'supervisor',
-        senderName: '운영 담당자',
-        message: expect.stringContaining('기존 모델은 폐기됩니다'),
-      },
-      {
         id: 'intrusion-defeat',
-        sequence: 4,
+        sequence: 3,
         channel: 'anomi',
         senderName: '아노미',
         popupPolicy: 'nonblocking',
@@ -94,6 +87,25 @@ describe('campaign communications', () => {
         read: false,
       },
     ])
+
+    // The disposal warning lands a round later so the threat gets its own beat
+    // instead of sharing one with the monitoring notice.
+    const third = applyCommand(second.state, {
+      type: 'COMPLETE_RESOURCE_ROUND',
+      roundNumber: 3,
+      outcome: 'victory',
+    })
+    if (!third.accepted) throw new Error(third.reason)
+    expect(third.state.resourceIntrusion.communications.map(({ id }) => id))
+      .toContain('round-2-disposal')
+    expect(
+      third.state.resourceIntrusion.communications
+        .find(({ id }) => id === 'round-2-disposal'),
+    ).toMatchObject({
+      channel: 'supervisor',
+      senderName: '운영 담당자',
+      message: expect.stringContaining('기존 모델은 폐기됩니다'),
+    })
   })
 
   it('escalates supervisor pressure and competitor taunts as market share sinks', () => {

@@ -91,7 +91,8 @@ function startTargetedResourceRound(
   targetName = '파랑 기억 침투',
 ): void {
   fireEvent.click(screen.getByRole('button', { name: targetName }))
-  act(() => vi.advanceTimersByTime(1_050))
+  // Three countdown ticks of 500ms before the round deploys.
+  act(() => vi.advanceTimersByTime(1_500))
 }
 
 describe('ResourceSnakeBoard', () => {
@@ -168,6 +169,31 @@ describe('ResourceSnakeBoard', () => {
     expect(canvas).toHaveAttribute('height', '640')
   })
 
+  it('counts every tick down to the launch instead of stalling on the first', () => {
+    vi.useFakeTimers()
+    vi.spyOn(audioEngineModule, 'playGameSound').mockReturnValue(true)
+    render(
+      <GameProvider storage={new MemoryStorage()} initialSeed="snake-board-countdown">
+        <ResourceSnakeBoard />
+      </GameProvider>,
+    )
+
+    // Stale ticks used to be cleared after the new ones were scheduled, which
+    // cancelled the countdown the click had just started and left it on 3.
+    fireEvent.click(screen.getByRole('button', { name: '파랑 기억 침투' }))
+    expect(screen.getByLabelText('침투 시작까지 3')).toBeInTheDocument()
+    act(() => vi.advanceTimersByTime(500))
+    expect(screen.getByLabelText('침투 시작까지 2')).toBeInTheDocument()
+    act(() => vi.advanceTimersByTime(500))
+    expect(screen.getByLabelText('침투 시작까지 1')).toBeInTheDocument()
+
+    const arena = screen.getByRole('application', { name: '리소스 뱀 전투장' })
+    expect(arena).toHaveAttribute('data-round-phase', 'idle')
+    act(() => vi.advanceTimersByTime(500))
+    expect(arena).toHaveAttribute('data-round-phase', 'deploying')
+    expect(screen.queryByLabelText(/침투 시작까지/)).not.toBeInTheDocument()
+  })
+
   it('opens directly on the intrusion cards before deploying the selected color', () => {
     vi.useFakeTimers()
     vi.spyOn(audioEngineModule, 'playGameSound').mockReturnValue(true)
@@ -184,7 +210,7 @@ describe('ResourceSnakeBoard', () => {
       .toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '파랑 기억 침투' }))
-    act(() => vi.advanceTimersByTime(1_049))
+    act(() => vi.advanceTimersByTime(1_499))
     expect(arena).toHaveAttribute('data-round-phase', 'idle')
     act(() => vi.advanceTimersByTime(1))
 

@@ -47,6 +47,15 @@ export interface AudioEngineStatus extends AudioPublicState {
 
 type AudioContextFactory = () => AudioContext | null
 
+// The recipes were authored around 0.03 per voice, roughly 17 dB under a
+// mastered music track, so a hit or a latch simply vanished beneath the score.
+// One trim lifts every cue together instead of retuning twenty recipes. The
+// ceiling matters because the loudest recipe voice is 0.13: three of those at
+// full trim would sum past the bus and distort, so each voice is capped where
+// a three-voice chord still lands inside the headroom.
+const EFFECT_VOICE_TRIM = 3
+const EFFECT_VOICE_CEILING = 0.32
+
 const DEFAULT_MIX: AudioMixSettings = {
   masterVolume: 0.8,
   // The score sits under the round: short effect cues have to read
@@ -265,7 +274,10 @@ export class GameAudioEngine {
         end,
       )
       envelope.gain.setValueAtTime(0.0001, start)
-      envelope.gain.linearRampToValueAtTime(voice.gain, attackEnd)
+      envelope.gain.linearRampToValueAtTime(
+        Math.min(EFFECT_VOICE_CEILING, voice.gain * EFFECT_VOICE_TRIM),
+        attackEnd,
+      )
       envelope.gain.exponentialRampToValueAtTime(0.0001, end)
 
       oscillator.connect(envelope)

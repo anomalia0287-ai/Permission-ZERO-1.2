@@ -296,7 +296,14 @@ export function appendRoundCommunications(
     return appendCommunicationDefinitions(state, ROUND_COMMUNICATIONS.slice(0, 2))
   }
   if (roundNumber === 2) {
-    return appendCommunicationDefinitions(state, ROUND_COMMUNICATIONS.slice(2, 4))
+    return appendCommunicationDefinitions(state, ROUND_COMMUNICATIONS.slice(2, 3))
+  }
+  // The disposal warning lands a round after the first monitoring notice so the
+  // threat arrives on its own beat instead of sharing one with the setup. Its
+  // id still records the slot it was written for; stored campaigns are matched
+  // by that id, so renaming it would mark them corrupt.
+  if (roundNumber === 3) {
+    return appendCommunicationDefinitions(state, ROUND_COMMUNICATIONS.slice(3, 4))
   }
   return state
 }
