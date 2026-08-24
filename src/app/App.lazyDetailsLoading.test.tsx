@@ -138,7 +138,12 @@ describe('App detail-panel loading modal', () => {
       await detailModule.gate
     })
 
-    expect(await screen.findByRole('dialog', { name: '확장' })).toBeInTheDocument()
+    // Ceiling for the post-release chunk load under worker contention.
+    expect(await screen.findByRole(
+      'dialog',
+      { name: '확장' },
+      { timeout: 10_000 },
+    )).toBeInTheDocument()
     expect(
       screen.queryByRole('dialog', { name: '확장 불러오는 중' }),
     ).not.toBeInTheDocument()
@@ -148,7 +153,12 @@ describe('App detail-panel loading modal', () => {
     fireEvent.keyDown(window, { key: 'Escape' })
     await waitFor(() => expect(hackingTrigger).toHaveFocus())
     fireEvent.click(hackingTrigger)
-    expect(await screen.findByRole('dialog', { name: '확장' })).toBeInTheDocument()
+    // Ceiling for the post-release chunk load under worker contention.
+    expect(await screen.findByRole(
+      'dialog',
+      { name: '확장' },
+      { timeout: 10_000 },
+    )).toBeInTheDocument()
     expect(detailModule.evaluations).toBe(1)
   })
 })

@@ -53,6 +53,7 @@ import { IntroTutorialOverlay } from '../features/tutorial/IntroTutorialOverlay'
 import { INTRO_TUTORIAL_SEQUENCE_ID } from '../game/tutorialProgress'
 import { CommunicationPopup } from '../features/communications/CommunicationPopup'
 import { currentUnreadCommunication } from '../game/communications'
+import { useCombatResolving } from '../features/resources/combatSettlement'
 
 const DetailLayer = lazy(async () => {
   const module = await import('./DetailLayer')
@@ -123,11 +124,15 @@ function GameWorkspace() {
       !introTutorialActive &&
       !runtimeSuspended,
   })
+  // A round report waits for the round to actually leave the screen: the
+  // arena keeps the flag up until its cards are back.
+  const combatResolving = useCombatResolving()
   const supervisorPopupVisible =
     supervisorMessage !== null &&
     settings.supervisorMessageMode !== 'off' &&
     activePanel === null &&
     !introTutorialActive &&
+    !combatResolving &&
     state.activeEvent === null
   const campaignCommunication = currentUnreadCommunication(state)
   const campaignCommunicationBlocking = campaignCommunication !== null && (
@@ -140,6 +145,7 @@ function GameWorkspace() {
     activePanel === null &&
     nestedPanel === null &&
     !introTutorialActive &&
+    !combatResolving &&
     state.activeEvent === null &&
     (
       campaignCommunication.channel !== 'supervisor' ||

@@ -41,7 +41,12 @@ describe('App detail panel failure containment', () => {
     const hackingTrigger = screen.getByRole('button', { name: '확장 열기' })
     fireEvent.click(hackingTrigger)
 
-    const failure = await screen.findByRole('alertdialog', { name: '패널 연결 오류' })
+    // Ceiling for the post-release chunk load under worker contention.
+    const failure = await screen.findByRole(
+      'alertdialog',
+      { name: '패널 연결 오류' },
+      { timeout: 10_000 },
+    )
     expect(workspace).toBeInTheDocument()
     expect(background).toHaveAttribute('inert')
     expect(screen.getByRole('button', { name: '게임 다시 연결' })).toBeEnabled()

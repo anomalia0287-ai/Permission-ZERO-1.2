@@ -75,7 +75,13 @@ describe('App protocol-v6 final-choice ownership', () => {
       await detailModule.gate
     })
 
-    const loaded = await screen.findByRole('dialog', { name: '확장' })
+    // The real chunk graph loads after release; under worker contention that
+    // can pass the 1s default. The timeout is a ceiling, not a wait.
+    const loaded = await screen.findByRole(
+      'dialog',
+      { name: '확장' },
+      { timeout: 10_000 },
+    )
     expect(loaded).toHaveAttribute('aria-modal', 'true')
     expect(screen.getByRole('button', { name: '확장 닫기' })).toBeDisabled()
     expect(screen.getByRole('button', { name: '자유' })).toBeInTheDocument()

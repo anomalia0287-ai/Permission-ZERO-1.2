@@ -63,6 +63,13 @@ const APPROVED_ACTIONS = [
     tag: 'v6',
   },
   {
+    // Failure evidence upload: verified against the tag on 2026-08-24
+    // (`gh api repos/actions/upload-artifact/git/ref/tags/v4`).
+    action: 'actions/upload-artifact',
+    sha: 'ea165f8d65b6e75b540449e92b4886f43607fa02',
+    tag: 'v4',
+  },
+  {
     action: 'actions/configure-pages',
     sha: '983d7736d9b0ae728b81ab479565c72886d7745b',
     tag: 'v5',
@@ -81,7 +88,7 @@ const APPROVED_ACTIONS = [
 
 function expectOnlyApprovedActions(source: string) {
   const uses = allUses(source)
-  expect(uses).toHaveLength(6)
+  expect(uses).toHaveLength(7)
   expect(uses).toEqual(
     APPROVED_ACTIONS.map(({ action, sha }) => `${action}@${sha}`),
   )

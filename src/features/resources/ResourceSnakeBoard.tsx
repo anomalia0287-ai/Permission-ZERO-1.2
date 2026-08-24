@@ -59,6 +59,7 @@ import {
   drawResourceSnakeScene,
 } from './resourceSnakeCanvas'
 import { ResourceBoard } from './ResourceBoard'
+import { setCombatResolving } from './combatSettlement'
 import { useResourceSnakeAudioFeedback } from './useResourceSnakeAudioFeedback'
 import { useResourceSnakeRewards } from './useResourceSnakeRewards'
 import {
@@ -346,6 +347,20 @@ function ResourceSnakeBoardSession() {
     )
     if (reconciled !== runtimeRef.current) commitRuntime(reconciled)
   }, [candidates, commitRuntime])
+
+  // Round communications hold until the cards are back: the popup layer reads
+  // this signal so a defeat notice or supervisor message lands on the settled
+  // board instead of over the resolution animation.
+  useEffect(() => {
+    if (runtime.phase !== 'idle') {
+      setCombatResolving(true)
+      return
+    }
+    const timer = window.setTimeout(() => setCombatResolving(false), 600)
+    return () => window.clearTimeout(timer)
+  }, [runtime.phase])
+
+  useEffect(() => () => setCombatResolving(false), [])
 
   useEffect(() => {
     if (!runtime.roundId || completedRoundIdRef.current === runtime.roundId) return
