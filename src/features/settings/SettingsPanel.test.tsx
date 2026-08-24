@@ -417,9 +417,11 @@ describe('SettingsPanel', () => {
     expect(screen.getByText(/원안 · 세계관 · 서사 · 게임 시스템 설계/)).toBeInTheDocument()
     expect(screen.queryByText('Sol')).not.toBeInTheDocument()
     expect(screen.queryByText(/OpenAI Codex/)).not.toBeInTheDocument()
-    // The free-license musicians are named as a courtesy the owner asked for.
-    expect(screen.getByText(/Kulakovka — Space/)).toBeInTheDocument()
-    expect(screen.getByText(/Emmraan — Between Worlds/)).toBeInTheDocument()
+    // Each track is credited on its own line, naming Pixabay as the source.
+    expect(screen.getByText('음악 · Space')).toBeInTheDocument()
+    expect(screen.getByText('음악 · In the Moment')).toBeInTheDocument()
+    expect(screen.getByText('Kulakovka (Pixabay)')).toBeInTheDocument()
+    expect(screen.getAllByText('Emmraan (Pixabay)')).toHaveLength(4)
   })
 
   it('never silently discards a corrupt save', () => {

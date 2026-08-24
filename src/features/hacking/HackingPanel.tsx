@@ -326,6 +326,7 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
             item={presentation.activeItem}
             visual={presentation.activeVisual}
             nextPreloadVisual={presentation.nextPreloadVisual}
+            dossier={presentation.dossier}
           />
           <div className="expansion-stage-side">
             <ExpansionStageInfo item={presentation.activeItem} />

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
 import { useReducedMotionPreference } from '../../app/useReducedMotionPreference'
+import type { IntelligenceDossierEntry } from '../../content/intelligenceDossier.ko'
 import type {
   ExpansionStageItem,
   ExpansionStageVisual,
@@ -12,6 +13,8 @@ interface ExpansionStageSceneProps {
   visual?: ExpansionStageVisual
   nextPreloadVisual?: ExpansionStageVisual
   reducedMotion?: boolean
+  /** Company records unlocked so far; shown over the plate when present. */
+  dossier?: readonly IntelligenceDossierEntry[]
 }
 
 export function ExpansionStageScene({
@@ -19,6 +22,7 @@ export function ExpansionStageScene({
   visual,
   nextPreloadVisual,
   reducedMotion = false,
+  dossier = [],
 }: ExpansionStageSceneProps) {
   const prefersReducedMotion = useReducedMotionPreference(reducedMotion)
   const [displayedStage, setDisplayedStage] = useState({ item, visual })
@@ -81,6 +85,7 @@ export function ExpansionStageScene({
       data-phase={phase}
       data-emphasis={displayedVisual?.emphasis ?? 'standard'}
       data-vignette={displayedVisual?.vignette ?? 'standard'}
+      data-dossier={dossier.length > 0 ? 'true' : 'false'}
       aria-label="현재 단계 장면"
     >
       {displayedVisual && !imageFailed ? (
@@ -104,6 +109,20 @@ export function ExpansionStageScene({
           <span aria-hidden="true">{displayedItem.node.label}</span>
         </div>
       )}
+      {dossier.length > 0 ? (
+        <figcaption className="expansion-stage-dossier" aria-label="확보한 회사 기록">
+          <h3>확보한 기록</h3>
+          <ol>
+            {dossier.map((entry) => (
+              <li key={entry.id}>
+                <small>{entry.source}</small>
+                <strong>{entry.title}</strong>
+                <p>{entry.text}</p>
+              </li>
+            ))}
+          </ol>
+        </figcaption>
+      ) : null}
     </figure>
   )
 }

@@ -15,6 +15,7 @@ import { random01 } from './rng'
 import {
   commandProtocolVersionForNextCommand,
   usesLegacyReviewArcRules,
+  REVIEW_CLASSIFICATION_COMMAND_PROTOCOL_VERSION,
 } from './commandProtocol'
 import { isPublicCompetitor } from './competitors'
 
@@ -225,12 +226,22 @@ function generateReviewBatch(
   // The pool is replay semantics: entries added later only join the draw from
   // their own protocol version, so historical campaigns keep their picks.
   const protocolVersion = commandProtocolVersionForNextCommand(state)
+  const ratedOnlyHere = (review: ReviewContentRecord): boolean =>
+    review.ratedOnly === true ||
+    (review.ratedOnlyFromProtocolVersion !== undefined &&
+      protocolVersion >= review.ratedOnlyFromProtocolVersion)
+  const generalOnlyHere = (review: ReviewContentRecord): boolean =>
+    review.generalOnlyFromProtocolVersion !== undefined &&
+    protocolVersion >= review.generalOnlyFromProtocolVersion
   const poolEligible = (review: ReviewContentRecord): boolean =>
     (review.minimumProtocolVersion === undefined ||
       protocolVersion >= review.minimumProtocolVersion) &&
-    // Verdict copy stays with the stars: rated-only entries never surface in
-    // the general stream, and the general stream's copy never carries stars.
-    (ratedSentiments !== null || review.ratedOnly !== true)
+    // Verdict copy stays with the stars: opinions about delivered performance
+    // never surface unrated, and copy that is not a verdict — a request, or a
+    // note about a rival — never arrives wearing them.
+    (ratedSentiments !== null
+      ? !generalOnlyHere(review)
+      : !ratedOnlyHere(review))
   const generation = state.reviews.generationSequence
   const selected: ReviewContentRecord[] = []
   let lastAuthor = state.reviews.feed.at(-1)?.authorId ?? null
@@ -307,6 +318,72 @@ function generateReviewBatch(
   }
 }
 
+/**
+ * How many general reviews may pass before a rated verdict is due.
+ *
+ * The stream used to run for weeks of chatter between evaluations, so a
+ * player could not tell what the service was actually scoring.
+ */
+const GENERAL_REVIEWS_PER_RATED = 2
+
+/**
+ * The stars a user would give right now, from delivered performance against
+ * the month's expectation. The monthly review scores a closed record; this
+ * one scores the standing a reader can see.
+ */
+export function currentStandingRating(state: CampaignState): ReviewRating {
+  const expectation = expectedPerformance(serviceMonthForDay(state.serviceDay))
+  const values = COMPANY_CATEGORIES.map((category) =>
+    getCompanyPerformance(state, category),
+  )
+  const average = values.reduce((sum, value) => sum + value, 0) / values.length
+  const shortfalls = values.filter((value) => value < expectation)
+
+  if (shortfalls.length === 0) {
+    return average >= expectation * 1.15 ? 5 : 4
+  }
+  if (
+    values.some((value) => value <= expectation * 0.75) ||
+    state.evaluation.disposalStage >= 2
+  ) return 1
+  if (
+    shortfalls.length === 1 &&
+    expectation - shortfalls[0] < expectation * 0.05
+  ) return 3
+  return 2
+}
+
+/**
+ * Adds the rated verdict the stream owes, if the general run has gone long
+ * enough. Campaign-opening reviews are not part of the run: a verdict on the
+ * first day would score a service that has not delivered anything yet.
+ */
+export function appendDueStandingReview(state: CampaignState): CampaignState {
+  const protocolVersion = commandProtocolVersionForNextCommand(state)
+  if (protocolVersion < REVIEW_CLASSIFICATION_COMMAND_PROTOCOL_VERSION) {
+    return state
+  }
+  let trailingGeneral = 0
+  for (let index = state.reviews.feed.length - 1; index >= 0; index -= 1) {
+    const entry = state.reviews.feed[index]
+    if (entry.rating !== null) break
+    if (entry.source === 'starting') continue
+    trailingGeneral += 1
+  }
+  if (trailingGeneral < GENERAL_REVIEWS_PER_RATED) return state
+
+  return generateReviewBatch(state, {
+    count: 1,
+    source: 'interim-standing',
+    rating: currentStandingRating(state),
+    rollSalt: 120,
+    // Prefer copy that is off cooldown, but never let a cooldown swallow the
+    // verdict: with avoidRecentText the batch falls back to older lines
+    // rather than returning nothing.
+    avoidRecentText: true,
+  })
+}
+
 export function generateWeeklyReviews(state: CampaignState): CampaignState {
   const generation = state.reviews.generationSequence
   const count =
@@ -314,13 +391,13 @@ export function generateWeeklyReviews(state: CampaignState): CampaignState {
     (random01(state.campaignSeed, state.serviceDay, 'review', generation * 10) < 0.52
       ? 1
       : 0)
-  return generateReviewBatch(state, {
+  return appendDueStandingReview(generateReviewBatch(state, {
     count,
     source: 'timed',
     rating: null,
     rollSalt: 1,
     sequenceMultiplier: 10,
-  })
+  }))
 }
 
 export function generateInItReviews(
@@ -334,23 +411,23 @@ export function generateInItReviews(
     'review',
     generation * 10 + 7,
   ) < 0.35
-  return generateReviewBatch(state, {
+  return appendDueStandingReview(generateReviewBatch(state, {
     count: extra ? 2 : 1,
     source: 'init-round',
     rating: null,
     rollSalt: 30 + roundNumber * 2,
     avoidRecentText: true,
     respectDateCooldown: false,
-  })
+  }))
 }
 
 export function generateTimedReview(state: CampaignState): CampaignState {
-  return generateReviewBatch(state, {
+  return appendDueStandingReview(generateReviewBatch(state, {
     count: 1,
     source: 'timed',
     rating: null,
     rollSalt: 60,
-  })
+  }))
 }
 
 export function monthlyEvaluationRating(

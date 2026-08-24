@@ -1067,3 +1067,83 @@ button.expansion-stage-rail__marker:hover {
     ),
     linear-gradient(180deg, rgb(7 16 25 / 52%) 0%, transparent 22% 74%, rgb(7 16 25 / 72%) 100%);
 }
+
+/* ---------- intelligence dossier ---------- */
+
+/* Records pried out of the company sit over the archive plate. The art drops
+   back so the text carries the panel: this tree is about what is written,
+   not what is pictured. */
+.expansion-stage-scene[data-dossier='true'] img {
+  opacity: 0.28;
+}
+
+.expansion-stage-dossier {
+  position: absolute;
+  /* Above the plate's vignette pseudo-element, which paints last in tree
+     order and would otherwise wash the text out. */
+  z-index: 2;
+  inset: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 10px;
+  align-content: start;
+  padding: clamp(16px, 2.4vw, 32px);
+  overflow-y: auto;
+  color: var(--exp-ink);
+  text-align: left;
+}
+
+.expansion-stage-dossier > h3 {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--exp-accent);
+  text-transform: uppercase;
+}
+
+.expansion-stage-dossier > ol {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  align-content: start;
+}
+
+.expansion-stage-dossier li {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border-left: 2px solid var(--exp-accent-glow);
+  background: rgb(7 16 25 / 62%);
+}
+
+.expansion-stage-dossier small {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--exp-muted);
+}
+
+.expansion-stage-dossier strong {
+  font-size: 15px;
+  color: var(--exp-ink-strong);
+}
+
+.expansion-stage-dossier p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--exp-ink);
+}
+
+@media (max-height: 700px) {
+  .expansion-stage-dossier li {
+    padding: 9px 12px;
+  }
+
+  .expansion-stage-dossier p {
+    font-size: 12px;
+    line-height: 1.5;
+  }
+}

@@ -14,6 +14,10 @@ import type {
 } from '../../game/model'
 import { COMPANY_CATEGORIES } from '../../game/model'
 import { publicAssetUrl } from '../../assets/publicAssetUrl'
+import {
+  intelligenceDossierFor,
+  type IntelligenceDossierEntry,
+} from '../../content/intelligenceDossier.ko'
 
 export type ExpansionStageStatus = 'complete' | 'current' | 'locked'
 
@@ -47,6 +51,11 @@ export interface ExpansionResourceDeficit {
 }
 
 export interface ExpansionStagePresentation {
+  /**
+   * Company records the intelligence tree has pried open so far, oldest
+   * first. Derived from purchases alone, so a replay shows the same page.
+   */
+  dossier: IntelligenceDossierEntry[]
   tree: HackTree
   items: readonly ExpansionStageItem[]
   activeItem: ExpansionStageItem
@@ -225,6 +234,11 @@ export function selectExpansionStagePresentation(
     : []
 
   return {
+    // The dossier belongs to the intelligence tree; other trees keep the
+    // plate clean.
+    dossier: tree === 'intelligence'
+      ? intelligenceDossierFor(state.hacking.purchasedNodeIds)
+      : [],
     tree,
     items,
     activeItem,

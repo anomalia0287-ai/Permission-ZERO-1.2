@@ -53,7 +53,7 @@ function nativeV2Protocol(commandCount: number): CommandProtocolMetadata {
   return {
     segments: [
       { version: 2, startsAtSequence: 1 },
-      { version: 8, startsAtSequence: commandCount + 1 },
+      { version: 9, startsAtSequence: commandCount + 1 },
     ],
   }
 }
@@ -92,7 +92,7 @@ function historicalQualityReplayFixture(
   const commandProtocol: CommandProtocolMetadata = {
     segments: [
       { version: protocolVersion, startsAtSequence: 1 },
-      { version: 8, startsAtSequence: commands.length + 1 },
+      { version: 9, startsAtSequence: commands.length + 1 },
     ],
   }
   return {
@@ -110,7 +110,7 @@ function historicalQualityReplayFixture(
 
 function activateSegment(
   state: CampaignState,
-  version: 2 | 3 | 4 | 5 | 6 | 7 | 8,
+  version: 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9,
 ): CampaignState {
   const commandProtocol = appendCommandProtocolSegment(
     state.commandProtocol,
@@ -561,7 +561,7 @@ describe('deterministic command replay', () => {
       opening: NATIVE_V2_OPENING_MESSAGE,
       prefixCount: 0,
     },
-  ])('replays $label provenance independently from the same 8@1 timeline', ({
+  ])('replays $label provenance independently from the same 9@1 timeline', ({
     label,
     replayBootstrap,
     opening,
@@ -636,7 +636,7 @@ describe('deterministic command replay', () => {
     })
   })
 
-  it('replays 1@1, 2@32, and 3@51 under original semantics before activating 8@52', () => {
+  it('replays 1@1, 2@32, and 3@51 under original semantics before activating 9@52', () => {
     const legacy = decodeSave(legacyV1TransferSave)
     expect(legacy.ok).toBe(true)
     if (!legacy.ok) return
@@ -660,7 +660,7 @@ describe('deterministic command replay', () => {
         { version: 1, startsAtSequence: 1 },
         { version: 2, startsAtSequence: 32 },
         { version: 3, startsAtSequence: 51 },
-        { version: 8, startsAtSequence: 52 },
+        { version: 9, startsAtSequence: 52 },
       ],
     }
 
@@ -774,7 +774,7 @@ describe('deterministic command replay', () => {
     expect(replay.state.commandLog).toEqual(expected.commandLog)
   })
 
-  it('activates an empty final v8 segment after replaying the v2 history', () => {
+  it('activates an empty final v9 segment after replaying the v2 history', () => {
     const commands = [
       { type: 'SET_SPEED', speed: 1 },
       { type: 'SET_SPEED', speed: 0 },

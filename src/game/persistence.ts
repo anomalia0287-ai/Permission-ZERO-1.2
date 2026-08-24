@@ -2770,13 +2770,18 @@ function validReview(
       'starting',
       'init-round',
       'monthly-evaluation',
+      'interim-standing',
       'timed',
     ]) ||
     !(
       value.rating === null ||
       isIntegerInRange(value.rating, 1, 5)
     ) ||
-    ((value.source === 'monthly-evaluation') !== (value.rating !== null)) ||
+    // Stars and rated sources travel together in both directions: a rated
+    // source without a rating, or a rating on the general stream, is a feed
+    // this build never wrote.
+    ((value.source === 'monthly-evaluation' ||
+      value.source === 'interim-standing') !== (value.rating !== null)) ||
     !validStringArray(value.topics, false) ||
     !isNonEmptyString(value.text)
   ) return false

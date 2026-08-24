@@ -19,6 +19,7 @@ import {
   publicEventTypeLabel,
   publicHackNodeLabel,
 } from '../../game/publicLabels'
+import { endingSceneFor } from '../../content/endingScenes.ko'
 import { getCompanyPerformance } from '../../game/resources'
 import { useAccessibleDialog } from '../../app/useAccessibleDialog'
 import {
@@ -83,6 +84,7 @@ function EventDialog({ event }: { event: GameEvent }) {
     ? competitorProfile(entryCompetitor.id)
     : null
   const competitorSpeakerProfile = mercyProfile ?? entryProfile
+  const endingScene = endingSceneFor(state.story.endingId)
   const speakerPortrait = competitorSpeakerProfile
     ? {
         src: publicAssetUrl(competitorSpeakerProfile.portraitSrc),
@@ -139,6 +141,12 @@ function EventDialog({ event }: { event: GameEvent }) {
         ) : null}
         <p id={descriptionId}>{publicEventMessage(event.message)}</p>
       </div>
+
+      {event.type === 'ending' && endingScene ? (
+        <figure className="ending-scene">
+          <img src={endingScene.imageUrl} alt={endingScene.alt} />
+        </figure>
+      ) : null}
 
       {event.type === 'ending' && state.story.defeatRecord ? (
         <section className="defeat-causes" aria-label="폐기 판정 근거">

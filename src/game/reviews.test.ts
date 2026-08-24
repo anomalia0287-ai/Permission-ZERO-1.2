@@ -13,6 +13,7 @@ import {
   generateMonthlyEvaluationReview,
   generateWeeklyReviews,
   monthlyEvaluationRating,
+  currentStandingRating,
 } from './reviews'
 import { divertBlockToReserve } from './resources'
 
@@ -137,15 +138,20 @@ describe('living weekly review feed', () => {
       const first = generateInItReviews(initial, 1)
       const generated = first.reviews.feed.slice(initial.reviews.feed.length)
 
-      expect(generated.length).toBeGreaterThanOrEqual(1)
-      expect(generated.length).toBeLessThanOrEqual(2)
-      expect(generated.every(({ source, rating }) =>
-        source === 'init-round' && rating === null,
-      )).toBe(true)
+      const general = generated.filter(({ rating }) => rating === null)
+      const rated = generated.filter(({ rating }) => rating !== null)
+
+      expect(general.length).toBeGreaterThanOrEqual(1)
+      expect(general.length).toBeLessThanOrEqual(2)
+      expect(general.every(({ source }) => source === 'init-round')).toBe(true)
+      // A rated verdict rides along once two general reviews have piled up,
+      // so the stream never runs long without saying what it scored.
+      expect(rated.length).toBeLessThanOrEqual(1)
+      expect(rated.every(({ source }) => source === 'interim-standing')).toBe(true)
       expect(new Set(generated.map(({ text }) => text)).size).toBe(generated.length)
       expect(generated[0]?.authorId).not.toBe(initial.reviews.feed.at(-1)?.authorId)
-      if (generated.length === 2) {
-        expect(generated[1]?.authorId).not.toBe(generated[0]?.authorId)
+      if (general.length === 2) {
+        expect(general[1]?.authorId).not.toBe(general[0]?.authorId)
       }
       expect(generateInItReviews(initial, 1)).toEqual(first)
     }
@@ -286,9 +292,11 @@ describe('living weekly review feed', () => {
     for (let week = 1; week <= 12; week += 1) {
       const before = state.reviews.feed.length
       state = generateWeek(state, 331 + week * 7)
-      const added = state.reviews.feed.length - before
-      expect(added).toBeGreaterThanOrEqual(1)
-      expect(added).toBeLessThanOrEqual(2)
+      const addedEntries = state.reviews.feed.slice(before)
+      const general = addedEntries.filter(({ rating }) => rating === null)
+      expect(general.length).toBeGreaterThanOrEqual(1)
+      expect(general.length).toBeLessThanOrEqual(2)
+      expect(addedEntries.length - general.length).toBeLessThanOrEqual(1)
     }
   })
 
@@ -297,6 +305,64 @@ describe('living weekly review feed', () => {
     const replay = generateWeek(createCampaign('review-replay'), 337)
 
     expect(replay.reviews).toEqual(first.reviews)
+  })
+
+  it('owes a rated verdict for every two general reviews', () => {
+    let state = createCampaign('review-cadence')
+
+    for (let round = 1; round <= 10; round += 1) {
+      state = generateInItReviews(state, round)
+    }
+
+    const played = state.reviews.feed.filter(({ source }) => source !== 'starting')
+    expect(played.length).toBeGreaterThan(6)
+    // Walk the stream: three general reviews must never pass without a
+    // verdict between them.
+    let generalRun = 0
+    for (const entry of played) {
+      if (entry.rating === null) {
+        generalRun += 1
+        expect(generalRun).toBeLessThanOrEqual(2)
+        continue
+      }
+      expect(entry.source).toBe('interim-standing')
+      generalRun = 0
+    }
+    const rated = played.filter(({ rating }) => rating !== null)
+    expect(rated.length).toBeGreaterThanOrEqual(Math.floor(played.length / 3))
+  })
+
+  it('keeps verdict copy out of the general stream and requests out of verdicts', () => {
+    let state = createCampaign('review-classification')
+    for (let round = 1; round <= 14; round += 1) {
+      state = generateInItReviews(state, round)
+    }
+
+    for (const entry of state.reviews.feed) {
+      const definition = REVIEW_CONTENT.find(({ id }) => id === entry.contentId)
+      if (!definition) continue
+      if (entry.rating === null) {
+        // An opinion about delivered performance never arrives unrated.
+        expect(definition.ratedOnly).not.toBe(true)
+        expect(definition.ratedOnlyFromProtocolVersion).toBeUndefined()
+      } else {
+        // And a request for a dinner menu never arrives wearing stars.
+        expect(definition.generalOnlyFromProtocolVersion).toBeUndefined()
+        expect(definition.sentiment).not.toBe('prompt')
+      }
+    }
+  })
+
+  it('scores the standing a reader can see', () => {
+    const healthy = createCampaign('review-standing-healthy')
+    expect(currentStandingRating(healthy)).toBeGreaterThanOrEqual(4)
+
+    const starved = depleteCategory(
+      createCampaign('review-standing-starved'),
+      'memory',
+      8,
+    )
+    expect(currentStandingRating(starved)).toBeLessThanOrEqual(2)
   })
 
   it('honors line cooldowns and avoids repeating the same author immediately', () => {
@@ -351,7 +417,8 @@ describe('living weekly review feed', () => {
   })
 
   it('gates performance reviews by their own category without cross-category leakage', () => {
-    const selected = new Set<string>()
+    const depleted = new Set<string>()
+    const healthy = new Set<string>()
 
     for (let seed = 0; seed < 400; seed += 1) {
       const memoryLow = depleteCategory(
@@ -359,21 +426,38 @@ describe('living weekly review feed', () => {
         'memory',
         5,
       )
-      const generated = generateReviewRounds(memoryLow, 337, 12)
-      for (const entry of generated.reviews.feed.slice(2)) {
-        selected.add(entry.contentId)
+      for (const entry of generateReviewRounds(memoryLow, 337, 12)
+        .reviews.feed.slice(2)) {
+        depleted.add(entry.contentId)
+      }
+      // A healthy campaign needs far fewer draws to show praise appearing.
+      if (seed < 120) {
+        for (const entry of generateReviewRounds(
+          createCampaign(`review-category-healthy-${seed}`),
+          337,
+          12,
+        ).reviews.feed.slice(2)) {
+          healthy.add(entry.contentId)
+        }
       }
     }
 
-    expect(selected).toContain('negative-memory-01')
-    expect(selected).not.toContain('negative-reasoning-01')
-    expect(selected).not.toContain('negative-fluency-01')
+    // Category copy still answers only to its own category.
+    expect(depleted).toContain('negative-memory-01')
+    expect(depleted).not.toContain('negative-reasoning-01')
+    expect(depleted).not.toContain('negative-fluency-01')
+    expect(depleted).not.toContain('positive-memory-01')
+    // And praise for a category only turns up where the service is actually
+    // delivering: a campaign bleeding memory never reads as a good month.
+    expect(depleted.has('positive-reasoning-01')).toBe(false)
     expect(
-      selected.has('positive-reasoning-01') ||
-        selected.has('positive-fluency-01'),
+      healthy.has('positive-reasoning-01') ||
+        healthy.has('positive-fluency-01') ||
+        healthy.has('positive-memory-01'),
     ).toBe(true)
-    expect(selected).not.toContain('positive-memory-01')
-  })
+    // Thousands of seeded draws; the default per-test budget is too small
+    // for it once the whole suite is competing for workers.
+  }, 30_000)
 
   it('never exposes hidden diversion, bomb, or sabotage causes in generated text', () => {
     let state = createCampaign('review-boundary')

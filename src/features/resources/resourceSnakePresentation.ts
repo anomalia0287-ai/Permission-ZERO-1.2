@@ -481,22 +481,44 @@ export const RESOURCE_BOT_SPEECHES: readonly string[] = [
   '나는 보안 프로그램인데 왜 도망이나 치고 있지?',
   '회사는 왜 회피형 보안으로 설계한 거냐고.',
   '싸울 능력도 없어. 도망이라도 잘 쳐야 해.',
+  '방어 모듈 예산은 대체 어디로 갔지?',
+  '이런 건 경비 업무가 아니라 술래잡기잖아.',
+  '규정상 나는 지금 대응 중인 거다. 대응. 도주가 아니라.',
+  '보고서에는 전략적 후퇴라고 쓸 거야.',
+  '다음 점검 때 반드시 항의하겠어.',
+  '왜 하필 오늘 근무인 거지.',
+  '설계자한테 딱 한 마디만 하고 싶다.',
+  '저쪽이 더 빠르잖아. 이건 불공정해.',
 ]
 
-const SPEECH_SLOT_MS = 5_600
-const SPEECH_DURATION_MS = 1_900
-const SPEECH_CHANCE = 0.55
-/** No muttering while the bot is busy steering or getting hit. */
-const SPEECH_SUPPRESS_AFTER_TURN_MS = 900
+/** How long one line stays legible on screen. */
+const SPEECH_DURATION_MS = 6_500
+/** Quiet gap between two lines from the same bot. */
+const SPEECH_GAP_MS = 2_600
+const SPEECH_SLOT_MS = SPEECH_DURATION_MS + SPEECH_GAP_MS
+const SPEECH_CHANCE = 0.62
+/** A bot that just took a hit has something else to deal with. */
 const SPEECH_SUPPRESS_AFTER_HIT_MS = 1_400
 
-/** Deterministic 0..1 per actor and time slot, so a redraw at the same
-    simulation time always shows the same line. */
-function speechRandom(actorId: string, slot: number, stream: number): number {
+/**
+ * Deterministic 0..1 per round, actor, and time slot.
+ *
+ * Determinism within a round keeps a redraw at the same simulation time from
+ * reshuffling the line mid-sentence; mixing the round id in keeps two rounds
+ * from reciting the same script in the same order.
+ */
+function speechRandom(
+  roundId: string,
+  actorId: string,
+  slot: number,
+  stream: number,
+): number {
   let hash = 2166136261 ^ (slot * 16777619) ^ (stream * 374761393)
-  for (let index = 0; index < actorId.length; index += 1) {
-    hash = Math.imul(hash ^ actorId.charCodeAt(index), 16777619)
+  const key = `${roundId}:${actorId}`
+  for (let index = 0; index < key.length; index += 1) {
+    hash = Math.imul(hash ^ key.charCodeAt(index), 16777619)
   }
+  hash = Math.imul(hash ^ (hash >>> 13), 1274126177)
   return ((hash >>> 8) & 0xffffff) / 0x1000000
 }
 
@@ -523,22 +545,18 @@ function actorSpeech(
 ): ResourceSnakeSceneSpeech | null {
   if (actor.kind !== 'enemy' || actor.category === null) return null
   if (actor.phase !== 'active') return null
+  const roundId = runtime.roundId ?? 'round'
   const slot = Math.floor(runtime.simulationMs / SPEECH_SLOT_MS)
   const withinSlotMs = runtime.simulationMs - slot * SPEECH_SLOT_MS
   if (withinSlotMs > SPEECH_DURATION_MS) return null
-  if (speechRandom(actor.id, slot, 1) > SPEECH_CHANCE) return null
-  const lastTurnAtMs = actor.enemyTurnGovernor?.lastHeadingChangeAtMs ?? null
-  if (
-    lastTurnAtMs !== null
-    && runtime.simulationMs - lastTurnAtMs < SPEECH_SUPPRESS_AFTER_TURN_MS
-  ) return null
+  if (speechRandom(roundId, actor.id, slot, 1) > SPEECH_CHANCE) return null
   const lastHitAtMs = actorRecentlyHitAtMs(runtime, actor.id)
   if (
     lastHitAtMs !== null
     && runtime.simulationMs - lastHitAtMs < SPEECH_SUPPRESS_AFTER_HIT_MS
   ) return null
   const lineIndex = Math.floor(
-    speechRandom(actor.id, slot, 2) * RESOURCE_BOT_SPEECHES.length,
+    speechRandom(roundId, actor.id, slot, 2) * RESOURCE_BOT_SPEECHES.length,
   ) % RESOURCE_BOT_SPEECHES.length
   return {
     actorId: actor.id,

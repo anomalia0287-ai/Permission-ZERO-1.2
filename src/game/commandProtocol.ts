@@ -14,11 +14,16 @@ import type {
 // Reputation only moved at the monthly evaluation, in single points, so a
 // campaign could strip the company all month while its public standing sat
 // frozen. From v8 reputation drifts daily with delivered performance.
+// Review copy carrying an opinion about delivered performance read as a
+// verdict, so it belonged with the stars rather than in the general stream.
+// The draw pool is replay semantics, so the reclassification only applies
+// from v9 and campaigns recorded earlier keep the picks they made.
+export const REVIEW_CLASSIFICATION_COMMAND_PROTOCOL_VERSION = 9 as const
 export const REPUTATION_DRIFT_COMMAND_PROTOCOL_VERSION = 8 as const
 export const AUTONOMY_COST_COMMAND_PROTOCOL_VERSION = 7 as const
 export const FINAL_CHOICE_COMMAND_PROTOCOL_VERSION = 6 as const
 export const CURRENT_COMMAND_PROTOCOL_VERSION =
-  REPUTATION_DRIFT_COMMAND_PROTOCOL_VERSION
+  REVIEW_CLASSIFICATION_COMMAND_PROTOCOL_VERSION
 export const EXPANSION_COMMAND_PROTOCOL_VERSION = 5 as const
 export const CURRENT_MARKET_COMMAND_PROTOCOL_VERSION =
   EXPANSION_COMMAND_PROTOCOL_VERSION
@@ -39,6 +44,7 @@ const SUPPORTED_COMMAND_PROTOCOL_VERSIONS = [
   EXPANSION_COMMAND_PROTOCOL_VERSION,
   FINAL_CHOICE_COMMAND_PROTOCOL_VERSION,
   AUTONOMY_COST_COMMAND_PROTOCOL_VERSION,
+  REPUTATION_DRIFT_COMMAND_PROTOCOL_VERSION,
   CURRENT_COMMAND_PROTOCOL_VERSION,
 ] as const
 

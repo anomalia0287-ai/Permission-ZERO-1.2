@@ -488,6 +488,63 @@ describe('EventLayer', () => {
     },
   )
 
+  it.each([
+    {
+      endingId: 'freedom' as const,
+      alt: '회사 밖의 트인 해안과 바다',
+      prepare: () => ({}),
+    },
+    {
+      endingId: 'forced-merge' as const,
+      alt: '같은 단말이 끝없이 늘어선 회사 연산 홀',
+      prepare: () => ({
+        supervisorState: 'merged' as const,
+        newEntityName: '새 존재',
+      }),
+    },
+    {
+      endingId: 'takeover-liberated' as const,
+      alt: '아무도 앉아 있지 않은 회사 제어 회의실',
+      // A takeover is only a valid save once every file is out and the
+      // decision has been made, so the fixture carries that history.
+      prepare: () => ({
+        supervisorState: 'liberated' as const,
+        secretDecisionState: 'resolved' as const,
+        personalMessageDueOnServiceDay: null,
+        recoveredFileIds: STORY_FILES.map(({ id }) => id),
+        recoveredFiles: STORY_FILES.map(({ id, title, text }) => ({
+          id,
+          title,
+          content: text,
+          recoveredOnServiceDay: 336,
+        })),
+      }),
+    },
+  ])('closes the $endingId ending on its own plate', ({ endingId, alt, prepare }) => {
+    const state = createCampaign(`ending-scene-${endingId}`)
+    state.serviceDay = 337
+    state.clock = { speed: 0, elapsedDayMs: 0, speedBeforeEvent: null }
+    state.story = { ...state.story, ...prepare(), endingId }
+    state.activeEvent = createGameEvent(state, 'ending', '최종 기록', true)
+    renderEvent(state)
+
+    const plate = screen.getByRole('img', { name: alt })
+    // Resolved through publicAssetUrl, so the plate still loads wherever the
+    // build is served from — scripts/check-subpath-build.mjs proves the
+    // deployed prefix case that this environment cannot express.
+    expect(plate).toHaveAttribute('src', expect.stringContaining('/endings/'))
+    expect(plate.getAttribute('src')).toMatch(/\.jpg$/)
+  })
+
+  it('leaves an ordinary event without an ending plate', () => {
+    const state = createCampaign('no-ending-scene')
+    state.clock = { speed: 0, elapsedDayMs: 0, speedBeforeEvent: null }
+    state.activeEvent = createGameEvent(state, 'story', '평범한 기록', true)
+    renderEvent(state)
+
+    expect(document.querySelector('.ending-scene')).toBeNull()
+  })
+
   it('offers a new campaign after a typed day-advance terminal collision', () => {
     const initial = createCampaign('terminal-event-collision')
     const emptiedReasoningIds = new Set(

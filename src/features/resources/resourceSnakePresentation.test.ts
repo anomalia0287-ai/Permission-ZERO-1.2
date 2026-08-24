@@ -380,10 +380,14 @@ describe('resource snake presentation', () => {
 })
 
 describe('resource bot speech', () => {
-  function activeRound(simulationMs: number): ResourceSnakeRoundState {
+  function activeRound(
+    simulationMs: number,
+    roundId = 'presentation-round',
+  ): ResourceSnakeRoundState {
     const deployed = deployedRound()
     return {
       ...deployed,
+      roundId,
       phase: 'active',
       simulationMs,
       player: { ...deployed.player, phase: 'active' },
@@ -394,46 +398,74 @@ describe('resource bot speech', () => {
     }
   }
 
-  function firstSpeechSlotMs(): number | null {
-    // The chance gate is deterministic per slot; find one that speaks.
+  const SLOT_MS = 9_100
+
+  function firstSpeechAtMs(roundId = 'presentation-round'): number | null {
     for (let slot = 0; slot < 40; slot += 1) {
-      const scene = buildResourceSnakeScene(activeRound(slot * 5_600 + 100), null)
-      if (scene.speeches.length > 0) return slot * 5_600 + 100
+      const atMs = slot * SLOT_MS + 100
+      if (buildResourceSnakeScene(activeRound(atMs, roundId), null).speeches.length > 0) {
+        return atMs
+      }
     }
     return null
   }
 
-  it('lets a fleeing bot mutter deterministically from the approved lines', () => {
-    const atMs = firstSpeechSlotMs()
+  it('keeps one line legible for its full six and a half seconds', () => {
+    const atMs = firstSpeechAtMs()
     expect(atMs).not.toBeNull()
-    const scene = buildResourceSnakeScene(activeRound(atMs!), null)
-    const again = buildResourceSnakeScene(activeRound(atMs!), null)
+    const slotStart = Math.floor(atMs! / SLOT_MS) * SLOT_MS
 
-    for (const speech of scene.speeches) {
-      expect(RESOURCE_BOT_SPEECHES).toContain(speech.text)
-      expect(speech.actorId).not.toBe('player')
-      expect(speech.progress).toBeGreaterThanOrEqual(0)
-      expect(speech.progress).toBeLessThanOrEqual(1)
-    }
-    // Same simulation time, same lines: a redraw never reshuffles speech.
-    expect(again.speeches).toEqual(scene.speeches)
+    const early = buildResourceSnakeScene(activeRound(slotStart + 200), null).speeches
+    const late = buildResourceSnakeScene(activeRound(slotStart + 6_400), null).speeches
+    const afterwards = buildResourceSnakeScene(activeRound(slotStart + 6_800), null).speeches
+
+    expect(early.length).toBeGreaterThan(0)
+    expect(late.map(({ text }) => text)).toEqual(early.map(({ text }) => text))
+    expect(afterwards).toEqual([])
   })
 
-  it('stays quiet right after a turn and after taking a hit', () => {
-    const atMs = firstSpeechSlotMs()
+  it('draws from the approved pool and never speaks for the player', () => {
+    for (let slot = 0; slot < 20; slot += 1) {
+      const scene = buildResourceSnakeScene(activeRound(slot * SLOT_MS + 100), null)
+      for (const speech of scene.speeches) {
+        expect(RESOURCE_BOT_SPEECHES).toContain(speech.text)
+        expect(speech.actorId).not.toBe('player')
+      }
+    }
+  })
+
+  it('holds a line steady within a round but not across rounds', () => {
+    const atMs = firstSpeechAtMs()
+    expect(atMs).not.toBeNull()
+    const once = buildResourceSnakeScene(activeRound(atMs!), null).speeches
+    const again = buildResourceSnakeScene(activeRound(atMs!), null).speeches
+    // A redraw at the same simulation time must not reshuffle mid-sentence.
+    expect(again).toEqual(once)
+
+    // Two rounds must not recite the same script in the same order.
+    const script = (roundId: string) => Array.from({ length: 24 }, (_, slot) =>
+      buildResourceSnakeScene(activeRound(slot * SLOT_MS + 100, roundId), null)
+        .speeches.map(({ actorId, text }) => `${actorId}:${text}`).join('|'))
+    expect(script('round-a')).not.toEqual(script('round-b'))
+  })
+
+  it('stays quiet right after taking a hit, but keeps talking through turns', () => {
+    const atMs = firstSpeechAtMs()
     expect(atMs).not.toBeNull()
     const base = activeRound(atMs!)
     const speaking = buildResourceSnakeScene(base, null)
     expect(speaking.speeches.length).toBeGreaterThan(0)
     const speakerId = speaking.speeches[0].actorId
 
+    // Turning is no longer a reason to shut up: the bot is fleeing, and that
+    // is exactly when it has something to say.
     const turning = {
       ...base,
       enemies: base.enemies.map((enemy) => enemy.id === speakerId
         ? {
           ...enemy,
           enemyTurnGovernor: {
-            lastHeadingChangeAtMs: base.simulationMs - 200,
+            lastHeadingChangeAtMs: base.simulationMs - 100,
             previousHeading: 'east' as const,
             normalTurnAtMs: [],
             lastEmergencyTurnAtMs: null,
@@ -446,7 +478,7 @@ describe('resource bot speech', () => {
     expect(
       buildResourceSnakeScene(turning, null).speeches
         .some((speech) => speech.actorId === speakerId),
-    ).toBe(false)
+    ).toBe(true)
 
     const hit = {
       ...base,
@@ -466,13 +498,6 @@ describe('resource bot speech', () => {
       buildResourceSnakeScene(hit as ResourceSnakeRoundState, null).speeches
         .some((speech) => speech.actorId === speakerId),
     ).toBe(false)
-  })
-
-  it('never gives the player a speech line', () => {
-    for (let slot = 0; slot < 20; slot += 1) {
-      const scene = buildResourceSnakeScene(activeRound(slot * 5_600 + 100), null)
-      expect(scene.speeches.every(({ actorId }) => actorId !== 'player')).toBe(true)
-    }
   })
 })
 

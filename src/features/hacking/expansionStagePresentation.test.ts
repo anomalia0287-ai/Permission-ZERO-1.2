@@ -113,6 +113,29 @@ const VISUAL_CASES: readonly {
 ]
 
 describe('selectExpansionStagePresentation', () => {
+  it('unlocks one company record per purchased intelligence stage', () => {
+    const state = createCampaign('expansion-dossier')
+
+    expect(selectExpansionStagePresentation(state, 'intelligence', null).dossier)
+      .toEqual([])
+
+    state.hacking.purchasedNodeIds = [
+      HACK_NODE_IDS.intelligence.auditSchedule,
+      HACK_NODE_IDS.intelligence.investigationBias,
+    ]
+    const opened = selectExpansionStagePresentation(state, 'intelligence', null)
+    expect(opened.dossier.map(({ nodeId }) => nodeId)).toEqual([
+      HACK_NODE_IDS.intelligence.auditSchedule,
+      HACK_NODE_IDS.intelligence.investigationBias,
+    ])
+    // Catalog order, so the story reads the same way every campaign.
+    expect(opened.dossier[0].title).toBe('감사 제외 목록')
+
+    // The records belong to intelligence; other trees keep a clean plate.
+    expect(selectExpansionStagePresentation(state, 'autonomy', null).dossier)
+      .toEqual([])
+  })
+
   it.each([
     ['autonomy', 9],
     ['upgrade', 5],

@@ -122,6 +122,8 @@ export type ReviewSource =
   | 'starting'
   | 'init-round'
   | 'monthly-evaluation'
+  /** A rated verdict written between evaluations, on current standing. */
+  | 'interim-standing'
   | 'timed'
 export type ReviewRating = 1 | 2 | 3 | 4 | 5
 
@@ -449,7 +451,7 @@ export interface CommandLogEntry {
   command: GameCommand
 }
 
-export type CommandProtocolVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8
+export type CommandProtocolVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
 
 export interface CommandProtocolSegment {
   version: CommandProtocolVersion

@@ -617,13 +617,24 @@ export function CreditsPanel({ onClose }: { onClose: () => void }) {
             <dd>V</dd>
           </div>
           <div>
-            <dt>음악 (로열티 프리 원작자)</dt>
-            <dd>
-              Kulakovka — Space
-              <br />
-              Emmraan — Between Worlds · Action Motivational Dance ·
-              Ready to Run · In the Moment
-            </dd>
+            <dt>음악 · Space</dt>
+            <dd>Kulakovka (Pixabay)</dd>
+          </div>
+          <div>
+            <dt>음악 · Between Worlds</dt>
+            <dd>Emmraan (Pixabay)</dd>
+          </div>
+          <div>
+            <dt>음악 · Action Motivational Dance</dt>
+            <dd>Emmraan (Pixabay)</dd>
+          </div>
+          <div>
+            <dt>음악 · Ready to Run</dt>
+            <dd>Emmraan (Pixabay)</dd>
+          </div>
+          <div>
+            <dt>음악 · In the Moment</dt>
+            <dd>Emmraan (Pixabay)</dd>
           </div>
         </dl>
         <p className="credits-note">
