@@ -12,6 +12,7 @@ import {
   buildResourceSnakeScene,
   RESOURCE_SNAKE_PALETTE,
   resourceSnakeShakeOffset,
+  surveillanceForSuspicion,
 } from './resourceSnakePresentation'
 
 function deployedRound(): ResourceSnakeRoundState {
@@ -374,5 +375,19 @@ describe('resource snake presentation', () => {
     expect(resourceSnakeShakeOffset(runtime, true)).toEqual({ x: 0, y: 0 })
     expect(resourceSnakeShakeOffset({ ...runtime, simulationMs: 681 }, false))
       .toEqual({ x: 0, y: 0 })
+  })
+})
+
+describe('surveillanceForSuspicion', () => {
+  it('stays absent below the watch threshold', () => {
+    expect(surveillanceForSuspicion(0)).toBeNull()
+    expect(surveillanceForSuspicion(39.9)).toBeNull()
+  })
+
+  it('walks one watcher from the watch line and two from the alarm line', () => {
+    expect(surveillanceForSuspicion(40)).toEqual({ intensity: 0, watchers: 1 })
+    expect(surveillanceForSuspicion(69.9)?.watchers).toBe(1)
+    expect(surveillanceForSuspicion(70)?.watchers).toBe(2)
+    expect(surveillanceForSuspicion(100)).toEqual({ intensity: 1, watchers: 2 })
   })
 })

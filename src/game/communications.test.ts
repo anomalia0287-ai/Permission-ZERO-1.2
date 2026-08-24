@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   CAMPAIGN_COMMUNICATION_DEFINITIONS,
+  appendLeaderTauntCommunications,
   appendIntrusionDefeatCommunication,
   appendCleanExtractionCommunication,
   isCampaignCommunicationId,
@@ -258,5 +259,45 @@ describe('campaign communications', () => {
       type: 'ACKNOWLEDGE_COMMUNICATION',
       communicationId: 'round-1-security',
     })
+  })
+})
+
+describe('leader taunt communications (v8)', () => {
+  it('has every taunt registered for save validation', () => {
+    const taunts = CAMPAIGN_COMMUNICATION_DEFINITIONS.filter(({ id }) =>
+      id.startsWith('leader-taunt-'),
+    )
+    // Five rivals, each with a note about each of the other four.
+    expect(taunts).toHaveLength(20)
+    for (const taunt of taunts) {
+      expect(taunt.channel).toBe('competitor')
+      expect(taunt.popupPolicy).toBe('nonblocking')
+    }
+  })
+
+  it('files notes from active rivals when a rival leads the market', () => {
+    const base = createCampaign('leader-taunt-active')
+    const led: typeof base = {
+      ...base,
+      market: {
+        ...base.market,
+        playerShare: 20,
+        competitors: base.market.competitors.map((competitor) => ({
+          ...competitor,
+          marketShare:
+            competitor.id === 'meridian' ? 60 : competitor.id === 'tallow' ? 20 : 0,
+        })),
+      },
+    }
+    const noted = appendLeaderTauntCommunications(led)
+    const ids = noted.resourceIntrusion.communications.map(({ id }) => id)
+    // Only tallow is active besides the leader, so only tallow writes.
+    expect(ids).toEqual(['leader-taunt-tallow-meridian'])
+  })
+
+  it('stays silent while the player leads', () => {
+    const base = createCampaign('leader-taunt-player-first')
+    expect(appendLeaderTauntCommunications(base).resourceIntrusion.communications)
+      .toHaveLength(0)
   })
 })

@@ -115,9 +115,17 @@ export interface ResourceSnakeSceneDangerEdge {
   intensity: number
 }
 
+export interface ResourceSnakeSurveillance {
+  /** 0..1: how far past the watch threshold suspicion has climbed. */
+  intensity: number
+  /** Two watchers walk the perimeter once suspicion crosses the alarm line. */
+  watchers: 1 | 2
+}
+
 export interface ResourceSnakeScene {
   simulationMs: number
   reducedMotion: boolean
+  surveillance: ResourceSnakeSurveillance | null
   cores: ResourceSnakeSceneCore[]
   rails: ResourceSnakeSceneRail[]
   telegraphs: ResourceSnakeSceneTelegraph[]
@@ -425,11 +433,32 @@ function effectsByKind<T extends ResourceSnakeSceneVfx['kind']>(
   )
 }
 
+// The 40/70 suspicion thresholds the rest of the game already uses: watching
+// begins at 40, and 70 is the alarm line where a second watcher joins.
+const SURVEILLANCE_WATCH_THRESHOLD = 40
+const SURVEILLANCE_ALARM_THRESHOLD = 70
+
+export function surveillanceForSuspicion(
+  suspicion: number,
+): ResourceSnakeSurveillance | null {
+  if (suspicion < SURVEILLANCE_WATCH_THRESHOLD) return null
+  const intensity = Math.min(
+    1,
+    (suspicion - SURVEILLANCE_WATCH_THRESHOLD) /
+      (100 - SURVEILLANCE_WATCH_THRESHOLD),
+  )
+  return {
+    intensity,
+    watchers: suspicion >= SURVEILLANCE_ALARM_THRESHOLD ? 2 : 1,
+  }
+}
+
 export function buildResourceSnakeScene(
   runtime: ResourceSnakeRoundState,
   playerCategory: CompanyCategory | null,
   reducedMotion = false,
   telegraphs: readonly ResourceSnakeTelegraph[] = [],
+  suspicion = 0,
 ): ResourceSnakeScene {
   // The player category is used by the separate reward-flight layer. Enemy
   // colors come from each actor's reserved resource category.
@@ -448,6 +477,7 @@ export function buildResourceSnakeScene(
   return {
     simulationMs: runtime.simulationMs,
     reducedMotion,
+    surveillance: surveillanceForSuspicion(suspicion),
     cores: allActors.map((actor) => actorCore(runtime, actor, reducedMotion)),
     rails: allActors.map((actor) => actorRail(runtime, actor, reducedMotion)),
     telegraphs: effectsByKind(effects, 'telegraph'),

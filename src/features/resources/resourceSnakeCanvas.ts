@@ -594,6 +594,73 @@ export function drawDormantResourceSnakeField(
   context.setLineDash([])
 }
 
+const SURVEILLANCE_PURPLE = '#a06bff'
+
+/**
+ * The company's watchers: purple markers that patrol the arena's perimeter
+ * once suspicion crosses the watch line. They are pure presentation — no
+ * collision, no runtime state — and their position derives from the
+ * simulation clock, so a replay shows the same patrol. Above the alarm line a
+ * second watcher joins from the opposite corner and the sweep gets brighter,
+ * which is the field itself telling the player how closely they are watched.
+ */
+function drawSurveillance(
+  context: CanvasRenderingContext2D,
+  scene: ResourceSnakeScene,
+  width: number,
+  height: number,
+  scale: CanvasScale,
+): void {
+  const surveillance = scene.surveillance
+  if (!surveillance) return
+  const inset = scale.unit * 0.8
+  const perimeter = 2 * (width - inset * 2) + 2 * (height - inset * 2)
+  const speed = scene.reducedMotion ? 0 : 0.06 + surveillance.intensity * 0.05
+  const glow = 0.35 + surveillance.intensity * 0.45
+
+  const positionAt = (offset: number): { x: number; y: number } => {
+    const travelled = ((scene.simulationMs * speed + offset) % perimeter + perimeter) % perimeter
+    const w = width - inset * 2
+    const h = height - inset * 2
+    if (travelled < w) return { x: inset + travelled, y: inset }
+    if (travelled < w + h) return { x: inset + w, y: inset + (travelled - w) }
+    if (travelled < w * 2 + h) return { x: inset + w - (travelled - w - h), y: inset + h }
+    return { x: inset, y: inset + h - (travelled - w * 2 - h) }
+  }
+
+  context.save()
+  context.globalCompositeOperation = 'lighter'
+  const offsets = surveillance.watchers === 2 ? [0, perimeter / 2] : [0]
+  for (const offset of offsets) {
+    const { x, y } = positionAt(offset)
+    const radius = scale.unit * (0.34 + surveillance.intensity * 0.14)
+
+    const halo = context.createRadialGradient(x, y, 0, x, y, radius * 4)
+    halo.addColorStop(0, rgba(SURVEILLANCE_PURPLE, glow * 0.55))
+    halo.addColorStop(1, rgba(SURVEILLANCE_PURPLE, 0))
+    context.globalAlpha = 1
+    context.fillStyle = halo
+    context.beginPath()
+    context.arc(x, y, radius * 4, 0, Math.PI * 2)
+    context.fill()
+
+    context.globalAlpha = glow
+    context.strokeStyle = SURVEILLANCE_PURPLE
+    context.fillStyle = SURVEILLANCE_PURPLE
+    context.lineWidth = Math.max(1, scale.unit * 0.06)
+    context.beginPath()
+    context.moveTo(x, y - radius)
+    context.lineTo(x + radius, y)
+    context.lineTo(x, y + radius)
+    context.lineTo(x - radius, y)
+    context.closePath()
+    context.stroke()
+    context.globalAlpha = glow * 0.55
+    context.fill()
+  }
+  context.restore()
+}
+
 // Drawn over the lit field rather than under it: the corners fall away so the
 // action sits inside a room instead of on a flat plate, and the additive
 // passes below stop building toward a uniformly grey rectangle at the edges.
@@ -632,6 +699,7 @@ export function drawResourceSnakeScene(
   for (const edge of scene.dangerEdges) {
     drawDangerEdge(context, edge, scene, width, height, scale)
   }
+  drawSurveillance(context, scene, width, height, scale)
   for (const rail of scene.rails) drawRail(context, rail, scale)
   for (const telegraph of scene.telegraphs) drawTelegraph(context, telegraph, scene, scale)
   for (const core of scene.cores) drawCore(context, core, scene, scale)

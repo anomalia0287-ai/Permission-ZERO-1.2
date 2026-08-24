@@ -8,7 +8,10 @@ import {
   type CausalPublicationOperations,
 } from './causalGameplay'
 import { commandProtocolVersionForNextCommand } from './commandProtocol'
-import { appendMarketPressureCommunications } from './communications'
+import {
+  appendLeaderTauntCommunications,
+  appendMarketPressureCommunications,
+} from './communications'
 import {
   applyDailyReputationDrift,
   decreaseSuspicionDaily,
@@ -101,6 +104,7 @@ function appendPeriodicEvents(state: CampaignState): CampaignState {
       '공개 성능·평판·가용성 반영',
     ])
     next = appendMarketPressureCommunications(next)
+    next = appendLeaderTauntCommunications(next)
     if (
       usesLegacyReviewArcRules(
         next.commandProtocol,

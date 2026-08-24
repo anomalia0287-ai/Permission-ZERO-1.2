@@ -665,6 +665,7 @@ function ResourceSnakeBoardSession() {
       acquiredCategory,
       settings.reducedMotion,
       aiPresentation.telegraphs,
+      gameState.suspicion,
     )
     drawResourceSnakeScene(
       context,
@@ -683,6 +684,7 @@ function ResourceSnakeBoardSession() {
     acquiredCategory,
     aiPresentation.telegraphs,
     canvasRevision,
+    gameState.suspicion,
     renderTimingRing,
     runtime,
     settings.reducedMotion,

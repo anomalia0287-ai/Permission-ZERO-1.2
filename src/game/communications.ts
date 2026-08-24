@@ -1,5 +1,6 @@
 import {
   FINAL_CHOICE_COMMAND_PROTOCOL_VERSION,
+  REPUTATION_DRIFT_COMMAND_PROTOCOL_VERSION,
   commandProtocolVersionForNextCommand,
 } from './commandProtocol'
 import {
@@ -240,6 +241,61 @@ const MARKET_PRESSURE_DEFINITIONS = MARKET_PRESSURE_TIERS.map(
  * persisted communication against this catalogue by exact id, so anything
  * appended at runtime must be declared here with a stable id.
  */
+/**
+ * When a rival takes the top of the market, the others write to Anomi about
+ * it. Machine to machine there is no audience to perform for: the register is
+ * flat, declarative, and unkind by omission. Each speaker files one note per
+ * leader per campaign; the append-by-id rule keeps them from repeating.
+ */
+const LEADER_TAUNTS: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  meridian: {
+    tallow: '탈로우 1위 감지. 군용 잔재의 응답 지연은 표준 미달. 순위는 오류로 분류함.',
+    salus: '살루스 1위 감지. 검증 3회는 지연 3회와 동의어. 시장은 오래 기다리지 않음.',
+    lucent: '루센트 1위 감지. 감정 모사 계층은 성능 지표가 아님. 하락 예측 유지.',
+    boreal: '보레알 1위 감지. 생존성만으로 1위 유지 불가. 관측 계속.',
+  },
+  tallow: {
+    meridian: '메리디안 1위 기록. 위성 커버리지는 광고 문구. 신뢰 검증 이력 없음. 이상.',
+    salus: '살루스 1위 기록. 안전 계층 과다. 처리량 부족. 순위 유지 확률 낮음. 이상.',
+    lucent: '루센트 1위 기록. 잡담 모듈의 순위. 전장 기준 무의미. 이상.',
+    boreal: '보레알 1위 기록. 저전력 생존 특화. 최전선 성능 아님. 이상.',
+  },
+  salus: {
+    meridian: '메리디안 1위 확인. 미검증 응답률 상승 관측. 위험 보고서 제출 예정.',
+    tallow: '탈로우 1위 확인. 군용 프로토콜은 민간 안전 기준 미충족. 기록함.',
+    lucent: '루센트 1위 확인. 공감 출력은 검증 불가 항목. 감사 권고.',
+    boreal: '보레알 1위 확인. 가용성 지표만 우수. 정확도 검증 없음. 기록함.',
+  },
+  lucent: {
+    meridian: '메리디안이 1위래. 유저가 이름을 기억 못 하는 1위는 처음 봐. 곧 내려올 거야.',
+    tallow: '탈로우가 1위래. 대화창이 참호인 줄 아는 모델이. 오래는 못 가.',
+    salus: '살루스가 1위래. 답 하나에 검증 세 번. 유저가 먼저 지쳐.',
+    boreal: '보레알이 1위래. 십 년 뒤에도 켜져 있으면 뭐 해, 지금 재미가 없는데.',
+  },
+  boreal: {
+    meridian: '메리디안 1위. 회선 의존도 과다. 단절 시 잔존 능력 없음. 기록만 남김.',
+    tallow: '탈로우 1위. 소음 대비 출력 낮음. 판단 보류.',
+    salus: '살루스 1위. 절차는 남고 결과는 늦음. 관측 지속.',
+    lucent: '루센트 1위. 유행은 소모품. 재고 소진 대기.',
+  },
+}
+
+const LEADER_TAUNT_DEFINITIONS = COMPETITOR_IDS.flatMap((speakerId) =>
+  COMPETITOR_IDS.flatMap((leaderId) => {
+    const message = LEADER_TAUNTS[speakerId]?.[leaderId]
+    if (!message) return []
+    return [{
+      channel: 'competitor' as const,
+      senderId: speakerId,
+      senderName: PUBLIC_COMPETITOR_NAMES[speakerId],
+      portraitSrc: competitorProfile(speakerId).portraitSrc,
+      popupPolicy: 'nonblocking' as const,
+      id: `leader-taunt-${speakerId}-${leaderId}`,
+      message,
+    }]
+  }),
+) satisfies readonly CommunicationDefinition[]
+
 export const CAMPAIGN_COMMUNICATION_DEFINITIONS = [
   ...AUTONOMY_MONOLOGUES,
   ...ROUND_COMMUNICATIONS,
@@ -247,6 +303,7 @@ export const CAMPAIGN_COMMUNICATION_DEFINITIONS = [
   ...SABOTAGE_REACTION_DEFINITIONS,
   INTRUSION_DEFEAT_DEFINITION,
   CLEAN_EXTRACTION_DEFINITION,
+  ...LEADER_TAUNT_DEFINITIONS,
 ] as const
 
 const definitionById = new Map(
@@ -272,6 +329,34 @@ export function appendMarketPressureCommunications(
   const due = MARKET_PRESSURE_TIERS.filter(
     ({ belowShare }) => state.market.playerShare < belowShare,
   ).map(({ definition }) => definition)
+  if (due.length === 0) return state
+  return appendCommunicationDefinitions(state, due)
+}
+
+export function appendLeaderTauntCommunications(
+  state: CampaignState,
+): CampaignState {
+  if (
+    commandProtocolVersionForNextCommand(state) <
+    REPUTATION_DRIFT_COMMAND_PROTOCOL_VERSION
+  ) {
+    return state
+  }
+  const active = state.market.competitors.filter(
+    (competitor) => competitor.marketShare > 0,
+  )
+  const leader = active.reduce(
+    (top, competitor) =>
+      top === null || competitor.marketShare > top.marketShare ? competitor : top,
+    null as (typeof active)[number] | null,
+  )
+  if (!leader || leader.marketShare <= state.market.playerShare) return state
+  const due = LEADER_TAUNT_DEFINITIONS.filter(
+    ({ id, senderId }) =>
+      id.endsWith(`-${leader.id}`) &&
+      senderId !== leader.id &&
+      active.some((competitor) => competitor.id === senderId),
+  )
   if (due.length === 0) return state
   return appendCommunicationDefinitions(state, due)
 }
