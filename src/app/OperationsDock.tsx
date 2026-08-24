@@ -2,7 +2,7 @@ import { useGameState } from './GameContext'
 import { pendingSupervisorMessageCount } from './useSupervisorMessagePresentation'
 import {
   currentUnreadCommunication,
-  unreadCommunicationCount,
+  unreadAlertCommunicationCount,
 } from '../game/communications'
 
 type DockAction = (trigger: HTMLButtonElement) => void
@@ -56,7 +56,7 @@ export function OperationsDock({
   const messageCount = Math.max(
     0,
     pendingSupervisorMessageCount(state)
-      + unreadCommunicationCount(state)
+      + unreadAlertCommunicationCount(state)
       - presentedNow,
   )
   const tools = [

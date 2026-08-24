@@ -333,6 +333,19 @@ export function unreadCommunicationCount(state: CampaignState): number {
   return state.resourceIntrusion.communications.filter(({ read }) => !read).length
 }
 
+/**
+ * Unread messages that still ask something of the player.
+ *
+ * A history-only entry never presents a popup, so counting it kept the dock
+ * badge pulsing after every popup had been confirmed — an alarm for a message
+ * that requires no action. It still appears unread inside the archive.
+ */
+export function unreadAlertCommunicationCount(state: CampaignState): number {
+  return state.resourceIntrusion.communications.filter(
+    ({ read, popupPolicy }) => !read && popupPolicy !== 'history-only',
+  ).length
+}
+
 export function communicationPublicLabel(
   communication: Pick<CampaignCommunication, 'channel' | 'senderName'>,
 ): string {
