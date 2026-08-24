@@ -4,7 +4,10 @@ import {
   drawResourceSnakeScene,
   resourceSnakeCanvasResolution,
 } from './resourceSnakeCanvas'
-import type { ResourceSnakeScene } from './resourceSnakePresentation'
+import type {
+  ResourceSnakeScene,
+  ResourceSnakeSceneRail,
+} from './resourceSnakePresentation'
 
 function recordingContext() {
   const calls: string[] = []
@@ -78,21 +81,20 @@ describe('resource snake canvas', () => {
     expect(huge.pixelRatio).toBeLessThan(1)
   })
 
-  it('renders luminous discrete trail dots without replacing their category color', () => {
-    const baseline = recordingContext()
-    drawResourceSnakeScene(baseline.context, EMPTY_SCENE, 1_000, 480)
-    const { assignments, calls, context } = recordingContext()
-    const scene: ResourceSnakeScene = {
+  function railScene(overrides: Partial<ResourceSnakeSceneRail> = {}): ResourceSnakeScene {
+    return {
       ...EMPTY_SCENE,
       rails: [{
         actorId: 'enemy-0',
         color: '#f06a43',
         opacity: 1,
+        dissolve: 0,
         points: [
           { x: 4, y: 4 },
           { x: 10, y: 4 },
           { x: 10, y: 8 },
         ],
+        ...overrides,
       }],
       cores: [{
         id: 'enemy-0',
@@ -107,20 +109,49 @@ describe('resource snake canvas', () => {
         integrityRatio: 1,
       }],
     }
+  }
 
-    drawResourceSnakeScene(context, scene, 1_000, 480)
+  it('draws the trail as one continuous lit ribbon in its category color', () => {
+    const baseline = recordingContext()
+    drawResourceSnakeScene(baseline.context, EMPTY_SCENE, 1_000, 480)
+    const { assignments, calls, context } = recordingContext()
 
-    expect(calls.filter((call) => call === 'lineTo')).toHaveLength(
+    drawResourceSnakeScene(context, railScene(), 1_000, 480)
+
+    // One stroked path per additive pass rather than a square per dot.
+    expect(calls.filter((call) => call === 'lineTo').length).toBeGreaterThan(
       baseline.calls.filter((call) => call === 'lineTo').length,
     )
-    expect(calls.filter((call) => call === 'fillRect').length).toBeGreaterThan(
-      baseline.calls.filter((call) => call === 'fillRect').length + scene.rails[0].points.length,
+    expect(calls.filter((call) => call === 'stroke').length).toBeGreaterThan(
+      baseline.calls.filter((call) => call === 'stroke').length,
     )
-    const fillStyles = assignments
-      .filter(({ property }) => property === 'fillStyle')
+    const strokeStyles = assignments
+      .filter(({ property }) => property === 'strokeStyle')
       .map(({ value }) => value)
-    expect(fillStyles).toContain('#f06a43')
-    expect(fillStyles).not.toContain('#d7fbff')
+    expect(strokeStyles).toContain('#f06a43')
+    expect(strokeStyles).not.toContain('#d7fbff')
+  })
+
+  it('drains a killed rail from the tail and stops drawing it once gone', () => {
+    const baseline = recordingContext()
+    drawResourceSnakeScene(baseline.context, EMPTY_SCENE, 1_000, 480)
+
+    const draining = recordingContext()
+    drawResourceSnakeScene(draining.context, railScene({ dissolve: 0.5 }), 1_000, 480)
+    const intact = recordingContext()
+    drawResourceSnakeScene(intact.context, railScene(), 1_000, 480)
+
+    // Half-drained: fewer points remain on the path than when intact.
+    expect(draining.calls.filter((call) => call === 'lineTo').length)
+      .toBeLessThan(intact.calls.filter((call) => call === 'lineTo').length)
+    expect(draining.calls.filter((call) => call === 'lineTo').length)
+      .toBeGreaterThan(baseline.calls.filter((call) => call === 'lineTo').length)
+
+    const gone = recordingContext()
+    drawResourceSnakeScene(gone.context, railScene({ dissolve: 1 }), 1_000, 480)
+    expect(gone.calls.filter((call) => call === 'stroke').length).toBe(
+      baseline.calls.filter((call) => call === 'stroke').length,
+    )
   })
 
   it('renders telegraphs as glowing dots without an attack chevron', () => {

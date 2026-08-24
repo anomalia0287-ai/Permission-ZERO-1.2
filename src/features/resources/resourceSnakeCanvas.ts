@@ -226,22 +226,54 @@ function drawDangerEdge(
 function drawRail(
   context: CanvasRenderingContext2D,
   rail: ResourceSnakeSceneRail,
+  head: ResourceSnakeSceneCore | undefined,
   scale: CanvasScale,
 ): void {
-  if (rail.points.length < 1 || rail.opacity <= 0) return
+  if (rail.points.length < 1 || rail.opacity <= 0 || rail.dissolve >= 1) return
+
+  // The trail dots are the hazard; drawing the ribbon that connects them is
+  // the same wall, read as one continuous line instead of a bead necklace.
+  // The head is appended so the line reaches the actor rather than stopping
+  // a dot short of it.
+  const path: Array<{ x: number; y: number }> = rail.points.map((point) => ({
+    x: point.x * scale.x,
+    y: point.y * scale.y,
+  }))
+  if (head && head.opacity > 0 && rail.dissolve <= 0) {
+    path.push({ x: head.x * scale.x, y: head.y * scale.y })
+  }
+
+  // Light drains from the oldest end forward, so a killed actor's line goes
+  // out the way it was laid down.
+  let leading: { x: number; y: number } | null = null
+  if (rail.dissolve > 0 && path.length > 1) {
+    const drainedSpan = rail.dissolve * (path.length - 1)
+    const wholePoints = Math.floor(drainedSpan)
+    const withinSegment = drainedSpan - wholePoints
+    const from = path[wholePoints]
+    const to = path[Math.min(wholePoints + 1, path.length - 1)]
+    leading = {
+      x: from.x + (to.x - from.x) * withinSegment,
+      y: from.y + (to.y - from.y) * withinSegment,
+    }
+    path.splice(0, wholePoints + 1, leading)
+  }
+  if (path.length < 1) return
+
   context.save()
   context.globalCompositeOperation = 'lighter'
   context.shadowBlur = 0
-  // Four additive passes instead of a per-dot shadow filter, whose cost grows
-  // catastrophically with trail length. The widest pass is the bloom that makes
-  // a line of separate dots read as one lit wall; the narrowest is the hot core
-  // that keeps each dot a distinct mark.
+  context.lineCap = 'round'
+  context.lineJoin = 'round'
+  // Four additive passes: the widest is the bloom that makes the ribbon read
+  // as a lit wall, the narrowest is the hot core down its middle.
   const bloomSize = Math.max(9, scale.unit * 1.05)
   const haloSize = Math.max(6, scale.unit * 0.62)
   const outerSize = Math.max(3.4, scale.unit * 0.36)
   const innerSize = Math.max(1.6, scale.unit * 0.15)
-
+  context.strokeStyle = rail.color
   context.fillStyle = rail.color
+
   const passes: Array<[number, number]> = [
     [bloomSize, 0.07],
     [haloSize, 0.16],
@@ -250,15 +282,34 @@ function drawRail(
   ]
   for (const [size, alphaScale] of passes) {
     context.globalAlpha = rail.opacity * alphaScale
-    const offset = size / 2
-    for (const point of rail.points) {
-      context.fillRect(
-        point.x * scale.x - offset,
-        point.y * scale.y - offset,
-        size,
-        size,
-      )
+    if (path.length === 1) {
+      context.beginPath()
+      context.arc(path[0].x, path[0].y, size / 2, 0, Math.PI * 2)
+      context.fill()
+      continue
     }
+    context.lineWidth = size
+    context.beginPath()
+    context.moveTo(path[0].x, path[0].y)
+    for (let index = 1; index < path.length; index += 1) {
+      context.lineTo(path[index].x, path[index].y)
+    }
+    context.stroke()
+  }
+
+  // The draining edge burns brighter for a moment before it is gone.
+  if (leading) {
+    const flare = Math.max(2.5, scale.unit * 0.5) * (1 - rail.dissolve * 0.5)
+    const glow = context.createRadialGradient(
+      leading.x, leading.y, 0, leading.x, leading.y, flare * 2.4,
+    )
+    glow.addColorStop(0, rgba(rail.color, rail.opacity * 0.9))
+    glow.addColorStop(1, rgba(rail.color, 0))
+    context.globalAlpha = 1
+    context.fillStyle = glow
+    context.beginPath()
+    context.arc(leading.x, leading.y, flare * 2.4, 0, Math.PI * 2)
+    context.fill()
   }
   context.restore()
 }
@@ -726,81 +777,60 @@ function drawSurveillance(
 ): void {
   const surveillance = scene.surveillance
   if (!surveillance) return
-  const inset = scale.unit * 0.8
-  const perimeter = 2 * (width - inset * 2) + 2 * (height - inset * 2)
-  const glow = 0.35 + surveillance.intensity * 0.45
-  const player = scene.cores.find((core) => core.id === 'player')
-  const playerX = (player?.x ?? RESOURCE_SNAKE_CONFIG.fieldWidth / 2) * scale.x
-  const playerY = (player?.y ?? RESOURCE_SNAKE_CONFIG.fieldHeight / 2) * scale.y
-
-  // Saccadic patrol: a dart along the perimeter, then a hold-and-stare. The
-  // quantized ticks read as a machine scanning, not a lamp on a track.
-  const dartPeriodMs = 1_150 - surveillance.intensity * 350
-  const dartTravel = perimeter * (0.045 + surveillance.intensity * 0.03)
-  const positionAt = (offset: number): { x: number; y: number } => {
-    let travelled: number
-    if (scene.reducedMotion) {
-      travelled = ((offset % perimeter) + perimeter) % perimeter
-    } else {
-      const ticks = scene.simulationMs / dartPeriodMs
-      const tick = Math.floor(ticks)
-      const dartFraction = Math.min(1, (ticks - tick) / 0.32)
-      const eased = 1 - (1 - dartFraction) ** 3
-      travelled = ((((tick + eased) * dartTravel + offset) % perimeter) + perimeter) % perimeter
-    }
-    const w = width - inset * 2
-    const h = height - inset * 2
-    if (travelled < w) return { x: inset + travelled, y: inset }
-    if (travelled < w + h) return { x: inset + w, y: inset + (travelled - w) }
-    if (travelled < w * 2 + h) return { x: inset + w - (travelled - w - h), y: inset + h }
-    return { x: inset, y: inset + h - (travelled - w * 2 - h) }
-  }
+  void width
+  void height
+  const glow = 0.42 + surveillance.intensity * 0.42
 
   context.save()
   context.globalCompositeOperation = 'lighter'
-  const offsets = Array.from(
-    { length: surveillance.watchers },
-    (_, index) => (perimeter * index) / surveillance.watchers,
-  )
-  for (const offset of offsets) {
-    const { x, y } = positionAt(offset)
-    const radius = scale.unit * (0.34 + surveillance.intensity * 0.14)
-    const aimX = playerX - x
-    const aimY = playerY - y
-    const aimDistance = Math.hypot(aimX, aimY)
-    const aim = Math.atan2(aimY, aimX)
-      + (scene.reducedMotion ? 0 : Math.sin(scene.simulationMs * 0.007 + offset) * 0.05)
+  for (const watcher of surveillance.watchers) {
+    const x = watcher.x * scale.x
+    const y = watcher.y * scale.y
+    const radius = scale.unit * (0.34 + surveillance.intensity * 0.12)
+    const target = watcher.target
+    const aim = target
+      ? Math.atan2(target.y * scale.y - y, target.x * scale.x - x)
+      : 0
 
-    // Tracking beam: a narrow scan wedge held on the player's head. This is
-    // what makes the diamond read as something hunting rather than decor.
-    const reach = Math.min(aimDistance, scale.unit * (5.5 + surveillance.intensity * 3))
-    if (reach > radius * 2) {
-      const spread = 0.16 - surveillance.intensity * 0.07
-      const beam = context.createRadialGradient(x, y, radius, x, y, reach)
-      beam.addColorStop(0, rgba(SURVEILLANCE_PURPLE, glow * 0.4))
-      beam.addColorStop(1, rgba(SURVEILLANCE_PURPLE, 0))
+    // Wind-up: the lane it is about to throw itself down, drawn tight and
+    // brightening, so the dash is answered by moving rather than by luck.
+    if (watcher.phase === 'telegraph' && target) {
+      const lane = context.createLinearGradient(
+        x, y, target.x * scale.x, target.y * scale.y,
+      )
+      const heat = 0.25 + watcher.phaseProgress * 0.6
+      lane.addColorStop(0, rgba(SURVEILLANCE_PURPLE, glow * heat))
+      lane.addColorStop(1, rgba(SURVEILLANCE_PURPLE, 0))
       context.globalAlpha = 1
-      context.fillStyle = beam
+      context.strokeStyle = lane
+      context.lineWidth = Math.max(1, scale.unit * (0.08 + watcher.phaseProgress * 0.18))
       context.beginPath()
       context.moveTo(x, y)
-      context.arc(x, y, reach, aim - spread, aim + spread)
-      context.closePath()
-      context.fill()
-    }
+      context.lineTo(target.x * scale.x, target.y * scale.y)
+      context.stroke()
 
-    // Targeting ping: a short expanding ring, like a sonar lock refresh.
-    if (!scene.reducedMotion) {
-      const pingPhase = ((scene.simulationMs + offset) % 2_200) / 2_200
-      context.globalAlpha = (1 - pingPhase) * glow * 0.5
+      context.globalAlpha = glow * (1 - watcher.phaseProgress)
       context.strokeStyle = SURVEILLANCE_PURPLE
       context.lineWidth = Math.max(1, scale.unit * 0.05)
       context.beginPath()
-      context.arc(x, y, radius * (1 + pingPhase * 3), 0, Math.PI * 2)
+      context.arc(x, y, radius * (1.6 + watcher.phaseProgress * 2.2), 0, Math.PI * 2)
+      context.stroke()
+    }
+
+    // Dash: a hard streak behind the body so its direction is unmistakable.
+    if (watcher.phase === 'charge') {
+      const reach = scale.unit * 2.4
+      context.globalAlpha = glow * 0.8
+      context.strokeStyle = SURVEILLANCE_PURPLE
+      context.lineWidth = Math.max(1.5, scale.unit * 0.2)
+      context.beginPath()
+      context.moveTo(x - Math.cos(aim) * reach, y - Math.sin(aim) * reach)
+      context.lineTo(x, y)
       context.stroke()
     }
 
     const halo = context.createRadialGradient(x, y, 0, x, y, radius * 4)
-    halo.addColorStop(0, rgba(SURVEILLANCE_PURPLE, glow * 0.55))
+    halo.addColorStop(0, rgba(SURVEILLANCE_PURPLE, glow * 0.6))
     halo.addColorStop(1, rgba(SURVEILLANCE_PURPLE, 0))
     context.globalAlpha = 1
     context.fillStyle = halo
@@ -808,6 +838,7 @@ function drawSurveillance(
     context.arc(x, y, radius * 4, 0, Math.PI * 2)
     context.fill()
 
+    // The body itself, a hard diamond that thins as its charges burn it out.
     context.globalAlpha = glow
     context.strokeStyle = SURVEILLANCE_PURPLE
     context.fillStyle = SURVEILLANCE_PURPLE
@@ -819,17 +850,22 @@ function drawSurveillance(
     context.lineTo(x - radius, y)
     context.closePath()
     context.stroke()
-    context.globalAlpha = glow * 0.55
+    context.globalAlpha = glow * 0.35 * watcher.integrityRatio
     context.fill()
 
-    // The pupil leans toward the player: the watcher is looking at you.
-    const pupilDistance = radius * 0.35
-    const pupilX = x + (aimDistance > 0.001 ? (aimX / aimDistance) * pupilDistance : 0)
-    const pupilY = y + (aimDistance > 0.001 ? (aimY / aimDistance) * pupilDistance : 0)
-    context.globalAlpha = Math.min(1, glow * 1.4)
-    context.beginPath()
-    context.arc(pupilX, pupilY, Math.max(1.2, radius * 0.22), 0, Math.PI * 2)
-    context.fill()
+    // Pupil leaning toward what it is watching.
+    if (target) {
+      context.globalAlpha = Math.min(1, glow * 1.5)
+      context.beginPath()
+      context.arc(
+        x + Math.cos(aim) * radius * 0.35,
+        y + Math.sin(aim) * radius * 0.35,
+        Math.max(1.2, radius * 0.22),
+        0,
+        Math.PI * 2,
+      )
+      context.fill()
+    }
   }
   context.restore()
 }
@@ -874,7 +910,14 @@ export function drawResourceSnakeScene(
   }
   drawSpeeches(context, scene, width, height, scale)
   drawSurveillance(context, scene, width, height, scale)
-  for (const rail of scene.rails) drawRail(context, rail, scale)
+  for (const rail of scene.rails) {
+    drawRail(
+      context,
+      rail,
+      scene.cores.find(({ id }) => id === rail.actorId),
+      scale,
+    )
+  }
   for (const telegraph of scene.telegraphs) drawTelegraph(context, telegraph, scene, scale)
   for (const core of scene.cores) drawCore(context, core, scene, scale)
   drawHeadStreaks(context, scene, scale)

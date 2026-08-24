@@ -1,5 +1,11 @@
 import type { CompanyCategory } from '../../game/model'
 import {
+  advanceSnakeWatchers,
+  createSnakeWatchers,
+  type SnakeWatcher,
+  type SnakeWatcherStrike,
+} from './resourceSnakeWatchers'
+import {
   SNAKE_DIRECTION_VECTORS,
   consumeResourceSnakeTurn,
   createResourceSnakeInputState,
@@ -125,6 +131,8 @@ export interface SnakeEnemySetup {
 
 export interface SnakeRoundSetup {
   roundId: string
+  /** Company watchers on the field, from the campaign's suspicion. */
+  watcherCount?: number
   playerSpawn: SnakeVector
   playerMaximumSpeedPerSecond?: number
   enemies: SnakeEnemySetup[]
@@ -180,7 +188,7 @@ export type ResourceSnakeEvent =
       id: number
       type: 'snake-collided'
       actorIds: SnakeId[]
-      collisionKind?: 'boundary' | 'head-head' | 'trail'
+      collisionKind?: 'boundary' | 'head-head' | 'trail' | 'watcher'
       obstacleOwnerId?: SnakeId
       point: SnakeVector
       hitStopMs: 90
@@ -212,6 +220,7 @@ export type ResourceSnakeEffect =
 
 export interface ResourceSnakeRoundState {
   roundId: string | null
+  watchers: SnakeWatcher[]
   phase: SnakeRoundPhase
   simulationMs: number
   accumulatorMs: number
@@ -398,6 +407,7 @@ export function createIdleResourceSnakeState(): ResourceSnakeRoundState {
   }
   return {
     roundId: null,
+    watchers: [],
     phase: 'idle',
     simulationMs: 0,
     accumulatorMs: 0,
@@ -444,6 +454,7 @@ export function deployResourceSnakeRound(
   const deployed: ResourceSnakeRoundState = {
     ...state,
     roundId: setup.roundId,
+    watchers: createSnakeWatchers(setup.watcherCount ?? 0),
     phase: 'deploying',
     simulationMs: 0,
     accumulatorMs: 0,
@@ -658,7 +669,7 @@ function advanceActor(
   )
 }
 
-type CollisionKind = 'boundary' | 'head-head' | 'trail'
+type CollisionKind = 'boundary' | 'head-head' | 'trail' | 'watcher'
 
 interface CollisionCandidate {
   kind: CollisionKind
@@ -1448,11 +1459,42 @@ function appendEffect(
   }
 }
 
-function resolveCollisions(state: ResourceSnakeRoundState, stepMs: number): ResourceSnakeRoundState {
+function watcherCandidates(
+  state: ResourceSnakeRoundState,
+  strikes: readonly SnakeWatcherStrike[],
+): CollisionCandidate[] {
+  return strikes.map((strike) => {
+    const away = normalizedOrFallback(
+      {
+        x: state.player.position.x - strike.point.x,
+        y: state.player.position.y - strike.point.y,
+      },
+      normalizedOrFallback(state.player.velocity, { x: 0, y: -1 }),
+    )
+    return {
+      kind: 'watcher' as const,
+      contactTime: 1,
+      actorIds: ['player' as SnakeId],
+      deterministicKey: `player|${strike.watcherId}`,
+      point: { ...strike.point },
+      normal: away,
+      anchor: { ...strike.point },
+      separationDistance: RESOURCE_SNAKE_CONFIG.headRadius + 0.5,
+      gapActorIds: ['player' as SnakeId],
+    }
+  })
+}
+
+function resolveCollisions(
+  state: ResourceSnakeRoundState,
+  stepMs: number,
+  watcherStrikes: readonly SnakeWatcherStrike[] = [],
+): ResourceSnakeRoundState {
   const candidates = [
     ...boundaryCandidates(state, stepMs),
     ...headHeadCandidates(state),
     ...trailCandidates(state, state.simulationMs, stepMs),
+    ...watcherCandidates(state, watcherStrikes),
   ].sort((left, right) => (
     left.contactTime - right.contactTime
     || left.kind.localeCompare(right.kind)
@@ -1688,7 +1730,19 @@ function advanceFixedStep(
       startedAtMs: simulationMs,
     })
   }
-  return resolveCollisions(stepped, stepMs)
+  // Watchers move on their own clock and answer only to the intruder; their
+  // strikes join the ordinary collision pass so damage, separation, grace,
+  // and death all behave exactly as they do for a wall or a trail.
+  const surveillance = advanceSnakeWatchers(
+    stepped.watchers,
+    stepped.player.position,
+    stepped.player.velocity,
+    stepped.player.phase === 'active',
+    simulationMs,
+    stepMs,
+  )
+  stepped = { ...stepped, watchers: surveillance.watchers }
+  return resolveCollisions(stepped, stepMs, surveillance.strikes)
 }
 
 export function advanceResourceSnakeFrame(

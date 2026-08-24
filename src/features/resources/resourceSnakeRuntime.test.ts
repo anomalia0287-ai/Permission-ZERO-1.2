@@ -18,6 +18,8 @@ import {
   type SnakeRoundSetup,
   type SnakeTrailDot,
 } from './resourceSnakeRuntime'
+import type { SnakeVector } from './resourceSnakePlannerTypes'
+import { SNAKE_WATCHER_CONFIG } from './resourceSnakeWatchers'
 import { reconcileSnakeReservations } from './resourceSnakeEncounter'
 import {
   SNAKE_DIRECTION_VECTORS,
@@ -48,6 +50,88 @@ function activeState(): ResourceSnakeRoundState {
   expect(state.phase).toBe('active')
   return state
 }
+
+describe('company watchers on the field', () => {
+  function watchedState(
+    watcherCount: number,
+    playerSpawn: SnakeVector = { x: 4, y: 12 },
+  ): ResourceSnakeRoundState {
+    let state = deployResourceSnakeRound(createIdleResourceSnakeState(), {
+      ...setup,
+      roundId: 'watched-round',
+      playerSpawn,
+      watcherCount,
+    })
+    let remainingMs = RESOURCE_SNAKE_CONFIG.deploymentMs
+    while (remainingMs > 0) {
+      const deltaMs = Math.min(100, remainingMs)
+      state = advanceResourceSnakeFrame(state, input, deltaMs)
+      remainingMs -= deltaMs
+    }
+    return state
+  }
+
+  /** Runs east across the open field: a straight line the dash can lead. */
+  function runEast(
+    initial: ResourceSnakeRoundState,
+    frames: number,
+  ): ResourceSnakeRoundState {
+    let state = initial
+    for (let frame = 0; frame < frames; frame += 1) {
+      if (state.phase !== 'active') break
+      state = advanceResourceSnakeFrame(
+        state,
+        { ...input, playerDirection: { x: 1, y: 0 } },
+        16,
+      )
+    }
+    return state
+  }
+
+  function watcherStrikes(state: ResourceSnakeRoundState): number {
+    return state.events.filter((event) => (
+      event.type === 'snake-collided' && event.collisionKind === 'watcher'
+    )).length
+  }
+
+  it('deploys none by default, and an unwatched round never sees a strike', () => {
+    const plain = activeState()
+    expect(plain.watchers).toEqual([])
+    expect(watcherStrikes(runEast(plain, 400))).toBe(0)
+  })
+
+  it('leads a straight-running intruder and never touches the company bots', () => {
+    const state = runEast(watchedState(4), 420)
+
+    expect(watcherStrikes(state)).toBeGreaterThan(0)
+    expect(state.player.integrity).toBeLessThan(
+      RESOURCE_SNAKE_CONFIG.playerMaximumIntegrity,
+    )
+    // Watchers answer only to the intruder; the security bots are company
+    // property and are never in their way.
+    expect(state.enemies.every(({ integrity, maximumIntegrity }) =>
+      integrity === maximumIntegrity,
+    )).toBe(true)
+  })
+
+  it('spends itself dashing, so its charges are a countdown', () => {
+    const state = runEast(watchedState(1), 420)
+    const watcher = state.watchers[0]
+
+    expect(watcher.integrity).toBeLessThan(watcher.maximumIntegrity)
+    expect(watcher.integrity).toBe(
+      watcher.maximumIntegrity - SNAKE_WATCHER_CONFIG.chargeSelfDamage,
+    )
+  })
+
+  it('replays the same watched round identically', () => {
+    const first = runEast(watchedState(3), 380)
+    const second = runEast(watchedState(3), 380)
+
+    expect(second.watchers).toEqual(first.watchers)
+    expect(second.player.integrity).toBe(first.player.integrity)
+  })
+})
 
 describe('resource snake fixed-step movement kernel', () => {
   it('ramps one shared round speed from 50 percent to 75 percent over thirty seconds', () => {

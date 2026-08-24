@@ -14,6 +14,10 @@ import {
   type SnakeVector,
 } from './resourceSnakeRuntime'
 import {
+  SNAKE_WATCHER_CONFIG,
+  type SnakeWatcher,
+} from './resourceSnakeWatchers'
+import {
   selectResourceSnakeVfx,
   type ResourceSnakeVfxCandidate,
 } from './resourceSnakeVfxBudget'
@@ -36,6 +40,8 @@ export const RESOURCE_SNAKE_VFX_TIMING = Object.freeze({
   contactMs: 180,
   powerCutMs: 260,
   deathMs: 420,
+  /** How long a killed actor's rail takes to drain away as light. */
+  railDissolveMs: 760,
 })
 
 export type ResourceSnakeCoreShape = 'circle' | 'square'
@@ -58,6 +64,13 @@ export interface ResourceSnakeSceneRail {
   points: SnakeVector[]
   color: string
   opacity: number
+  /**
+   * 0 while the rail is live, 1 once it has fully drained. A killed actor's
+   * trail stops being a hazard the moment it leaves the active set, so the
+   * light draining out of it from the tail forward is the truth, not a
+   * flourish over a wall that still kills.
+   */
+  dissolve: number
 }
 
 export interface ResourceSnakeSceneTelegraph extends ResourceSnakeVfxCandidate {
@@ -115,11 +128,23 @@ export interface ResourceSnakeSceneDangerEdge {
   intensity: number
 }
 
+export interface ResourceSnakeSceneWatcher {
+  id: string
+  x: number
+  y: number
+  phase: 'patrol' | 'telegraph' | 'charge' | 'recover'
+  /** 0..1 through the current phase, which drives the wind-up. */
+  phaseProgress: number
+  integrityRatio: number
+  /** The point this watcher locked, while winding up or charging. */
+  target: { x: number; y: number } | null
+}
+
 export interface ResourceSnakeSurveillance {
   /** 0..1: how far past the watch threshold suspicion has climbed. */
   intensity: number
-  /** Two watchers walk the perimeter once suspicion crosses the alarm line. */
-  watchers: 1 | 2 | 3 | 4
+  /** The company's watchers, as the round actually has them. */
+  watchers: ResourceSnakeSceneWatcher[]
 }
 
 export interface ResourceSnakeSceneSpeech {
@@ -254,6 +279,23 @@ function actorCore(
   }
 }
 
+function actorRailDissolve(
+  runtime: ResourceSnakeRoundState,
+  actor: SnakeActor,
+): number {
+  if (actor.phase !== 'exploding' && actor.phase !== 'defeated') return 0
+  const death = [...runtime.events].reverse().find((event) => (
+    event.type === 'snake-died' && event.actorId === actor.id
+  ))
+  if (!death || death.type !== 'snake-died') {
+    return actor.phase === 'defeated' ? 1 : 0
+  }
+  return clamp01(
+    (runtime.simulationMs - death.startedAtMs)
+    / RESOURCE_SNAKE_VFX_TIMING.railDissolveMs,
+  )
+}
+
 function actorRail(
   runtime: ResourceSnakeRoundState,
   actor: SnakeActor,
@@ -277,9 +319,8 @@ function actorRail(
     actorId: actor.id,
     points,
     color: actorColor(actor),
-    opacity: Number(((actor.phase === 'defeated'
-      ? 0
-      : 0.56 + integrity * 0.44) * fade).toFixed(3)),
+    opacity: Number(((0.56 + integrity * 0.44) * fade).toFixed(3)),
+    dissolve: Number(actorRailDissolve(runtime, actor).toFixed(3)),
   }
 }
 
@@ -447,29 +488,50 @@ function effectsByKind<T extends ResourceSnakeSceneVfx['kind']>(
   )
 }
 
-// The 40/70 suspicion thresholds the rest of the game already uses: watching
-// begins at 40, and 70 is the alarm line where a second watcher joins.
-const SURVEILLANCE_WATCH_THRESHOLD = 25
-/** One more watcher joins for every 10 points past the watch line. */
-const SURVEILLANCE_WATCHER_STEP = 10
-const SURVEILLANCE_MAXIMUM_WATCHERS = 4
+// Watching begins at 25 suspicion; how many watchers that buys is decided by
+// the runtime, which owns them now.
+const SURVEILLANCE_WATCH_THRESHOLD = SNAKE_WATCHER_CONFIG.watchThreshold
 
-export function surveillanceForSuspicion(
-  suspicion: number,
-): ResourceSnakeSurveillance | null {
-  if (suspicion < SURVEILLANCE_WATCH_THRESHOLD) return null
-  const intensity = Math.min(
+/** Glow strength for the surveillance layer, from campaign suspicion. */
+export function surveillanceIntensityForSuspicion(suspicion: number): number {
+  if (suspicion < SURVEILLANCE_WATCH_THRESHOLD) return 0
+  return Math.min(
     1,
     (suspicion - SURVEILLANCE_WATCH_THRESHOLD) /
       (100 - SURVEILLANCE_WATCH_THRESHOLD),
   )
-  const watchers = Math.min(
-    SURVEILLANCE_MAXIMUM_WATCHERS,
-    1 + Math.floor(
-      (suspicion - SURVEILLANCE_WATCH_THRESHOLD) / SURVEILLANCE_WATCHER_STEP,
-    ),
-  ) as 1 | 2 | 3 | 4
-  return { intensity, watchers }
+}
+
+function watcherPhaseDurationMs(phase: SnakeWatcher['phase']): number {
+  if (phase === 'patrol') return SNAKE_WATCHER_CONFIG.patrolMs
+  if (phase === 'telegraph') return SNAKE_WATCHER_CONFIG.telegraphMs
+  if (phase === 'recover') return SNAKE_WATCHER_CONFIG.recoverMs
+  return 1
+}
+
+function sceneSurveillance(
+  runtime: ResourceSnakeRoundState,
+  suspicion: number,
+): ResourceSnakeSurveillance | null {
+  const live = runtime.watchers.filter(({ phase }) => phase !== 'defeated')
+  if (live.length === 0) return null
+  return {
+    intensity: surveillanceIntensityForSuspicion(suspicion),
+    watchers: live.map((watcher) => ({
+      id: watcher.id,
+      x: watcher.position.x,
+      y: watcher.position.y,
+      phase: watcher.phase as ResourceSnakeSceneWatcher['phase'],
+      phaseProgress: clamp01(
+        (runtime.simulationMs - watcher.phaseStartedAtMs)
+        / watcherPhaseDurationMs(watcher.phase),
+      ),
+      integrityRatio: clamp01(watcher.integrity / watcher.maximumIntegrity),
+      target: watcher.phase === 'telegraph' || watcher.phase === 'charge'
+        ? { x: watcher.chargeTo.x, y: watcher.chargeTo.y }
+        : null,
+    })),
+  }
 }
 
 // OWNER-EDITABLE: the fleeing security bot's mutterings. It was deployed as
@@ -592,7 +654,7 @@ export function buildResourceSnakeScene(
   return {
     simulationMs: runtime.simulationMs,
     reducedMotion,
-    surveillance: surveillanceForSuspicion(suspicion),
+    surveillance: sceneSurveillance(runtime, suspicion),
     cores: allActors.map((actor) => actorCore(runtime, actor, reducedMotion)),
     rails: allActors.map((actor) => actorRail(runtime, actor, reducedMotion)),
     speeches: allActors.flatMap((actor) => {

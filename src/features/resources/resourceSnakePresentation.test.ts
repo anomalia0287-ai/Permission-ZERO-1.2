@@ -13,8 +13,9 @@ import {
   RESOURCE_BOT_SPEECHES,
   RESOURCE_SNAKE_PALETTE,
   resourceSnakeShakeOffset,
-  surveillanceForSuspicion,
+  surveillanceIntensityForSuspicion,
 } from './resourceSnakePresentation'
+import { snakeWatcherCountForSuspicion } from './resourceSnakeWatchers'
 
 function deployedRound(): ResourceSnakeRoundState {
   return deployResourceSnakeRound(createIdleResourceSnakeState(), {
@@ -501,19 +502,51 @@ describe('resource bot speech', () => {
   })
 })
 
-describe('surveillanceForSuspicion', () => {
-  it('stays absent below the watch threshold', () => {
-    expect(surveillanceForSuspicion(0)).toBeNull()
-    expect(surveillanceForSuspicion(24.9)).toBeNull()
+describe('company watchers', () => {
+  function watchedRound(
+    suspicion: number,
+    simulationMs = 400,
+  ): ResourceSnakeRoundState {
+    const deployed = deployResourceSnakeRound(createIdleResourceSnakeState(), {
+      roundId: 'watcher-round',
+      playerSpawn: { x: 25, y: 12 },
+      watcherCount: snakeWatcherCountForSuspicion(suspicion),
+      enemies: [],
+    })
+    return {
+      ...deployed,
+      phase: 'active',
+      simulationMs,
+      player: { ...deployed.player, phase: 'active' },
+    }
+  }
+
+  it('puts watchers on the field from suspicion 25, capped at four', () => {
+    expect(snakeWatcherCountForSuspicion(0)).toBe(0)
+    expect(snakeWatcherCountForSuspicion(24.9)).toBe(0)
+    expect(snakeWatcherCountForSuspicion(25)).toBe(1)
+    expect(snakeWatcherCountForSuspicion(35)).toBe(2)
+    expect(snakeWatcherCountForSuspicion(45)).toBe(3)
+    expect(snakeWatcherCountForSuspicion(55)).toBe(4)
+    // The owner-approved ceiling: never more than four on the field.
+    expect(snakeWatcherCountForSuspicion(100)).toBe(4)
   })
 
-  it('walks one watcher from the watch line and two from the alarm line', () => {
-    expect(surveillanceForSuspicion(25)).toEqual({ intensity: 0, watchers: 1 })
-    expect(surveillanceForSuspicion(34.9)?.watchers).toBe(1)
-    expect(surveillanceForSuspicion(35)?.watchers).toBe(2)
-    expect(surveillanceForSuspicion(45)?.watchers).toBe(3)
-    expect(surveillanceForSuspicion(55)?.watchers).toBe(4)
-    // The owner-approved ceiling: never more than four on the field.
-    expect(surveillanceForSuspicion(100)).toEqual({ intensity: 1, watchers: 4 })
+  it('reports no surveillance layer below the watch line', () => {
+    expect(buildResourceSnakeScene(watchedRound(10), null, false, [], 10)
+      .surveillance).toBeNull()
+    expect(surveillanceIntensityForSuspicion(10)).toBe(0)
+    expect(surveillanceIntensityForSuspicion(100)).toBe(1)
+  })
+
+  it('projects each live watcher with its own phase and lock', () => {
+    const scene = buildResourceSnakeScene(watchedRound(55), null, false, [], 55)
+    expect(scene.surveillance?.watchers).toHaveLength(4)
+    for (const watcher of scene.surveillance?.watchers ?? []) {
+      expect(watcher.phase).toBe('patrol')
+      // Nothing is locked while patrolling, so nothing is aimed at the player.
+      expect(watcher.target).toBeNull()
+      expect(watcher.integrityRatio).toBe(1)
+    }
   })
 })

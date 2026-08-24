@@ -49,6 +49,7 @@ import {
   type SnakeActor,
   type SnakeVector,
 } from './resourceSnakeRuntime'
+import { snakeWatcherCountForSuspicion } from './resourceSnakeWatchers'
 import {
   buildResourceSnakeScene,
   resourceSnakeShakeOffset,
@@ -412,13 +413,18 @@ function ResourceSnakeBoardSession() {
       telegraphCount: 0,
     })
     playerHistoryRef.current = []
-    const deployed = deployResourceSnakeRound(runtimeRef.current, encounter.setup)
+    const deployed = deployResourceSnakeRound(runtimeRef.current, {
+      ...encounter.setup,
+      // Suspicion is what puts company watchers on the field, so the round
+      // the player earns is the round they get.
+      watcherCount: snakeWatcherCountForSuspicion(gameState.suspicion),
+    })
     aiControllerRef.current = createResourceSnakeAiControllerState(
       resourceSnakePlannerSnapshot(deployed, [], [], rolesRef.current),
     )
     setBoardPhase('combat')
     commitRuntime(deployed)
-  }, [commitRuntime])
+  }, [commitRuntime, gameState.suspicion])
 
   const roundCompletedInSession = gameState.resourceIntrusion.completedRounds
     > initialCompletedRoundCount
