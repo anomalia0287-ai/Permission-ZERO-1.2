@@ -397,7 +397,11 @@ describe('EventLayer', () => {
     expect(screen.getByLabelText('active event')).toHaveTextContent('none')
   })
 
-  it('renders an audit as a non-modal anchored workspace with a live submit value', () => {
+  it('settles a due audit without ever drawing the retired workspace', () => {
+    // The audit workspace belongs to the retired resource-field build.
+    // Resource pressure is the snake round now, and that screen must never
+    // take over a live campaign. The rule is left in place so recorded
+    // campaigns still replay, and the event is settled on arrival instead.
     const state = createCampaign('audit-workspace-event')
     state.audit.scheduled = true
     state.audit.target = 'reasoning'
@@ -405,12 +409,10 @@ describe('EventLayer', () => {
     state.activeEvent = createGameEvent(state, 'audit', '추론 분야 감사', true)
     renderEvent(state)
 
-    const dialog = screen.getByRole('dialog', { name: '공식 감사' })
-    expect(dialog).toHaveAttribute('aria-modal', 'false')
-    expect(dialog.parentElement).toHaveClass('event-layer--audit')
-    expect(screen.getByText('제출 성능')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '감사 제출' })).toBeEnabled()
-    expect(screen.queryByRole('button', { name: '계속' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: '공식 감사' })).not.toBeInTheDocument()
+    expect(screen.queryByText('제출 성능')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '감사 제출' })).not.toBeInTheDocument()
+    expect(document.querySelector('.event-layer--audit')).toBeNull()
   })
 
   it.each([

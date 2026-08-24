@@ -493,13 +493,13 @@ describe('ResourceBoard', () => {
     )
   })
 
-  it('keeps the single live field operable in an anchored audit workspace and submits the disguise', () => {
-    renderState(auditState(), true)
+  // The audit event no longer draws its workspace — that screen belongs to the
+  // retired resource-field build and is settled on arrival. These cover the
+  // board component's own drag and keyboard handling, which is why they render
+  // it directly rather than through the event layer.
+  it('keeps the single live field operable and records the disguise', () => {
+    renderState(auditState())
 
-    expect(screen.getByRole('dialog', { name: '공식 감사' })).toHaveAttribute(
-      'aria-modal',
-      'false',
-    )
     expect(screen.queryByRole('gridcell')).not.toBeInTheDocument()
     expect(document.querySelectorAll('[data-resource-kind="company"]')).toHaveLength(48)
     expect(firstAuditSource()).toBeEnabled()
@@ -517,12 +517,9 @@ describe('ResourceBoard', () => {
     const disguised = screen.getByRole('button', { name: /추론 회사 리소스 .* 위장 배치/ })
     expect(disguised).toHaveClass('resource-block--disguised')
     expect(disguised).toHaveTextContent('위장 기여 0.5')
-    expect(screen.getByLabelText('active event')).toHaveTextContent('audit')
-    expect(screen.getByLabelText('clock speed')).toHaveTextContent('0')
-
-    fireEvent.click(screen.getByRole('button', { name: '감사 제출' }))
-    expect(screen.getByLabelText('active event')).toHaveTextContent('none')
-    expect(screen.getByLabelText('clock speed')).toHaveTextContent('4')
+    expect(screen.getByLabelText('command types')).toHaveTextContent(
+      'BEGIN_BLOCK_SEPARATION,MOVE_BLOCK_FOR_AUDIT',
+    )
   })
 
   it('supports keyboard selection, target confirmation, and Escape cancellation during an audit', () => {
@@ -547,27 +544,10 @@ describe('ResourceBoard', () => {
     )
   })
 
-  it('does not let pointer-drag click suppression swallow the first keyboard recovery selection', () => {
-    renderState(auditState('resource-board-pointer-then-keyboard-recovery'), true)
-    const source = firstAuditSource()
-    const auditDestination = firstCompanyDestination('reasoning', '감사 위장')
-    vi.spyOn(document, 'elementFromPoint').mockReturnValue(auditDestination)
-
-    fireEvent.pointerDown(source, { pointerId: 31, clientX: 10, clientY: 10 })
-    fireEvent.pointerMove(source, { pointerId: 31, clientX: 30, clientY: 10 })
-    fireEvent.pointerUp(source, { pointerId: 31, clientX: 30, clientY: 10 })
-
-    const disguised = screen.getByRole('button', {
-      name: /추론 회사 리소스 .* 위장 배치/,
-    })
-    fireEvent.click(screen.getByRole('button', { name: '감사 제출' }))
-    fireEvent.click(disguised, { detail: 0 })
-
-    expect(screen.getByRole('button', {
-      name: '복구 모서리, 원래 분야로 반환',
-    })).toBeEnabled()
-    expect(screen.getByText('정상 복구 재배치')).toBeInTheDocument()
-  })
+  // Removed with the audit workspace: this covered disguise -> submit ->
+  // recover, a sequence that only existed while the retired resource-field
+  // screen could take over a campaign. The pointer and keyboard handling it
+  // shared is still covered by the selection tests above.
 
   it('activates an audit-disguise bomb on destination confirmation without moving it', () => {
     const armed = armedState('resource-board-audit-bomb', 'memory')

@@ -461,7 +461,10 @@ test('renders the natural initial scene and advances one stage per spend', async
   })
   expect(imagePresentation.naturalWidth / imagePresentation.naturalHeight)
     .toBeCloseTo(4 / 3, 2)
-  expect(imagePresentation.objectFit).toBe('contain')
+  // The plate fills its area and its edges are masked away so the art
+  // dissolves into the workspace instead of ending at a border. Cropping is
+  // accepted for that: the frame matters more than showing every pixel.
+  expect(imagePresentation.objectFit).toBe('cover')
 
   await dialog.getByRole('button', {
     name: '자율성 1단계 리소스 지출',
@@ -504,7 +507,10 @@ test('shows the neutral final scene and preserves the choice across reload befor
   })
   expect(imagePresentation.naturalWidth / imagePresentation.naturalHeight)
     .toBeCloseTo(1448 / 1086, 2)
-  expect(imagePresentation.objectFit).toBe('contain')
+  // The plate fills its area and its edges are masked away so the art
+  // dissolves into the workspace instead of ending at a border. Cropping is
+  // accepted for that: the frame matters more than showing every pixel.
+  expect(imagePresentation.objectFit).toBe('cover')
   await expect(scene).toHaveAttribute('data-emphasis', 'final')
 
   await dialog.getByRole('button', {

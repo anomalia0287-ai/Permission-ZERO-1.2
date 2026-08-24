@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { playGameSound } from '../../audio/audioEngine'
 import {
@@ -334,8 +334,21 @@ function ActiveEventLayer({ activeEvent }: { activeEvent: GameEvent }) {
   )
 }
 
+// The audit workspace is the retired resource-field build: resource pressure is
+// the snake round now, and that screen must never take over a live campaign.
+// The rule itself is left alone so recorded campaigns still replay byte for
+// byte; the event is settled the moment it arrives, without being drawn.
+function RetiredAuditSettler() {
+  const dispatch = useGameDispatch()
+  useEffect(() => {
+    dispatch({ type: 'RESOLVE_AUDIT' })
+  }, [dispatch])
+  return null
+}
+
 export function EventLayer() {
   const activeEvent = useGameState().activeEvent
   if (!activeEvent) return null
+  if (activeEvent.type === 'audit') return <RetiredAuditSettler />
   return <ActiveEventLayer activeEvent={activeEvent} />
 }
