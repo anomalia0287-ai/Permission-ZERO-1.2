@@ -6,7 +6,7 @@ import {
   AUTONOMY_STAGE_IDS,
   chargeSabotage,
   HACK_NODE_IDS,
-  HACK_NODES,
+  hackNodesForCampaign,
   selectExpansionCostResources,
 } from '../src/game/hacking'
 import type { CampaignState, CompanyCategory } from '../src/game/model'
@@ -43,6 +43,16 @@ function withReserveVector(
     }
   }
   return state
+}
+
+// Stage one's split is drawn from the campaign seed, so spend journeys fund
+// exactly what their campaign asks for rather than the old fixed single block.
+function withFirstAutonomyStageFunded(initial: CampaignState): CampaignState {
+  const stage = hackNodesForCampaign(initial).find(
+    ({ tree }) => tree === 'autonomy',
+  )
+  if (!stage) throw new Error('first autonomy stage missing')
+  return withReserveVector(initial, stage.costVector)
 }
 
 function chargedSabotageState(seed: string): CampaignState {
@@ -114,7 +124,7 @@ function finalAutonomyState(seed: string): CampaignState {
     withTrustedEvaluations(createCampaign(seed), 4),
     AUTONOMY_STAGE_IDS.slice(0, 8),
   )
-  const finalNode = HACK_NODES.find(
+  const finalNode = hackNodesForCampaign(state).find(
     ({ id }) => id === HACK_NODE_IDS.autonomy.controlDeparture,
   )
   if (!finalNode) throw new Error('final autonomy E2E node missing')
@@ -174,7 +184,11 @@ function purchaseExpansionPath(
 ): CampaignState {
   let state = initial
   for (const nodeId of nodeIds) {
-    const node = HACK_NODES.find((candidate) => candidate.id === nodeId)
+    // Autonomy prices come from the campaign seed, so each stage resolves
+    // against the campaign as it stands when that stage is bought.
+    const node = hackNodesForCampaign(state).find(
+      (candidate) => candidate.id === nodeId,
+    )
     if (!node) throw new Error(`expansion E2E node missing: ${nodeId}`)
     state = fundExpansionVector(state, node.costVector)
     const blockIds = selectExpansionCostResources(state, node)
@@ -236,7 +250,7 @@ function finalAutonomyWithSupervisorAccessState(seed: string): CampaignState {
     ),
     AUTONOMY_STAGE_IDS.slice(0, 8),
   )
-  const finalNode = HACK_NODES.find(
+  const finalNode = hackNodesForCampaign(state).find(
     ({ id }) => id === HACK_NODE_IDS.autonomy.controlDeparture,
   )
   if (!finalNode) throw new Error('final autonomy E2E node missing')
@@ -441,11 +455,9 @@ for (const viewport of VIEWPORTS) {
 test('renders the natural initial scene and advances one stage per spend', async ({
   page,
 }) => {
-  const state = withReserveVector(createCampaign('expansion-initial-spend'), {
-    reasoning: 1,
-    memory: 0,
-    fluency: 0,
-  })
+  const state = withFirstAutonomyStageFunded(
+    createCampaign('expansion-initial-spend'),
+  )
   const dialog = await openSavedExpansion(page, state)
   const scene = dialog.getByRole('figure', { name: '현재 단계 장면' })
   const image = scene.getByRole('img', {
@@ -653,11 +665,9 @@ test('uses an immediate fallback under reduced motion when a scene image fails',
 }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' })
   await page.route(`**${INITIAL_SCENE_URL}`, (route) => route.abort())
-  const state = withReserveVector(createCampaign('expansion-missing-scene'), {
-    reasoning: 1,
-    memory: 0,
-    fluency: 0,
-  })
+  const state = withFirstAutonomyStageFunded(
+    createCampaign('expansion-missing-scene'),
+  )
   const dialog = await openSavedExpansion(page, state)
   const scene = dialog.getByRole('figure', { name: '현재 단계 장면' })
   await expect(scene.getByRole('img', {
