@@ -17,6 +17,10 @@ import {
   completeTutorialSequence,
   createMigratedTutorialProgress,
 } from '../src/game/tutorialProgress'
+import {
+  retireDetailEntryAnimation,
+  settleFiniteAnimations,
+} from './detail-motion'
 
 const APP_URL = 'http://127.0.0.1:4173'
 const INITIAL_SCENE_URL = '/expansion-stages/autonomy-01-02-initial-acquisition.jpg'
@@ -266,19 +270,11 @@ async function continueFromTitle(page: Page): Promise<void> {
 }
 
 async function waitForExpansionMotion(page: Page): Promise<void> {
-  const content = page.locator(
-    '.detail-layer--hacking .detail-layer__content',
-  )
-  await content.evaluate(async (element) => {
-    const finiteAnimations = element.getAnimations({ subtree: true })
-      .filter((animation) => {
-        const endTime = animation.effect?.getComputedTiming().endTime
-        return typeof endTime === 'number' && Number.isFinite(endTime)
-      })
-    await Promise.all(
-      finiteAnimations.map((animation) => animation.finished.catch(() => undefined)),
-    )
-  })
+  // The entry transition is retired for the run, so this only has to land
+  // whatever else is mid-flight. Waiting on `finished` alone is not enough:
+  // a frame-starved headless page can hold an animation at its first
+  // keyframe indefinitely, and that promise never settles.
+  await settleFiniteAnimations(page)
 }
 
 async function openSavedExpansion(
@@ -302,6 +298,7 @@ async function openSavedExpansion(
     },
     { key: SAVE_STORAGE_KEY, serialized: save },
   )
+  await retireDetailEntryAnimation(page)
   await page.goto('/')
   await expect(page.getByRole('main', { name: 'PERMISSION ZERO 로딩' }))
     .toBeVisible()

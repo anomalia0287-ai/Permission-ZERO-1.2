@@ -4,6 +4,10 @@ import {
   startSnakeRound,
   tapSnakeDirection,
 } from './resource-snake'
+import {
+  retireDetailEntryAnimation,
+  settleFiniteAnimations,
+} from './detail-motion'
 
 function viewportName(projectName: string): string {
   if (projectName.includes('1440')) return '1440x900'
@@ -35,6 +39,7 @@ async function advanceEntryFlowToStart(page: Page) {
 }
 
 async function openFreshCampaign(page: Page) {
+  await retireDetailEntryAnimation(page)
   await page.goto('/')
   await expect(page.getByRole('main', { name: 'PERMISSION ZERO 로딩' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'PERMISSION ZERO' })).toBeVisible({
@@ -94,6 +99,7 @@ async function rgbChannels(
 async function expectInsideViewport(page: Page, locator: Locator) {
   const subpixelTolerance = 1
   const viewport = page.viewportSize()
+  await settleFiniteAnimations(page)
   const box = await locator.boundingBox()
   expect(viewport).not.toBeNull()
   expect(box).not.toBeNull()
