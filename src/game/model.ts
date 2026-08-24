@@ -446,7 +446,7 @@ export interface CommandLogEntry {
   command: GameCommand
 }
 
-export type CommandProtocolVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7
+export type CommandProtocolVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8
 
 export interface CommandProtocolSegment {
   version: CommandProtocolVersion

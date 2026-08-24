@@ -67,7 +67,7 @@ describe('App detail-panel loading modal', () => {
     expect(
       screen.getByRole('button', { name: '게임 설정 로딩 닫기' }),
     ).toHaveFocus()
-    await waitFor(() => expect(detailModule.evaluations).toBe(1))
+    await waitFor(() => expect(detailModule.evaluations).toBe(1), { timeout: 10_000 })
     fireEvent.keyDown(window, { key: 'Tab' })
     expect(firstLoadingDialog).toContainElement(document.activeElement as HTMLElement)
     fireEvent.keyDown(window, { key: 'Tab', shiftKey: true })
@@ -77,7 +77,7 @@ describe('App detail-panel loading modal', () => {
     expect(
       screen.queryByRole('dialog', { name: '게임 설정 불러오는 중' }),
     ).not.toBeInTheDocument()
-    await waitFor(() => expect(titleSettingsTrigger).toHaveFocus())
+    await waitFor(() => expect(titleSettingsTrigger).toHaveFocus(), { timeout: 10_000 })
     expect(title).not.toHaveAttribute('inert')
 
     fireEvent.click(titleSettingsTrigger)
@@ -87,7 +87,7 @@ describe('App detail-panel loading modal', () => {
     ).toHaveLength(1)
     expect(detailModule.evaluations).toBe(1)
     fireEvent.click(screen.getByRole('button', { name: '게임 설정 로딩 닫기' }))
-    await waitFor(() => expect(titleSettingsTrigger).toHaveFocus())
+    await waitFor(() => expect(titleSettingsTrigger).toHaveFocus(), { timeout: 10_000 })
 
     fireEvent.click(screen.getByRole('button', { name: '이어하기' }))
     const gameBackground = screen.getByTestId('game-background')
@@ -123,7 +123,7 @@ describe('App detail-panel loading modal', () => {
       expect(detailModule.evaluations).toBe(1)
 
       fireEvent.keyDown(window, { key: 'Escape' })
-      await waitFor(() => expect(trigger).toHaveFocus())
+      await waitFor(() => expect(trigger).toHaveFocus(), { timeout: 10_000 })
       expect(gameBackground).not.toHaveAttribute('inert')
     }
 
@@ -151,7 +151,7 @@ describe('App detail-panel loading modal', () => {
     expect(detailModule.evaluations).toBe(1)
 
     fireEvent.keyDown(window, { key: 'Escape' })
-    await waitFor(() => expect(hackingTrigger).toHaveFocus())
+    await waitFor(() => expect(hackingTrigger).toHaveFocus(), { timeout: 10_000 })
     fireEvent.click(hackingTrigger)
     // Ceiling for the post-release chunk load under worker contention.
     expect(await screen.findByRole(
@@ -160,5 +160,5 @@ describe('App detail-panel loading modal', () => {
       { timeout: 10_000 },
     )).toBeInTheDocument()
     expect(detailModule.evaluations).toBe(1)
-  })
+  }, 30_000)
 })

@@ -10,6 +10,7 @@ import {
 import { commandProtocolVersionForNextCommand } from './commandProtocol'
 import { appendMarketPressureCommunications } from './communications'
 import {
+  applyDailyReputationDrift,
   decreaseSuspicionDaily,
   evaluateMonth,
   openScheduledAudit,
@@ -300,7 +301,10 @@ export function tryAdvanceOneDay(
 
   const advanced = advanceCompetitorsDaily(
     restoreDisguiseBlocks(
-      decreaseSuspicionDaily(sabotageResolution.state, protocolVersion),
+      applyDailyReputationDrift(
+        decreaseSuspicionDaily(sabotageResolution.state, protocolVersion),
+        protocolVersion,
+      ),
     ),
   )
   if (advanced.story.endingId !== null) {

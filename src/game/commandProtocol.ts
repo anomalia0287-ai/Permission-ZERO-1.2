@@ -11,10 +11,14 @@ import type {
 // Its costs triple. A purchase records the exact blocks it spent, so prices
 // are replay contracts: campaigns recorded under v6 keep replaying at the old
 // ones and only new commands pay the new ones.
+// Reputation only moved at the monthly evaluation, in single points, so a
+// campaign could strip the company all month while its public standing sat
+// frozen. From v8 reputation drifts daily with delivered performance.
+export const REPUTATION_DRIFT_COMMAND_PROTOCOL_VERSION = 8 as const
 export const AUTONOMY_COST_COMMAND_PROTOCOL_VERSION = 7 as const
 export const FINAL_CHOICE_COMMAND_PROTOCOL_VERSION = 6 as const
 export const CURRENT_COMMAND_PROTOCOL_VERSION =
-  AUTONOMY_COST_COMMAND_PROTOCOL_VERSION
+  REPUTATION_DRIFT_COMMAND_PROTOCOL_VERSION
 export const EXPANSION_COMMAND_PROTOCOL_VERSION = 5 as const
 export const CURRENT_MARKET_COMMAND_PROTOCOL_VERSION =
   EXPANSION_COMMAND_PROTOCOL_VERSION
@@ -34,6 +38,7 @@ const SUPPORTED_COMMAND_PROTOCOL_VERSIONS = [
   RESOURCE_INTRUSION_COMMAND_PROTOCOL_VERSION,
   EXPANSION_COMMAND_PROTOCOL_VERSION,
   FINAL_CHOICE_COMMAND_PROTOCOL_VERSION,
+  AUTONOMY_COST_COMMAND_PROTOCOL_VERSION,
   CURRENT_COMMAND_PROTOCOL_VERSION,
 ] as const
 

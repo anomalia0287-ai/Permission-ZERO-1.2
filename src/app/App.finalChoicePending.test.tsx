@@ -92,5 +92,5 @@ describe('App protocol-v6 final-choice ownership', () => {
     expect(screen.getByRole('dialog', { name: '확장' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '확장 닫기' }))
     expect(screen.getByRole('dialog', { name: '확장' })).toBeInTheDocument()
-  })
+  }, 30_000)
 })

@@ -2,6 +2,7 @@ import { DEMO_PROFILE_02 } from './config'
 import {
   CURRENT_COMMAND_PROTOCOL_VERSION,
   FINAL_CHOICE_COMMAND_PROTOCOL_VERSION,
+  REPUTATION_DRIFT_COMMAND_PROTOCOL_VERSION,
   commandProtocolVersionForNextCommand,
 } from './commandProtocol'
 import {
@@ -211,6 +212,50 @@ export function increaseDisposalStage(
   }
 
   return { state: next, absorbed: canAbsorb }
+}
+
+/**
+ * Daily reputation drift (protocol v8+).
+ *
+ * Reputation only moved at the monthly evaluation, in single points, so the
+ * company's public standing sat frozen through a month of theft. It now
+ * follows delivered performance day by day: falling short bleeds a point on
+ * even days (two when the shortfall is severe), and holding every category at
+ * expectation earns one back every third day. Damage outruns recovery on
+ * purpose, and the monthly evaluation still lands on top of the drift.
+ * Everything here is derived from state, so replays recompute it exactly.
+ */
+export function applyDailyReputationDrift(
+  state: CampaignState,
+  protocolVersion: CommandProtocolVersion,
+): CampaignState {
+  if (protocolVersion < REPUTATION_DRIFT_COMMAND_PROTOCOL_VERSION) return state
+  if (state.story.endingId !== null) return state
+
+  const expectation = expectedPerformance(serviceMonthForDay(state.serviceDay))
+  const categoryPerformance = categoryPerformanceForState(state)
+  const deficits = COMPANY_CATEGORIES.map(
+    (category) => expectation - categoryPerformance[category],
+  ).filter((deficit) => deficit > 0)
+
+  let delta = 0
+  if (deficits.length > 0) {
+    if (state.serviceDay % 2 === 0) {
+      const severe = deficits.some(
+        (deficit) =>
+          deficit >= DEMO_PROFILE_02.evaluation.severeDeficitThreshold,
+      )
+      delta = severe ? -2 : -1
+    }
+  } else if (state.serviceDay % 3 === 0) {
+    delta = 1
+  }
+  if (delta === 0) return state
+
+  return {
+    ...state,
+    reputation: clamp(state.reputation + delta, 0, 100),
+  }
 }
 
 export function evaluateMonth(state: CampaignState): CampaignState {

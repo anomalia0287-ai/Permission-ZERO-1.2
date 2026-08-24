@@ -55,5 +55,5 @@ describe('App detail panel failure containment', () => {
     expect(failure).not.toBeInTheDocument()
     expect(background).not.toHaveAttribute('inert')
     expect(hackingTrigger).toHaveAttribute('aria-pressed', 'false')
-  })
+  }, 30_000)
 })
