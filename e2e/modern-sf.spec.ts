@@ -118,6 +118,19 @@ async function waitForFiniteAnimations(locator: Locator): Promise<void> {
         const endTime = animation.effect?.getComputedTiming().endTime
         return typeof endTime === 'number' && Number.isFinite(endTime)
       })
+    // Headless pages produce frames only on demand, so a compositor-driven
+    // entry animation can sit at its first keyframe indefinitely and its
+    // finished promise never settles. Finishing explicitly lands the settled
+    // layout these assertions are about — CI measured the expansion rail
+    // exactly at detail-enter's from-state (translateY(9px) scale(0.992)).
+    for (const animation of finiteAnimations) {
+      try {
+        animation.finish()
+      } catch {
+        // Infinite animations are filtered out; anything else unfinishable
+        // is not an entry transition.
+      }
+    }
     await Promise.all(
       finiteAnimations.map((animation) => animation.finished.catch(() => undefined)),
     )
