@@ -98,12 +98,15 @@ async function expectInsideViewport(page: Page, locator: Locator) {
   expect(viewport).not.toBeNull()
   expect(box).not.toBeNull()
   if (!viewport || !box) return
-  expect(box.x).toBeGreaterThanOrEqual(-subpixelTolerance)
-  expect(box.y).toBeGreaterThanOrEqual(-subpixelTolerance)
-  expect(box.x + box.width).toBeLessThanOrEqual(
+  // The box is in the message so a platform-only failure reports where the
+  // element actually was instead of a bare number.
+  const where = JSON.stringify({ box, viewport })
+  expect(box.x, where).toBeGreaterThanOrEqual(-subpixelTolerance)
+  expect(box.y, where).toBeGreaterThanOrEqual(-subpixelTolerance)
+  expect(box.x + box.width, where).toBeLessThanOrEqual(
     viewport.width + subpixelTolerance,
   )
-  expect(box.y + box.height).toBeLessThanOrEqual(
+  expect(box.y + box.height, where).toBeLessThanOrEqual(
     viewport.height + subpixelTolerance,
   )
 }

@@ -49,6 +49,17 @@ jobs:
       - name: Verify the built game under the Pages project subpath
         run: node scripts/check-subpath-build.mjs --prefix "/${{ github.event.repository.name }}"
 
+      # A platform-only browser failure is undebuggable from the log line
+      # alone; the screenshots, traces, and error contexts make it concrete.
+      - name: Upload browser failure evidence
+        if: failure()
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee28f014d3b # v4
+        with:
+          name: test-results
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Configure GitHub Pages
         uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5
 
