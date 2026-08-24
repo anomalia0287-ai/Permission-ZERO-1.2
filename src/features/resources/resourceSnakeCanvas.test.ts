@@ -57,6 +57,7 @@ const EMPTY_SCENE: ResourceSnakeScene = {
   surveillance: null,
   cores: [],
   rails: [],
+  speeches: [],
   telegraphs: [],
   contacts: [],
   explosions: [],

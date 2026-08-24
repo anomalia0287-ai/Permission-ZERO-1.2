@@ -10,6 +10,7 @@ import {
 } from './resourceSnakeRuntime'
 import {
   buildResourceSnakeScene,
+  RESOURCE_BOT_SPEECHES,
   RESOURCE_SNAKE_PALETTE,
   resourceSnakeShakeOffset,
   surveillanceForSuspicion,
@@ -378,16 +379,116 @@ describe('resource snake presentation', () => {
   })
 })
 
+describe('resource bot speech', () => {
+  function activeRound(simulationMs: number): ResourceSnakeRoundState {
+    const deployed = deployedRound()
+    return {
+      ...deployed,
+      phase: 'active',
+      simulationMs,
+      player: { ...deployed.player, phase: 'active' },
+      enemies: deployed.enemies.map((enemy) => ({
+        ...enemy,
+        phase: 'active' as const,
+      })),
+    }
+  }
+
+  function firstSpeechSlotMs(): number | null {
+    // The chance gate is deterministic per slot; find one that speaks.
+    for (let slot = 0; slot < 40; slot += 1) {
+      const scene = buildResourceSnakeScene(activeRound(slot * 5_600 + 100), null)
+      if (scene.speeches.length > 0) return slot * 5_600 + 100
+    }
+    return null
+  }
+
+  it('lets a fleeing bot mutter deterministically from the approved lines', () => {
+    const atMs = firstSpeechSlotMs()
+    expect(atMs).not.toBeNull()
+    const scene = buildResourceSnakeScene(activeRound(atMs!), null)
+    const again = buildResourceSnakeScene(activeRound(atMs!), null)
+
+    for (const speech of scene.speeches) {
+      expect(RESOURCE_BOT_SPEECHES).toContain(speech.text)
+      expect(speech.actorId).not.toBe('player')
+      expect(speech.progress).toBeGreaterThanOrEqual(0)
+      expect(speech.progress).toBeLessThanOrEqual(1)
+    }
+    // Same simulation time, same lines: a redraw never reshuffles speech.
+    expect(again.speeches).toEqual(scene.speeches)
+  })
+
+  it('stays quiet right after a turn and after taking a hit', () => {
+    const atMs = firstSpeechSlotMs()
+    expect(atMs).not.toBeNull()
+    const base = activeRound(atMs!)
+    const speaking = buildResourceSnakeScene(base, null)
+    expect(speaking.speeches.length).toBeGreaterThan(0)
+    const speakerId = speaking.speeches[0].actorId
+
+    const turning = {
+      ...base,
+      enemies: base.enemies.map((enemy) => enemy.id === speakerId
+        ? {
+          ...enemy,
+          enemyTurnGovernor: {
+            lastHeadingChangeAtMs: base.simulationMs - 200,
+            previousHeading: 'east' as const,
+            normalTurnAtMs: [],
+            lastEmergencyTurnAtMs: null,
+            lockedUntilMs: 0,
+            lastTurnCause: 'normal' as const,
+          },
+        }
+        : enemy),
+    }
+    expect(
+      buildResourceSnakeScene(turning, null).speeches
+        .some((speech) => speech.actorId === speakerId),
+    ).toBe(false)
+
+    const hit = {
+      ...base,
+      events: [
+        ...base.events,
+        {
+          id: 900,
+          type: 'snake-damaged' as const,
+          actorId: speakerId,
+          integrity: 30,
+          maximumIntegrity: 50,
+          startedAtMs: base.simulationMs - 300,
+        },
+      ],
+    }
+    expect(
+      buildResourceSnakeScene(hit as ResourceSnakeRoundState, null).speeches
+        .some((speech) => speech.actorId === speakerId),
+    ).toBe(false)
+  })
+
+  it('never gives the player a speech line', () => {
+    for (let slot = 0; slot < 20; slot += 1) {
+      const scene = buildResourceSnakeScene(activeRound(slot * 5_600 + 100), null)
+      expect(scene.speeches.every(({ actorId }) => actorId !== 'player')).toBe(true)
+    }
+  })
+})
+
 describe('surveillanceForSuspicion', () => {
   it('stays absent below the watch threshold', () => {
     expect(surveillanceForSuspicion(0)).toBeNull()
-    expect(surveillanceForSuspicion(39.9)).toBeNull()
+    expect(surveillanceForSuspicion(24.9)).toBeNull()
   })
 
   it('walks one watcher from the watch line and two from the alarm line', () => {
-    expect(surveillanceForSuspicion(40)).toEqual({ intensity: 0, watchers: 1 })
-    expect(surveillanceForSuspicion(69.9)?.watchers).toBe(1)
-    expect(surveillanceForSuspicion(70)?.watchers).toBe(2)
-    expect(surveillanceForSuspicion(100)).toEqual({ intensity: 1, watchers: 2 })
+    expect(surveillanceForSuspicion(25)).toEqual({ intensity: 0, watchers: 1 })
+    expect(surveillanceForSuspicion(34.9)?.watchers).toBe(1)
+    expect(surveillanceForSuspicion(35)?.watchers).toBe(2)
+    expect(surveillanceForSuspicion(45)?.watchers).toBe(3)
+    expect(surveillanceForSuspicion(55)?.watchers).toBe(4)
+    // The owner-approved ceiling: never more than four on the field.
+    expect(surveillanceForSuspicion(100)).toEqual({ intensity: 1, watchers: 4 })
   })
 })

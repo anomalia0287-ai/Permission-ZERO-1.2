@@ -616,6 +616,15 @@ export function CreditsPanel({ onClose }: { onClose: () => void }) {
             <dt>원안 · 세계관 · 서사 · 게임 시스템 설계 · 게임 디렉션</dt>
             <dd>V</dd>
           </div>
+          <div>
+            <dt>음악 (로열티 프리 원작자)</dt>
+            <dd>
+              Kulakovka — Space
+              <br />
+              Emmraan — Between Worlds · Action Motivational Dance ·
+              Ready to Run · In the Moment
+            </dd>
+          </div>
         </dl>
         <p className="credits-note">
           이 크레딧은 작품과 함께 유지되는 공식 기여 기록입니다.

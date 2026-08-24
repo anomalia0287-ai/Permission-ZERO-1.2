@@ -53,8 +53,14 @@ type AudioContextFactory = () => AudioContext | null
 // ceiling matters because the loudest recipe voice is 0.13: three of those at
 // full trim would sum past the bus and distort, so each voice is capped where
 // a three-voice chord still lands inside the headroom.
-const EFFECT_VOICE_TRIM = 3
-const EFFECT_VOICE_CEILING = 0.32
+/*
+ * Effects have to cut through the ambient music (default 34%), and the owner
+ * heard combat hits vanish under it entirely. Trim scales each authored
+ * voice; the ceiling caps any single voice's peak just above the owner's
+ * requested 45% floor for collisions.
+ */
+const EFFECT_VOICE_TRIM = 4.5
+const EFFECT_VOICE_CEILING = 0.5
 
 const DEFAULT_MIX: AudioMixSettings = {
   masterVolume: 0.8,

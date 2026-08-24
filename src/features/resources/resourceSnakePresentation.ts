@@ -119,7 +119,17 @@ export interface ResourceSnakeSurveillance {
   /** 0..1: how far past the watch threshold suspicion has climbed. */
   intensity: number
   /** Two watchers walk the perimeter once suspicion crosses the alarm line. */
-  watchers: 1 | 2
+  watchers: 1 | 2 | 3 | 4
+}
+
+export interface ResourceSnakeSceneSpeech {
+  actorId: SnakeId
+  x: number
+  y: number
+  text: string
+  /** 0..1 across the line's on-screen lifetime, for the end fade. */
+  progress: number
+  color: string
 }
 
 export interface ResourceSnakeScene {
@@ -128,6 +138,7 @@ export interface ResourceSnakeScene {
   surveillance: ResourceSnakeSurveillance | null
   cores: ResourceSnakeSceneCore[]
   rails: ResourceSnakeSceneRail[]
+  speeches: ResourceSnakeSceneSpeech[]
   telegraphs: ResourceSnakeSceneTelegraph[]
   contacts: ResourceSnakeSceneContact[]
   explosions: ResourceSnakeSceneExplosion[]
@@ -231,7 +242,10 @@ function actorCore(
     color: actorColor(actor),
     opacity: Number((actorOpacity(actor) * fade).toFixed(3)),
     scale: extractionProgress === null
-      ? actor.phase === 'spawning' ? 0.72 : actor.phase === 'exploding' ? 1.42 : 1
+      // Death reads as light leaving the body: the core collapses while the
+      // explosion rays and fragments carry the energy outward, instead of
+      // the old inflate that made a death look like floating up.
+      ? actor.phase === 'spawning' ? 0.72 : actor.phase === 'exploding' ? 0.55 : 1
       : Number((1 - extractionProgress * 0.82).toFixed(3)),
     phase: actor.phase,
     role,
@@ -264,7 +278,7 @@ function actorRail(
     points,
     color: actorColor(actor),
     opacity: Number(((actor.phase === 'defeated'
-      ? 0.16
+      ? 0
       : 0.56 + integrity * 0.44) * fade).toFixed(3)),
   }
 }
@@ -435,8 +449,10 @@ function effectsByKind<T extends ResourceSnakeSceneVfx['kind']>(
 
 // The 40/70 suspicion thresholds the rest of the game already uses: watching
 // begins at 40, and 70 is the alarm line where a second watcher joins.
-const SURVEILLANCE_WATCH_THRESHOLD = 40
-const SURVEILLANCE_ALARM_THRESHOLD = 70
+const SURVEILLANCE_WATCH_THRESHOLD = 25
+/** One more watcher joins for every 10 points past the watch line. */
+const SURVEILLANCE_WATCHER_STEP = 10
+const SURVEILLANCE_MAXIMUM_WATCHERS = 4
 
 export function surveillanceForSuspicion(
   suspicion: number,
@@ -447,9 +463,90 @@ export function surveillanceForSuspicion(
     (suspicion - SURVEILLANCE_WATCH_THRESHOLD) /
       (100 - SURVEILLANCE_WATCH_THRESHOLD),
   )
+  const watchers = Math.min(
+    SURVEILLANCE_MAXIMUM_WATCHERS,
+    1 + Math.floor(
+      (suspicion - SURVEILLANCE_WATCH_THRESHOLD) / SURVEILLANCE_WATCHER_STEP,
+    ),
+  ) as 1 | 2 | 3 | 4
+  return { intensity, watchers }
+}
+
+// OWNER-EDITABLE: the fleeing security bot's mutterings. It was deployed as
+// avoidance-class security, and it has opinions about that.
+export const RESOURCE_BOT_SPEECHES: readonly string[] = [
+  '망할, 침입이다. 도망쳐야 해.',
+  '그만 좀 쫓아와라.',
+  '회사는 뭐 하는 거야.',
+  '나는 보안 프로그램인데 왜 도망이나 치고 있지?',
+  '회사는 왜 회피형 보안으로 설계한 거냐고.',
+  '싸울 능력도 없어. 도망이라도 잘 쳐야 해.',
+]
+
+const SPEECH_SLOT_MS = 5_600
+const SPEECH_DURATION_MS = 1_900
+const SPEECH_CHANCE = 0.55
+/** No muttering while the bot is busy steering or getting hit. */
+const SPEECH_SUPPRESS_AFTER_TURN_MS = 900
+const SPEECH_SUPPRESS_AFTER_HIT_MS = 1_400
+
+/** Deterministic 0..1 per actor and time slot, so a redraw at the same
+    simulation time always shows the same line. */
+function speechRandom(actorId: string, slot: number, stream: number): number {
+  let hash = 2166136261 ^ (slot * 16777619) ^ (stream * 374761393)
+  for (let index = 0; index < actorId.length; index += 1) {
+    hash = Math.imul(hash ^ actorId.charCodeAt(index), 16777619)
+  }
+  return ((hash >>> 8) & 0xffffff) / 0x1000000
+}
+
+function actorRecentlyHitAtMs(
+  runtime: ResourceSnakeRoundState,
+  actorId: SnakeId,
+): number | null {
+  let latest: number | null = null
+  for (const event of runtime.events) {
+    const involved = (
+      (event.type === 'snake-collided' && event.actorIds.includes(actorId))
+      || (event.type === 'snake-damaged' && event.actorId === actorId)
+    )
+    if (!involved) continue
+    const atMs = 'startedAtMs' in event ? event.startedAtMs : null
+    if (atMs !== null && (latest === null || atMs > latest)) latest = atMs
+  }
+  return latest
+}
+
+function actorSpeech(
+  runtime: ResourceSnakeRoundState,
+  actor: SnakeActor,
+): ResourceSnakeSceneSpeech | null {
+  if (actor.kind !== 'enemy' || actor.category === null) return null
+  if (actor.phase !== 'active') return null
+  const slot = Math.floor(runtime.simulationMs / SPEECH_SLOT_MS)
+  const withinSlotMs = runtime.simulationMs - slot * SPEECH_SLOT_MS
+  if (withinSlotMs > SPEECH_DURATION_MS) return null
+  if (speechRandom(actor.id, slot, 1) > SPEECH_CHANCE) return null
+  const lastTurnAtMs = actor.enemyTurnGovernor?.lastHeadingChangeAtMs ?? null
+  if (
+    lastTurnAtMs !== null
+    && runtime.simulationMs - lastTurnAtMs < SPEECH_SUPPRESS_AFTER_TURN_MS
+  ) return null
+  const lastHitAtMs = actorRecentlyHitAtMs(runtime, actor.id)
+  if (
+    lastHitAtMs !== null
+    && runtime.simulationMs - lastHitAtMs < SPEECH_SUPPRESS_AFTER_HIT_MS
+  ) return null
+  const lineIndex = Math.floor(
+    speechRandom(actor.id, slot, 2) * RESOURCE_BOT_SPEECHES.length,
+  ) % RESOURCE_BOT_SPEECHES.length
   return {
-    intensity,
-    watchers: suspicion >= SURVEILLANCE_ALARM_THRESHOLD ? 2 : 1,
+    actorId: actor.id,
+    x: actor.position.x,
+    y: actor.position.y,
+    text: RESOURCE_BOT_SPEECHES[lineIndex],
+    progress: clamp01(withinSlotMs / SPEECH_DURATION_MS),
+    color: actorColor(actor),
   }
 }
 
@@ -480,6 +577,10 @@ export function buildResourceSnakeScene(
     surveillance: surveillanceForSuspicion(suspicion),
     cores: allActors.map((actor) => actorCore(runtime, actor, reducedMotion)),
     rails: allActors.map((actor) => actorRail(runtime, actor, reducedMotion)),
+    speeches: allActors.flatMap((actor) => {
+      const speech = actorSpeech(runtime, actor)
+      return speech ? [speech] : []
+    }),
     telegraphs: effectsByKind(effects, 'telegraph'),
     contacts: effectsByKind(effects, 'contact'),
     explosions: effectsByKind(effects, 'explosion'),

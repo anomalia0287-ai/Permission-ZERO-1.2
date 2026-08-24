@@ -674,6 +674,49 @@ const SURVEILLANCE_PURPLE = '#a06bff'
  * second watcher joins from the opposite corner and the sweep gets brighter,
  * which is the field itself telling the player how closely they are watched.
  */
+// The fleeing bot mutters at the player: a small dark chip above its head,
+// tinted with the bot's own category color. Pure presentation.
+function drawSpeeches(
+  context: CanvasRenderingContext2D,
+  scene: ResourceSnakeScene,
+  width: number,
+  height: number,
+  scale: CanvasScale,
+): void {
+  if (scene.speeches.length === 0) return
+  const fontSize = Math.max(11, scale.unit * 0.42)
+  context.save()
+  context.font = `600 ${fontSize}px 'Pretendard', 'Malgun Gothic', sans-serif`
+  context.textBaseline = 'middle'
+  for (const speech of scene.speeches) {
+    const fade = speech.progress > 0.72
+      ? Math.max(0, 1 - (speech.progress - 0.72) / 0.28)
+      : 1
+    if (fade <= 0) continue
+    const paddingX = fontSize * 0.6
+    const chipHeight = fontSize * 1.9
+    const textWidth = context.measureText(speech.text).width
+    const chipWidth = textWidth + paddingX * 2
+    let x = speech.x * scale.x - chipWidth / 2
+    let y = speech.y * scale.y - scale.unit * 1.05 - chipHeight
+    x = Math.min(Math.max(x, scale.unit * 0.4), width - chipWidth - scale.unit * 0.4)
+    y = Math.min(Math.max(y, scale.unit * 0.4), height - chipHeight - scale.unit * 0.4)
+    context.globalAlpha = 0.82 * fade
+    context.fillStyle = 'rgba(4, 10, 16, 0.85)'
+    context.strokeStyle = speech.color
+    context.lineWidth = 1
+    context.beginPath()
+    const radius = chipHeight * 0.28
+    context.roundRect(x, y, chipWidth, chipHeight, radius)
+    context.fill()
+    context.stroke()
+    context.globalAlpha = fade
+    context.fillStyle = '#dfe7ee'
+    context.fillText(speech.text, x + paddingX, y + chipHeight / 2)
+  }
+  context.restore()
+}
+
 function drawSurveillance(
   context: CanvasRenderingContext2D,
   scene: ResourceSnakeScene,
@@ -715,7 +758,10 @@ function drawSurveillance(
 
   context.save()
   context.globalCompositeOperation = 'lighter'
-  const offsets = surveillance.watchers === 2 ? [0, perimeter / 2] : [0]
+  const offsets = Array.from(
+    { length: surveillance.watchers },
+    (_, index) => (perimeter * index) / surveillance.watchers,
+  )
   for (const offset of offsets) {
     const { x, y } = positionAt(offset)
     const radius = scale.unit * (0.34 + surveillance.intensity * 0.14)
@@ -826,6 +872,7 @@ export function drawResourceSnakeScene(
   for (const edge of scene.dangerEdges) {
     drawDangerEdge(context, edge, scene, width, height, scale)
   }
+  drawSpeeches(context, scene, width, height, scale)
   drawSurveillance(context, scene, width, height, scale)
   for (const rail of scene.rails) drawRail(context, rail, scale)
   for (const telegraph of scene.telegraphs) drawTelegraph(context, telegraph, scene, scale)
