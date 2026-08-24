@@ -1,6 +1,6 @@
 import {
   HACK_NODE_IDS,
-  HACK_NODES,
+  hackNodesForCampaign,
   autonomyTrustGateRequirement,
   passedEvaluationCount,
   reserveOriginCounts,
@@ -146,7 +146,9 @@ export function selectExpansionStagePresentation(
   tree: HackTree,
   selectedOperationalNodeId: HackNodeId | null,
 ): ExpansionStagePresentation {
-  const nodes = HACK_NODES.filter((node) => node.tree === tree)
+  // Autonomy costs are resolved from the campaign seed, so the catalogue has to
+  // come from the campaign rather than the static table.
+  const nodes = hackNodesForCampaign(state).filter((node) => node.tree === tree)
   const purchasedNodeIds = new Set(state.hacking.purchasedNodeIds)
   const currentIndex = nodes.findIndex((node) => {
     if (purchasedNodeIds.has(node.id)) return false

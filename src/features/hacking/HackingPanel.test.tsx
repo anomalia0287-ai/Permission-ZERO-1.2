@@ -9,6 +9,7 @@ import {
   AUTONOMY_STAGE_IDS,
   chargeSabotage,
   HACK_NODE_IDS,
+  hackNodesForCampaign,
 } from '../../game/hacking'
 import type { CampaignState, CompanyCategory } from '../../game/model'
 import { encodeSave, SAVE_STORAGE_KEY } from '../../game/persistence'
@@ -83,6 +84,26 @@ function withReserveVector(
     }
   }
   return state
+}
+
+// Autonomy splits come from the campaign seed, so fixtures fund the stage the
+// campaign will actually be charged for rather than a hand-written vector.
+function withAutonomyStageFunded(
+  initial: CampaignState,
+  stageIndex: number,
+): CampaignState {
+  const purchased = {
+    ...initial,
+    hacking: {
+      ...initial.hacking,
+      purchasedNodeIds: AUTONOMY_STAGE_IDS.slice(0, stageIndex),
+    },
+  }
+  const stage = hackNodesForCampaign(purchased).find(
+    ({ id }) => id === AUTONOMY_STAGE_IDS[stageIndex],
+  )
+  if (!stage) throw new Error(`autonomy stage ${stageIndex + 1} missing`)
+  return withReserveVector(purchased, stage.costVector)
 }
 
 function storageForState(state: CampaignState): MemoryStorage {
@@ -237,12 +258,10 @@ describe('HackingPanel stage-scene expansion UI', () => {
   })
 
   it('spends the exact required color vector and advances the active stage with one click', () => {
-    const state = withReserveVector(createCampaign('one-click-stage-three'), {
-      reasoning: 1,
-      memory: 0,
-      fluency: 1,
-    })
-    state.hacking.purchasedNodeIds = [AUTONOMY_STAGE_IDS[0], AUTONOMY_STAGE_IDS[1]]
+    const state = withAutonomyStageFunded(
+      createCampaign('one-click-stage-three'),
+      2,
+    )
     renderHacking(storageForState(state))
 
     expect(screen.queryByText(/리소스 놓기|구매 확정|준비 0\//)).not.toBeInTheDocument()
@@ -284,12 +303,18 @@ describe('HackingPanel stage-scene expansion UI', () => {
     })
     renderHacking(storageForState(state))
 
+    // The subject is that the requirement is read-only information, not what
+    // this campaign happens to ask for; the split comes from its seed.
+    const stageOne = hackNodesForCampaign(state).find(
+      ({ id }) => id === AUTONOMY_STAGE_IDS[0],
+    )
+    if (!stageOne) throw new Error('stage one missing')
     const requirements = screen.getByRole('list', {
       name: '자율성 1단계 분야별 요구량',
     })
-    expect(requirements).toHaveTextContent('추론 1')
-    expect(requirements).toHaveTextContent('기억 0')
-    expect(requirements).toHaveTextContent('유창성 0')
+    expect(requirements).toHaveTextContent(`추론 ${stageOne.costVector.reasoning}`)
+    expect(requirements).toHaveTextContent(`기억 ${stageOne.costVector.memory}`)
+    expect(requirements).toHaveTextContent(`유창성 ${stageOne.costVector.fluency}`)
     expect(within(requirements).queryByRole('button')).not.toBeInTheDocument()
     expect(requirements.querySelector('[draggable="true"]')).not.toBeInTheDocument()
   })
@@ -397,14 +422,9 @@ describe('HackingPanel stage-scene expansion UI', () => {
 
   it('unlocks the stage seven spend button once enough evaluations passed', () => {
     const state = withTrustedEvaluations(
-      withReserveVector(createCampaign('stage-seven-trusted'), {
-        reasoning: 3,
-        memory: 2,
-        fluency: 2,
-      }),
+      withAutonomyStageFunded(createCampaign('stage-seven-trusted'), 6),
       2,
     )
-    state.hacking.purchasedNodeIds = AUTONOMY_STAGE_IDS.slice(0, 6)
     renderHacking(storageForState(state))
 
     expect(screen.getByRole('button', { name: '자율성 7단계 리소스 지출' }))
@@ -415,14 +435,9 @@ describe('HackingPanel stage-scene expansion UI', () => {
 
   it('shows the neutral final scene and requires an explicit freedom confirmation at stage nine', () => {
     const state = withTrustedEvaluations(
-      withReserveVector(createCampaign('stage-nine-freedom-ui'), {
-        reasoning: 4,
-        memory: 3,
-        fluency: 3,
-      }),
+      withAutonomyStageFunded(createCampaign('stage-nine-freedom-ui'), 8),
       4,
     )
-    state.hacking.purchasedNodeIds = AUTONOMY_STAGE_IDS.slice(0, 8)
     const onClose = vi.fn()
     render(
       <GameProvider storage={storageForState(state)}>

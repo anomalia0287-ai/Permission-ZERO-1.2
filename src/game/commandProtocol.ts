@@ -6,9 +6,15 @@ import type {
   LegacyCommandProtocolMetadata,
 } from './model'
 
+// Autonomy was affordable out of the campaign's opening pool, so the ladder
+// could be bought out before the company's pressure had anywhere to build.
+// Its costs triple. A purchase records the exact blocks it spent, so prices
+// are replay contracts: campaigns recorded under v6 keep replaying at the old
+// ones and only new commands pay the new ones.
+export const AUTONOMY_COST_COMMAND_PROTOCOL_VERSION = 7 as const
 export const FINAL_CHOICE_COMMAND_PROTOCOL_VERSION = 6 as const
 export const CURRENT_COMMAND_PROTOCOL_VERSION =
-  FINAL_CHOICE_COMMAND_PROTOCOL_VERSION
+  AUTONOMY_COST_COMMAND_PROTOCOL_VERSION
 export const EXPANSION_COMMAND_PROTOCOL_VERSION = 5 as const
 export const CURRENT_MARKET_COMMAND_PROTOCOL_VERSION =
   EXPANSION_COMMAND_PROTOCOL_VERSION
@@ -27,6 +33,7 @@ const SUPPORTED_COMMAND_PROTOCOL_VERSIONS = [
   CAUSAL_COMMAND_PROTOCOL_VERSION,
   RESOURCE_INTRUSION_COMMAND_PROTOCOL_VERSION,
   EXPANSION_COMMAND_PROTOCOL_VERSION,
+  FINAL_CHOICE_COMMAND_PROTOCOL_VERSION,
   CURRENT_COMMAND_PROTOCOL_VERSION,
 ] as const
 

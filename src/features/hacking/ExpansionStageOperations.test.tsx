@@ -6,22 +6,36 @@ import { auditProbability, getAuditIntel } from '../../game/evaluation'
 import {
   AUTONOMY_STAGE_IDS,
   chargeSabotage,
+  hackNodesForCampaign,
   HACK_NODE_IDS,
   scheduleSabotage,
 } from '../../game/hacking'
+import { COMPANY_CATEGORIES } from '../../game/model'
 import type { CampaignState } from '../../game/model'
 import { divertBlockToReserve } from '../../game/resources'
 import { ExpansionStageOperations } from './ExpansionStageOperations'
 import { selectExpansionStagePresentation } from './expansionStagePresentation'
 
-function withReasoningReserve(initial: CampaignState): CampaignState {
-  const blockId = initial.resources.company.reasoning.find(
-    (candidate): candidate is string => candidate !== null,
+// Stage one's split comes from the campaign seed, so the fixture funds exactly
+// what this campaign asks for rather than a fixed single block.
+function withFirstAutonomyStageFunded(initial: CampaignState): CampaignState {
+  const stage = hackNodesForCampaign(initial).find(
+    ({ tree }) => tree === 'autonomy',
   )
-  if (!blockId) throw new Error('reasoning fixture missing')
-  const diverted = divertBlockToReserve(initial, blockId)
-  if (!diverted.accepted) throw new Error(diverted.reason)
-  return diverted.state
+  if (!stage) throw new Error('autonomy stage fixture missing')
+  let state = initial
+  for (const category of COMPANY_CATEGORIES) {
+    for (let unit = 0; unit < stage.costVector[category]; unit += 1) {
+      const blockId = state.resources.company[category].find(
+        (candidate): candidate is string => candidate !== null,
+      )
+      if (!blockId) throw new Error(`${category} fixture missing`)
+      const diverted = divertBlockToReserve(state, blockId)
+      if (!diverted.accepted) throw new Error(diverted.reason)
+      state = diverted.state
+    }
+  }
+  return state
 }
 
 function operationCallbacks() {
@@ -39,7 +53,7 @@ function operationCallbacks() {
 
 describe('ExpansionStageOperations', () => {
   it('spends resources for an affordable current stage from one action', () => {
-    const state = withReasoningReserve(
+    const state = withFirstAutonomyStageFunded(
       createCampaign('expansion-operations-affordable'),
     )
     const presentation = selectExpansionStagePresentation(
@@ -145,7 +159,7 @@ describe('ExpansionStageOperations', () => {
   })
 
   it('charges a purchased sabotage with one plainly named resource action', () => {
-    const state = withReasoningReserve(
+    const state = withFirstAutonomyStageFunded(
       createCampaign('expansion-operations-charge-sabotage'),
     )
     state.hacking.purchasedNodeIds = [
@@ -187,7 +201,7 @@ describe('ExpansionStageOperations', () => {
   })
 
   it('cancels a charge and selects then confirms one sabotage target', () => {
-    const prepared = withReasoningReserve(
+    const prepared = withFirstAutonomyStageFunded(
       createCampaign('expansion-operations-charged-sabotage'),
     )
     prepared.hacking.purchasedNodeIds = [
@@ -259,7 +273,7 @@ describe('ExpansionStageOperations', () => {
   })
 
   it('explains when a charged sabotage has no eligible target', () => {
-    const prepared = withReasoningReserve(
+    const prepared = withFirstAutonomyStageFunded(
       createCampaign('expansion-operations-no-sabotage-target'),
     )
     prepared.hacking.purchasedNodeIds = [
@@ -312,7 +326,7 @@ describe('ExpansionStageOperations', () => {
   })
 
   it('shows the target and execution day for an already scheduled sabotage', () => {
-    const prepared = withReasoningReserve(
+    const prepared = withFirstAutonomyStageFunded(
       createCampaign('expansion-operations-scheduled-sabotage'),
     )
     prepared.hacking.purchasedNodeIds = [
@@ -368,7 +382,7 @@ describe('ExpansionStageOperations', () => {
   })
 
   it('executes an open recovery contamination opportunity from quality degradation', () => {
-    const prepared = withReasoningReserve(
+    const prepared = withFirstAutonomyStageFunded(
       createCampaign('expansion-operations-recovery-contamination'),
     )
     prepared.hacking.purchasedNodeIds = [

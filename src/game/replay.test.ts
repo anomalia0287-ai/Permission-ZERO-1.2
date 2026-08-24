@@ -2,13 +2,16 @@ import { describe, expect, it } from 'vitest'
 
 import { buildTwoYearCommandFixture } from '../test/fixtures'
 import legacyV1TransferEnvelope from '../test/legacy-v1-transfer-save.json'
-import { appendCommandProtocolSegment } from './commandProtocol'
+import {
+  CURRENT_COMMAND_PROTOCOL_VERSION,
+  appendCommandProtocolSegment,
+} from './commandProtocol'
 import { createCampaign, createCampaignForProtocol } from './createCampaign'
 import {
   passedEvaluationCount,
   AUTONOMY_STAGE_IDS,
   HACK_NODE_IDS,
-  HACK_NODES,
+  hackNodesForProtocol,
   selectExpansionCostResources,
 } from './hacking'
 import type {
@@ -35,11 +38,14 @@ import { migrateResourcesToCurrentRules } from './resources'
 import { normalizeCurrentTallowMarket } from './market'
 
 const legacyV1TransferSave = JSON.stringify(legacyV1TransferEnvelope)
-const NATIVE_V6_PROTOCOL: CommandProtocolMetadata = {
-  segments: [{ version: 6, startsAtSequence: 1 }],
+// A save made by today's build: one segment at the current protocol.
+const NATIVE_CURRENT_PROTOCOL: CommandProtocolMetadata = {
+  segments: [
+    { version: CURRENT_COMMAND_PROTOCOL_VERSION, startsAtSequence: 1 },
+  ],
 }
-const NATIVE_V6_REPLAY = {
-  commandProtocol: NATIVE_V6_PROTOCOL,
+const NATIVE_CURRENT_REPLAY = {
+  commandProtocol: NATIVE_CURRENT_PROTOCOL,
   replayBootstrap: { openingVersion: 2 as const, legacyReviewPrefixCount: 0 },
 }
 
@@ -47,7 +53,7 @@ function nativeV2Protocol(commandCount: number): CommandProtocolMetadata {
   return {
     segments: [
       { version: 2, startsAtSequence: 1 },
-      { version: 6, startsAtSequence: commandCount + 1 },
+      { version: 7, startsAtSequence: commandCount + 1 },
     ],
   }
 }
@@ -86,7 +92,7 @@ function historicalQualityReplayFixture(
   const commandProtocol: CommandProtocolMetadata = {
     segments: [
       { version: protocolVersion, startsAtSequence: 1 },
-      { version: 6, startsAtSequence: commands.length + 1 },
+      { version: 7, startsAtSequence: commands.length + 1 },
     ],
   }
   return {
@@ -104,7 +110,7 @@ function historicalQualityReplayFixture(
 
 function activateSegment(
   state: CampaignState,
-  version: 2 | 3 | 4 | 5 | 6,
+  version: 2 | 3 | 4 | 5 | 6 | 7,
 ): CampaignState {
   const commandProtocol = appendCommandProtocolSegment(
     state.commandProtocol,
@@ -218,7 +224,10 @@ function autonomyReplayFixture(
   }
 
   for (const nodeId of AUTONOMY_STAGE_IDS) {
-    const node = HACK_NODES.find((candidate) => candidate.id === nodeId)
+    // Prices move with the protocol, so the fixture funds whatever the
+    // version under test actually charges.
+    const node = hackNodesForProtocol(protocolVersion)
+      .find((candidate) => candidate.id === nodeId)
     if (!node) throw new Error(`autonomy fixture node missing: ${nodeId}`)
     fund(node.costVector)
     const blockIds = selectExpansionCostResources(state, node)
@@ -230,17 +239,22 @@ function autonomyReplayFixture(
     apply({ type: 'RESOLVE_ENDING', choice: 'freedom' })
   }
 
+  // A save is only accepted when its final segment is the current protocol, so
+  // every historical fixture closes with a promotion the same way a real load
+  // does. The recorded commands still replay under the version they were made
+  // with.
   let commandProtocol = state.commandProtocol
-  if (protocolVersion === 5) {
-    const promoted = appendCommandProtocolSegment(
-      commandProtocol,
-      { version: 6, startsAtSequence: state.commandSequence + 1 },
-      state.commandSequence + 1,
-    )
-    if (!promoted) throw new Error('v5 replay promotion failed')
-    commandProtocol = promoted
-    state = { ...state, commandProtocol }
-  }
+  const promoted = appendCommandProtocolSegment(
+    commandProtocol,
+    {
+      version: CURRENT_COMMAND_PROTOCOL_VERSION,
+      startsAtSequence: state.commandSequence + 1,
+    },
+    state.commandSequence + 1,
+  )
+  if (!promoted) throw new Error(`v${protocolVersion} replay promotion failed`)
+  commandProtocol = promoted
+  state = { ...state, commandProtocol }
 
   return {
     commands,
@@ -255,7 +269,7 @@ function autonomyReplayFixture(
 describe('deterministic command replay', () => {
   it('replays more than 500 valid commands across two service years exactly', () => {
     const fixture = buildTwoYearCommandFixture()
-    const replay = replayCommands(fixture.seed, fixture.commands, NATIVE_V6_REPLAY)
+    const replay = replayCommands(fixture.seed, fixture.commands, NATIVE_CURRENT_REPLAY)
 
     expect(fixture.commands.length).toBeGreaterThan(500)
     expect(replay.ok).toBe(true)
@@ -290,13 +304,12 @@ describe('deterministic command replay', () => {
       expect(replay.ok).toBe(true)
       if (!replay.ok) return
       expect(replay.state).toEqual(fixture.state)
-      if (protocolVersion === 5) {
-        expect(replay.state.commandProtocol.segments.at(-2)?.version).toBe(5)
-        expect(replay.state.commandProtocol.segments.at(-1)).toEqual({
-          version: 6,
-          startsAtSequence: fixture.commands.length + 1,
-        })
-      }
+      expect(replay.state.commandProtocol.segments.at(-2)?.version)
+        .toBe(protocolVersion)
+      expect(replay.state.commandProtocol.segments.at(-1)).toEqual({
+        version: CURRENT_COMMAND_PROTOCOL_VERSION,
+        startsAtSequence: fixture.commands.length + 1,
+      })
     },
   )
 
@@ -415,7 +428,7 @@ describe('deterministic command replay', () => {
     const replay = replayCommands(
       'invalid-replay',
       [{ type: 'RESOLVE_AUDIT' }],
-      NATIVE_V6_REPLAY,
+      NATIVE_CURRENT_REPLAY,
     )
 
     expect(replay).toMatchObject({
@@ -427,7 +440,7 @@ describe('deterministic command replay', () => {
 
   it('replays intentional separation and the single authorized move deterministically', () => {
     const seed = 'separation-replay'
-    const initial = replayCommands(seed, [], NATIVE_V6_REPLAY)
+    const initial = replayCommands(seed, [], NATIVE_CURRENT_REPLAY)
     if (!initial.ok) throw new Error(initial.reason)
     const blockId = initial.state.resources.company.reasoning.find(Boolean)
     if (!blockId) throw new Error('재현 전용 블록 누락')
@@ -436,8 +449,8 @@ describe('deterministic command replay', () => {
       { type: 'DIVERT_BLOCK_TO_RESERVE', blockId },
     ] as const
 
-    const first = replayCommands(seed, commands, NATIVE_V6_REPLAY)
-    const second = replayCommands(seed, commands, NATIVE_V6_REPLAY)
+    const first = replayCommands(seed, commands, NATIVE_CURRENT_REPLAY)
+    const second = replayCommands(seed, commands, NATIVE_CURRENT_REPLAY)
 
     expect(first).toEqual(second)
     expect(first).toMatchObject({ ok: true })
@@ -456,8 +469,8 @@ describe('deterministic command replay', () => {
       { type: 'RECORD_INTRUSION_RADAR_DETECTION' },
     ] as const satisfies readonly GameCommand[]
 
-    const first = replayCommands('radar-detection-replay', commands, NATIVE_V6_REPLAY)
-    const second = replayCommands('radar-detection-replay', commands, NATIVE_V6_REPLAY)
+    const first = replayCommands('radar-detection-replay', commands, NATIVE_CURRENT_REPLAY)
+    const second = replayCommands('radar-detection-replay', commands, NATIVE_CURRENT_REPLAY)
 
     expect(first).toEqual(second)
     expect(first).toMatchObject({ ok: true })
@@ -548,14 +561,14 @@ describe('deterministic command replay', () => {
       opening: NATIVE_V2_OPENING_MESSAGE,
       prefixCount: 0,
     },
-  ])('replays $label provenance independently from the same 6@1 timeline', ({
+  ])('replays $label provenance independently from the same 7@1 timeline', ({
     label,
     replayBootstrap,
     opening,
     prefixCount,
   }) => {
     const replay = replayCommands(`bootstrap-${label}`, [], {
-      commandProtocol: NATIVE_V6_PROTOCOL,
+      commandProtocol: NATIVE_CURRENT_PROTOCOL,
       replayBootstrap,
     })
 
@@ -583,7 +596,7 @@ describe('deterministic command replay', () => {
       'invalid-replay-bootstrap',
       [{ type: 'SET_SPEED', speed: 1 }],
       {
-        commandProtocol: NATIVE_V6_PROTOCOL,
+        commandProtocol: NATIVE_CURRENT_PROTOCOL,
         replayBootstrap: bootstrap,
       } as never,
     )
@@ -600,14 +613,14 @@ describe('deterministic command replay', () => {
 
   it.each([
     {
-      commandProtocol: NATIVE_V6_PROTOCOL,
+      commandProtocol: NATIVE_CURRENT_PROTOCOL,
       replayBootstrap: { openingVersion: 2 as const, legacyReviewPrefixCount: 3 },
     },
     {
       commandProtocol: {
         segments: [
           { version: 1 as const, startsAtSequence: 1 },
-          { version: 6 as const, startsAtSequence: 2 },
+          { version: CURRENT_COMMAND_PROTOCOL_VERSION, startsAtSequence: 2 },
         ],
       },
       replayBootstrap: { openingVersion: 2 as const, legacyReviewPrefixCount: 0 },
@@ -623,7 +636,7 @@ describe('deterministic command replay', () => {
     })
   })
 
-  it('replays 1@1, 2@32, and 3@51 under original semantics before activating 6@52', () => {
+  it('replays 1@1, 2@32, and 3@51 under original semantics before activating 7@52', () => {
     const legacy = decodeSave(legacyV1TransferSave)
     expect(legacy.ok).toBe(true)
     if (!legacy.ok) return
@@ -647,7 +660,7 @@ describe('deterministic command replay', () => {
         { version: 1, startsAtSequence: 1 },
         { version: 2, startsAtSequence: 32 },
         { version: 3, startsAtSequence: 51 },
-        { version: 6, startsAtSequence: 52 },
+        { version: 7, startsAtSequence: 52 },
       ],
     }
 
@@ -714,7 +727,7 @@ describe('deterministic command replay', () => {
     expect(prematureV3.state.reviews).not.toEqual(expected.reviews)
     expected = activateSegment(expected, 3)
     expected = applyAccepted(expected, v3Command, 3)
-    expected = activateSegment(expected, 6)
+    expected = activateSegment(expected, CURRENT_COMMAND_PROTOCOL_VERSION)
 
     const replay = replayCommands(
       legacy.envelope.campaignSeed,
@@ -761,7 +774,7 @@ describe('deterministic command replay', () => {
     expect(replay.state.commandLog).toEqual(expected.commandLog)
   })
 
-  it('activates an empty final v6 segment after replaying the v2 history', () => {
+  it('activates an empty final v7 segment after replaying the v2 history', () => {
     const commands = [
       { type: 'SET_SPEED', speed: 1 },
       { type: 'SET_SPEED', speed: 0 },
@@ -831,7 +844,7 @@ describe('deterministic command replay', () => {
     const replay = replayCommands(
       'malformed-command-replay',
       [malformed],
-      NATIVE_V6_REPLAY,
+      NATIVE_CURRENT_REPLAY,
     )
 
     expect(replay).toMatchObject({
@@ -852,7 +865,7 @@ describe('deterministic command replay', () => {
     const replay = replayCommands(
       'valid-ending-command-shape',
       [command],
-      NATIVE_V6_REPLAY,
+      NATIVE_CURRENT_REPLAY,
     )
 
     expect(replay).toMatchObject({

@@ -348,9 +348,9 @@ describe('GameProvider', () => {
     )
 
     expect(screen.getByLabelText('clipboard protocol version')).toHaveTextContent(
-      '6',
+      '7',
     )
-    expect(screen.getByLabelText('file protocol version')).toHaveTextContent('6')
+    expect(screen.getByLabelText('file protocol version')).toHaveTextContent('7')
   })
 
   it('applies a matching tab resume marker and persists it before clearing the hint', async () => {

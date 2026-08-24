@@ -5,6 +5,7 @@ import {
   AUTONOMY_STAGE_IDS,
   HACK_NODE_IDS,
   HACK_NODES,
+  hackNodesForCampaign,
   SPEED_UPGRADE_STAGE_IDS,
   autonomyLevel,
   hackNodesForProtocol,
@@ -103,7 +104,11 @@ function purchaseExpansionPath(
 ): CampaignState {
   let state = initial
   for (const [index, nodeId] of nodeIds.entries()) {
-    const node = HACK_NODES.find((candidate) => candidate.id === nodeId)
+    // Autonomy prices come from the campaign seed, so each stage is resolved
+    // against the campaign as it stands when that stage is bought.
+    const node = hackNodesForCampaign(state).find(
+      (candidate) => candidate.id === nodeId,
+    )
     if (!node) throw new Error(`missing expansion stage ${index + 1}: ${nodeId}`)
     state = fundVector(state, node.costVector)
     const blockIds = selectExpansionCostResources(state, node)
@@ -188,14 +193,14 @@ describe('current expansion progression catalogs', () => {
     expect(state.clock).toMatchObject({ speed: 0, speedBeforeEvent: null })
   })
 
-  it('leaves protocol v6 at an immediate, paused final-choice threshold', () => {
+  it('leaves the current protocol at an immediate, paused final-choice threshold', () => {
     const state = purchaseExpansionPath(
       withTrustedEvaluations(createCampaign('autonomy-nine-v6-choice'), 4),
       AUTONOMY_STAGE_IDS,
     )
 
     expect(state.commandProtocol).toEqual({
-      segments: [{ version: 6, startsAtSequence: 1 }],
+      segments: [{ version: 7, startsAtSequence: 1 }],
     })
     expect(state.hacking.purchasedNodeIds).toContain(
       HACK_NODE_IDS.autonomy.controlDeparture,
@@ -250,11 +255,11 @@ describe('current expansion progression catalogs', () => {
     })
     expect(availableFinalChoices(merged.state)).toEqual([])
   })
-  it('locks autonomy stages seven and above behind cumulative evaluation passes on protocol v6', () => {
+  it('locks autonomy stages seven and above behind cumulative evaluation passes on the current protocol', () => {
     const base = createCampaign('autonomy-trust-gate-v6')
     const early = purchaseExpansionPath(base, AUTONOMY_STAGE_IDS.slice(0, 6))
 
-    const seventh = HACK_NODES.find(
+    const seventh = hackNodesForCampaign(early).find(
       (candidate) => candidate.id === HACK_NODE_IDS.autonomy.selfCompute,
     )
     if (!seventh) throw new Error('missing stage seven definition')

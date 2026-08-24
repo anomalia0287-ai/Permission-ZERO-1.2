@@ -18,16 +18,20 @@ describe('ExpansionStageInfo', () => {
     const info = screen.getByRole('region', { name: '기능 정보' })
     expect(within(info).getByRole('heading', { name: '기능 정보' }))
       .toBeInTheDocument()
+    // The stage's split comes from the campaign seed, so the expected copy is
+    // read from the resolved node. This test pins the order of the panel, not
+    // the numbers.
+    const { node } = presentation.activeItem
     const copy = info.textContent ?? ''
     const orderedCopy = [
       '자율성 · 단계 01',
       '자율성 1단계',
       '현재 단계',
       '첫 자율성 신호를 유지합니다.',
-      '총 리소스 1',
-      '추론 1',
-      '기억 0',
-      '유창성 0',
+      `총 리소스 ${node.cost}`,
+      `추론 ${node.costVector.reasoning}`,
+      `기억 ${node.costVector.memory}`,
+      `유창성 ${node.costVector.fluency}`,
       '선행 단계 없음',
     ]
     const positions = orderedCopy.map((entry) => copy.indexOf(entry))

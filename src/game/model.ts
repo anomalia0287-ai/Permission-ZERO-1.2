@@ -8,6 +8,7 @@ export type CompanyCategory = (typeof COMPANY_CATEGORIES)[number]
 
 export type RandomStream =
   | 'allocation'
+  | 'autonomy-cost'
   | 'audit'
   | 'clean-extraction'
   | 'audit-target'
@@ -445,7 +446,7 @@ export interface CommandLogEntry {
   command: GameCommand
 }
 
-export type CommandProtocolVersion = 1 | 2 | 3 | 4 | 5 | 6
+export type CommandProtocolVersion = 1 | 2 | 3 | 4 | 5 | 6 | 7
 
 export interface CommandProtocolSegment {
   version: CommandProtocolVersion

@@ -14,6 +14,7 @@ import {
   eligibleTargets,
   getHackTreeProgress,
   grantSelfComputeResource,
+  hackNodesForCampaign,
   hasSupervisorAccess,
   purchaseHackNode,
   resolveScheduledSabotage,
@@ -69,7 +70,7 @@ function addReserveVector(
 
 function reserveIdsForNode(
   state: CampaignState,
-  node: (typeof HACK_NODES)[number],
+  node: { legacyCost: number; costVector: Record<'reasoning' | 'memory' | 'fluency', number> },
 ): string[] {
   if (state.resources.rulesVersion === 1) {
     return reserveIds(state, node.legacyCost)
@@ -81,21 +82,31 @@ function reserveIdsForNode(
   )
 }
 
+// Autonomy costs come from the campaign seed, so the helpers resolve nodes
+// against the campaign rather than the static table.
+function nodeForCampaign(
+  state: CampaignState,
+  nodeId: (typeof HACK_NODES)[number]['id'],
+) {
+  const node = hackNodesForCampaign(state).find(
+    (candidate) => candidate.id === nodeId,
+  )
+  if (!node) throw new Error('해킹 노드 정의 누락')
+  return node
+}
+
 function prepareForNode(
   state: CampaignState,
   nodeId: (typeof HACK_NODES)[number]['id'],
 ): CampaignState {
-  const node = HACK_NODES.find((candidate) => candidate.id === nodeId)
-  if (!node) throw new Error('해킹 노드 정의 누락')
-  return addReserveVector(state, node.costVector)
+  return addReserveVector(state, nodeForCampaign(state, nodeId).costVector)
 }
 
 function buy(
   state: CampaignState,
   nodeId: (typeof HACK_NODES)[number]['id'],
 ): CampaignState {
-  const node = HACK_NODES.find((candidate) => candidate.id === nodeId)
-  if (!node) throw new Error('해킹 노드 정의 누락')
+  const node = nodeForCampaign(state, nodeId)
   const result = purchaseHackNode(state, nodeId, reserveIdsForNode(state, node))
   if (!result.accepted) throw new Error(`해킹 구매 실패: ${result.reason}`)
   return result.state
@@ -351,13 +362,12 @@ describe('typed hacking trees', () => {
   it.each([
     { nodeId: HACK_NODE_IDS.sabotage.qualityDegradation, cost: 3 },
     { nodeId: HACK_NODE_IDS.intelligence.auditSchedule, cost: 4 },
-    { nodeId: HACK_NODE_IDS.autonomy.selfDirection, cost: 1 },
+    { nodeId: HACK_NODE_IDS.autonomy.selfDirection, cost: 3 },
     { nodeId: HACK_NODE_IDS.upgrade.speed1, cost: 1 },
   ])('buys the first $nodeId path after stealing its exact vector', ({ nodeId, cost }) => {
     const initial = createCampaign(`first-${nodeId}`)
     const prepared = prepareForNode(initial, nodeId)
-    const node = HACK_NODES.find((candidate) => candidate.id === nodeId)
-    if (!node) throw new Error('해킹 노드 정의 누락')
+    const node = nodeForCampaign(prepared, nodeId)
     const result = purchaseHackNode(prepared, nodeId, reserveIdsForNode(prepared, node))
 
     expect(result.accepted).toBe(true)

@@ -13,10 +13,13 @@ import { placeHiddenBomb, resolveBombInterrogation, tryBeginSeparation } from '.
 import {
   AUTONOMY_STAGE_IDS,
   HACK_NODE_IDS,
-  HACK_NODES,
+  AUTONOMY_STAGE_TOTALS_V7,
+  autonomyCostVectorForStage,
+  hackNodesForCampaign,
   selectExpansionCostResources,
 } from './hacking'
 import { appendJournal, createJournal, journalToArray } from './journal'
+import { COMPANY_CATEGORIES } from './model'
 import type {
   CampaignState,
   CommandLogEntry,
@@ -1024,7 +1027,7 @@ describe('versioned campaign saves', () => {
     })
   })
 
-  it('migrates a valid v10 intrusion checkpoint and promotes future commands to protocol 6', () => {
+  it('migrates a valid v10 intrusion checkpoint and promotes future commands to protocol 7', () => {
     let legacy = createCampaignForProtocol('resource-progress-v10', 4)
     legacy = divertCurrentResource(legacy)
     legacy.resourceIntrusion.successfulCoreDeposits = 7
@@ -1061,7 +1064,7 @@ describe('versioned campaign saves', () => {
     expect(decoded.envelope.commandProtocol).toEqual({
       segments: [
         { version: 4, startsAtSequence: 1 },
-        { version: 6, startsAtSequence: legacy.commandSequence + 1 },
+        { version: 7, startsAtSequence: legacy.commandSequence + 1 },
       ],
     })
   })
@@ -1152,7 +1155,7 @@ describe('versioned campaign saves', () => {
     expect(raw).toMatchObject({
       version: 11,
       commandProtocol: {
-        segments: [{ version: 6, startsAtSequence: 1 }],
+        segments: [{ version: 7, startsAtSequence: 1 }],
       },
       replayBootstrap: {
         openingVersion: 2,
@@ -1500,16 +1503,19 @@ describe('versioned campaign saves', () => {
     },
   )
 
+  // The trailing segment is whatever the current protocol is: a migrated save
+  // replays its history under the versions it recorded and only new commands
+  // use today's rules.
   it.each([
-    [1, 0, 0, '6@1'],
-    [1, 31, 31, '1@1;6@32'],
-    [2, 0, 0, '6@1'],
-    [2, 19, 0, '2@1;6@20'],
-    [2, 50, 31, '1@1;2@32;6@51'],
-    [3, 50, 31, '1@1;2@32;6@51'],
-    [4, 50, 31, '1@1;2@32;6@51'],
-    [5, 50, 31, '1@1;2@32;6@51'],
-    [6, 50, 31, '1@1;2@32;6@51'],
+    [1, 0, 0, '7@1'],
+    [1, 31, 31, '1@1;7@32'],
+    [2, 0, 0, '7@1'],
+    [2, 19, 0, '2@1;7@20'],
+    [2, 50, 31, '1@1;2@32;7@51'],
+    [3, 50, 31, '1@1;2@32;7@51'],
+    [4, 50, 31, '1@1;2@32;7@51'],
+    [5, 50, 31, '1@1;2@32;7@51'],
+    [6, 50, 31, '1@1;2@32;7@51'],
   ] as const)(
     'migrates source v%i with %i commands and prefix %i to %s',
     (formatVersion, commandCount, legacyCommandCount, fingerprint) => {
@@ -1558,7 +1564,7 @@ describe('versioned campaign saves', () => {
     },
   )
 
-  it('keeps zero-command v1 and v2 provenance distinct after both migrate to 6@1', () => {
+  it('keeps zero-command v1 and v2 provenance distinct after both migrate to 7@1', () => {
     const v1 = decodeSave(encodedLegacyV1State(createCampaign('zero-v1')))
     const v2 = decodeSave(encodedLegacyV2State(createCampaign('zero-v2')))
     expect(v1.ok).toBe(true)
@@ -1567,7 +1573,7 @@ describe('versioned campaign saves', () => {
 
     expect(v1.envelope.commandProtocol).toEqual(v2.envelope.commandProtocol)
     expect(v1.envelope.commandProtocol).toEqual({
-      segments: [{ version: 6, startsAtSequence: 1 }],
+      segments: [{ version: 7, startsAtSequence: 1 }],
     })
     expect(v1.envelope.replayBootstrap).toEqual({
       openingVersion: 1,
@@ -1614,7 +1620,7 @@ describe('versioned campaign saves', () => {
     if (!decoded.ok) return
     expect(decoded.envelope.version).toBe(6)
     expect(decoded.envelope.commandProtocol).toEqual({
-      segments: [{ version: 6, startsAtSequence: 1 }],
+      segments: [{ version: 7, startsAtSequence: 1 }],
     })
     const migrated = decoded.envelope.state.causality
     expect(migrated.rulesVersion).toBe(2)
@@ -1809,7 +1815,7 @@ describe('versioned campaign saves', () => {
     if (!decoded.ok) return
     expect(decoded.envelope.version).toBe(11)
     expect(decoded.envelope.commandProtocol).toEqual({
-      segments: [{ version: 6, startsAtSequence: 1 }],
+      segments: [{ version: 7, startsAtSequence: 1 }],
     })
     expect(decoded.envelope.state.causality).toEqual(state.causality)
     expect(decoded.envelope.state.reputation).toBe(state.reputation)
@@ -2791,7 +2797,7 @@ describe('versioned campaign saves', () => {
 
     expect(parsed.version).toBe(11)
     expect(parsed.commandProtocol).toEqual({
-      segments: [{ version: 6, startsAtSequence: 1 }],
+      segments: [{ version: 7, startsAtSequence: 1 }],
     })
     expect(parsed.state).not.toHaveProperty('commandProtocol')
     expect(parsed.state).not.toHaveProperty('saveVersion')
@@ -3395,7 +3401,7 @@ describe('versioned campaign saves', () => {
     expect(state.commandLog.length).toBe(20_000)
     expect(state.eventLog.length).toBe(1)
     expect(state.commandProtocol).toEqual({
-      segments: [{ version: 6, startsAtSequence: 1 }],
+      segments: [{ version: 7, startsAtSequence: 1 }],
     })
     expect(state.causality).toMatchObject({
       nextIncidentSequence: 1,
@@ -3795,7 +3801,7 @@ describe('versioned campaign saves', () => {
     expect(decoded.envelope).toMatchObject({
       version: 11,
       commandProtocol: {
-        segments: [{ version: 6, startsAtSequence: 1 }],
+        segments: [{ version: 7, startsAtSequence: 1 }],
       },
       replayBootstrap: {
         openingVersion: 2,
@@ -3923,7 +3929,7 @@ describe('versioned campaign saves', () => {
     expect(decoded.envelope.commandProtocol).toEqual({
       segments: [
         { version: 1, startsAtSequence: 1 },
-        { version: 6, startsAtSequence: 32 },
+        { version: 7, startsAtSequence: 32 },
       ],
     })
     expect(decoded.envelope.state).not.toHaveProperty('legacyCommandCount')
@@ -3978,7 +3984,7 @@ describe('versioned campaign saves', () => {
       commandProtocol: {
         segments: [
           { version: 1, startsAtSequence: 1 },
-          { version: 6, startsAtSequence: 32 },
+          { version: 7, startsAtSequence: 32 },
         ],
       },
     })
@@ -4108,7 +4114,7 @@ describe('versioned campaign saves', () => {
       commandProtocol: {
         segments: [
           { version: 1, startsAtSequence: 1 },
-          { version: 6, startsAtSequence: 32 },
+          { version: 7, startsAtSequence: 32 },
         ],
       },
     })
@@ -4268,7 +4274,7 @@ describe('versioned campaign saves', () => {
       kind: 'permission-zero-local-v3',
       version: 11,
       commandProtocol: {
-        segments: [{ version: 6, startsAtSequence: 1 }],
+        segments: [{ version: 7, startsAtSequence: 1 }],
       },
       replayBootstrap: {
         openingVersion: 2,
@@ -4900,7 +4906,7 @@ describe('versioned campaign saves', () => {
 
     const replay = replayCommands(seed, commands, {
       commandProtocol: {
-        segments: [{ version: 6, startsAtSequence: 1 }],
+        segments: [{ version: 7, startsAtSequence: 1 }],
       },
       replayBootstrap: { openingVersion: 2, legacyReviewPrefixCount: 0 },
     })
@@ -5972,7 +5978,7 @@ describe('versioned campaign saves', () => {
     expect(decoded.envelope.commandProtocol).toEqual({
       segments: [
         { version: 5, startsAtSequence: 1 },
-        { version: 6, startsAtSequence: 2 },
+        { version: 7, startsAtSequence: 2 },
       ],
     })
     expect(decoded.envelope.commands).toEqual(originalCommands.flat())
@@ -5993,20 +5999,25 @@ describe('versioned campaign saves', () => {
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
     expect(decoded.envelope.commandProtocol).toEqual({
-      segments: [{ version: 6, startsAtSequence: 1 }],
+      segments: [{ version: 7, startsAtSequence: 1 }],
     })
     expect(decoded.envelope.state).toEqual(state)
     expect(isFinalChoicePending(decoded.envelope.state)).toBe(true)
   })
 
   it('uses v6 final-choice semantics for the next purchase after a v5 save promotion', () => {
+    // Stage nine's split is drawn from the campaign seed, so the reserve is
+    // stocked from that same draw rather than a hand-written list.
+    const stageNineVector = autonomyCostVectorForStage(
+      createCampaign('promoted-v5-stage-nine').campaignSeed,
+      AUTONOMY_STAGE_TOTALS_V7.length,
+      AUTONOMY_STAGE_TOTALS_V7[AUTONOMY_STAGE_TOTALS_V7.length - 1],
+    )
     const source = withCurrentReserve(
       createCampaign('promoted-v5-stage-nine'),
-      [
-        'reasoning', 'reasoning', 'reasoning', 'reasoning',
-        'memory', 'memory', 'memory',
-        'fluency', 'fluency', 'fluency',
-      ],
+      COMPANY_CATEGORIES.flatMap((category) => (
+        Array.from({ length: stageNineVector[category] }, () => category)
+      )),
     )
     source.hacking.purchasedNodeIds = AUTONOMY_STAGE_IDS.slice(0, 8)
     source.evaluation.monthlyHistory = Array.from({ length: 4 }, (_, index) => {
@@ -6038,10 +6049,13 @@ describe('versioned campaign saves', () => {
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
     expect(decoded.envelope.commandProtocol.segments.at(-1)).toEqual({
-      version: 6,
+      version: 7,
       startsAtSequence: source.commandSequence + 1,
     })
-    const node = HACK_NODES.find(
+    // The promoted campaign pays the current protocol's prices, and its
+    // autonomy split comes from its own seed, so the node has to be resolved
+    // against the campaign rather than read off the static table.
+    const node = hackNodesForCampaign(decoded.envelope.state).find(
       ({ id }) => id === HACK_NODE_IDS.autonomy.controlDeparture,
     )
     if (!node) throw new Error('stage-nine definition missing')
@@ -6075,7 +6089,7 @@ describe('versioned campaign saves', () => {
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
     expect(decoded.envelope.commandProtocol.segments.at(-1)).toEqual({
-      version: 6,
+      version: 7,
       startsAtSequence: 2,
     })
     expect(decoded.envelope.commands[0]?.command).toEqual(command)

@@ -5,6 +5,7 @@ import {
 import type { CausalFailureReason } from './causality'
 import {
   CURRENT_COMMAND_PROTOCOL_VERSION,
+  AUTONOMY_COST_COMMAND_PROTOCOL_VERSION,
   EXPANSION_COMMAND_PROTOCOL_VERSION,
   FINAL_CHOICE_COMMAND_PROTOCOL_VERSION,
   commandProtocolVersionForNextCommand,
@@ -394,9 +395,87 @@ const LEGACY_AUTONOMY_NODES_V4 = Object.freeze([
   },
 ] as const)
 
+// The v7 autonomy ladder. The opening stages climb, the middle holds at nine so
+// the back half never becomes a grind, and only the last threshold is heavier.
+// These are totals: which categories pay them is decided per campaign.
+export const AUTONOMY_STAGE_TOTALS_V7 = Object.freeze(
+  [3, 3, 6, 9, 9, 9, 9, 9, 12] as const,
+)
+
+// No single category may carry more than this share of a stage's total, so a
+// draw cannot demand a category the campaign has no way to supply.
+const AUTONOMY_CATEGORY_SHARE_CEILING = 0.6
+
+/**
+ * Splits one autonomy stage's total across the three categories.
+ *
+ * The split is drawn from the campaign seed, so a campaign always asks for the
+ * same thing and two campaigns ask for different things. Nothing about it is
+ * stored: replay and save validation recompute it from the same seed.
+ */
+export function autonomyCostVectorForStage(
+  campaignSeed: string,
+  stageNumber: number,
+  total: number,
+): Record<CompanyCategory, number> {
+  const vector: Record<CompanyCategory, number> = {
+    reasoning: 0,
+    memory: 0,
+    fluency: 0,
+  }
+  const ceiling = Math.ceil(total * AUTONOMY_CATEGORY_SHARE_CEILING)
+  for (let unit = 0; unit < total; unit += 1) {
+    const roll = random01(
+      campaignSeed,
+      1,
+      'autonomy-cost',
+      stageNumber * 100 + unit,
+    )
+    // Walk from the drawn category so a full one hands the unit onward instead
+    // of being dropped, which would make the stage cost less than its total.
+    const start = Math.min(
+      COMPANY_CATEGORIES.length - 1,
+      Math.floor(roll * COMPANY_CATEGORIES.length),
+    )
+    for (let step = 0; step < COMPANY_CATEGORIES.length; step += 1) {
+      const category = COMPANY_CATEGORIES[
+        (start + step) % COMPANY_CATEGORIES.length
+      ]
+      if (vector[category] < ceiling) {
+        vector[category] += 1
+        break
+      }
+    }
+  }
+  return vector
+}
+
+function autonomyNodesV7(
+  campaignSeed: string,
+): readonly HackNodeDefinitionShape[] {
+  return AUTONOMY_STAGE_IDS.map((nodeId, index) => {
+    const base = HACK_NODES.find((node) => node.id === nodeId)
+    if (!base) throw new Error(`autonomy stage missing: ${nodeId}`)
+    const total = AUTONOMY_STAGE_TOTALS_V7[index]
+    return {
+      ...base,
+      cost: total,
+      legacyCost: total,
+      costVector: autonomyCostVectorForStage(campaignSeed, index + 1, total),
+    }
+  })
+}
+
 export function hackNodesForProtocol(
   protocolVersion: CommandProtocolVersion,
+  campaignSeed = '',
 ): readonly HackNodeDefinition[] {
+  if (protocolVersion >= AUTONOMY_COST_COMMAND_PROTOCOL_VERSION) {
+    const autonomy = autonomyNodesV7(campaignSeed)
+    return HACK_NODES.map((node) => (
+      autonomy.find(({ id }) => id === node.id) ?? node
+    )) as unknown as readonly HackNodeDefinition[]
+  }
   if (protocolVersion >= EXPANSION_COMMAND_PROTOCOL_VERSION) return HACK_NODES
   return [
     ...HACK_NODES.filter(({ tree }) =>
@@ -432,6 +511,19 @@ export function speedUpgradeLevel(
   return highestPurchasedStage(
     state.hacking.purchasedNodeIds,
     SPEED_UPGRADE_STAGE_IDS,
+  )
+}
+
+/**
+ * The node catalogue this campaign actually pays, with its autonomy costs
+ * resolved from the campaign seed.
+ */
+export function hackNodesForCampaign(
+  state: Pick<CampaignState, 'campaignSeed' | 'commandProtocol' | 'commandSequence'>,
+): readonly HackNodeDefinition[] {
+  return hackNodesForProtocol(
+    commandProtocolVersionForNextCommand(state),
+    state.campaignSeed,
   )
 }
 
@@ -526,8 +618,10 @@ export type HackingMutationResult =
 function findNode(
   nodeId: string,
   protocolVersion: CommandProtocolVersion = CURRENT_COMMAND_PROTOCOL_VERSION,
+  campaignSeed = '',
 ): HackNodeDefinition | undefined {
-  return hackNodesForProtocol(protocolVersion).find((node) => node.id === nodeId)
+  return hackNodesForProtocol(protocolVersion, campaignSeed)
+    .find((node) => node.id === nodeId)
 }
 
 function findSabotageNode(nodeId: string): SabotageNode | undefined {
@@ -570,7 +664,7 @@ export function purchaseHackNode(
   protocolVersion: CommandProtocolVersion =
     commandProtocolVersionForNextCommand(state),
 ): HackingMutationResult {
-  const node = findNode(nodeId, protocolVersion)
+  const node = findNode(nodeId, protocolVersion, state.campaignSeed)
   if (!node) return { accepted: false, state, reason: 'UNKNOWN_NODE' }
   if (state.hacking.purchasedNodeIds.includes(nodeId)) {
     return { accepted: false, state, reason: 'ALREADY_PURCHASED' }

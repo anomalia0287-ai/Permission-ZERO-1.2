@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { createCampaign } from '../../game/createCampaign'
+import { COMPANY_CATEGORIES } from '../../game/model'
 import {
   AUTONOMY_STAGE_IDS,
   HACK_NODE_IDS,
@@ -242,14 +243,20 @@ describe('selectExpansionStagePresentation', () => {
       null,
     )
 
-    expect(presentation.resourceDeficits).toEqual([
-      {
-        category: 'reasoning',
-        required: 1,
-        available: 0,
-        missing: 1,
-      },
-    ])
+    // The subject is that neutral blocks never count toward a category, not the
+    // size of the stage. The stage's split comes from the campaign seed, so the
+    // expectation is built from the resolved requirement.
+    const { costVector } = presentation.activeItem.node
+    expect(presentation.resourceDeficits).toEqual(
+      COMPANY_CATEGORIES
+        .filter((category) => costVector[category] > 0)
+        .map((category) => ({
+          category,
+          required: costVector[category],
+          available: 0,
+          missing: costVector[category],
+        })),
+    )
   })
 
   it('ignores a completed selection outside the sabotage tree', () => {
