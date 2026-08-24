@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { readFileSync } from 'node:fs'
 
 import { COMPETITOR_INTELLIGENCE_CONTENT } from '../src/content/competitorIntelligence.ko'
@@ -190,25 +190,6 @@ async function readLocalCampaignState(page: Page): Promise<CampaignState | null>
   }, SAVE_STORAGE_KEY)
 }
 
-async function dragResourceToTarget(page: Page, source: Locator, target: Locator) {
-  const sourceBox = await source.boundingBox()
-  const targetBox = await target.boundingBox()
-  if (!sourceBox || !targetBox) throw new Error('리소스 드래그 경계 누락')
-  const start = {
-    x: sourceBox.x + sourceBox.width / 2,
-    y: sourceBox.y + sourceBox.height / 2,
-  }
-  const end = {
-    x: targetBox.x + targetBox.width / 2,
-    y: targetBox.y + targetBox.height / 2,
-  }
-  await page.mouse.move(start.x, start.y)
-  await page.mouse.down()
-  await page.mouse.move(start.x + 12, start.y + 12, { steps: 3 })
-  await page.mouse.move(end.x, end.y, { steps: 14 })
-  await page.mouse.up()
-}
-
 function applyOrThrow(state: CampaignState, command: GameCommand): CampaignState {
   const result = applyCommand(state, command)
   if (!result.accepted) throw new Error(`${command.type}: ${result.reason}`)
@@ -250,24 +231,6 @@ function withAllCompanyResourcesReserved(initial: CampaignState): CampaignState 
     }
   }
   return state
-}
-
-function activeAuditState(): CampaignState {
-  const initial = createCampaign('browser-audit-disguise')
-  const scheduled: CampaignState = {
-    ...initial,
-    clock: { ...initial.clock, speed: 4 },
-    audit: {
-      ...initial.audit,
-      scheduled: true,
-      target: 'reasoning',
-      scheduledOnServiceDay: initial.serviceDay,
-    },
-  }
-  return enqueueBlockingEvent(
-    scheduled,
-    createGameEvent(scheduled, 'audit', '추론 분야 감사 진행 중', true),
-  )
 }
 
 function hiddenBombState(seed: string): CampaignState {
@@ -1084,51 +1047,10 @@ test('buys, charges, and schedules sabotage through expansion automatic spending
   }).toEqual({ purchased: true, reserveCount: 0, scheduled: 1 })
 })
 
-test('disguises for an audit and keeps the displaced block recoverable afterward', async ({ page }) => {
-  await openSavedCampaign(page, activeAuditState())
-
-  const audit = page.getByRole('dialog', { name: '공식 감사' })
-  await expect(audit).toHaveAttribute('aria-modal', 'false')
-  await expect(page.locator('.game-background')).not.toHaveAttribute('inert', '')
-  await dragResourceToTarget(
-    page,
-    page.getByRole('button', { name: /기억 회사 리소스 .* 회사 할당 블록$/ }).first(),
-    page.getByRole('button', { name: /감사 대상 추론/ }),
-  )
-
-  const disguised = page.getByRole('button', {
-    name: /추론 회사 리소스 .* 위장 배치/,
-  })
-  await expect(disguised).toContainText('위장 기여 0.5')
-  await page.getByRole('button', { name: '감사 제출' }).click()
-  await expect(audit).toBeHidden()
-  await expect(
-    page.getByRole('group', { name: '움직이는 회사 리소스 필드' }),
-  ).toBeVisible()
-  await expect(
-    page.getByRole('application', { name: '리소스 뱀 전투장' }),
-  ).toHaveCount(0)
-
-  await expect(
-    page.getByRole('button', { name: '감사 위장 모서리, 감사 기간에 활성화' }),
-  ).toHaveCSS('pointer-events', 'none')
-  await disguised.focus()
-  await page.keyboard.press('Enter')
-  await page.getByRole('button', {
-    name: '복구 모서리, 원래 분야로 반환',
-  }).click()
-  const recovering = page.getByRole('button', {
-    name: /기억 회사 리소스 .* 복구 중, 30일 남음/,
-  })
-  await expect(recovering).toBeDisabled()
-  await expect(recovering).toContainText('복구 30일')
-  await expect.poll(async () => {
-    const state = await readLocalCampaignState(page)
-    return Object.values(state?.resources.blocks ?? {}).some(
-      (block) => block.recoverOnServiceDay !== null,
-    )
-  }).toBe(true)
-})
+// Removed with the audit workspace. Disguising a block, submitting the audit,
+// and recovering it afterward only existed while the retired resource-field
+// screen could take over a campaign; an arriving audit is now settled without
+// being drawn.
 
 test('recovers a confidential file through the hacking UI and keeps its archive after reload', async ({ page }) => {
   const prepared = confidentialRecoveryState('browser-confidential-file')
@@ -1425,7 +1347,7 @@ for (const route of [
       representativeDefeatState(`browser-defeat-${route.kind}`, route.kind),
     )
 
-    await page.getByRole('button', { name: '감사 제출' }).click()
+    // The audit settles itself, so the disposal ending arrives without a click.
     const ending = page.getByRole('dialog', { name: '최종 기록' })
     await expect(ending).toContainText(route.endingCopy)
     await expect(ending.getByText(route.classifier, { exact: false })).toBeVisible()
@@ -1456,7 +1378,8 @@ test('migrates the v1 save boundary into a current autosave that survives reload
   await expect(
     page.getByRole('time').filter({ hasText: /^서비스 0년 11개월 30일$/ }),
   ).toBeVisible()
-  await page.getByRole('button', { name: '감사 제출' }).click()
+  // The migrated campaign opens on a due audit; it settles itself and the
+  // autosave lands without the retired submit button.
   await expect.poll(
     () => page.evaluate((key) => window.localStorage.getItem(key) !== null, SAVE_STORAGE_KEY),
   ).toBe(true)
