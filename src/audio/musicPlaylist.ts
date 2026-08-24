@@ -7,6 +7,9 @@ export const TITLE_MUSIC_URL = publicAssetUrl('/music/emmraan-between-worlds-282
 
 export const MAIN_MUSIC_PLAYLIST_URLS = [
   publicAssetUrl('/music/kulakovka-space-283176.mp3'),
+  publicAssetUrl('/music/emmraan-action-motivational-dance-518726.mp3'),
+  publicAssetUrl('/music/emmraan-ready-to-run-energetic-motivational-business-corporate-373304.mp3'),
+  publicAssetUrl('/music/emmraan-in-the-moment-energetic-sport-electro-502551.mp3'),
 ] as const
 
 export const MUSIC_PLAYLIST_URLS = [

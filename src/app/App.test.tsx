@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { CURRENT_COMMAND_PROTOCOL_VERSION } from '../game/commandProtocol'
 import { createCampaign } from '../game/createCampaign'
 import { SAVE_STORAGE_KEY, encodeSave } from '../game/persistence'
 import { moveDisguiseBlock } from '../game/resources'
@@ -60,7 +61,7 @@ function campaignWithUnreadSupervisorMessage(seed: string) {
         reasons: ['주간 갱신'],
       }],
     },
-  })
+  }, CURRENT_COMMAND_PROTOCOL_VERSION)
 }
 
 function campaignWithDisguisedResource(seed: string) {

@@ -72,6 +72,9 @@ describe('MusicPlaylistController', () => {
     expect(MUSIC_PLAYLIST_URLS).toEqual([
       '/music/emmraan-between-worlds-282922.mp3',
       '/music/kulakovka-space-283176.mp3',
+      '/music/emmraan-action-motivational-dance-518726.mp3',
+      '/music/emmraan-ready-to-run-energetic-motivational-business-corporate-373304.mp3',
+      '/music/emmraan-in-the-moment-energetic-sport-electro-502551.mp3',
     ])
     expect(MAIN_MUSIC_PLAYLIST_URLS).toEqual(MUSIC_PLAYLIST_URLS.slice(1))
     expect(audio.preload).toBe('auto')
@@ -113,31 +116,27 @@ describe('MusicPlaylistController', () => {
     })
   })
 
-  it('repeats the single main track indefinitely after the title track', async () => {
+  it('cycles the main tracks in order and never returns to the title', async () => {
     const { audio, controller } = createHarness()
     controller.setMainEntered(true)
     await controller.unlock()
     expect(audio.src).toBe(TITLE_MUSIC_URL)
 
-    audio.emit('ended')
-    await vi.advanceTimersByTimeAsync(MUSIC_TRACK_GAP_MS)
-    expect(audio.src).toBe(MAIN_MUSIC_PLAYLIST_URLS[0])
-    expect(controller.getStatus()).toMatchObject({ trackIndex: 1, inGap: false })
-
-    for (let repeat = 0; repeat < 4; repeat += 1) {
+    // Two full passes over the main rotation: 1..N then back to 1, with the
+    // gap observed between every pair and the title never revisited.
+    const rotation = [1, 2, 3, 4, 1, 2, 3, 4]
+    for (const expectedIndex of rotation) {
       audio.emit('ended')
-      expect(controller.getStatus()).toMatchObject({ trackIndex: 1, inGap: true })
-
+      expect(controller.getStatus()).toMatchObject({ inGap: true })
       await vi.advanceTimersByTimeAsync(MUSIC_TRACK_GAP_MS)
-      expect(audio.src).toBe(MAIN_MUSIC_PLAYLIST_URLS[0])
+      expect(audio.src).toBe(MUSIC_PLAYLIST_URLS[expectedIndex])
       expect(controller.getStatus()).toMatchObject({
         availability: 'playing',
-        trackIndex: 1,
+        trackIndex: expectedIndex,
         inGap: false,
       })
+      expect(audio.src).not.toBe(TITLE_MUSIC_URL)
     }
-
-    expect(audio.src).not.toBe(TITLE_MUSIC_URL)
   })
 
   it('invokes the default browser timers with the global receiver', async () => {
@@ -278,7 +277,7 @@ describe('MusicPlaylistController', () => {
     controller.setMainEntered(true)
     await controller.unlock()
 
-    for (const expectedIndex of [1, 1, 1, 1]) {
+    for (const expectedIndex of [1, 2, 3, 4, 1]) {
       audio.emit('ended')
       await vi.advanceTimersByTimeAsync(MUSIC_TRACK_GAP_MS)
       expect(controller.getStatus().trackIndex).toBe(expectedIndex)

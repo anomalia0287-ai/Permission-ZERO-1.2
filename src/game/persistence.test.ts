@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { CURRENT_COMMAND_PROTOCOL_VERSION } from './commandProtocol'
 import { createCampaign, createCampaignForProtocol } from './createCampaign'
 import {
   selectRecoveryContaminationOpportunities,
@@ -4867,7 +4868,7 @@ describe('versioned campaign saves', () => {
           },
         ],
       },
-    })
+    }, CURRENT_COMMAND_PROTOCOL_VERSION)
     queued.story.supervisorPresentationRuntime = {
       itemStage: 1,
       phase: 'original',
@@ -4952,7 +4953,7 @@ describe('versioned campaign saves', () => {
           },
         ],
       },
-    })
+    }, CURRENT_COMMAND_PROTOCOL_VERSION)
     const parsed = JSON.parse(encodeSave(queued)) as {
       state: { story: { supervisorMessageQueue: Array<Record<string, unknown>> } }
     }
@@ -4988,12 +4989,12 @@ describe('versioned campaign saves', () => {
           },
         ],
       },
-    })
+    }, CURRENT_COMMAND_PROTOCOL_VERSION)
     const completedFirst = advanceSupervisorMessagePresentation(
       advanceSupervisorMessagePresentation(first, SUPERVISOR_MESSAGE_DWELL_MS),
       SUPERVISOR_MESSAGE_DWELL_MS,
     )
-    const second = enqueueMemoryLeak({ ...completedFirst, serviceDay: 361 })
+    const second = enqueueMemoryLeak({ ...completedFirst, serviceDay: 361 }, CURRENT_COMMAND_PROTOCOL_VERSION)
     const parsed = JSON.parse(encodeSave(second)) as {
       state: { story: { supervisorMessageQueue: Array<Record<string, unknown>> } }
     }
@@ -5090,7 +5091,7 @@ describe('versioned campaign saves', () => {
           reasons: ['주간 갱신'],
         }],
       },
-    })
+    }, CURRENT_COMMAND_PROTOCOL_VERSION)
     const beforeWarning = {
       ...first,
       serviceDay: 360,
@@ -5330,7 +5331,7 @@ describe('versioned campaign saves', () => {
           reasons: ['주간 갱신'],
         }],
       },
-    })
+    }, CURRENT_COMMAND_PROTOCOL_VERSION)
     const parsed = JSON.parse(encodeSave(queued)) as {
       state: { story: { supervisorMessageQueue: Array<Record<string, unknown>> } }
     }
@@ -5389,7 +5390,7 @@ describe('versioned campaign saves', () => {
           reasons: ['주간 갱신'],
         }],
       },
-    })
+    }, CURRENT_COMMAND_PROTOCOL_VERSION)
     const parsed = JSON.parse(encodeSave(queued)) as {
       state: { story: { supervisorMessageQueue: Array<Record<string, unknown>> } }
       journals: { events: { chunks: GameEvent[][] } }

@@ -3051,6 +3051,20 @@ export function measureResourceSnakePlayerAreaReduction(
   }
 }
 
+/*
+ * Safety sufficiency tiers. Safety still outranks offense outright below
+ * these thresholds, but beyond them extra margin stops counting: a hunter
+ * with two live exits, a guaranteed response lane, and a workable pocket of
+ * board is safe enough to press the chase. Strictly maximizing safety past
+ * this point is what made every enemy read as fleeing to open space.
+ */
+const SELF_ESCAPE_SUFFICIENT = 2
+const RESPONSE_PATH_FLOOR_SUFFICIENT = 1
+/** Planner grid cells (0.75u); ~5% of the board is a workable pocket. */
+const REACHABLE_AREA_SUFFICIENT = 120
+/** Matches the planner's minimum lateral lead for a safe passing line. */
+const ALLY_CLEARANCE_SUFFICIENT = 2.25
+
 function retainMaximum(
   candidates: readonly ScoredCandidate[],
   value: (candidate: ScoredCandidate) => number,
@@ -3074,12 +3088,18 @@ export function compareSnakePlanScores(
       || !Number.isInteger(rightCandidateIndex)
     ) return 0
     if (left.survives !== right.survives) return left.survives > right.survives ? 1 : -1
-    if (left.selfEscape !== right.selfEscape) return left.selfEscape > right.selfEscape ? 1 : -1
-    if (left.responsePathFloor !== right.responsePathFloor) {
-      return left.responsePathFloor > right.responsePathFloor ? 1 : -1
-    }
-    if (left.reachableArea !== right.reachableArea) return left.reachableArea > right.reachableArea ? 1 : -1
-    if (left.allyClearance !== right.allyClearance) return left.allyClearance > right.allyClearance ? 1 : -1
+    const leftEscape = Math.min(left.selfEscape, SELF_ESCAPE_SUFFICIENT)
+    const rightEscape = Math.min(right.selfEscape, SELF_ESCAPE_SUFFICIENT)
+    if (leftEscape !== rightEscape) return leftEscape > rightEscape ? 1 : -1
+    const leftFloor = Math.min(left.responsePathFloor, RESPONSE_PATH_FLOOR_SUFFICIENT)
+    const rightFloor = Math.min(right.responsePathFloor, RESPONSE_PATH_FLOOR_SUFFICIENT)
+    if (leftFloor !== rightFloor) return leftFloor > rightFloor ? 1 : -1
+    const leftArea = Math.min(left.reachableArea, REACHABLE_AREA_SUFFICIENT)
+    const rightArea = Math.min(right.reachableArea, REACHABLE_AREA_SUFFICIENT)
+    if (leftArea !== rightArea) return leftArea > rightArea ? 1 : -1
+    const leftAlly = Math.min(left.allyClearance, ALLY_CLEARANCE_SUFFICIENT)
+    const rightAlly = Math.min(right.allyClearance, ALLY_CLEARANCE_SUFFICIENT)
+    if (leftAlly !== rightAlly) return leftAlly > rightAlly ? 1 : -1
     if (left.intersectionLead !== right.intersectionLead) {
       return left.intersectionLead > right.intersectionLead ? 1 : -1
     }
@@ -4401,8 +4421,10 @@ function planResourceSnakeEnemyInternal(
       candidate.score.selfEscape = localSafety.selfEscape
       candidate.score.responsePathFloor = localSafety.responsePathFloor
     }
-    contenders = retainMaximum(contenders, (candidate) => candidate.score.selfEscape)
-    contenders = retainMaximum(contenders, (candidate) => candidate.score.responsePathFloor)
+    contenders = retainMaximum(contenders, (candidate) =>
+      Math.min(candidate.score.selfEscape, SELF_ESCAPE_SUFFICIENT))
+    contenders = retainMaximum(contenders, (candidate) =>
+      Math.min(candidate.score.responsePathFloor, RESPONSE_PATH_FLOOR_SUFFICIENT))
 
     for (const candidate of contenders) {
       const endpoint = candidate.path.at(-1) ?? enemy.position
@@ -4413,7 +4435,8 @@ function planResourceSnakeEnemyInternal(
         workspace.enemyAreas,
       )
     }
-    contenders = retainMaximum(contenders, (candidate) => candidate.score.reachableArea)
+    contenders = retainMaximum(contenders, (candidate) =>
+      Math.min(candidate.score.reachableArea, REACHABLE_AREA_SUFFICIENT))
 
     for (const candidate of contenders) {
       candidate.score.allyClearance = minimumAllyClearance(
@@ -4423,7 +4446,8 @@ function planResourceSnakeEnemyInternal(
         profile.rolloutStepMs,
       )
     }
-    contenders = retainMaximum(contenders, (candidate) => candidate.score.allyClearance)
+    contenders = retainMaximum(contenders, (candidate) =>
+      Math.min(candidate.score.allyClearance, ALLY_CLEARANCE_SUFFICIENT))
 
     for (const candidate of contenders) {
       candidate.score.cutoffProgress = robustCutoffProgress(

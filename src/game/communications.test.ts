@@ -123,7 +123,7 @@ describe('campaign communications', () => {
       market: { ...base.market, playerShare: 44 },
     })
     expect(slipping.resourceIntrusion.communications.map(({ id }) => id))
-      .toEqual(['market-pressure-50', 'competitor-taunt-45'])
+      .toEqual(['market-pressure-50', 'competitor-taunt-45-v2'])
     expect(slipping.resourceIntrusion.communications[1]).toMatchObject({
       channel: 'competitor',
       senderName: '메리디안',
@@ -137,9 +137,9 @@ describe('campaign communications', () => {
     expect(collapsing.resourceIntrusion.communications.map(({ id }) => id))
       .toEqual([
         'market-pressure-50',
-        'competitor-taunt-45',
+        'competitor-taunt-45-v2',
         'market-pressure-40',
-        'competitor-taunt-32',
+        'competitor-taunt-32-v2',
       ])
 
     const repeated = appendMarketPressureCommunications(collapsing)
@@ -224,7 +224,7 @@ describe('campaign communications', () => {
       'market-pressure-50',
       'competitor-taunt-45',
       'market-pressure-40',
-      'competitor-taunt-32',
+      'competitor-taunt-32-v2',
     ]) {
       expect(isCampaignCommunicationId(id)).toBe(true)
     }

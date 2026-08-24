@@ -207,14 +207,17 @@ export function processMonthStart(
   return transitions.grantSelfCompute(bombChecked)
 }
 
-function finishAdvancedDay(state: CampaignState): CampaignState {
+function finishAdvancedDay(
+  state: CampaignState,
+  protocolVersion: CommandProtocolVersion,
+): CampaignState {
   const withMercy = enqueueMercyIfNeeded(state)
   if (withMercy.story.endingId !== null) return withMercy
   const withPeriodicEvents = appendPeriodicEvents(withMercy)
   if (withPeriodicEvents.story.endingId !== null) return withPeriodicEvents
   const withDueStory = enqueueDueStoryEvents(withPeriodicEvents)
   if (withDueStory.story.endingId !== null) return withDueStory
-  return enqueueMemoryLeak(withDueStory)
+  return enqueueMemoryLeak(withDueStory, protocolVersion)
 }
 
 const HISTORICAL_PROTOCOL_VERSION = 1 as const
@@ -240,7 +243,7 @@ function advanceHistoricalOneDay(state: CampaignState): CampaignState {
     ),
   )
   if (advanced.story.endingId !== null) return advanced
-  return finishAdvancedDay(advanced)
+  return finishAdvancedDay(advanced, HISTORICAL_PROTOCOL_VERSION)
 }
 
 export interface AdvanceOneDayOptions {
@@ -347,7 +350,10 @@ export function tryAdvanceOneDay(
     sabotageResolution.state,
     publication.state,
   )
-  return { completed: true, state: finishAdvancedDay(withEntryAnnouncement) }
+  return {
+    completed: true,
+    state: finishAdvancedDay(withEntryAnnouncement, protocolVersion),
+  }
 }
 
 export function advanceOneDay(

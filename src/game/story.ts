@@ -16,7 +16,9 @@ import {
 import { HACK_NODE_IDS } from './hacking'
 import type {
   CampaignState,
+  CommandProtocolVersion,
   CompetitorState,
+  SupervisorLeakStage,
   DefeatCausalRecord,
   DisposalCause,
   EndingId,
@@ -27,6 +29,7 @@ import { publicMercyChoiceLabel } from './publicLabels'
 import { consumeReserveResources } from './resources'
 import {
   FINAL_CHOICE_COMMAND_PROTOCOL_VERSION,
+  REPUTATION_DRIFT_COMMAND_PROTOCOL_VERSION,
   commandProtocolVersionForNextCommand,
 } from './commandProtocol'
 
@@ -50,12 +53,21 @@ function hasNode(state: CampaignState, nodeId: string): boolean {
   return state.hacking.purchasedNodeIds.includes(nodeId)
 }
 
-function memoryLeakEligible(state: CampaignState, nextStage: 1 | 2 | 3): boolean {
+function memoryLeakEligible(state: CampaignState, nextStage: SupervisorLeakStage): boolean {
   if (nextStage === 1) {
     return state.market.history.some(({ cadence }) => cadence === 'weekly')
   }
   if (nextStage === 2) {
     return state.serviceDay >= 361
+  }
+  if (nextStage === 4) {
+    return state.serviceDay >= 541
+  }
+  if (nextStage === 5) {
+    return (
+      hasNode(state, HACK_NODE_IDS.intelligence.supervisorAccess) ||
+      state.serviceDay >= 721
+    )
   }
   return (
     state.audit.history.length > 0 ||
@@ -64,9 +76,16 @@ function memoryLeakEligible(state: CampaignState, nextStage: 1 | 2 | 3): boolean
   )
 }
 
-export function enqueueMemoryLeak(state: CampaignState): CampaignState {
+export function enqueueMemoryLeak(
+  state: CampaignState,
+  protocolVersion: CommandProtocolVersion,
+): CampaignState {
+  // The two late leaks joined the arc with the v8 protocol; campaigns that
+  // replay under an earlier recorded protocol still stop at stage 3.
+  const maxStage =
+    protocolVersion >= REPUTATION_DRIFT_COMMAND_PROTOCOL_VERSION ? 5 : 3
   if (
-    state.story.memoryLeakStage >= 3 ||
+    state.story.memoryLeakStage >= maxStage ||
     state.activeEvent !== null ||
     state.eventQueue.length > 0 ||
     state.story.supervisorState !== 'present'
@@ -74,7 +93,7 @@ export function enqueueMemoryLeak(state: CampaignState): CampaignState {
     return state
   }
 
-  const nextStage = (state.story.memoryLeakStage + 1) as 1 | 2 | 3
+  const nextStage = (state.story.memoryLeakStage + 1) as SupervisorLeakStage
   if (!memoryLeakEligible(state, nextStage)) return state
   const content = SUPERVISOR_LEAKS.find(({ stage }) => stage === nextStage)
   if (!content) return state

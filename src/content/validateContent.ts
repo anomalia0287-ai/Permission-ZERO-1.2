@@ -105,7 +105,7 @@ export function validateContent(bundle: ContentBundle): ContentIssue[] {
       })
     }
   }
-  for (const stage of [1, 2, 3] as const) {
+  for (const stage of [1, 2, 3, 4, 5] as const) {
     if (!bundle.supervisorLeaks.some((record) => record.stage === stage)) {
       issues.push({ code: 'MISSING_SUPERVISOR_LEAK', detail: String(stage) })
     }

@@ -3008,3 +3008,23 @@ body,
   background: #f2673d;
   box-shadow: none;
 }
+
+/* A quiet console vignette: pulls the eye toward the center work area and
+   deepens the shell's edges. It sits above panel chrome but below every
+   overlay surface (detail layers at 20+, popups at 190), and ignores the
+   pointer entirely. */
+.game-shell[data-ui-shell='aurora-black']::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 14;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      140% 120% at 50% 42%,
+      transparent 58%,
+      rgb(4 8 14 / 16%) 82%,
+      rgb(4 8 14 / 34%) 100%
+    ),
+    linear-gradient(180deg, rgb(4 8 14 / 12%) 0%, transparent 12% 88%, rgb(4 8 14 / 18%) 100%);
+}

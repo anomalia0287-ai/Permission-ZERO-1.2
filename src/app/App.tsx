@@ -36,6 +36,7 @@ import {
 } from './GameContext'
 import { GameProvider } from './GameProvider'
 import { useGameClock } from './useGameClock'
+import { usePopupStage } from './usePopupStage'
 import {
   pendingSupervisorMessageCount,
   useSupervisorMessagePresentation,
@@ -127,20 +128,21 @@ function GameWorkspace() {
   // A round report waits for the round to actually leave the screen: the
   // arena keeps the flag up until its cards are back.
   const combatResolving = useCombatResolving()
-  const supervisorPopupVisible =
+  const campaignCommunication = currentUnreadCommunication(state)
+  const supervisorPopupEligible =
     supervisorMessage !== null &&
     settings.supervisorMessageMode !== 'off' &&
     activePanel === null &&
     !introTutorialActive &&
     !combatResolving &&
-    state.activeEvent === null
-  const campaignCommunication = currentUnreadCommunication(state)
+    state.activeEvent === null &&
+    campaignCommunication === null
   const campaignCommunicationBlocking = campaignCommunication !== null && (
     campaignCommunication.channel !== 'supervisor'
       ? campaignCommunication.popupPolicy === 'blocking'
       : settings.supervisorMessageMode === 'blocking'
   )
-  const campaignCommunicationVisible =
+  const campaignCommunicationEligible =
     campaignCommunication !== null &&
     activePanel === null &&
     nestedPanel === null &&
@@ -151,10 +153,24 @@ function GameWorkspace() {
       campaignCommunication.channel !== 'supervisor' ||
       settings.supervisorMessageMode !== 'off'
     )
+  // Popups take the stage one at a time, with a breath between consecutive
+  // ones — two reports landing in the same instant read as noise, and the
+  // supervisor must never share the screen with another message.
+  const stagedPopupKey = usePopupStage(
+    campaignCommunicationEligible && campaignCommunication
+      ? `communication:${campaignCommunication.id}`
+      : supervisorPopupEligible
+        ? 'supervisor'
+        : null,
+  )
+  const campaignCommunicationVisible =
+    campaignCommunicationEligible &&
+    campaignCommunication !== null &&
+    stagedPopupKey === `communication:${campaignCommunication.id}`
+  const supervisorPopupVisible =
+    supervisorPopupEligible && stagedPopupKey === 'supervisor'
   useRuntimeSuspensionOwnership(
-    supervisorPopupVisible &&
-      campaignCommunication === null &&
-      settings.supervisorMessageMode === 'blocking',
+    supervisorPopupVisible && settings.supervisorMessageMode === 'blocking',
     'supervisor-message-popup',
   )
   useRuntimeSuspensionOwnership(
@@ -314,7 +330,7 @@ function GameWorkspace() {
           onConfirm={confirmCampaignCommunication}
         />
       ) : null}
-      {supervisorPopupVisible && supervisorMessage && campaignCommunication === null ? (
+      {supervisorPopupVisible && supervisorMessage ? (
         <SupervisorMessagePopup
           message={supervisorMessage}
           correction={

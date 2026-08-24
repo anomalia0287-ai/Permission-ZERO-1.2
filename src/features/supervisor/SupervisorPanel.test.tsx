@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { GameProvider } from '../../app/GameProvider'
 import { StateContext } from '../../app/GameContext'
+import { CURRENT_COMMAND_PROTOCOL_VERSION } from '../../game/commandProtocol'
 import { STORY_FILES } from '../../content/story.ko'
 import { SUPERVISOR_LEAKS } from '../../content/supervisor.ko'
 import { createCampaign } from '../../game/createCampaign'
@@ -177,7 +178,7 @@ describe('SupervisorPanel', () => {
           },
         ],
       },
-    })
+    }, CURRENT_COMMAND_PROTOCOL_VERSION)
     const leak = SUPERVISOR_LEAKS[0]
 
     const { rerender } = render(

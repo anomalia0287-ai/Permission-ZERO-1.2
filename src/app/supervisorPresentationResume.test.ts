@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { CURRENT_COMMAND_PROTOCOL_VERSION } from '../game/commandProtocol'
 import { createCampaign } from '../game/createCampaign'
 import type { CampaignState } from '../game/model'
 import { enqueueMemoryLeak } from '../game/story'
@@ -34,7 +35,7 @@ function leakState(seed = 'resume-marker'): CampaignState {
         },
       ],
     },
-  })
+  }, CURRENT_COMMAND_PROTOCOL_VERSION)
 }
 
 describe('tab-scoped supervisor presentation resume marker', () => {

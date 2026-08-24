@@ -1238,7 +1238,7 @@ function validSupervisorMessageQueue(
 ): boolean {
   if (
     !Array.isArray(value) ||
-    !isIntegerInRange(memoryLeakStage, 0, 3) ||
+    !isIntegerInRange(memoryLeakStage, 0, 5) ||
     value.length !== memoryLeakStage ||
     !Array.isArray(eventLog)
   ) {
@@ -1264,7 +1264,7 @@ function validSupervisorMessageQueue(
         'correctionEventSequence',
       ]) ||
       !isNonEmptyString(item.id) ||
-      !isIntegerInRange(item.stage, 1, 3) ||
+      !isIntegerInRange(item.stage, 1, 5) ||
       item.stage !== index + 1 ||
       item.id !== SUPERVISOR_LEAKS[index]?.id ||
       !isIntegerInRange(item.createdOnServiceDay, 1) ||
@@ -3344,7 +3344,7 @@ function validCampaignState(
       'pendingMercyCompetitorId',
       'newEntityName',
     ]) ||
-    !isIntegerInRange(story.memoryLeakStage, 0, 3) ||
+    !isIntegerInRange(story.memoryLeakStage, 0, 5) ||
     !validSupervisorMessageQueue(
       story.supervisorMessageQueue,
       story.supervisorPresentationRuntime,

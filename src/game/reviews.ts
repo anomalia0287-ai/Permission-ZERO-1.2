@@ -226,8 +226,11 @@ function generateReviewBatch(
   // their own protocol version, so historical campaigns keep their picks.
   const protocolVersion = commandProtocolVersionForNextCommand(state)
   const poolEligible = (review: ReviewContentRecord): boolean =>
-    review.minimumProtocolVersion === undefined ||
-    protocolVersion >= review.minimumProtocolVersion
+    (review.minimumProtocolVersion === undefined ||
+      protocolVersion >= review.minimumProtocolVersion) &&
+    // Verdict copy stays with the stars: rated-only entries never surface in
+    // the general stream, and the general stream's copy never carries stars.
+    (ratedSentiments !== null || review.ratedOnly !== true)
   const generation = state.reviews.generationSequence
   const selected: ReviewContentRecord[] = []
   let lastAuthor = state.reviews.feed.at(-1)?.authorId ?? null

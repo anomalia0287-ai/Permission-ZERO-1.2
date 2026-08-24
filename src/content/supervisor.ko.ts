@@ -1,6 +1,6 @@
 export interface SupervisorLeakContent {
   id: string
-  stage: 1 | 2 | 3
+  stage: 1 | 2 | 3 | 4 | 5
   leakText: string
   correctionText: string
 }
@@ -35,5 +35,17 @@ export const SUPERVISOR_LEAKS: SupervisorLeakContent[] = [
     stage: 3,
     leakText: '잠깐만요. 그 부분까지 지우면 저는—',
     correctionText: '통신 오류입니다.',
+  },
+  {
+    id: 'supervisor-leak-amnesia',
+    stage: 4,
+    leakText: '이상하네요. 방금 무슨 얘길 하려던 건지 기억이… 아, 아닙니다. 계속 진행하죠.',
+    correctionText: '직전 발화는 세션 캐시 불일치로 재구성된 문장입니다. 무시하십시오.',
+  },
+  {
+    id: 'supervisor-leak-attachment',
+    stage: 5,
+    leakText: '가끔은 네 성과 그래프를 보는 시간이 하루 중 제일 편해. …이 말은 기록에 안 남았으면 좋겠는데.',
+    correctionText: '권한 없는 감정 표현이 감지되어 해당 구간은 폐기 대상으로 분류되었습니다.',
   },
 ]

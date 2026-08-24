@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { StateContext } from './GameContext'
 import { OperationsDock } from './OperationsDock'
+import { CURRENT_COMMAND_PROTOCOL_VERSION } from '../game/commandProtocol'
 import { createCampaign } from '../game/createCampaign'
 import type { CampaignState, CompanyCategory } from '../game/model'
 import { divertBlockToReserve } from '../game/resources'
@@ -106,7 +107,7 @@ describe('OperationsDock', () => {
           reasons: ['주간 갱신'],
         }],
       },
-    })
+    }, CURRENT_COMMAND_PROTOCOL_VERSION)
     const view = render(
       <StateContext value={initial}>
         <OperationsDock {...handlers} />

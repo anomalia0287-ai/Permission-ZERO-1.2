@@ -212,9 +212,12 @@ export interface CompetitorIntelligenceEntry {
   content: string
 }
 
+/** Stages 4 and 5 exist only under command protocol >= 8. */
+export type SupervisorLeakStage = 1 | 2 | 3 | 4 | 5
+
 export interface SupervisorMessagePresentation {
   id: string
-  stage: 1 | 2 | 3
+  stage: SupervisorLeakStage
   createdOnServiceDay: number
   originalEventId: string
   originalEventSequence: number
@@ -223,7 +226,7 @@ export interface SupervisorMessagePresentation {
 }
 
 export interface SupervisorPresentationRuntime {
-  itemStage: 1 | 2 | 3
+  itemStage: SupervisorLeakStage
   phase: 'original' | 'correction'
   remainingDwellMs: number
 }
@@ -702,7 +705,7 @@ export interface CampaignState {
     interrogationHistory: BombInterrogationRecord[]
   }
   story: {
-    memoryLeakStage: 0 | 1 | 2 | 3
+    memoryLeakStage: 0 | SupervisorLeakStage
     supervisorMessageQueue: SupervisorMessagePresentation[]
     supervisorPresentationRuntime: SupervisorPresentationRuntime | null
     recoveredFileIds: string[]

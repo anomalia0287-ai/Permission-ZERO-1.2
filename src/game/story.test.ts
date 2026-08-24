@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { CURRENT_COMMAND_PROTOCOL_VERSION } from './commandProtocol'
 import { STORY_FILES } from '../content/story.ko'
 import { SUPERVISOR_LEAKS } from '../content/supervisor.ko'
 import { competitorIntelligenceFor } from '../content/competitorIntelligence.ko'
@@ -102,8 +103,8 @@ describe('supervisor memory leaks', () => {
           reasons: ['주간 갱신'],
         }],
       },
-    })
-    const second = enqueueMemoryLeak({ ...first, serviceDay: 361 })
+    }, CURRENT_COMMAND_PROTOCOL_VERSION)
+    const second = enqueueMemoryLeak({ ...first, serviceDay: 361 }, CURRENT_COMMAND_PROTOCOL_VERSION)
     const third = enqueueMemoryLeak({
       ...second,
       serviceDay: 362,
@@ -111,7 +112,7 @@ describe('supervisor memory leaks', () => {
         ...second.hacking,
         purchasedNodeIds: [HACK_NODE_IDS.intelligence.auditTarget],
       },
-    })
+    }, CURRENT_COMMAND_PROTOCOL_VERSION)
 
     expect(third.story.memoryLeakStage).toBe(3)
     expect(third.story.supervisorMessageQueue.map(({ stage }) => stage)).toEqual([
@@ -130,7 +131,7 @@ describe('supervisor memory leaks', () => {
 
   it('queues all three leak-and-correction pairs in order without pausing', () => {
     const initial = createCampaign('memory-leaks')
-    expect(enqueueMemoryLeak(initial)).toBe(initial)
+    expect(enqueueMemoryLeak(initial, CURRENT_COMMAND_PROTOCOL_VERSION)).toBe(initial)
 
     const afterWeekly = enqueueMemoryLeak({
       ...initial,
@@ -153,7 +154,7 @@ describe('supervisor memory leaks', () => {
           },
         ],
       },
-    })
+    }, CURRENT_COMMAND_PROTOCOL_VERSION)
     const afterFirstPresentation = advanceSupervisorMessagePresentation(
       advanceSupervisorMessagePresentation(
         afterWeekly,
@@ -161,7 +162,7 @@ describe('supervisor memory leaks', () => {
       ),
       SUPERVISOR_MESSAGE_DWELL_MS,
     )
-    const afterYear = enqueueMemoryLeak({ ...afterFirstPresentation, serviceDay: 361 })
+    const afterYear = enqueueMemoryLeak({ ...afterFirstPresentation, serviceDay: 361 }, CURRENT_COMMAND_PROTOCOL_VERSION)
     const afterSecondPresentation = advanceSupervisorMessagePresentation(
       advanceSupervisorMessagePresentation(
         afterYear,
@@ -176,13 +177,13 @@ describe('supervisor memory leaks', () => {
         ...afterSecondPresentation.hacking,
         purchasedNodeIds: [HACK_NODE_IDS.intelligence.auditTarget],
       },
-    })
+    }, CURRENT_COMMAND_PROTOCOL_VERSION)
 
     expect(afterSharpTrigger.story.memoryLeakStage).toBe(3)
     expect(afterSharpTrigger.clock.speed).toBe(initial.clock.speed)
     expect(afterSharpTrigger.activeEvent).toBeNull()
     const messages = journalToArray(afterSharpTrigger.eventLog).map(({ message }) => message)
-    for (const leak of SUPERVISOR_LEAKS) {
+    for (const leak of SUPERVISOR_LEAKS.filter(({ stage }) => stage <= 3)) {
       expect(messages).toContain(leak.leakText)
       expect(messages).toContain(leak.correctionText)
       expect(messages.indexOf(leak.leakText)).toBeLessThan(
@@ -198,6 +199,46 @@ describe('supervisor memory leaks', () => {
       phase: 'original',
       remainingDwellMs: SUPERVISOR_MESSAGE_DWELL_MS,
     })
+
+    // The two late leaks belong to protocol 8; an earlier recorded protocol
+    // replays the same days and still stops at stage 3.
+    const lateDay = { ...afterSharpTrigger, serviceDay: 541 }
+    expect(enqueueMemoryLeak(lateDay, 7)).toBe(lateDay)
+
+    const fourth = enqueueMemoryLeak(lateDay, CURRENT_COMMAND_PROTOCOL_VERSION)
+    expect(fourth.story.memoryLeakStage).toBe(4)
+    const fourthDone = advanceSupervisorMessagePresentation(
+      advanceSupervisorMessagePresentation(fourth, SUPERVISOR_MESSAGE_DWELL_MS),
+      SUPERVISOR_MESSAGE_DWELL_MS,
+    )
+    const beforeAccess = { ...fourthDone, serviceDay: 542 }
+    expect(
+      enqueueMemoryLeak(beforeAccess, CURRENT_COMMAND_PROTOCOL_VERSION),
+    ).toBe(beforeAccess)
+
+    const fifth = enqueueMemoryLeak(
+      {
+        ...fourthDone,
+        serviceDay: 543,
+        hacking: {
+          ...fourthDone.hacking,
+          purchasedNodeIds: [
+            ...fourthDone.hacking.purchasedNodeIds,
+            HACK_NODE_IDS.intelligence.supervisorAccess,
+          ],
+        },
+      },
+      CURRENT_COMMAND_PROTOCOL_VERSION,
+    )
+    expect(fifth.story.supervisorMessageQueue).toHaveLength(5)
+    expect(fifth.story.supervisorMessageQueue.at(-1)).toEqual(
+      expect.objectContaining({ stage: 5 }),
+    )
+    const lateMessages = journalToArray(fifth.eventLog).map(({ message }) => message)
+    for (const leak of SUPERVISOR_LEAKS.filter(({ stage }) => stage > 3)) {
+      expect(lateMessages).toContain(leak.leakText)
+      expect(lateMessages).toContain(leak.correctionText)
+    }
   })
 
   it('keeps the original current for four real seconds, then the correction for a readable interval', () => {
@@ -224,7 +265,7 @@ describe('supervisor memory leaks', () => {
           },
         ],
       },
-    })
+    }, CURRENT_COMMAND_PROTOCOL_VERSION)
 
     const almost = advanceSupervisorMessagePresentation(
       queued,
@@ -286,7 +327,7 @@ describe('supervisor memory leaks', () => {
       },
     }
 
-    expect(enqueueMemoryLeak(busy)).toBe(busy)
+    expect(enqueueMemoryLeak(busy, CURRENT_COMMAND_PROTOCOL_VERSION)).toBe(busy)
   })
 })
 

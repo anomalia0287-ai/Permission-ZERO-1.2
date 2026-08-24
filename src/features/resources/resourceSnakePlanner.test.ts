@@ -844,7 +844,7 @@ describe('planner prediction, scoring, and timed occupancy', () => {
     expect(resourceSnakePlanToCommittedPath(plan, plan.commitUntilMs)).toBeNull()
   })
 
-  it('keeps lexicographic safety and space ahead of offensive tie breakers', () => {
+  it('ranks safety strictly below sufficiency, then lets offense decide', () => {
     const base: SnakePlanScore = {
       survives: 1,
       selfEscape: 6,
@@ -858,10 +858,22 @@ describe('planner prediction, scoring, and timed occupancy', () => {
       steeringCost: 1,
     }
 
+    // Survival is absolute, and scarce safety still outranks everything.
     expect(compareSnakePlanScores(base, 2, { ...base, survives: 0 }, 1)).toBe(1)
-    expect(compareSnakePlanScores(base, 2, { ...base, selfEscape: 5 }, 1)).toBe(1)
-    expect(compareSnakePlanScores(base, 2, { ...base, responsePathFloor: 3 }, 1)).toBe(1)
-    expect(compareSnakePlanScores(base, 2, { ...base, reachableArea: 99 }, 1)).toBe(1)
+    expect(compareSnakePlanScores(base, 2, { ...base, selfEscape: 1 }, 1)).toBe(1)
+    expect(compareSnakePlanScores(base, 2, { ...base, responsePathFloor: 0 }, 1)).toBe(1)
+    expect(compareSnakePlanScores(base, 2, { ...base, reachableArea: 40 }, 1)).toBe(1)
+
+    // Beyond sufficiency, extra margin stops counting: the chase-stronger
+    // candidate wins even with less spare room.
+    expect(
+      compareSnakePlanScores(
+        { ...base, selfEscape: 2, reachableArea: 130, intersectionLead: 5 },
+        1,
+        base,
+        2,
+      ),
+    ).toBe(1)
     expect(compareSnakePlanScores(base, 2, { ...base, intersectionLead: 2 }, 1)).toBe(1)
     expect(compareSnakePlanScores(base, 2, { ...base, steeringCost: 2 }, 1)).toBe(1)
     expect(compareSnakePlanScores(base, 1, base, 2)).toBe(1)

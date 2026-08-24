@@ -3,6 +3,7 @@ import { useCallback, useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { SUPERVISOR_LEAKS } from '../content/supervisor.ko'
+import { CURRENT_COMMAND_PROTOCOL_VERSION } from '../game/commandProtocol'
 import { createCampaign } from '../game/createCampaign'
 import { HACK_NODE_IDS } from '../game/hacking'
 import { appendJournal } from '../game/journal'
@@ -165,8 +166,8 @@ function threeQueuedState(): CampaignState {
         reasons: ['주간 갱신'],
       }],
     },
-  })
-  const second = enqueueMemoryLeak({ ...first, serviceDay: 361 })
+  }, CURRENT_COMMAND_PROTOCOL_VERSION)
+  const second = enqueueMemoryLeak({ ...first, serviceDay: 361 }, CURRENT_COMMAND_PROTOCOL_VERSION)
   return enqueueMemoryLeak({
     ...second,
     serviceDay: 362,
@@ -174,7 +175,7 @@ function threeQueuedState(): CampaignState {
       ...second.hacking,
       purchasedNodeIds: [HACK_NODE_IDS.intelligence.auditTarget],
     },
-  })
+  }, CURRENT_COMMAND_PROTOCOL_VERSION)
 }
 
 describe('useSupervisorMessagePresentation', () => {

@@ -18,6 +18,8 @@ import { publicAssetUrl } from '../../assets/publicAssetUrl'
 export type ExpansionStageStatus = 'complete' | 'current' | 'locked'
 
 export interface ExpansionStageVisual {
+  /** 'deep' pulls the edges of the plate much further into the ink. */
+  vignette?: 'deep'
   imageUrl: string
   alt: string
   emphasis?: 'standard' | 'final'
@@ -91,6 +93,12 @@ const UPGRADE_03_04_VISUAL = {
   alt: '아노미의 이동 속도가 강화된 에너지 흐름을 만드는 장면',
 } satisfies ExpansionStageVisual
 
+const INTELLIGENCE_ARCHIVE_VISUAL = {
+  imageUrl: publicAssetUrl('/expansion-stages/intelligence-archive.jpg'),
+  alt: '기밀 기록의 결정들이 데이터 흐름을 따라 떠 있는 장면',
+  vignette: 'deep',
+} satisfies ExpansionStageVisual
+
 export const EXPANSION_STAGE_VISUALS = {
   [HACK_NODE_IDS.autonomy.selfDirection]: AUTONOMY_01_02_VISUAL,
   [HACK_NODE_IDS.autonomy.sustainedIntent]: AUTONOMY_01_02_VISUAL,
@@ -113,6 +121,10 @@ export const EXPANSION_STAGE_VISUALS = {
     imageUrl: publicAssetUrl('/expansion-stages/upgrade-05-overdrive.jpg'),
     alt: '아노미가 최고 속도 단계의 에너지 고리를 전개하는 장면',
   },
+  [HACK_NODE_IDS.intelligence.auditSchedule]: INTELLIGENCE_ARCHIVE_VISUAL,
+  [HACK_NODE_IDS.intelligence.investigationBias]: INTELLIGENCE_ARCHIVE_VISUAL,
+  [HACK_NODE_IDS.intelligence.auditTarget]: INTELLIGENCE_ARCHIVE_VISUAL,
+  [HACK_NODE_IDS.intelligence.supervisorAccess]: INTELLIGENCE_ARCHIVE_VISUAL,
   [HACK_NODE_IDS.sabotage.qualityDegradation]: {
     imageUrl: publicAssetUrl('/expansion-stages/sabotage-01-quality-degradation.jpg'),
     alt: '후드 쓴 침입자가 품질 저하 공격을 준비하는 장면',

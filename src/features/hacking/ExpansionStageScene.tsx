@@ -80,6 +80,7 @@ export function ExpansionStageScene({
       className="expansion-stage-scene"
       data-phase={phase}
       data-emphasis={displayedVisual?.emphasis ?? 'standard'}
+      data-vignette={displayedVisual?.vignette ?? 'standard'}
       aria-label="현재 단계 장면"
     >
       {displayedVisual && !imageFailed ? (

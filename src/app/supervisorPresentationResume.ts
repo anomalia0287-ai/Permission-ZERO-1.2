@@ -1,4 +1,4 @@
-import type { CampaignState } from '../game/model'
+import type { CampaignState, SupervisorLeakStage } from '../game/model'
 import { SUPERVISOR_MESSAGE_DWELL_MS } from '../game/story'
 
 export const SUPERVISOR_PRESENTATION_RESUME_KEY =
@@ -8,7 +8,7 @@ interface SupervisorPresentationResumePayload {
   version: 1
   campaignSeed: string
   itemId: string
-  stage: 1 | 2 | 3
+  stage: SupervisorLeakStage
   phase: 'original' | 'correction'
   remainingDwellMs: number
 }
@@ -54,7 +54,7 @@ function validMarker(value: unknown): value is SupervisorPresentationResumeMarke
     value.campaignSeed.length === 0 ||
     typeof value.itemId !== 'string' ||
     value.itemId.length === 0 ||
-    ![1, 2, 3].includes(Number(value.stage)) ||
+    ![1, 2, 3, 4, 5].includes(Number(value.stage)) ||
     !['original', 'correction'].includes(String(value.phase)) ||
     typeof value.remainingDwellMs !== 'number' ||
     !Number.isFinite(value.remainingDwellMs) ||
@@ -68,7 +68,7 @@ function validMarker(value: unknown): value is SupervisorPresentationResumeMarke
     version: 1,
     campaignSeed: value.campaignSeed,
     itemId: value.itemId,
-    stage: value.stage as 1 | 2 | 3,
+    stage: value.stage as SupervisorLeakStage,
     phase: value.phase as 'original' | 'correction',
     remainingDwellMs: value.remainingDwellMs,
   }

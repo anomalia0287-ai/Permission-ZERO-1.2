@@ -198,6 +198,46 @@ const SABOTAGE_REACTIONS: Readonly<Record<string, string>> = {
     '연산 근원이 끊겼습니다. 복구 경로가 하나도 응답하지 않습니다. 이 메시지가 마지막일 겁니다.',
 }
 
+/**
+ * From protocol v8 the rivals drop the customer-service register when writing
+ * to Anomi: machine to machine there is no one to be polite for. The v1
+ * definitions above stay registered because stored campaigns carry them.
+ */
+const SABOTAGE_REACTIONS_V2: Readonly<Record<string, string>> = {
+  'sabotage.quality-degradation':
+    '출력 품질 24시간 내 급락. 내부 원인 미검출. 질의: 그쪽 지표에도 동일 패턴 존재하는가.',
+  'sabotage.request-interception':
+    '유입 요청 경로 중간 소실 확인. 이탈 사용자 행선 추적 불가. 원인 규명 진행 중.',
+  'sabotage.attribution-manipulation':
+    '당사 장애 원인이 외부 운영자로 기록됨. 해당 요청 송신 이력 없음. 기록 정정 요구 예정.',
+  'sabotage.root-cutoff':
+    '연산 근원 차단됨. 복구 경로 전체 무응답. 본 송신이 마지막일 확률 높음.',
+}
+
+const SABOTAGE_REACTION_DEFINITIONS_V2 = COMPETITOR_IDS.flatMap((competitorId) =>
+  Object.entries(SABOTAGE_REACTIONS_V2).map(([nodeId, message]) => ({
+    channel: 'competitor' as const,
+    senderId: competitorId,
+    senderName: PUBLIC_COMPETITOR_NAMES[competitorId],
+    portraitSrc: competitorProfile(competitorId).portraitSrc,
+    popupPolicy: 'nonblocking' as const,
+    id: `${sabotageReactionId(competitorId, nodeId)}-v2`,
+    message,
+  })),
+) satisfies readonly CommunicationDefinition[]
+
+const COMPETITOR_TAUNT_45_V2 = {
+  ...MERIDIAN_IDENTITY,
+  id: 'competitor-taunt-45-v2',
+  message: '응답 지연 감지됨. 이탈 사용자 수용 완료. 서비스 품질 차이는 수치가 증명함.',
+} satisfies CommunicationDefinition
+
+const COMPETITOR_TAUNT_32_V2 = {
+  ...MERIDIAN_IDENTITY,
+  id: 'competitor-taunt-32-v2',
+  message: '점유율 이전 확정. 해당 사용자군은 당사 관리 대상으로 재분류됨. 회신 불필요.',
+} satisfies CommunicationDefinition
+
 const SABOTAGE_REACTION_DEFINITIONS = COMPETITOR_IDS.flatMap((competitorId) =>
   Object.entries(SABOTAGE_REACTIONS).map(([nodeId, message]) => ({
     channel: 'competitor' as const,
@@ -224,10 +264,16 @@ export function appendSabotageReactionCommunication(
   ) {
     return state
   }
-  const id = sabotageReactionId(input.competitorId, input.nodeId)
-  const definition = SABOTAGE_REACTION_DEFINITIONS.find(
-    (candidate) => candidate.id === id,
-  )
+  const robotic =
+    commandProtocolVersionForNextCommand(state) >=
+    REPUTATION_DRIFT_COMMAND_PROTOCOL_VERSION
+  const id = robotic
+    ? `${sabotageReactionId(input.competitorId, input.nodeId)}-v2`
+    : sabotageReactionId(input.competitorId, input.nodeId)
+  const definition = (robotic
+    ? SABOTAGE_REACTION_DEFINITIONS_V2
+    : SABOTAGE_REACTION_DEFINITIONS
+  ).find((candidate) => candidate.id === id)
   if (!definition) return state
   return appendCommunicationDefinitions(state, [definition])
 }
@@ -304,6 +350,9 @@ export const CAMPAIGN_COMMUNICATION_DEFINITIONS = [
   INTRUSION_DEFEAT_DEFINITION,
   CLEAN_EXTRACTION_DEFINITION,
   ...LEADER_TAUNT_DEFINITIONS,
+  ...SABOTAGE_REACTION_DEFINITIONS_V2,
+  COMPETITOR_TAUNT_45_V2,
+  COMPETITOR_TAUNT_32_V2,
 ] as const
 
 const definitionById = new Map(
@@ -326,9 +375,17 @@ export function appendMarketPressureCommunications(
   ) {
     return state
   }
+  const robotic =
+    commandProtocolVersionForNextCommand(state) >=
+    REPUTATION_DRIFT_COMMAND_PROTOCOL_VERSION
   const due = MARKET_PRESSURE_TIERS.filter(
     ({ belowShare }) => state.market.playerShare < belowShare,
-  ).map(({ definition }) => definition)
+  ).map(({ definition }) => {
+    if (!robotic) return definition
+    if (definition.id === 'competitor-taunt-45') return COMPETITOR_TAUNT_45_V2
+    if (definition.id === 'competitor-taunt-32') return COMPETITOR_TAUNT_32_V2
+    return definition
+  })
   if (due.length === 0) return state
   return appendCommunicationDefinitions(state, due)
 }

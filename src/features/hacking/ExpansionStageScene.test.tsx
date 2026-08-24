@@ -44,10 +44,12 @@ describe('ExpansionStageScene', () => {
       null,
     )
 
+    // Every catalog stage carries art now, so simulate an unregistered one
+    // by withholding the visual — the contract this fallback exists for.
     render(
       <ExpansionStageScene
         item={presentation.activeItem}
-        visual={presentation.activeVisual}
+        visual={undefined}
       />,
     )
 

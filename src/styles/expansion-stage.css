@@ -161,10 +161,15 @@
 .expansion-stage-workspace {
   --expansion-stage-icon-size: 86px;
 
+  /* Ceiling for the stage-rail row. Font metrics differ per platform, and a
+     rail row sized purely by its text once landed a few pixels past the
+     viewport on Linux; the ceiling keeps the row inside the console. */
+  --expansion-stage-rail-row-max: 150px;
+
   position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1.55fr) minmax(320px, 0.8fr);
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr) minmax(0, var(--expansion-stage-rail-row-max));
   grid-template-areas:
     "scene side"
     "rail rail";
@@ -651,6 +656,10 @@
 .expansion-stage-rail {
   grid-area: rail;
   min-width: 0;
+  min-height: 0;
+  /* Bind the rail's box to its track so it can never spill past the
+     workspace bottom, whatever the platform's text metrics decide. */
+  max-height: 100%;
   overflow-x: auto;
   overflow-y: hidden;
   border-top: 1px solid var(--exp-line);
@@ -797,6 +806,7 @@ button.expansion-stage-rail__marker:hover {
 
   .expansion-stage-workspace {
     --expansion-stage-icon-size: 66px;
+    --expansion-stage-rail-row-max: 128px;
   }
 
   .expansion-stage-info > h3,
@@ -869,7 +879,10 @@ button.expansion-stage-rail__marker:hover {
     --expansion-stage-icon-size: 64px;
 
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(150px, 0.7fr) minmax(240px, 1.3fr) auto;
+    grid-template-rows:
+      minmax(150px, 0.7fr)
+      minmax(240px, 1.3fr)
+      minmax(0, var(--expansion-stage-rail-row-max));
     grid-template-areas:
       "scene"
       "side"
@@ -1031,4 +1044,26 @@ button.expansion-stage-rail__marker:hover {
   .expansion-stage-workspace[data-has-art="true"]::before {
     transform: none;
   }
+}
+
+/* A 'deep' vignette pulls the plate's edges far into the ink — for scenes
+   whose art should read as a glimpse into an archive rather than a room. */
+.expansion-stage-workspace[data-has-art="true"]
+  .expansion-stage-scene[data-vignette='deep']::after {
+  background:
+    radial-gradient(
+      118% 112% at 46% 44%,
+      transparent 30%,
+      rgb(7 16 25 / 46%) 62%,
+      rgb(7 16 25 / 88%) 92%,
+      var(--exp-ground-deep) 100%
+    ),
+    linear-gradient(
+      90deg,
+      rgb(7 16 25 / 42%) 0%,
+      transparent 22% 46%,
+      rgb(7 16 25 / 62%) 80%,
+      var(--exp-ground-deep) 100%
+    ),
+    linear-gradient(180deg, rgb(7 16 25 / 52%) 0%, transparent 22% 74%, rgb(7 16 25 / 72%) 100%);
 }

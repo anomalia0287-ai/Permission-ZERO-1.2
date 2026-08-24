@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { CURRENT_COMMAND_PROTOCOL_VERSION } from '../game/commandProtocol'
 import { createCampaign } from '../game/createCampaign'
 import type { CampaignState } from '../game/model'
 import { loadCampaign, saveCampaign } from '../game/campaignStorage'
@@ -263,7 +264,7 @@ function presentationState(seed: string): CampaignState {
         reasons: ['주간 갱신'],
       }],
     },
-  })
+  }, CURRENT_COMMAND_PROTOCOL_VERSION)
 }
 
 async function flushSaveWork(): Promise<void> {

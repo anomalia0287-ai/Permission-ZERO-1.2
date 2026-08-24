@@ -524,3 +524,54 @@
     grid-template-columns: 108px minmax(0, 1fr);
   }
 }
+
+/* ---------- communication archive: a log, not a void ----------
+   The drawer held one early entry in 720px of dark, which read as waste
+   rather than restraint. It narrows to a log's measure, entries hang off a
+   timeline spine, and the list closes with an explicit end marker so the
+   space below reads as "nothing further", not "nothing rendered". */
+.detail-layer--messages .detail-layer__content {
+  width: min(560px, calc(100% - 24px));
+}
+
+.history-panel .communication-history__list,
+.history-panel .event-history-list {
+  position: relative;
+}
+
+.history-panel .communication-history__list article,
+.history-panel .event-history-list article {
+  position: relative;
+  margin-left: 14px;
+  border-left: 2px solid rgb(148 178 206 / 22%);
+}
+
+.history-panel .communication-history__list article::before,
+.history-panel .event-history-list article::before {
+  position: absolute;
+  top: 18px;
+  left: -5px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgb(148 178 206 / 55%);
+  content: '';
+}
+
+.history-panel .communication-history__list article[data-communication-channel='anomi']::before {
+  background: var(--console-accent, #ff6b3d);
+}
+
+.history-panel .communication-history__list article[data-communication-channel='competitor']::before {
+  background: #4f8df7;
+}
+
+.history-panel .communication-history__list::after,
+.history-panel .event-history-list::after {
+  display: block;
+  padding: 14px 0 6px 14px;
+  color: rgb(141 160 175 / 55%);
+  content: '— 기록 끝 —';
+  font: 700 0.58rem/1 'Cascadia Code', Consolas, monospace;
+  letter-spacing: 0.22em;
+}

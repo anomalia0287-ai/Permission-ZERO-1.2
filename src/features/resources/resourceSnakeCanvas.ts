@@ -685,11 +685,26 @@ function drawSurveillance(
   if (!surveillance) return
   const inset = scale.unit * 0.8
   const perimeter = 2 * (width - inset * 2) + 2 * (height - inset * 2)
-  const speed = scene.reducedMotion ? 0 : 0.06 + surveillance.intensity * 0.05
   const glow = 0.35 + surveillance.intensity * 0.45
+  const player = scene.cores.find((core) => core.id === 'player')
+  const playerX = (player?.x ?? RESOURCE_SNAKE_CONFIG.fieldWidth / 2) * scale.x
+  const playerY = (player?.y ?? RESOURCE_SNAKE_CONFIG.fieldHeight / 2) * scale.y
 
+  // Saccadic patrol: a dart along the perimeter, then a hold-and-stare. The
+  // quantized ticks read as a machine scanning, not a lamp on a track.
+  const dartPeriodMs = 1_150 - surveillance.intensity * 350
+  const dartTravel = perimeter * (0.045 + surveillance.intensity * 0.03)
   const positionAt = (offset: number): { x: number; y: number } => {
-    const travelled = ((scene.simulationMs * speed + offset) % perimeter + perimeter) % perimeter
+    let travelled: number
+    if (scene.reducedMotion) {
+      travelled = ((offset % perimeter) + perimeter) % perimeter
+    } else {
+      const ticks = scene.simulationMs / dartPeriodMs
+      const tick = Math.floor(ticks)
+      const dartFraction = Math.min(1, (ticks - tick) / 0.32)
+      const eased = 1 - (1 - dartFraction) ** 3
+      travelled = ((((tick + eased) * dartTravel + offset) % perimeter) + perimeter) % perimeter
+    }
     const w = width - inset * 2
     const h = height - inset * 2
     if (travelled < w) return { x: inset + travelled, y: inset }
@@ -704,6 +719,39 @@ function drawSurveillance(
   for (const offset of offsets) {
     const { x, y } = positionAt(offset)
     const radius = scale.unit * (0.34 + surveillance.intensity * 0.14)
+    const aimX = playerX - x
+    const aimY = playerY - y
+    const aimDistance = Math.hypot(aimX, aimY)
+    const aim = Math.atan2(aimY, aimX)
+      + (scene.reducedMotion ? 0 : Math.sin(scene.simulationMs * 0.007 + offset) * 0.05)
+
+    // Tracking beam: a narrow scan wedge held on the player's head. This is
+    // what makes the diamond read as something hunting rather than decor.
+    const reach = Math.min(aimDistance, scale.unit * (5.5 + surveillance.intensity * 3))
+    if (reach > radius * 2) {
+      const spread = 0.16 - surveillance.intensity * 0.07
+      const beam = context.createRadialGradient(x, y, radius, x, y, reach)
+      beam.addColorStop(0, rgba(SURVEILLANCE_PURPLE, glow * 0.4))
+      beam.addColorStop(1, rgba(SURVEILLANCE_PURPLE, 0))
+      context.globalAlpha = 1
+      context.fillStyle = beam
+      context.beginPath()
+      context.moveTo(x, y)
+      context.arc(x, y, reach, aim - spread, aim + spread)
+      context.closePath()
+      context.fill()
+    }
+
+    // Targeting ping: a short expanding ring, like a sonar lock refresh.
+    if (!scene.reducedMotion) {
+      const pingPhase = ((scene.simulationMs + offset) % 2_200) / 2_200
+      context.globalAlpha = (1 - pingPhase) * glow * 0.5
+      context.strokeStyle = SURVEILLANCE_PURPLE
+      context.lineWidth = Math.max(1, scale.unit * 0.05)
+      context.beginPath()
+      context.arc(x, y, radius * (1 + pingPhase * 3), 0, Math.PI * 2)
+      context.stroke()
+    }
 
     const halo = context.createRadialGradient(x, y, 0, x, y, radius * 4)
     halo.addColorStop(0, rgba(SURVEILLANCE_PURPLE, glow * 0.55))
@@ -726,6 +774,15 @@ function drawSurveillance(
     context.closePath()
     context.stroke()
     context.globalAlpha = glow * 0.55
+    context.fill()
+
+    // The pupil leans toward the player: the watcher is looking at you.
+    const pupilDistance = radius * 0.35
+    const pupilX = x + (aimDistance > 0.001 ? (aimX / aimDistance) * pupilDistance : 0)
+    const pupilY = y + (aimDistance > 0.001 ? (aimY / aimDistance) * pupilDistance : 0)
+    context.globalAlpha = Math.min(1, glow * 1.4)
+    context.beginPath()
+    context.arc(pupilX, pupilY, Math.max(1.2, radius * 0.22), 0, Math.PI * 2)
     context.fill()
   }
   context.restore()

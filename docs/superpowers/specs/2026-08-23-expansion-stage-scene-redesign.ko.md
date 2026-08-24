@@ -384,3 +384,12 @@ type ExpansionStageVisuals = Partial<Record<HackNodeId, ExpansionStageVisual>>
 - 타입 검사, lint, 기능 테스트, 빌드가 통과함.
 - 성능 테스트 결과는 별도로 정확히 보고하며 실패를 숨기지 않음.
 - 사용자의 최종 시각 승인을 받기 전 `확장`을 기능 동결 상태로 부르지 않음.
+
+## 2026-08-24 개정 — 정보 트리 장면과 깊은 비네팅
+
+- 정보 트리 4단계는 사용자가 제공한 결정 아카이브 일러스트
+  (`/expansion-stages/intelligence-archive.jpg`) 한 장을 공유한다.
+- 이 장면은 `vignette: 'deep'` 표식을 갖고, 기본 has-art 처리보다 훨씬
+  깊게 잉크로 가라앉는 비네팅을 받는다. 게임 규칙·저장 형식은 그대로다.
+- 단계 레일 행은 `--expansion-stage-rail-row-max` 상한으로 고정 콘솔 안에
+  머문다(2026-08-21 전투 정본 17절 참조).

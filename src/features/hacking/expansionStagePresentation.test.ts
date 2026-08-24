@@ -11,6 +11,13 @@ import {
 } from '../../game/hacking'
 import { selectExpansionStagePresentation } from './expansionStagePresentation'
 
+const INTELLIGENCE_STAGE_IDS = [
+  HACK_NODE_IDS.intelligence.auditSchedule,
+  HACK_NODE_IDS.intelligence.investigationBias,
+  HACK_NODE_IDS.intelligence.auditTarget,
+  HACK_NODE_IDS.intelligence.supervisorAccess,
+] as const
+
 const SABOTAGE_STAGE_IDS = [
   HACK_NODE_IDS.sabotage.qualityDegradation,
   HACK_NODE_IDS.sabotage.requestInterception,
@@ -26,6 +33,7 @@ const VISUAL_CASES: readonly {
   alt: string
   emphasis?: 'final'
   orientation?: 'portrait'
+  vignette?: 'deep'
 }[] = [
   ...AUTONOMY_STAGE_IDS.map((_, index) => ({
     tree: 'autonomy' as const,
@@ -73,6 +81,15 @@ const VISUAL_CASES: readonly {
       '아노미의 이동 속도가 강화된 에너지 흐름을 만드는 장면',
       '아노미가 최고 속도 단계의 에너지 고리를 전개하는 장면',
     ][index],
+  })),
+  ...INTELLIGENCE_STAGE_IDS.map((_, index) => ({
+    tree: 'intelligence' as const,
+    nodeIds: INTELLIGENCE_STAGE_IDS,
+    stage: index + 1,
+    imageUrl: '/expansion-stages/intelligence-archive.jpg',
+    alt: '기밀 기록의 결정들이 데이터 흐름을 따라 떠 있는 장면',
+    // The archive plate sinks deep into the surrounding ink.
+    vignette: 'deep' as const,
   })),
   ...SABOTAGE_STAGE_IDS.map((_, index) => ({
     tree: 'sabotage' as const,
@@ -161,7 +178,7 @@ describe('selectExpansionStagePresentation', () => {
 
   it.each(VISUAL_CASES)(
     'maps $tree stage $stage to its approved single scene',
-    ({ tree, nodeIds, stage, imageUrl, alt, emphasis, orientation }) => {
+    ({ tree, nodeIds, stage, imageUrl, alt, emphasis, orientation, vignette }) => {
       const state = createCampaign(`expansion-stage-${tree}-${stage}-visual`)
       state.hacking.purchasedNodeIds = [...nodeIds.slice(0, stage - 1)]
 
@@ -173,6 +190,7 @@ describe('selectExpansionStagePresentation', () => {
         alt,
         ...(emphasis ? { emphasis } : {}),
         ...(orientation ? { orientation } : {}),
+        ...(vignette ? { vignette } : {}),
       })
     },
   )
