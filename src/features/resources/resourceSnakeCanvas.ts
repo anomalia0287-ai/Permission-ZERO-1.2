@@ -223,68 +223,6 @@ function drawDangerEdge(
   context.restore()
 }
 
-/** Cheap deterministic 0..1, so the crackle is stable within a frame. */
-function crackleRandom(seed: number, tick: number, index: number): number {
-  let hash = Math.imul(seed ^ 0x9e3779b9, 0x85ebca6b)
-  hash = Math.imul(hash ^ tick, 0xc2b2ae35)
-  hash = Math.imul(hash ^ (index + 1), 0x27d4eb2f)
-  return ((hash >>> 8) & 0xffffff) / 0x1000000
-}
-
-/**
- * Live current running down the wall.
- *
- * A fixed handful of short arcs, re-seeded a few times a second, rather than
- * anything per-point: the cost stays flat however long the trail grows,
- * which matters because the trail is longest exactly when the round is
- * busiest.
- */
-function drawRailCurrent(
-  context: CanvasRenderingContext2D,
-  path: readonly { x: number; y: number }[],
-  rail: ResourceSnakeSceneRail,
-  simulationMs: number,
-  scale: CanvasScale,
-): void {
-  if (path.length < 2) return
-  const seed = rail.actorId.length * 31 + rail.actorId.charCodeAt(0)
-  const tick = Math.floor(simulationMs / 70)
-  const arcs = 6
-
-  context.lineCap = 'round'
-  context.lineJoin = 'round'
-  for (let index = 0; index < arcs; index += 1) {
-    const along = crackleRandom(seed, tick, index) * (path.length - 1)
-    const segment = Math.floor(along)
-    const withinSegment = along - segment
-    const from = path[segment]
-    const to = path[Math.min(segment + 1, path.length - 1)]
-    const dx = to.x - from.x
-    const dy = to.y - from.y
-    const length = Math.hypot(dx, dy) || 1
-    const normalX = -dy / length
-    const normalY = dx / length
-    const x = from.x + dx * withinSegment
-    const y = from.y + dy * withinSegment
-    const reach = scale.unit * (0.22 + crackleRandom(seed, tick, index + 41) * 0.5)
-    const side = crackleRandom(seed, tick, index + 83) > 0.5 ? 1 : -1
-    const skew = (crackleRandom(seed, tick, index + 127) - 0.5) * scale.unit * 0.5
-
-    context.globalAlpha = rail.opacity * 0.55
-    context.strokeStyle = rail.color
-    context.lineWidth = Math.max(1, scale.unit * 0.05)
-    context.beginPath()
-    context.moveTo(x, y)
-    context.lineTo(
-      x + normalX * reach * side * 0.55 + (dx / length) * skew,
-      y + normalY * reach * side * 0.55 + (dy / length) * skew,
-    )
-    context.lineTo(x + normalX * reach * side, y + normalY * reach * side)
-    context.stroke()
-
-  }
-}
-
 function drawRail(
   context: CanvasRenderingContext2D,
   rail: ResourceSnakeSceneRail,
@@ -293,56 +231,48 @@ function drawRail(
   reducedMotion: boolean,
   scale: CanvasScale,
 ): void {
+  void simulationMs
+  void reducedMotion
   if (rail.points.length < 1 || rail.opacity <= 0 || rail.dissolve >= 1) return
 
-  // The trail dots are the hazard; drawing the ribbon that connects them is
-  // the same wall, read as one continuous line instead of a bead necklace.
-  // The head is appended so the line reaches the actor rather than stopping
-  // a dot short of it.
-  const path: Array<{ x: number; y: number }> = rail.points.map((point) => ({
+  // Back to dots. The stroked ribbon read as flat and its crackle cost more
+  // than it gave; a line of luminous marks is this game's signature look.
+  // The head is appended so the line reaches the actor.
+  const points: Array<{ x: number; y: number }> = rail.points.map((point) => ({
     x: point.x * scale.x,
     y: point.y * scale.y,
   }))
   if (head && head.opacity > 0 && rail.dissolve <= 0) {
-    path.push({ x: head.x * scale.x, y: head.y * scale.y })
+    points.push({ x: head.x * scale.x, y: head.y * scale.y })
   }
 
-  // Light drains from the oldest end forward, so a killed actor's line goes
-  // out the way it was laid down.
+  // A killed line still drains from its oldest end forward.
   let leading: { x: number; y: number } | null = null
-  if (rail.dissolve > 0 && path.length > 1) {
-    const drainedSpan = rail.dissolve * (path.length - 1)
+  let firstVisible = 0
+  if (rail.dissolve > 0 && points.length > 1) {
+    const drainedSpan = rail.dissolve * (points.length - 1)
+    firstVisible = Math.ceil(drainedSpan)
     const wholePoints = Math.floor(drainedSpan)
     const withinSegment = drainedSpan - wholePoints
-    const from = path[wholePoints]
-    const to = path[Math.min(wholePoints + 1, path.length - 1)]
+    const from = points[wholePoints]
+    const to = points[Math.min(wholePoints + 1, points.length - 1)]
     leading = {
       x: from.x + (to.x - from.x) * withinSegment,
       y: from.y + (to.y - from.y) * withinSegment,
     }
-    path.splice(0, wholePoints + 1, leading)
   }
-  if (path.length < 1) return
 
   context.save()
   context.globalCompositeOperation = 'lighter'
   context.shadowBlur = 0
-  context.lineCap = 'round'
-  context.lineJoin = 'round'
-  // Four additive passes: the widest is the bloom that makes the ribbon read
-  // as a lit wall, the narrowest is the hot core down its middle.
-  const bloomSize = Math.max(9, scale.unit * 1.05)
-  const haloSize = Math.max(6, scale.unit * 0.62)
-  const outerSize = Math.max(3.4, scale.unit * 0.36)
-  const innerSize = Math.max(1.6, scale.unit * 0.15)
-  context.strokeStyle = rail.color
-  context.fillStyle = rail.color
+  // Three additive passes per dot, sized up from the original so the wall
+  // reads heavier: the widest is the bloom that fuses the dots into one lit
+  // line, the narrowest is the hot core that keeps each a distinct mark.
+  const haloSize = Math.max(7, scale.unit * 0.74)
+  const outerSize = Math.max(4, scale.unit * 0.44)
+  const innerSize = Math.max(2, scale.unit * 0.19)
 
-  // Three passes. The frame cost that read as lag turned out to be the
-  // per-frame event-log rescans, not this; dropping to two passes bought
-  // little and visibly flattened the wall. Only the widest bloom — the most
-  // pixels for the least visible gain — stays retired.
-  void bloomSize
+  context.fillStyle = rail.color
   const passes: Array<[number, number]> = [
     [haloSize, 0.18],
     [outerSize, 0.42],
@@ -350,23 +280,15 @@ function drawRail(
   ]
   for (const [size, alphaScale] of passes) {
     context.globalAlpha = rail.opacity * alphaScale
-    if (path.length === 1) {
-      context.beginPath()
-      context.arc(path[0].x, path[0].y, size / 2, 0, Math.PI * 2)
-      context.fill()
-      continue
+    const offset = size / 2
+    for (let index = firstVisible; index < points.length; index += 1) {
+      context.fillRect(
+        points[index].x - offset,
+        points[index].y - offset,
+        size,
+        size,
+      )
     }
-    context.lineWidth = size
-    context.beginPath()
-    context.moveTo(path[0].x, path[0].y)
-    for (let index = 1; index < path.length; index += 1) {
-      context.lineTo(path[index].x, path[index].y)
-    }
-    context.stroke()
-  }
-
-  if (!reducedMotion) {
-    drawRailCurrent(context, path, rail, simulationMs, scale)
   }
 
   // The draining edge burns brighter for a moment before it is gone.

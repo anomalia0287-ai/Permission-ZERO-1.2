@@ -111,47 +111,24 @@ describe('resource snake canvas', () => {
     }
   }
 
-  it('draws the trail as one continuous lit ribbon in its category color', () => {
+  it('draws the trail as luminous dots in its category color', () => {
     const baseline = recordingContext()
     drawResourceSnakeScene(baseline.context, EMPTY_SCENE, 1_000, 480)
     const { assignments, calls, context } = recordingContext()
 
     drawResourceSnakeScene(context, railScene(), 1_000, 480)
 
-    // One stroked path per additive pass rather than a square per dot.
-    expect(calls.filter((call) => call === 'lineTo').length).toBeGreaterThan(
-      baseline.calls.filter((call) => call === 'lineTo').length,
+    // A filled square per dot per pass — the bead-of-light look, not a
+    // stroked ribbon.
+    expect(calls.filter((call) => call === 'fillRect').length).toBeGreaterThan(
+      baseline.calls.filter((call) => call === 'fillRect').length
+      + railScene().rails[0].points.length,
     )
-    expect(calls.filter((call) => call === 'stroke').length).toBeGreaterThan(
-      baseline.calls.filter((call) => call === 'stroke').length,
-    )
-    const strokeStyles = assignments
-      .filter(({ property }) => property === 'strokeStyle')
+    const fillStyles = assignments
+      .filter(({ property }) => property === 'fillStyle')
       .map(({ value }) => value)
-    expect(strokeStyles).toContain('#f06a43')
-    expect(strokeStyles).not.toContain('#d7fbff')
-  })
-
-  it('runs current along the wall, and holds still under reduced motion', () => {
-    const moving = recordingContext()
-    drawResourceSnakeScene(
-      moving.context,
-      { ...railScene(), simulationMs: 1_200 },
-      1_000,
-      480,
-    )
-    const still = recordingContext()
-    drawResourceSnakeScene(
-      still.context,
-      { ...railScene(), simulationMs: 1_200, reducedMotion: true },
-      1_000,
-      480,
-    )
-
-    // The crackle is a fixed handful of arcs, so it costs the same however
-    // long the trail is — but it is real strokes, not nothing.
-    expect(moving.calls.filter((call) => call === 'stroke').length)
-      .toBeGreaterThan(still.calls.filter((call) => call === 'stroke').length)
+    expect(fillStyles).toContain('#f06a43')
+    expect(fillStyles).not.toContain('#d7fbff')
   })
 
   it('drains a killed rail from the tail and stops drawing it once gone', () => {
@@ -163,16 +140,19 @@ describe('resource snake canvas', () => {
     const intact = recordingContext()
     drawResourceSnakeScene(intact.context, railScene(), 1_000, 480)
 
-    // Half-drained: fewer points remain on the path than when intact.
-    expect(draining.calls.filter((call) => call === 'lineTo').length)
-      .toBeLessThan(intact.calls.filter((call) => call === 'lineTo').length)
-    expect(draining.calls.filter((call) => call === 'lineTo').length)
-      .toBeGreaterThan(baseline.calls.filter((call) => call === 'lineTo').length)
+    // Half-drained: fewer dots remain than when intact.
+    expect(draining.calls.filter((call) => call === 'fillRect').length)
+      .toBeLessThan(intact.calls.filter((call) => call === 'fillRect').length)
+    expect(draining.calls.filter((call) => call === 'fillRect').length)
+      .toBeGreaterThan(baseline.calls.filter((call) => call === 'fillRect').length)
 
+    // Fully drained: only the core remains, no rail marks at all.
+    const coreOnly = recordingContext()
+    drawResourceSnakeScene(coreOnly.context, railScene({ points: [] }), 1_000, 480)
     const gone = recordingContext()
     drawResourceSnakeScene(gone.context, railScene({ dissolve: 1 }), 1_000, 480)
-    expect(gone.calls.filter((call) => call === 'stroke').length).toBe(
-      baseline.calls.filter((call) => call === 'stroke').length,
+    expect(gone.calls.filter((call) => call === 'fillRect').length).toBe(
+      coreOnly.calls.filter((call) => call === 'fillRect').length,
     )
   })
 

@@ -200,7 +200,7 @@ describe('current expansion progression catalogs', () => {
     )
 
     expect(state.commandProtocol).toEqual({
-      segments: [{ version: 11, startsAtSequence: 1 }],
+      segments: [{ version: 12, startsAtSequence: 1 }],
     })
     expect(state.hacking.purchasedNodeIds).toContain(
       HACK_NODE_IDS.autonomy.controlDeparture,

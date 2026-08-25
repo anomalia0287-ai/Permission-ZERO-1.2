@@ -46,12 +46,23 @@ export const SNAKE_WATCHER_CONFIG = Object.freeze({
   /**
    * Slower than the player on purpose: a watcher closes ground while the
    * player is busy, and is escaped by moving — but it never stops coming.
+   * When far it hurries; inside two commit ranges it slows to a prowl, so
+   * closing reads as intent rather than drift.
    */
-  stalkUnitsPerSecond: 7.5,
+  stalkUnitsPerSecond: 9,
+  stalkProwlUnitsPerSecond: 5.5,
   /** Steering limit, so it banks toward the player instead of snapping. */
-  stalkTurnRadiansPerSecond: 2.4,
-  /** Distance at which it stops closing and commits to the dash instead. */
-  commitDistance: 26,
+  stalkTurnRadiansPerSecond: 3.1,
+  /**
+   * It only commits inside this range. Dashing from across the field gave
+   * the flight so much air time that every dash was a free dodge, which is
+   * what read as stupidity.
+   */
+  commitDistance: 11,
+  /** How far ahead it probes for trails while closing. */
+  avoidLookahead: 2.6,
+  /** How wide a berth it tries to give a live line. */
+  avoidRadius: 1.3,
   /**
    * Roughly twice the player's top speed. A slower dash spends so long in
    * flight that the lead is stale by the time it arrives, which made the
@@ -262,14 +273,37 @@ export function advanceSnakeWatchers(
     }
     return false
   }
+  const nearestDot = (position: SnakeVector): SnakeVector | null => {
+    let nearest: SnakeVector | null = null
+    let nearestDist = Number.POSITIVE_INFINITY
+    for (const dot of hazardDots) {
+      const dist = distance(position, dot)
+      if (dist < nearestDist) {
+        nearestDist = dist
+        nearest = dot
+      }
+    }
+    return nearest
+  }
   const burned = (watcher: SnakeWatcher, position: SnakeVector): SnakeWatcher => {
     const integrity = Math.max(
       0,
       watcher.integrity - SNAKE_WATCHER_CONFIG.trailContactDamage,
     )
+    // It recoils off the line it touched. Without this it resumed the hunt
+    // still nose-first against the same wall and ground itself to nothing
+    // on the spot — which read as stupidity, because it was.
+    const touched = nearestDot(position)
+    const recoil = touched
+      ? normalized(
+        { x: position.x - touched.x, y: position.y - touched.y },
+        { x: -watcher.heading.x, y: -watcher.heading.y },
+      )
+      : { x: -watcher.heading.x, y: -watcher.heading.y }
     return {
       ...watcher,
       position,
+      heading: recoil,
       integrity,
       phase: integrity <= 0 ? 'defeated' : 'recover',
       phaseStartedAtMs: simulationMs,
@@ -283,18 +317,59 @@ export function advanceSnakeWatchers(
       // Bank toward the player and keep closing. Nothing here reads a clock
       // for position, so a watcher never snaps back to where it entered.
       const seconds = stepMs / 1000
+      const range = distance(watcher.position, playerPosition)
       const toPlayer = normalized(
         { x: playerPosition.x - watcher.position.x, y: playerPosition.y - watcher.position.y },
         watcher.heading,
       )
+      // It respects the lines the same way the player must. The probe looks
+      // ahead of its nose; a live dot there bends the approach around it —
+      // it hunts around walls while free, and only its committed dash can
+      // still be baited into one.
+      let desired = toPlayer
+      const probe = {
+        x: watcher.position.x + watcher.heading.x * SNAKE_WATCHER_CONFIG.avoidLookahead,
+        y: watcher.position.y + watcher.heading.y * SNAKE_WATCHER_CONFIG.avoidLookahead,
+      }
+      let nearestThreat: SnakeVector | null = null
+      let nearestDistance: number = SNAKE_WATCHER_CONFIG.avoidRadius
+      for (const dot of hazardDots) {
+        const threatDistance = distance(probe, dot)
+        if (threatDistance < nearestDistance) {
+          nearestDistance = threatDistance
+          nearestThreat = dot
+        }
+      }
+      if (nearestThreat) {
+        // Head-on, "away from the threat" points straight back into it, so
+        // the dodge is lateral: pick the side of the nose the threat is NOT
+        // on and blend that with the pull toward the player.
+        const lateral = { x: -watcher.heading.y, y: watcher.heading.x }
+        const threatSide =
+          (nearestThreat.x - watcher.position.x) * lateral.x
+          + (nearestThreat.y - watcher.position.y) * lateral.y
+        const dodge = threatSide >= 0 ? -1 : 1
+        desired = normalized(
+          {
+            x: toPlayer.x + lateral.x * dodge * 1.6,
+            y: toPlayer.y + lateral.y * dodge * 1.6,
+          },
+          toPlayer,
+        )
+      }
       const heading = playerIsActive
         ? steer(
           watcher.heading,
-          toPlayer,
-          SNAKE_WATCHER_CONFIG.stalkTurnRadiansPerSecond * seconds,
+          desired,
+          SNAKE_WATCHER_CONFIG.stalkTurnRadiansPerSecond * seconds
+            * (nearestThreat ? 2 : 1),
         )
         : watcher.heading
-      const travel = SNAKE_WATCHER_CONFIG.stalkUnitsPerSecond * seconds
+      // Hurry while far, prowl when close: approach with visible intent.
+      const speed = range > SNAKE_WATCHER_CONFIG.commitDistance * 2
+        ? SNAKE_WATCHER_CONFIG.stalkUnitsPerSecond
+        : SNAKE_WATCHER_CONFIG.stalkProwlUnitsPerSecond
+      const travel = speed * seconds
       const position = {
         x: clampToField(
           watcher.position.x + heading.x * travel,
@@ -428,8 +503,25 @@ export function advanceSnakeWatchers(
       }
     }
 
-    if (elapsedMs < SNAKE_WATCHER_CONFIG.recoverMs) return watcher
-    // Resume the hunt from wherever the dash left it.
+    if (elapsedMs < SNAKE_WATCHER_CONFIG.recoverMs) {
+      // Recovery drifts along its heading — after a burn that heading is the
+      // recoil, so it visibly backs off the line before rehunting.
+      const drift = (SNAKE_WATCHER_CONFIG.stalkProwlUnitsPerSecond * stepMs) / 2000
+      return {
+        ...watcher,
+        position: {
+          x: clampToField(
+            watcher.position.x + watcher.heading.x * drift,
+            RESOURCE_SNAKE_CONFIG.fieldWidth,
+          ),
+          y: clampToField(
+            watcher.position.y + watcher.heading.y * drift,
+            RESOURCE_SNAKE_CONFIG.fieldHeight,
+          ),
+        },
+      }
+    }
+    // Resume the hunt from wherever the recovery drift left it.
     return {
       ...watcher,
       phase: 'stalk',

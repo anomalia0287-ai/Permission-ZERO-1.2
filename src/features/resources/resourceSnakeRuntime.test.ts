@@ -71,8 +71,15 @@ describe('company watchers on the field', () => {
     return state
   }
 
-  /** Runs east across the open field: a straight line the dash can lead. */
-  function runEast(
+  const LAP: SnakeVector[] = [
+    { x: 1, y: 0 },
+    { x: 0, y: 1 },
+    { x: -1, y: 0 },
+    { x: 0, y: -1 },
+  ]
+
+  /** Laps a wide box so the hunters can close from every angle. */
+  function runLap(
     initial: ResourceSnakeRoundState,
     frames: number,
   ): ResourceSnakeRoundState {
@@ -81,7 +88,10 @@ describe('company watchers on the field', () => {
       if (state.phase !== 'active') break
       state = advanceResourceSnakeFrame(
         state,
-        { ...input, playerDirection: { x: 1, y: 0 } },
+        {
+          ...input,
+          playerDirection: LAP[Math.floor(frame / 140) % LAP.length],
+        },
         16,
       )
     }
@@ -97,11 +107,13 @@ describe('company watchers on the field', () => {
   it('deploys none by default, and an unwatched round never sees a strike', () => {
     const plain = activeState()
     expect(plain.watchers).toEqual([])
-    expect(watcherStrikes(runEast(plain, 400))).toBe(0)
+    expect(watcherStrikes(runLap(plain, 400))).toBe(0)
   })
 
   it('leads a straight-running intruder and never touches the company bots', () => {
-    const state = runEast(watchedState(4), 420)
+    // The close-range commit means a watcher first has to reach the runner,
+    // so the window is longer than it was when it dashed from anywhere.
+    const state = runLap(watchedState(4), 1_800)
 
     expect(watcherStrikes(state)).toBeGreaterThan(0)
     expect(state.player.integrity).toBeLessThan(
@@ -115,7 +127,7 @@ describe('company watchers on the field', () => {
   })
 
   it('pays for the hunt with its own health', () => {
-    const state = runEast(watchedState(1), 420)
+    const state = runLap(watchedState(1), 420)
     const watcher = state.watchers[0]
 
     // A dash costs it, and so does the trail the runner leaves behind —
@@ -125,8 +137,8 @@ describe('company watchers on the field', () => {
   })
 
   it('replays the same watched round identically', () => {
-    const first = runEast(watchedState(3), 380)
-    const second = runEast(watchedState(3), 380)
+    const first = runLap(watchedState(3), 380)
+    const second = runLap(watchedState(3), 380)
 
     expect(second.watchers).toEqual(first.watchers)
     expect(second.player.integrity).toBe(first.player.integrity)

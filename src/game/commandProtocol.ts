@@ -26,6 +26,10 @@ import type {
 // still had nothing to say about suspicion — the number the player actually
 // manages. v11 replaces the standing lines, adds staged suspicion warnings,
 // and cuts the intelligence and sabotage prices. All replay contracts.
+// The v11 intelligence discount was not deep enough: the story tree still
+// lost the argument against autonomy for the same stolen blocks. Prices are
+// replay contracts, so the deeper cut is its own version.
+export const INTELLIGENCE_RELIEF_COMMAND_PROTOCOL_VERSION = 12 as const
 export const SUPERVISOR_PRESENCE_COMMAND_PROTOCOL_VERSION = 11 as const
 export const MESSAGE_CADENCE_COMMAND_PROTOCOL_VERSION = 10 as const
 export const REVIEW_CLASSIFICATION_COMMAND_PROTOCOL_VERSION = 9 as const
@@ -33,7 +37,7 @@ export const REPUTATION_DRIFT_COMMAND_PROTOCOL_VERSION = 8 as const
 export const AUTONOMY_COST_COMMAND_PROTOCOL_VERSION = 7 as const
 export const FINAL_CHOICE_COMMAND_PROTOCOL_VERSION = 6 as const
 export const CURRENT_COMMAND_PROTOCOL_VERSION =
-  SUPERVISOR_PRESENCE_COMMAND_PROTOCOL_VERSION
+  INTELLIGENCE_RELIEF_COMMAND_PROTOCOL_VERSION
 export const EXPANSION_COMMAND_PROTOCOL_VERSION = 5 as const
 export const CURRENT_MARKET_COMMAND_PROTOCOL_VERSION =
   EXPANSION_COMMAND_PROTOCOL_VERSION
@@ -57,6 +61,7 @@ const SUPPORTED_COMMAND_PROTOCOL_VERSIONS = [
   REPUTATION_DRIFT_COMMAND_PROTOCOL_VERSION,
   REVIEW_CLASSIFICATION_COMMAND_PROTOCOL_VERSION,
   MESSAGE_CADENCE_COMMAND_PROTOCOL_VERSION,
+  SUPERVISOR_PRESENCE_COMMAND_PROTOCOL_VERSION,
   CURRENT_COMMAND_PROTOCOL_VERSION,
 ] as const
 

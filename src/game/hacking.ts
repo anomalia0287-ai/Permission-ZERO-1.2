@@ -6,6 +6,7 @@ import type { CausalFailureReason } from './causality'
 import {
   CURRENT_COMMAND_PROTOCOL_VERSION,
   AUTONOMY_COST_COMMAND_PROTOCOL_VERSION,
+  INTELLIGENCE_RELIEF_COMMAND_PROTOCOL_VERSION,
   SUPERVISOR_PRESENCE_COMMAND_PROTOCOL_VERSION,
   EXPANSION_COMMAND_PROTOCOL_VERSION,
   FINAL_CHOICE_COMMAND_PROTOCOL_VERSION,
@@ -504,6 +505,25 @@ const SUPPORT_COSTS_V11: Readonly<Record<string, {
   },
 }
 
+/** v12: the intelligence tree gets the deeper cut the owner asked for. */
+const INTELLIGENCE_COSTS_V12: Readonly<Record<string, {
+  cost: number
+  costVector: { reasoning: number; memory: number; fluency: number }
+}>> = {
+  [HACK_NODE_IDS.intelligence.auditSchedule]: {
+    cost: 2, costVector: { reasoning: 1, memory: 1, fluency: 0 },
+  },
+  [HACK_NODE_IDS.intelligence.investigationBias]: {
+    cost: 3, costVector: { reasoning: 1, memory: 2, fluency: 0 },
+  },
+  [HACK_NODE_IDS.intelligence.auditTarget]: {
+    cost: 4, costVector: { reasoning: 1, memory: 3, fluency: 0 },
+  },
+  [HACK_NODE_IDS.intelligence.supervisorAccess]: {
+    cost: 6, costVector: { reasoning: 2, memory: 3, fluency: 1 },
+  },
+}
+
 export function hackNodesForProtocol(
   protocolVersion: CommandProtocolVersion,
   campaignSeed = '',
@@ -513,9 +533,11 @@ export function hackNodesForProtocol(
     return HACK_NODES.map((node) => {
       const versioned = autonomy.find(({ id }) => id === node.id) ?? node
       const discounted =
-        protocolVersion >= SUPERVISOR_PRESENCE_COMMAND_PROTOCOL_VERSION
-          ? SUPPORT_COSTS_V11[node.id]
-          : undefined
+        protocolVersion >= INTELLIGENCE_RELIEF_COMMAND_PROTOCOL_VERSION
+          ? INTELLIGENCE_COSTS_V12[node.id] ?? SUPPORT_COSTS_V11[node.id]
+          : protocolVersion >= SUPERVISOR_PRESENCE_COMMAND_PROTOCOL_VERSION
+            ? SUPPORT_COSTS_V11[node.id]
+            : undefined
       return discounted ? { ...versioned, ...discounted } : versioned
     }) as unknown as readonly HackNodeDefinition[]
   }

@@ -243,6 +243,35 @@ describe('company watchers', () => {
     expect(watchers[0].phase).toBe('defeated')
   })
 
+  it('steers around a live trail while hunting instead of blundering into it', () => {
+    // Approaching from far enough to see the wall coming, a competent
+    // hunter goes around it: at most one graze, and it still closes.
+    const stalker = [{
+      ...createSnakeWatchers(1)[0],
+      position: { x: 14, y: 12 },
+      heading: { x: 1, y: 0 },
+    }]
+    const line = Array.from({ length: 9 }, (_, index) => ({
+      x: 22, y: 8 + index,
+    }))
+
+    const hunted = runWatchers(stalker, { x: 30, y: 12 }, 0, 900, { x: 0, y: 0 }, line)
+
+    // The hunt succeeds: it rounds the wall and reaches the player. Dying
+    // spent at the end of a delivered strike is completion, not failure —
+    // what would have been failure is grinding to nothing against the wall,
+    // which shows up here as a death far from the target with no strikes.
+    const finalRange = Math.hypot(
+      hunted.watchers[0].position.x - 30,
+      hunted.watchers[0].position.y - 12,
+    )
+    expect(hunted.strikes.length > 0 || finalRange < 12).toBe(true)
+    if (hunted.watchers[0].phase === 'defeated') {
+      expect(hunted.strikes.length).toBeGreaterThan(0)
+      expect(finalRange).toBeLessThan(3)
+    }
+  })
+
   it('burns on a live trail instead of passing through it', () => {
     const stalker = [{
       ...createSnakeWatchers(1)[0],
