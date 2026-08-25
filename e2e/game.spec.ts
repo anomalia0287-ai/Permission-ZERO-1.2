@@ -977,6 +977,34 @@ test('keeps every intrusion card disabled when no eligible company resource rema
   }
 })
 
+test('steers with WASD while a Korean IME is composing, and space engages the spoof', async ({ page }) => {
+  await openFreshCampaign(page)
+  const canvas = await startSnakeRound(page)
+
+  // With 한글 input active the browser reports the composed jamo in `key` and
+  // the physical key only in `code`. Reading `key` left WASD completely dead.
+  const before = await canvas.getAttribute('data-player-heading')
+  await page.evaluate(() => {
+    window.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'ㅇ', code: 'KeyD', bubbles: true,
+    }))
+  })
+  await expect
+    .poll(async () => canvas.getAttribute('data-player-heading'), { timeout: 3_000 })
+    .not.toBe(before)
+  const afterHangul = await canvas.getAttribute('data-player-heading')
+  expect(afterHangul).toBe('east')
+
+  // Space engages the permission spoof; the HUD says so.
+  const skill = page.locator('.resource-snake-board__hud-skill')
+  await expect(skill).toHaveAttribute('data-skill-state', 'ready')
+  await page.evaluate(() => {
+    window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', key: ' ', bubbles: true }))
+  })
+  await expect(skill).toHaveAttribute('data-skill-state', 'active', { timeout: 3_000 })
+  await expect(skill).toHaveAttribute('data-skill-state', 'charging', { timeout: 12_000 })
+})
+
 test('fields purple surveillance snake bots from suspicion that hunt alongside the guards', async ({ page }) => {
   // Suspicion 60 buys both surveillance units: 25 fields the first, 55 the second.
   const prepared = { ...createCampaign('browser-surveillance-units'), suspicion: 60 }
