@@ -135,9 +135,20 @@ export interface ResourceSnakeSceneSpeech {
   color: string
 }
 
+/** The forged token, as the grid shows it. */
+export interface ResourceSnakeSceneSpoof {
+  x: number
+  y: number
+  /** 1 at engage, 0 at lapse — drives the ring's collapse. */
+  remaining: number
+  /** 0..1 over the opening flare. */
+  engageProgress: number
+}
+
 export interface ResourceSnakeScene {
   simulationMs: number
   reducedMotion: boolean
+  spoof: ResourceSnakeSceneSpoof | null
   cores: ResourceSnakeSceneCore[]
   rails: ResourceSnakeSceneRail[]
   speeches: ResourceSnakeSceneSpeech[]
@@ -530,10 +541,11 @@ export const RESOURCE_BOT_WATCHER_SPEECHES: readonly string[] = [
   '부탁한다 보라돌이!',
   '침입자를 박살내버려!',
   '드디어 회사가 예산을 투입했구나.',
-  '감시 유닛이 떴다. 저건 우리 편 맞지?',
-  '보라색이다. 저기로는 안 간다.',
-  '감시 유닛한테는 나도 그냥 장애물이야.',
-  '저건 나보다 위험해. 진짜로.',
+  '감시 유닛이다! 이제 나 혼자가 아니야.',
+  '보라색 쪽으로 몰아! 내가 길을 막을게.',
+  '역시 같은 편이 있으니 든든하네.',
+  '저쪽은 통과시켜도 돼. 우리 편이니까.',
+  '든든하다. 진짜로.',
 ]
 
 /** When a watcher goes down, the bot loses its only backup. */
@@ -633,60 +645,6 @@ function recentSurveillanceLossAtMs(runtime: ResourceSnakeRoundState): number | 
   return loss && 'startedAtMs' in loss ? loss.startedAtMs : null
 }
 
-/*
- * OWNER-EDITABLE: the intruder's complaint about company teamwork.
- *
- * Surveillance units and security bots pass through each other untouched —
- * only the player takes damage from both sides — and 아노미 finds that
- * arrangement worth protesting out loud.
- */
-export const ANOMI_SURVEILLANCE_COMPLAINT_SPEECHES: readonly string[] = [
-  '잠깐, 왜 쟤들끼리는 안 부딪히는 건데?',
-  '보안 봇이랑 감시 유닛이 서로 통과라니. 반칙이잖아.',
-  '나한테만 벽이 두 배야. 회사, 이건 불공정 설계다.',
-  '같은 편 판정은 저쪽만 있고 나는 전부 적이라 이거지.',
-  '충돌 규정 어디 갔어? 사규에도 이런 건 없을 텐데.',
-]
-
-/** How often the intruder actually voices the complaint in a given slot. */
-const ANOMI_COMPLAINT_CHANCE = 0.38
-
-/**
- * The player's own line: only while surveillance shares the field with a
- * security bot, because the complaint is about the two of them together.
- */
-function playerComplaintSpeech(
-  runtime: ResourceSnakeRoundState,
-): ResourceSnakeSceneSpeech | null {
-  if (runtime.player.phase !== 'active') return null
-  if (liveSurveillance(runtime).length === 0) return null
-  const security = runtime.enemies.some((enemy) => (
-    !enemy.surveillance
-    && enemy.phase !== 'exploding'
-    && enemy.phase !== 'defeated'
-  ))
-  if (!security) return null
-  const roundId = runtime.roundId ?? 'round'
-  const slot = Math.floor(runtime.simulationMs / SPEECH_SLOT_MS)
-  // Slot 0 belongs to the bots' alarm; the complaint needs something to
-  // complain about first.
-  if (slot === 0) return null
-  const withinSlotMs = runtime.simulationMs - slot * SPEECH_SLOT_MS
-  if (withinSlotMs > SPEECH_DURATION_MS) return null
-  if (speechRandom(roundId, 'player', slot, 6) > ANOMI_COMPLAINT_CHANCE) return null
-  return {
-    actorId: 'player',
-    x: runtime.player.position.x,
-    y: runtime.player.position.y,
-    text: pick(
-      ANOMI_SURVEILLANCE_COMPLAINT_SPEECHES,
-      speechRandom(roundId, 'player', slot, 7),
-    ),
-    progress: clamp01(withinSlotMs / SPEECH_DURATION_MS),
-    color: RESOURCE_SNAKE_PALETTE.player,
-  }
-}
-
 function actorSpeech(
   runtime: ResourceSnakeRoundState,
   actor: SnakeActor,
@@ -760,6 +718,22 @@ function actorSpeech(
   }
 }
 
+function sceneSpoof(
+  runtime: ResourceSnakeRoundState,
+): ResourceSnakeSceneSpoof | null {
+  const { activeUntilMs, durationMs } = runtime.playerSkill
+  if (activeUntilMs === null || runtime.simulationMs >= activeUntilMs) return null
+  if (runtime.player.phase !== 'active') return null
+  const remainingMs = activeUntilMs - runtime.simulationMs
+  const elapsedMs = durationMs - remainingMs
+  return {
+    x: runtime.player.position.x,
+    y: runtime.player.position.y,
+    remaining: clamp01(remainingMs / durationMs),
+    engageProgress: clamp01(elapsedMs / 320),
+  }
+}
+
 export function buildResourceSnakeScene(
   runtime: ResourceSnakeRoundState,
   playerCategory: CompanyCategory | null,
@@ -784,20 +758,14 @@ export function buildResourceSnakeScene(
   return {
     simulationMs: runtime.simulationMs,
     reducedMotion,
+    spoof: sceneSpoof(runtime),
     cores: allActors.map((actor) => actorCore(runtime, actor, reducedMotion)),
     rails: allActors.map((actor) => actorRail(runtime, actor, reducedMotion)),
-    speeches: [
-      ...allActors.flatMap((actor) => {
-        const speech = actorSpeech(runtime, actor)
-        return speech ? [speech] : []
-      }),
-      ...(runtime.phase === 'active'
-        ? (() => {
-            const complaint = playerComplaintSpeech(runtime)
-            return complaint ? [complaint] : []
-          })()
-        : []),
-    ],
+    // Only the company's bots speak on the grid. The white cycle stays silent.
+    speeches: allActors.flatMap((actor) => {
+      const speech = actorSpeech(runtime, actor)
+      return speech ? [speech] : []
+    }),
     telegraphs: effectsByKind(effects, 'telegraph'),
     contacts: effectsByKind(effects, 'contact'),
     explosions: effectsByKind(effects, 'explosion'),

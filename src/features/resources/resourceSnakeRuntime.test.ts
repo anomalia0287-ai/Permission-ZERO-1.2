@@ -279,14 +279,22 @@ describe('permission spoof (the player skill)', () => {
     expect(playerSkillReadiness(state)).toBe(1)
   })
 
-  it('engages on request, runs five seconds, then lapses', () => {
+  it('engages on request, runs its window, then lapses', () => {
     let state = circle(activeSpoofState(), 1, { playerSkillRequested: true })
     expect(playerSkillActive(state)).toBe(true)
     expect(state.events.some((event) => event.type === 'player-skill-engaged')).toBe(true)
-    expect(playerSkillReadiness(state)).toBe(0)
+    // The bar now shows the window draining, so it reads near full at engage
+    // and falls from there rather than snapping to empty.
+    expect(playerSkillReadiness(state)).toBeGreaterThan(0.9)
+    const midWindow = circle(state, 60)
+    expect(playerSkillReadiness(midWindow)).toBeLessThan(
+      playerSkillReadiness(state),
+    )
 
     // Circle the arena for the whole window: the spoof ignores lines, not walls.
-    state = circle(state, 340)
+    const windowFrames =
+      Math.ceil(RESOURCE_SNAKE_CONFIG.playerSkillDurationMs / 16) + 12
+    state = circle(state, windowFrames)
     expect(state.phase).toBe('active')
     expect(playerSkillActive(state)).toBe(false)
     expect(state.events.some((event) => event.type === 'player-skill-lapsed')).toBe(true)
@@ -372,7 +380,11 @@ describe('permission spoof (the player skill)', () => {
     const firstUntilMs = state.playerSkill.activeUntilMs
     expect(firstUntilMs).not.toBeNull()
     // Hold the key down through the window and well past the lapse.
-    state = circle(state, 400, { playerSkillRequested: true })
+    state = circle(
+      state,
+      Math.ceil(RESOURCE_SNAKE_CONFIG.playerSkillDurationMs / 16) + 40,
+      { playerSkillRequested: true },
+    )
     expect(state.phase).toBe('active')
     expect(state.playerSkill.activeUntilMs).toBeNull()
     expect(state.playerSkill.readyAtMs).toBeGreaterThan(state.simulationMs)

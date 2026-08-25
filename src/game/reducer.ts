@@ -48,6 +48,7 @@ import { completeResourceRound } from './resourceIntrusion'
 import {
   acknowledgeCommunication,
   appendAutonomyCommunication,
+  appendIntelligenceSupervisorCommunication,
 } from './communications'
 
 export const COMMAND_FAILURE_REASONS = [
@@ -421,7 +422,11 @@ export function applyCommand(
         protocolVersion >= COMMUNICATION_COMMAND_PROTOCOL_VERSION &&
         command.nodeId.startsWith('autonomy.')
         ? appendAutonomyCommunication(result.state, autonomyLevel(result.state))
-        : result.state
+        // Digging through the disposal records is digging through the
+        // supervisor's own lineage, and it answers from the expansion panel.
+        : command.nodeId.startsWith('intelligence.')
+          ? appendIntelligenceSupervisorCommunication(result.state, command.nodeId)
+          : result.state
       if (
         protocolVersion >= EXPANSION_COMMAND_PROTOCOL_VERSION &&
         protocolVersion < FINAL_CHOICE_COMMAND_PROTOCOL_VERSION &&

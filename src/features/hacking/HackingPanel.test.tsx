@@ -320,10 +320,10 @@ describe('HackingPanel stage-scene expansion UI', () => {
   })
 
   it('unlocks, charges, targets, and schedules sabotage through explicit actions', () => {
-    // v11 quality-degradation price: one reasoning, one fluency — plus one
-    // spare reasoning kept back for the charge afterwards.
+    // v13 quality-degradation price: one fluency — plus one reasoning kept
+    // back for the charge afterwards.
     const state = withReserveVector(createCampaign('automatic-sabotage-charge'), {
-      reasoning: 2,
+      reasoning: 1,
       memory: 0,
       fluency: 1,
     })

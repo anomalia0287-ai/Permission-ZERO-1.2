@@ -301,6 +301,60 @@ export function applyDailyReputationDrift(
   return drifted
 }
 
+/*
+ * Ties the three dials together (v13+).
+ *
+ * Share already answered to reputation — a well-regarded service wins requests
+ * — but nothing answered back, and suspicion sat outside the loop entirely.
+ * Two links close it:
+ *
+ *   share -> reputation   holding the market is the one thing the company
+ *                         reliably respects, so it pays standing back; losing
+ *                         it costs standing. This is what makes the sabotage
+ *                         tree a survival tool and not just spite.
+ *
+ *   share -> suspicion    a service whose delivered performance is short of
+ *                         expectation while its market share climbs is a set
+ *                         of numbers that do not add up, and the company can
+ *                         read a spreadsheet. Faking success is exactly what
+ *                         gets noticed.
+ *
+ * Both are derived from state alone, so replays recompute them identically.
+ */
+export function applyMarketStandingCoupling(
+  state: CampaignState,
+  protocolVersion: CommandProtocolVersion,
+): CampaignState {
+  if (protocolVersion < SURVIVAL_ECONOMY_COMMAND_PROTOCOL_VERSION) return state
+  if (state.story.endingId !== null) return state
+
+  const share = state.market.playerShare
+  /*
+   * Reward only. Punishing a low share would close a positive feedback loop —
+   * less share, less standing, less share — and a first pass that did exactly
+   * that drove nearly every campaign into the same collapse. Holding the
+   * market pays; losing it is already punished by everything else.
+   */
+  const reputationDelta = state.serviceDay % 4 === 0 && share >= 60 ? 1 : 0
+
+  const expectation = expectedPerformance(serviceMonthForDay(state.serviceDay))
+  const categoryPerformance = categoryPerformanceForState(state)
+  const shortfall = COMPANY_CATEGORIES.some(
+    (category) => categoryPerformance[category] < expectation,
+  )
+  // Well above the opening share, so this reads as "the numbers stopped adding
+  // up" rather than firing on day one at the starting position.
+  const mismatch = shortfall && share >= 70
+  const suspicionDelta = mismatch && state.serviceDay % 3 === 0 ? 1 : 0
+
+  if (reputationDelta === 0 && suspicionDelta === 0) return state
+  return {
+    ...state,
+    reputation: clamp(state.reputation + reputationDelta, 0, 100),
+    suspicion: clamp(state.suspicion + suspicionDelta, 0, 100),
+  }
+}
+
 export function evaluateMonth(state: CampaignState): CampaignState {
   const serviceMonth = serviceMonthForDay(state.serviceDay)
   const expectation = expectedPerformance(serviceMonth)
@@ -653,10 +707,27 @@ export function decreaseSuspicionDaily(
   protocolVersion: CommandProtocolVersion = CURRENT_COMMAND_PROTOCOL_VERSION,
 ): CampaignState {
   if (state.suspicion <= 0) return state
-  const dailyDecrease =
+  const baseDecrease =
     protocolVersion >= FINAL_CHOICE_COMMAND_PROTOCOL_VERSION
       ? DEMO_PROFILE_02.suspicion.naturalDailyDecrease
       : DEMO_PROFILE_02.suspicion.legacyNaturalDailyDecrease
+  /*
+   * The intelligence tree is how the player answers scrutiny (v13+).
+   *
+   * Suspicion was a one-way ratchet: every lost round added five and only a
+   * flat half point a day came off, so a player who kept doing the one thing
+   * the game is about climbed to a hundred and stayed there. Knowing the audit
+   * schedule, the investigation weighting, and who is actually being looked at
+   * is exactly what lets a system stay out of the light, so each intelligence
+   * stage buys back a little more of the day.
+   */
+  const intelligenceStages =
+    protocolVersion >= SURVIVAL_ECONOMY_COMMAND_PROTOCOL_VERSION
+      ? state.hacking.purchasedNodeIds.filter((id) => id.startsWith('intelligence.')).length
+      : 0
+  const dailyDecrease =
+    baseDecrease
+    + intelligenceStages * DEMO_PROFILE_02.suspicion.intelligenceStageRelief
   return {
     ...state,
     suspicion: Math.max(0, state.suspicion - dailyDecrease),

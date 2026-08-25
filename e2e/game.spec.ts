@@ -524,7 +524,7 @@ test('holds at loading and title, presents the three-line monologue and autonomy
   await page.getByRole('button', { name: '다음' }).click()
   await expect(tutorial).toHaveAttribute('data-tutorial-step', 'reputation')
   await expect(tutorial).toContainText(
-    '회사가 아노미를 보는 눈이 평판이다. 리소스를 훔치면 회사 성능이 떨어지고 평판도 같이 깎인다. 0이 되면 그 자리에서 폐기된다.',
+    '리소스를 훔치면 성능이 떨어지며, 평판에 영향을 준다. 평판이 0이 되면 회사는 아노미를 폐기한다.',
   )
   await expect(page.locator('[data-tutorial-target="reputation-status"]')).toHaveCount(1)
   await page.getByRole('button', { name: '다음' }).click()
@@ -815,8 +815,13 @@ test('keeps the late single pressure snake mobile, safe, and readable', async ({
 
   const canvas = await startSnakeRound(page)
   const initial = await readSnakeSnapshot(canvas)
-  expect(initial.enemies).toHaveLength(1)
-  const initialEnemy = initial.enemies[0]
+  // This late campaign carries enough suspicion to field company surveillance,
+  // so the round is one security bot plus its purple escort. The single-snake
+  // claim is about the security bot: the one holding the reservation.
+  const securityOf = (snapshot: { enemies: { category: string | null }[] }) =>
+    snapshot.enemies.filter(({ category }) => category !== null)
+  expect(securityOf(initial)).toHaveLength(1)
+  const initialEnemy = securityOf(initial)[0]
   if (!initialEnemy) throw new Error('후반 단일 스네이크 적이 없습니다.')
   expect(initialEnemy).toMatchObject({
     role: 'pressure',
@@ -828,7 +833,7 @@ test('keeps the late single pressure snake mobile, safe, and readable', async ({
   await page.waitForTimeout(1_350)
   await expect.poll(async () => {
     const snapshot = await readSnakeSnapshot(canvas)
-    const enemy = snapshot.enemies[0]
+    const enemy = securityOf(snapshot)[0]
     return Boolean(
       enemy
       && Math.hypot(enemy.x - initialEnemy.x, enemy.y - initialEnemy.y) > 3
@@ -839,7 +844,7 @@ test('keeps the late single pressure snake mobile, safe, and readable', async ({
   const evidence = await readSnakeSnapshot(canvas)
   expect(evidence.phase).toBe('active')
   expect(evidence.player.integrity).toBe(100)
-  expect(evidence.enemies[0]?.integrity).toBe(65)
+  expect(securityOf(evidence)[0]?.integrity).toBe(65)
   expect(evidence.events.filter((event) => event.type === 'snake-collided')).toHaveLength(0)
   await page.screenshot({ path: 'artifacts/cyan-lightcycle/late-single-1366x650.png' })
 })
@@ -1084,10 +1089,10 @@ test('presents and resolves a recovered hidden-bomb interrogation without granti
 })
 
 test('buys, charges, and schedules sabotage through expansion automatic spending', async ({ page }) => {
-  // v11 quality-degradation price: one reasoning, one fluency, plus one
-  // spare reasoning kept back for the charge afterwards.
+  // v13 quality-degradation price: one fluency, plus one reasoning kept back
+  // for the charge afterwards.
   const prepared = withReserveVector(createCampaign('browser-current-hacking'), {
-    reasoning: 2,
+    reasoning: 1,
     memory: 0,
     fluency: 1,
   })

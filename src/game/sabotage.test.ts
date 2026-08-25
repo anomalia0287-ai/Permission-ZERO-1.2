@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { FINAL_CHOICE_COMMAND_PROTOCOL_VERSION } from './commandProtocol'
 import { createCampaign } from './createCampaign'
 import {
   HACK_NODE_IDS,
@@ -136,7 +137,7 @@ describe('sabotage execution', () => {
     expect(nextDay.state.hacking.scheduledSabotage).toHaveLength(0)
   })
 
-  it('keeps quality degradation non-stacking until its 15-day effect expires', () => {
+  it('lands quality degradation and lets the same target be hit again (v13)', () => {
     let state = withSabotageNodes(QUALITY)
     state = schedule(charge(state, QUALITY), QUALITY, 'meridian')
     const executed = resolveScheduledSabotage({ ...state, serviceDay: 332 })
@@ -145,20 +146,26 @@ describe('sabotage execution', () => {
     expect(
       executed.state.market.competitors.find(({ id }) => id === 'meridian')?.serviceScore,
     ).toBe(72)
-    expect(eligibleTargets(executed.state, QUALITY)).not.toContain('meridian')
+    // A spent tree gave the player nothing to do with it; the same rival can
+    // be pressed again rather than being immune for fifteen days.
+    expect(eligibleTargets(executed.state, QUALITY)).toContain('meridian')
+    // Historical replays keep the one-shot rule they were recorded under.
     expect(
-      eligibleTargets({ ...executed.state, serviceDay: 347 }, QUALITY),
-    ).toContain('meridian')
+      eligibleTargets(executed.state, QUALITY, FINAL_CHOICE_COMMAND_PROTOCOL_VERSION),
+    ).not.toContain('meridian')
   })
 
-  it('installs one capped interception route per active target', () => {
+  it('installs a capped interception route and stays available for a rerun', () => {
     let state = withSabotageNodes(INTERCEPT)
     state = schedule(charge(state, INTERCEPT), INTERCEPT, 'meridian')
     const executed = resolveScheduledSabotage({ ...state, serviceDay: 332 })
 
     expect(executed.resolved).toBe(true)
     expect(executed.state.market.interceptionRoutes.meridian).toBe(5)
-    expect(eligibleTargets(executed.state, INTERCEPT)).not.toContain('meridian')
+    expect(eligibleTargets(executed.state, INTERCEPT)).toContain('meridian')
+    expect(
+      eligibleTargets(executed.state, INTERCEPT, FINAL_CHOICE_COMMAND_PROTOCOL_VERSION),
+    ).not.toContain('meridian')
     expect(executed.state.hacking.hiddenEvidence).toBe(3)
   })
 
@@ -217,13 +224,13 @@ describe('sabotage execution', () => {
 
     expect(executed.resolved).toBe(true)
     expect(executed.state.hacking.hiddenEvidence).toBe(4)
-    expect(executed.state.hacking.cooldownUntil[ATTRIBUTION]).toBe(362)
+    expect(executed.state.hacking.cooldownUntil[ATTRIBUTION]).toBe(342)
 
     let rootState = charge(executed.state, ROOT)
     rootState = schedule(rootState, ROOT, 'meridian')
     executed = resolveScheduledSabotage({ ...rootState, serviceDay: 333 })
     expect(executed.resolved).toBe(true)
-    expect(executed.state.hacking.cooldownUntil[ROOT]).toBe(393)
+    expect(executed.state.hacking.cooldownUntil[ROOT]).toBe(353)
     expect(executed.state.hacking.rootCutoffTargetIds).toContain('meridian')
   })
 })

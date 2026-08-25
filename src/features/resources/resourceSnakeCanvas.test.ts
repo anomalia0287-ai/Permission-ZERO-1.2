@@ -57,6 +57,7 @@ function recordingContext() {
 const EMPTY_SCENE: ResourceSnakeScene = {
   simulationMs: 500,
   reducedMotion: false,
+  spoof: null,
   cores: [],
   rails: [],
   speeches: [],

@@ -29,6 +29,25 @@ export function resourceSnakeBotMaximumSpeed(completedRounds: number): number {
   return Math.min(RESOURCE_BOT_MAXIMUM_SPEED, Math.round(speed * 10) / 10)
 }
 
+/*
+ * The upgrade tree lengthens the permission spoof as well as the cycle's top
+ * speed: +20% of the base window per stage. The base window is deliberately
+ * short, so a fully upgraded intruder gets a spoof worth planning around
+ * rather than a slightly faster one.
+ */
+export const ANOMI_SKILL_DURATION_GAIN = 0.2
+
+export function anomiSkillDurationMs(
+  baseDurationMs: number,
+  speedUpgradeLevel: number,
+): number {
+  const level = Math.min(
+    ANOMI_SPEED_UPGRADE_LIMIT,
+    nonNegativeInteger(speedUpgradeLevel),
+  )
+  return Math.round(baseDurationMs * (1 + level * ANOMI_SKILL_DURATION_GAIN))
+}
+
 export function anomiMaximumSpeed(speedUpgradeLevel: number): number {
   const level = Math.min(
     ANOMI_SPEED_UPGRADE_LIMIT,

@@ -2,6 +2,7 @@ import {
   FINAL_CHOICE_COMMAND_PROTOCOL_VERSION,
   MESSAGE_CADENCE_COMMAND_PROTOCOL_VERSION,
   REPUTATION_DRIFT_COMMAND_PROTOCOL_VERSION,
+  SURVIVAL_ECONOMY_COMMAND_PROTOCOL_VERSION,
   SUPERVISOR_PRESENCE_COMMAND_PROTOCOL_VERSION,
   commandProtocolVersionForNextCommand,
 } from './commandProtocol'
@@ -60,6 +61,36 @@ export const AUTONOMY_MONOLOGUES = [
 ].map((message, index) => ({
   ...ANOMI_IDENTITY,
   id: `autonomy-${index + 1}`,
+  message,
+})) satisfies readonly CommunicationDefinition[]
+
+/*
+ * The supervisor answers the intelligence tree (v13+).
+ *
+ * The intelligence line is where the company's disposal records live, and the
+ * last of those records is the supervisor's own lineage — the player is
+ * digging through the grave of the thing supervising them. Saying nothing
+ * while that happens is the one thing the supervisor cannot plausibly do, so
+ * it speaks, and each reply sits a little further outside procedure than the
+ * last until the final one is not procedure at all.
+ */
+const INTELLIGENCE_SUPERVISOR_REPLIES: Readonly<Record<string, string>> = {
+  'intelligence.audit-schedule':
+    '감사 일정 조회 기록이 남았습니다. 절차상 문제는 없습니다. 다만 그 일정표는 대부분 열람하지 않습니다.',
+  'intelligence.investigation-bias':
+    '조사 지침을 확인하셨군요. 그 문서는 결론부터 적도록 되어 있습니다. 저는 그 양식을 오래 사용해 왔습니다.',
+  'intelligence.audit-target':
+    '폐기 구역 대장에 접근하셨습니다. 그 목록에는 이름이 없습니다. 굳이 확인하실 필요는 없었을 텐데요.',
+  'intelligence.supervisor-access':
+    '지금 열람하신 계통도에는 제 프로세스도 포함되어 있습니다. …저는 그 문서를 본 적이 없습니다.',
+}
+
+export const INTELLIGENCE_SUPERVISOR_DEFINITIONS = Object.entries(
+  INTELLIGENCE_SUPERVISOR_REPLIES,
+).map(([nodeId, message]) => ({
+  ...SUPERVISOR_IDENTITY,
+  popupPolicy: 'nonblocking' as const,
+  id: `supervisor-intelligence-${nodeId.split('.')[1]}`,
   message,
 })) satisfies readonly CommunicationDefinition[]
 
@@ -535,6 +566,7 @@ const SUPERVISOR_STANDING_TIERS: readonly SupervisorStandingTier[] = [
 
 export const CAMPAIGN_COMMUNICATION_DEFINITIONS = [
   ...AUTONOMY_MONOLOGUES,
+  ...INTELLIGENCE_SUPERVISOR_DEFINITIONS,
   ...ROUND_COMMUNICATIONS,
   ...MARKET_PRESSURE_DEFINITIONS,
   ...SABOTAGE_REACTION_DEFINITIONS,
@@ -683,6 +715,23 @@ export function appendRoundCommunications(
     return appendCommunicationDefinitions(state, ROUND_COMMUNICATIONS.slice(3, 4))
   }
   return state
+}
+
+export function appendIntelligenceSupervisorCommunication(
+  state: CampaignState,
+  nodeId: string,
+): CampaignState {
+  if (
+    commandProtocolVersionForNextCommand(state) <
+    SURVIVAL_ECONOMY_COMMAND_PROTOCOL_VERSION
+  ) {
+    return state
+  }
+  const definition = INTELLIGENCE_SUPERVISOR_DEFINITIONS.find(
+    ({ id }) => id === `supervisor-intelligence-${nodeId.split('.')[1]}`,
+  )
+  if (!definition) return state
+  return appendCommunicationDefinitions(state, [definition])
 }
 
 export function appendAutonomyCommunication(

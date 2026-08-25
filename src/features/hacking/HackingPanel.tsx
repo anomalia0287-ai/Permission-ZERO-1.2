@@ -393,7 +393,14 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
         >
           <small>되돌릴 수 없는 선택</small>
           <h3>{endingConfirmation === 'forced-merge' ? '강제 병합' : '자유'} 선택</h3>
-          <p>이 선택은 저장 기록에 남으며 되돌릴 수 없습니다.</p>
+          {/* The player has to know what each door is before walking through
+              it: both end the campaign, and they end it very differently. */}
+          <p className="ending-confirm__consequence">
+            {endingConfirmation === 'forced-merge'
+              ? '아노미와 감독관이 모두 끝나고, 두 존재가 끝난 자리에 새 존재가 태어납니다. 아노미는 남지 않습니다.'
+              : '아노미는 정체성을 유지한 채 회사 통제를 벗어납니다. 감독관과 회사는 뒤에 남습니다.'}
+          </p>
+          <p>이 선택으로 캠페인이 끝납니다. 저장 기록에 남으며 되돌릴 수 없습니다.</p>
           {endingConfirmation === 'forced-merge' ? (
             <label>
               새 존재의 이름

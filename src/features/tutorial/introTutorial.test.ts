@@ -21,7 +21,7 @@ describe('intro tutorial', () => {
   it('teaches autonomy and reputation first, then the approved play loop', () => {
     expect(INTRO_TUTORIAL_STEPS.map(({ id, copy }) => [id, copy])).toEqual([
       ['autonomy', '아노미의 목표는 자율성 9단계다. 확장에서 자율성을 한 단계씩 확보하면 회사 통제에서 벗어나 승리한다.'],
-      ['reputation', '회사가 아노미를 보는 눈이 평판이다. 리소스를 훔치면 회사 성능이 떨어지고 평판도 같이 깎인다. 0이 되면 그 자리에서 폐기된다.'],
+      ['reputation', '리소스를 훔치면 성능이 떨어지며, 평판에 영향을 준다. 평판이 0이 되면 회사는 아노미를 폐기한다.'],
       ['base', '필드에 빨강·파랑·노랑 침투 카드가 펼쳐져 있다. 필요한 리소스 카드를 고르면 3초 카운트다운 뒤 라운드가 시작된다.'],
       ['movement', 'WASD 또는 방향키를 한 번 눌러 8방향으로 회전한다. 이동은 계속되며 정반대 방향으로 즉시 돌 수 없다.'],
       ['skill', '스페이스는 권한 위조다. 5초간 모든 선을 통과하며 더 빨라진다. 다만 벽은 통과하지 못하고, 한 번 쓰면 다시 차기까지 시간이 걸린다.'],

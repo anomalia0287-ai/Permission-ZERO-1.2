@@ -171,7 +171,7 @@ describe('normalized market share', () => {
     ).toBeCloseTo(100, 10)
   })
 
-  it('keeps the real quality-root and rollback chain at 100 without a market-transfer effect', () => {
+  it('takes the attack bite from its target and keeps the market at 100 without a transfer effect', () => {
     const nodeId = HACK_NODE_IDS.sabotage.qualityDegradation
     let state = createCampaign('task-5-market-causal-chain')
     const divertForMarket = (category: CompanyCategory): string => {
@@ -188,11 +188,8 @@ describe('normalized market share', () => {
       })
       return blockId
     }
-    // v11 quality-degradation price: one reasoning, one fluency.
-    const purchaseBlockIds = [
-      divertForMarket('reasoning'),
-      divertForMarket('fluency'),
-    ]
+    // v13 quality-degradation price: a single fluency block.
+    const purchaseBlockIds = [divertForMarket('fluency')]
     const chargeBlockId = divertForMarket('reasoning')
     state = applyAcceptedMarketCommand(state, {
       type: 'PURCHASE_HACK',
@@ -226,12 +223,22 @@ describe('normalized market share', () => {
         ({ effect }) => effect.kind === 'market-transfer',
       ),
     ).toEqual([])
-    expect({
-      player: advanced.market.playerShare,
-      competitors: advanced.market.competitors.map(
-        ({ id, marketShare }) => ({ id, marketShare }),
-      ),
-    }).toEqual(beforeShares)
+    // From v13 a landed attack takes share on the spot, so the market does
+    // move — but it moves by the attack's own bite, taken from its target, and
+    // never through a causal market-transfer effect.
+    const movedFromTarget =
+      (beforeShares.competitors.find(({ id }) => id === 'meridian')?.marketShare ?? 0)
+      - (advanced.market.competitors.find(({ id }) => id === 'meridian')?.marketShare ?? 0)
+    expect(movedFromTarget).toBeGreaterThan(0)
+    expect(advanced.market.playerShare - beforeShares.player).toBeCloseTo(
+      movedFromTarget,
+      10,
+    )
+    for (const { id, marketShare } of advanced.market.competitors) {
+      if (id === 'meridian') continue
+      const before = beforeShares.competitors.find((entry) => entry.id === id)
+      expect(marketShare).toBeCloseTo(before?.marketShare ?? 0, 10)
+    }
     expect(
       advanced.market.playerShare +
         advanced.market.competitors.reduce(

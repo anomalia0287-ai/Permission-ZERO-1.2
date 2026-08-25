@@ -9,7 +9,6 @@ import {
   type ResourceSnakeRoundState,
 } from './resourceSnakeRuntime'
 import {
-  ANOMI_SURVEILLANCE_COMPLAINT_SPEECHES,
   buildResourceSnakeScene,
   RESOURCE_BOT_ALERT_SPEECH,
   RESOURCE_BOT_COLLISION_SPEECHES,
@@ -476,16 +475,12 @@ describe('resource bot speech', () => {
   }
 
   it('remarks on the surveillance unit while it is fresh on the field', () => {
-    // Inside the arrival window, every bot line comes from the watcher pool;
-    // the player may add the complaint, in the player's own color.
+    // Inside the arrival window every bot line comes from the watcher pool.
     let sawWatcherLine = false
     for (const atMs of [SLOT_MS + 400, SLOT_MS + 500, SLOT_MS + 700]) {
       const spoken = buildResourceSnakeScene(withSurveillance(activeRound(atMs)), null).speeches
       for (const speech of spoken) {
-        if (speech.actorId === 'player') {
-          expect(ANOMI_SURVEILLANCE_COMPLAINT_SPEECHES).toContain(speech.text)
-          continue
-        }
+        expect(speech.actorId).not.toBe('player')
         expect(RESOURCE_BOT_WATCHER_SPEECHES).toContain(speech.text)
         sawWatcherLine = true
       }
@@ -532,24 +527,16 @@ describe('resource bot speech', () => {
     }
   })
 
-  it('lets the intruder protest the company truce, in the approved lines', () => {
-    // The complaint is about surveillance and security sharing the field, so
-    // it only ever plays while both are alive — and it is the only line the
-    // player gets.
-    const complaints: string[] = []
+  it('never speaks for the white cycle: only company bots talk on the grid', () => {
     for (let slot = 1; slot < 24; slot += 1) {
       const scene = buildResourceSnakeScene(
         withSurveillance(activeRound(slot * SLOT_MS + 100)),
         null,
       )
       for (const speech of scene.speeches) {
-        if (speech.actorId !== 'player') continue
-        expect(ANOMI_SURVEILLANCE_COMPLAINT_SPEECHES).toContain(speech.text)
-        expect(speech.color).toBe(RESOURCE_SNAKE_PALETTE.player)
-        complaints.push(speech.text)
+        expect(speech.actorId).not.toBe('player')
       }
     }
-    expect(complaints.length).toBeGreaterThan(0)
   })
 
   it('holds a line steady within a round but not across rounds', () => {
@@ -566,12 +553,12 @@ describe('resource bot speech', () => {
 })
 
 describe('company surveillance units', () => {
-  it('puts surveillance on the field from suspicion 25, a second from 55', () => {
+  it('puts surveillance on the field from suspicion 15, a second from 45', () => {
     expect(snakeSurveillanceCountForSuspicion(0)).toBe(0)
-    expect(snakeSurveillanceCountForSuspicion(24.9)).toBe(0)
-    expect(snakeSurveillanceCountForSuspicion(25)).toBe(1)
-    expect(snakeSurveillanceCountForSuspicion(54.9)).toBe(1)
-    expect(snakeSurveillanceCountForSuspicion(55)).toBe(2)
+    expect(snakeSurveillanceCountForSuspicion(14.9)).toBe(0)
+    expect(snakeSurveillanceCountForSuspicion(15)).toBe(1)
+    expect(snakeSurveillanceCountForSuspicion(44.9)).toBe(1)
+    expect(snakeSurveillanceCountForSuspicion(45)).toBe(2)
     // Full planner-driven hunters are heavier than the old markers were,
     // so the ceiling is two on the field.
     expect(snakeSurveillanceCountForSuspicion(100)).toBe(2)

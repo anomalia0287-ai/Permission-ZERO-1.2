@@ -709,6 +709,9 @@ export function drawDormantResourceSnakeField(
   context.setLineDash([])
 }
 
+/** The forged token reads as the player's own light, pushed to white-hot. */
+const SPOOF_COLOR = '#eaf6ff'
+
 // The fleeing bot mutters at the player: a small dark chip above its head,
 // tinted with the bot's own category color. Pure presentation.
 function drawSpeeches(
@@ -752,6 +755,55 @@ function drawSpeeches(
   context.restore()
 }
 
+/*
+ * The forged token, on the grid rather than only in the HUD.
+ *
+ * During a chase the eye is on the head, not the corner, so the spoof has to
+ * announce itself where the player is looking: a bright ring snaps outward at
+ * engage, then contracts steadily toward the head as the window drains, so the
+ * remaining time is legible without reading a number.
+ */
+function drawSpoof(
+  context: CanvasRenderingContext2D,
+  scene: ResourceSnakeScene,
+  scale: CanvasScale,
+): void {
+  const spoof = scene.spoof
+  if (!spoof) return
+  const x = spoof.x * scale.x
+  const y = spoof.y * scale.y
+  const flare = scene.reducedMotion ? 1 : spoof.engageProgress
+  // Snaps out on engage, then rides the remaining window inward.
+  const ring = scale.unit * (0.6 + 2.1 * spoof.remaining * flare)
+  context.save()
+  context.globalCompositeOperation = 'lighter'
+  context.strokeStyle = SPOOF_COLOR
+  context.fillStyle = SPOOF_COLOR
+
+  context.globalAlpha = 0.16 + 0.24 * spoof.remaining
+  context.beginPath()
+  context.arc(x, y, ring, 0, Math.PI * 2)
+  context.fill()
+
+  context.globalAlpha = 0.55 + 0.45 * spoof.remaining
+  context.lineWidth = Math.max(1.5, scale.unit * 0.11)
+  context.beginPath()
+  context.arc(x, y, ring, 0, Math.PI * 2)
+  context.stroke()
+
+  // The window as an arc on the ring: full circle at engage, gone at lapse.
+  context.globalAlpha = 0.95
+  context.lineWidth = Math.max(2, scale.unit * 0.16)
+  context.beginPath()
+  context.arc(
+    x, y, ring * 1.22,
+    -Math.PI / 2,
+    -Math.PI / 2 + Math.PI * 2 * spoof.remaining,
+  )
+  context.stroke()
+  context.restore()
+}
+
 // Drawn over the lit field rather than under it: the corners fall away so the
 // action sits inside a room instead of on a flat plate, and the additive
 // passes below stop building toward a uniformly grey rectangle at the edges.
@@ -791,6 +843,7 @@ export function drawResourceSnakeScene(
     drawDangerEdge(context, edge, scene, width, height, scale)
   }
   drawSpeeches(context, scene, width, height, scale)
+  drawSpoof(context, scene, scale)
   for (const rail of scene.rails) {
     drawRail(
       context,

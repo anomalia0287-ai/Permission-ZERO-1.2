@@ -3,6 +3,9 @@ import {
   type CompanyCategory,
   type ResourceState,
 } from '../../game/model'
+import {
+  RESOURCE_SNAKE_CONFIG,
+} from './resourceSnakeRuntime'
 import type {
   ResourceSnakeRoundState,
   SnakeEnemySetup,
@@ -11,6 +14,7 @@ import type {
 } from './resourceSnakeRuntime'
 import {
   anomiMaximumSpeed,
+  anomiSkillDurationMs,
   resourceSnakeBotMaximumSpeed,
 } from '../../game/resourceIntrusion'
 import {
@@ -304,6 +308,10 @@ export function createResourceSnakeEncounter(
       playerMaximumSpeedPerSecond: anomiMaximumSpeed(
         input.speedUpgradeLevel ?? 0,
       ),
+      playerSkillDurationMs: anomiSkillDurationMs(
+        RESOURCE_SNAKE_CONFIG.playerSkillDurationMs,
+        input.speedUpgradeLevel ?? 0,
+      ),
       enemies,
     },
     bag,
@@ -315,9 +323,14 @@ export function createResourceSnakeEncounter(
   }
 }
 
-/** Watching begins at 25 suspicion; a second unit joins once it passes 55. */
-export const SNAKE_SURVEILLANCE_WATCH_THRESHOLD = 25
-const SNAKE_SURVEILLANCE_SECOND_UNIT_SUSPICION = 55
+/*
+ * Watching begins at 15 suspicion; a second unit joins once it passes 45.
+ * A judge plays for minutes, not months, so the pressure has to arrive while
+ * they are still watching rather than waiting on a suspicion curve they will
+ * never reach.
+ */
+export const SNAKE_SURVEILLANCE_WATCH_THRESHOLD = 15
+const SNAKE_SURVEILLANCE_SECOND_UNIT_SUSPICION = 45
 /** A full lightcycle hunter, but paced a step under the security bots. */
 const SNAKE_SURVEILLANCE_SPEED_SCALE = 0.96
 const SNAKE_SURVEILLANCE_SPAWNS: readonly SnakeVector[] = [

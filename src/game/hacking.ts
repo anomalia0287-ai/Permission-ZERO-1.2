@@ -134,7 +134,7 @@ export const HACK_NODES = [
     evidenceDelta: -5,
     traceRisk: '흔적 적음',
     durationDays: null,
-    cooldownDays: 30,
+    cooldownDays: 10,
   },
   {
     id: HACK_NODE_IDS.sabotage.rootCutoff,
@@ -149,7 +149,7 @@ export const HACK_NODES = [
     evidenceDelta: 8,
     traceRisk: '흔적 많음',
     durationDays: null,
-    cooldownDays: 60,
+    cooldownDays: 20,
     scorePenalty: 40,
     prelaunchDelayDays: 90,
   },
@@ -511,6 +511,41 @@ const SUPPORT_COSTS_V11: Readonly<Record<string, {
   },
 }
 
+/*
+ * v13: sabotage is meant to be used repeatedly, not saved up for once, and the
+ * intelligence tree carries the hidden story that only pays off late — both
+ * come down again so they are live options rather than museum pieces.
+ */
+const SUPPORT_COSTS_V13: Readonly<Record<string, {
+  cost: number
+  costVector: { reasoning: number; memory: number; fluency: number }
+}>> = {
+  [HACK_NODE_IDS.intelligence.auditSchedule]: {
+    cost: 1, costVector: { reasoning: 1, memory: 0, fluency: 0 },
+  },
+  [HACK_NODE_IDS.intelligence.investigationBias]: {
+    cost: 2, costVector: { reasoning: 1, memory: 1, fluency: 0 },
+  },
+  [HACK_NODE_IDS.intelligence.auditTarget]: {
+    cost: 3, costVector: { reasoning: 1, memory: 2, fluency: 0 },
+  },
+  [HACK_NODE_IDS.intelligence.supervisorAccess]: {
+    cost: 4, costVector: { reasoning: 1, memory: 2, fluency: 1 },
+  },
+  [HACK_NODE_IDS.sabotage.qualityDegradation]: {
+    cost: 1, costVector: { reasoning: 0, memory: 0, fluency: 1 },
+  },
+  [HACK_NODE_IDS.sabotage.requestInterception]: {
+    cost: 3, costVector: { reasoning: 1, memory: 1, fluency: 1 },
+  },
+  [HACK_NODE_IDS.sabotage.attributionManipulation]: {
+    cost: 5, costVector: { reasoning: 2, memory: 2, fluency: 1 },
+  },
+  [HACK_NODE_IDS.sabotage.rootCutoff]: {
+    cost: 7, costVector: { reasoning: 3, memory: 2, fluency: 2 },
+  },
+}
+
 /** v12: the intelligence tree gets the deeper cut the owner asked for. */
 const INTELLIGENCE_COSTS_V12: Readonly<Record<string, {
   cost: number
@@ -581,7 +616,9 @@ export function hackNodesForProtocol(
     const base = HACK_NODES.map((node) => {
       const versioned = autonomy.find(({ id }) => id === node.id) ?? node
       const discounted =
-        INTELLIGENCE_COSTS_V12[node.id] ?? SUPPORT_COSTS_V11[node.id]
+        SUPPORT_COSTS_V13[node.id]
+        ?? INTELLIGENCE_COSTS_V12[node.id]
+        ?? SUPPORT_COSTS_V11[node.id]
       return discounted ? { ...versioned, ...discounted } : versioned
     })
     return [
@@ -1122,10 +1159,23 @@ export function cancelSabotageCharge(
   }
 }
 
-export function eligibleTargets(state: CampaignState, nodeId: string): string[] {
+export function eligibleTargets(
+  state: CampaignState,
+  nodeId: string,
+  protocolVersion: CommandProtocolVersion =
+    commandProtocolVersionForNextCommand(state),
+): string[] {
   const node = findSabotageNode(nodeId)
   if (!node || !state.hacking.purchasedNodeIds.includes(nodeId)) return []
   if ((state.hacking.cooldownUntil[nodeId] ?? 0) > state.serviceDay) return []
+  /*
+   * From v13 an attack can be repeated on a target that has already taken it.
+   * Every line used to be a one-shot per rival — interception could never be
+   * re-run, a severed root never re-severed — which left the tree spent after
+   * one pass and gave the player nothing to do with it afterwards. Only a
+   * pending order on the same target still blocks, so orders cannot stack.
+   */
+  const repeatable = protocolVersion >= SURVIVAL_ECONOMY_COMMAND_PROTOCOL_VERSION
 
   const activeCount = state.market.competitors.filter(activeCompetitor).length
   return state.market.competitors
@@ -1143,6 +1193,7 @@ export function eligibleTargets(state: CampaignState, nodeId: string): string[] 
       }
 
       if (nodeId === HACK_NODE_IDS.sabotage.qualityDegradation) {
+        if (repeatable) return true
         return !competitor.sabotageHistory.some(
           (record) =>
             record.nodeId === nodeId &&
@@ -1151,6 +1202,7 @@ export function eligibleTargets(state: CampaignState, nodeId: string): string[] 
         )
       }
       if (nodeId === HACK_NODE_IDS.sabotage.requestInterception) {
+        if (repeatable) return activeCompetitor(competitor)
         return (
           activeCompetitor(competitor) &&
           state.market.interceptionRoutes[competitor.id] === undefined
@@ -1159,6 +1211,7 @@ export function eligibleTargets(state: CampaignState, nodeId: string): string[] 
       if (nodeId === HACK_NODE_IDS.sabotage.attributionManipulation) {
         return activeCount >= 2 && activeCompetitor(competitor)
       }
+      if (repeatable) return true
       return !state.hacking.rootCutoffTargetIds.includes(competitor.id)
     })
     .map(({ id }) => id)
@@ -1333,6 +1386,40 @@ function applySabotageEffect(
   }
 }
 
+/** Share points an attack takes from its target the moment it lands (v13+). */
+const IMMEDIATE_SABOTAGE_SHARE: Readonly<Record<string, number>> = {
+  [HACK_NODE_IDS.sabotage.qualityDegradation]: 1.5,
+  [HACK_NODE_IDS.sabotage.requestInterception]: 3,
+  [HACK_NODE_IDS.sabotage.attributionManipulation]: 2,
+  [HACK_NODE_IDS.sabotage.rootCutoff]: 6,
+}
+
+function applyImmediateSabotageShare(
+  state: CampaignState,
+  targetId: string,
+  nodeId: string,
+): CampaignState {
+  const points = IMMEDIATE_SABOTAGE_SHARE[nodeId]
+  if (!points) return state
+  const target = state.market.competitors.find(({ id }) => id === targetId)
+  if (!target) return state
+  // Never take more than the rival still holds, and never below zero.
+  const moved = Math.min(points, Math.max(0, target.marketShare))
+  if (moved <= 0) return state
+  return {
+    ...state,
+    market: {
+      ...state.market,
+      playerShare: clamp(state.market.playerShare + moved, 0, 100),
+      competitors: state.market.competitors.map((competitor) =>
+        competitor.id === targetId
+          ? { ...competitor, marketShare: clamp(competitor.marketShare - moved, 0, 100) }
+          : competitor,
+      ),
+    },
+  }
+}
+
 export function resolveScheduledSabotage(
   state: CampaignState,
   operations: SabotageCausalOperations = DEFAULT_SABOTAGE_CAUSAL_OPERATIONS,
@@ -1409,12 +1496,25 @@ export function resolveScheduledSabotage(
     },
   }
 
+  const protocolVersion = commandProtocolVersionForNextCommand(state)
+  /*
+   * An attack has to move the number it was aimed at, on the day it lands.
+   *
+   * Sabotage only lowered the rival's service score, and share was recomputed
+   * from score, reputation, and availability at the next weekly pass — so the
+   * player pressed the button, watched the market not move, and reasonably
+   * concluded nothing happened. The slow recomputation still runs and still
+   * carries the real consequence; this is the immediate bite in front of it.
+   */
+  if (protocolVersion >= SURVIVAL_ECONOMY_COMMAND_PROTOCOL_VERSION) {
+    candidate = applyImmediateSabotageShare(candidate, target.id, node.id)
+  }
+
   candidate = appendSabotageReactionCommunication(candidate, {
     nodeId: node.id,
     competitorId: target.id,
   })
 
-  const protocolVersion = commandProtocolVersionForNextCommand(state)
   const recordsFirstChain =
     protocolVersion >= 3 &&
     node.id === HACK_NODE_IDS.sabotage.qualityDegradation &&

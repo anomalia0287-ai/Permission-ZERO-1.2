@@ -20,10 +20,12 @@ import { createCampaign } from './createCampaign'
 import {
   chargeSabotage,
   HACK_NODE_IDS,
+  hackNodesForCampaign,
   purchaseHackNode,
   resolveScheduledSabotage,
   scheduleSabotage,
 } from './hacking'
+import { COMPANY_CATEGORIES } from './model'
 import type { CampaignState, CausalIncident, CompanyCategory } from './model'
 import { decodeSave, encodeSave } from './persistence'
 import { divertBlockToReserve } from './resources'
@@ -68,11 +70,16 @@ function resolveQualityRoot(seed: string): Omit<QualityFixture, 'roll'> {
   const nodeId = HACK_NODE_IDS.sabotage.qualityDegradation
   let state = createCampaign(seed)
   const purchaseIds: string[] = []
-  // v11 quality-degradation price: one reasoning, one fluency.
-  for (const category of ['reasoning', 'fluency'] as const) {
-    const diverted = divertCurrentResource(state, category)
-    state = diverted.state
-    purchaseIds.push(diverted.blockId)
+  // Funded from the node's live cost vector so a repricing does not silently
+  // turn every causal fixture into INVALID_RESOURCE_COST.
+  const qualityNode = hackNodesForCampaign(state).find(({ id }) => id === nodeId)
+  if (!qualityNode) throw new Error('quality degradation node missing')
+  for (const category of COMPANY_CATEGORIES) {
+    for (let index = 0; index < qualityNode.costVector[category]; index += 1) {
+      const diverted = divertCurrentResource(state, category)
+      state = diverted.state
+      purchaseIds.push(diverted.blockId)
+    }
   }
   const executionResource = divertCurrentResource(state, 'reasoning')
   state = executionResource.state

@@ -57,7 +57,7 @@ export const RESOURCE_SNAKE_CONFIG = {
    * boundary does not, so the lightcycle contract still holds and the boost
    * stays a thing you have to steer.
    */
-  playerSkillDurationMs: 5_000,
+  playerSkillDurationMs: 3_500,
   playerSkillCooldownMs: 28_000,
   playerSkillSpeedMultiplier: 1.7,
 } as const
@@ -141,6 +141,8 @@ export interface SnakeEnemySetup {
 
 export interface SnakeRoundSetup {
   roundId: string
+  /** Spoof window for this round; defaults to the unupgraded five seconds. */
+  playerSkillDurationMs?: number
   playerSpawn: SnakeVector
   playerMaximumSpeedPerSecond?: number
   enemies: SnakeEnemySetup[]
@@ -235,6 +237,8 @@ export interface PlayerSkillState {
   activeUntilMs: number | null
   /** Simulation time the next spoof can be engaged. */
   readyAtMs: number
+  /** This round's spoof window, which the upgrade tree lengthens. */
+  durationMs: number
 }
 
 export interface ResourceSnakeRoundState {
@@ -427,7 +431,11 @@ export function createIdleResourceSnakeState(): ResourceSnakeRoundState {
   }
   return {
     roundId: null,
-    playerSkill: { activeUntilMs: null, readyAtMs: 0 },
+    playerSkill: {
+      activeUntilMs: null,
+      readyAtMs: 0,
+      durationMs: RESOURCE_SNAKE_CONFIG.playerSkillDurationMs,
+    },
     phase: 'idle',
     simulationMs: 0,
     accumulatorMs: 0,
@@ -476,7 +484,12 @@ export function deployResourceSnakeRound(
     ...state,
     roundId: setup.roundId,
     // The spoof is ready the moment the round opens.
-    playerSkill: { activeUntilMs: null, readyAtMs: 0 },
+    playerSkill: {
+      activeUntilMs: null,
+      readyAtMs: 0,
+      durationMs: setup.playerSkillDurationMs
+        ?? RESOURCE_SNAKE_CONFIG.playerSkillDurationMs,
+    },
     phase: 'deploying',
     simulationMs: 0,
     accumulatorMs: 0,
@@ -1685,10 +1698,17 @@ export function playerSkillActive(
   return activeUntilMs !== null && atMs < activeUntilMs
 }
 
-/** 0..1 readiness for the HUD: 1 means the spoof can be engaged. */
+/**
+ * 0..1 for the HUD bar. While the spoof runs this is the window draining away,
+ * so the bar answers "how much longer"; once it lapses the same bar fills back
+ * up as the cooldown recharges. One bar, two questions, no ambiguity.
+ */
 export function playerSkillReadiness(state: ResourceSnakeRoundState): number {
-  if (playerSkillActive(state)) return 0
-  const remainingMs = state.playerSkill.readyAtMs - state.simulationMs
+  const { activeUntilMs, readyAtMs, durationMs } = state.playerSkill
+  if (activeUntilMs !== null && state.simulationMs < activeUntilMs) {
+    return clamp((activeUntilMs - state.simulationMs) / durationMs, 0, 1)
+  }
+  const remainingMs = readyAtMs - state.simulationMs
   if (remainingMs <= 0) return 1
   return clamp(
     1 - remainingMs / RESOURCE_SNAKE_CONFIG.playerSkillCooldownMs,
@@ -1746,8 +1766,9 @@ function advanceFixedStep(
     && playerSkill.activeUntilMs === null
     && simulationMs >= playerSkill.readyAtMs
   ) {
-    const untilMs = simulationMs + RESOURCE_SNAKE_CONFIG.playerSkillDurationMs
+    const untilMs = simulationMs + playerSkill.durationMs
     playerSkill = {
+      ...playerSkill,
       activeUntilMs: untilMs,
       readyAtMs: untilMs + RESOURCE_SNAKE_CONFIG.playerSkillCooldownMs,
     }

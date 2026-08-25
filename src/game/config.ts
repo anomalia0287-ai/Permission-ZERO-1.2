@@ -92,6 +92,8 @@ export const DEMO_PROFILE_02 = {
   },
   suspicion: {
     naturalDailyDecrease: 0.5,
+    /** Each purchased intelligence stage takes this much more off per day. */
+    intelligenceStageRelief: 0.55,
     legacyNaturalDailyDecrease: 0.037,
     auditFailureIncrease: 25,
   },

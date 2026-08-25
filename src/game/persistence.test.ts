@@ -926,10 +926,9 @@ const TASK_5_ROLLBACK_PROFILES = [
 
 function task5ScheduledQualitySabotage(seed: string): CampaignState {
   const nodeId = HACK_NODE_IDS.sabotage.qualityDegradation
-  // v11 quality-degradation price: one reasoning, one fluency, and one
-  // spare reasoning kept back for the charge afterwards.
+  // v13 quality-degradation price: one fluency, with a reasoning block kept
+  // back for the charge afterwards.
   let state = withCurrentReserve(createCampaign(seed), [
-    'reasoning',
     'reasoning',
     'fluency',
   ])
@@ -939,11 +938,11 @@ function task5ScheduledQualitySabotage(seed: string): CampaignState {
   const firstOf = (origin: 'reasoning' | 'fluency') => reserveIds.find(
     (blockId) => state.resources.blocks[blockId].origin === origin,
   )
-  const purchaseBlockIds = [firstOf('reasoning'), firstOf('fluency')].filter(
+  const purchaseBlockIds = [firstOf('fluency')].filter(
     (blockId): blockId is string => blockId !== undefined,
   )
-  if (purchaseBlockIds.length !== 2) {
-    throw new Error('Task 5 quality fixture requires an exact 1/0/1 vector')
+  if (purchaseBlockIds.length !== 1) {
+    throw new Error('Task 5 quality fixture requires an exact 0/0/1 vector')
   }
 
   state = requireAccepted(state, {
@@ -3476,11 +3475,9 @@ describe('versioned campaign saves', () => {
       const scheduled = task5ScheduledStateFor(actionId)
       const scheduledCommands = journalToArray(scheduled.commandLog)
       const scheduledEvents = journalToArray(scheduled.eventLog)
-      // v11 quality-degradation costs two blocks, so the funding run is one
-      // separation-and-divert pair shorter than it was.
+      // v13 quality-degradation costs one block plus one for the charge, so
+      // the funding run is two separation-and-divert pairs.
       expect(scheduledCommands.map(({ command }) => command.type)).toEqual([
-        'BEGIN_BLOCK_SEPARATION',
-        'DIVERT_BLOCK_TO_RESERVE',
         'BEGIN_BLOCK_SEPARATION',
         'DIVERT_BLOCK_TO_RESERVE',
         'BEGIN_BLOCK_SEPARATION',
@@ -3489,7 +3486,7 @@ describe('versioned campaign saves', () => {
         'CHARGE_SABOTAGE',
         'SCHEDULE_SABOTAGE',
       ])
-      expect(scheduled.commandSequence).toBe(9)
+      expect(scheduled.commandSequence).toBe(7)
       expect(scheduled.hacking.scheduledSabotage).toEqual([
         {
           id: 'sabotage-000001',
@@ -3534,7 +3531,7 @@ describe('versioned campaign saves', () => {
       expect(resumed).toEqual(uninterrupted)
       expect(replayed.state).toEqual(uninterrupted)
       expect(uninterrupted.serviceDay).toBe(332)
-      expect(uninterrupted.commandSequence).toBe(10)
+      expect(uninterrupted.commandSequence).toBe(8)
 
       const rootIncidentId = deriveCausalId(
         scheduled,
@@ -3642,7 +3639,7 @@ describe('versioned campaign saves', () => {
       expect(journalToArray(uninterrupted.commandLog)).toEqual([
         ...scheduledCommands,
         {
-          sequence: 10,
+          sequence: 8,
           serviceDay: 331,
           command: { type: 'ADVANCE_DAY' },
         },
@@ -3669,7 +3666,8 @@ describe('versioned campaign saves', () => {
       expect(meridian).toMatchObject({
         intrinsicServiceScore: 82,
         serviceScore: 72,
-        marketShare: 36,
+        // v13: the landed attack takes its bite from the target on the day.
+        marketShare: 34.5,
         sabotageHistory: [
           {
             nodeId: HACK_NODE_IDS.sabotage.qualityDegradation,

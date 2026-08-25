@@ -18,6 +18,7 @@ import {
 } from './communications'
 import {
   applyDailyReputationDrift,
+  applyMarketStandingCoupling,
   decreaseSuspicionDaily,
   evaluateMonth,
   openScheduledAudit,
@@ -330,7 +331,10 @@ export function tryAdvanceOneDay(
   const advanced = advanceCompetitorsDaily(
     restoreDisguiseBlocks(
       applyDailyReputationDrift(
-        decreaseSuspicionDaily(sabotageResolution.state, protocolVersion),
+        applyMarketStandingCoupling(
+          decreaseSuspicionDaily(sabotageResolution.state, protocolVersion),
+          protocolVersion,
+        ),
         protocolVersion,
       ),
     ),
