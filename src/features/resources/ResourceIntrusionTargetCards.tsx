@@ -80,6 +80,7 @@ export function ResourceIntrusionTargetCards({
             data-phase={phase}
             data-selected={selected ? 'true' : 'false'}
             data-available={available ? 'true' : 'false'}
+            data-secured-pulse={pulsingCategory === target.category ? 'true' : 'false'}
             style={style}
           >
             <div className="resource-intrusion-target-card__visual">

@@ -575,3 +575,27 @@
   font: 700 0.58rem/1 'Cascadia Code', Consolas, monospace;
   letter-spacing: 0.22em;
 }
+
+/* A failed intrusion raises suspicion, and the meter says so: one short
+   flare on the bar itself rather than a number quietly ticking up. */
+.control-status-meter--suspicion[data-rising='true'] .control-status-meter__track {
+  animation: suspicion-rising 900ms ease-out;
+}
+
+@keyframes suspicion-rising {
+  0% {
+    box-shadow:
+      inset 0 0 0 1px rgb(255 107 61 / 85%),
+      0 0 18px -2px rgb(255 107 61 / 75%);
+  }
+
+  100% {
+    box-shadow: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .control-status-meter--suspicion[data-rising='true'] .control-status-meter__track {
+    animation: none;
+  }
+}

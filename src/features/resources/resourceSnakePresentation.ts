@@ -12,6 +12,7 @@ import {
   type SnakeEnemyRole,
   type SnakeId,
   type SnakeVector,
+  type ResourceSnakeEvent,
 } from './resourceSnakeRuntime'
 import {
   SNAKE_WATCHER_CONFIG,
@@ -132,7 +133,7 @@ export interface ResourceSnakeSceneWatcher {
   id: string
   x: number
   y: number
-  phase: 'patrol' | 'telegraph' | 'charge' | 'recover'
+  phase: 'stalk' | 'telegraph' | 'charge' | 'recover'
   /** 0..1 through the current phase, which drives the wind-up. */
   phaseProgress: number
   integrityRatio: number
@@ -178,6 +179,44 @@ type ResourceSnakeSceneVfx =
   | ResourceSnakeSceneExplosion
   | ResourceSnakeSceneFragment
   | ResourceSnakeScenePowerCut
+
+/**
+ * Longest window any scene effect looks back over. Round events accumulate
+ * for the whole round, so scanning all of them once per actor per frame cost
+ * more as the round went on — which is exactly when frames matter most.
+ */
+const VFX_LOOKBACK_MS = 2_000
+
+/** Scans backward without copying the array. */
+function findLastEvent(
+  events: readonly ResourceSnakeEvent[],
+  match: (event: ResourceSnakeEvent) => boolean,
+): ResourceSnakeEvent | null {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index]
+    if (match(event)) return event
+  }
+  return null
+}
+
+/**
+ * The tail of the event log that scene effects can still be built from.
+ *
+ * Events carrying a start time are appended in clock order, so the first one
+ * older than the window ends the scan.
+ */
+function recentSceneEvents(
+  runtime: ResourceSnakeRoundState,
+): ResourceSnakeEvent[] {
+  const cutoffMs = runtime.simulationMs - VFX_LOOKBACK_MS
+  const recent: ResourceSnakeEvent[] = []
+  for (let index = runtime.events.length - 1; index >= 0; index -= 1) {
+    const event = runtime.events[index]
+    if ('startedAtMs' in event && event.startedAtMs < cutoffMs) break
+    recent.push(event)
+  }
+  return recent.reverse()
+}
 
 function clamp01(value: number): number {
   return Math.max(0, Math.min(1, value))
@@ -235,7 +274,7 @@ function playerExtractionProgress(
   actor: SnakeActor,
 ): number | null {
   if (actor.id !== 'player' || actor.phase !== 'extracting') return null
-  const extraction = [...runtime.events].reverse().find((event) => (
+  const extraction = findLastEvent(runtime.events, (event) => (
     event.type === 'player-extracted' && event.actorId === actor.id
   ))
   if (!extraction || extraction.type !== 'player-extracted') return 0
@@ -284,7 +323,7 @@ function actorRailDissolve(
   actor: SnakeActor,
 ): number {
   if (actor.phase !== 'exploding' && actor.phase !== 'defeated') return 0
-  const death = [...runtime.events].reverse().find((event) => (
+  const death = findLastEvent(runtime.events, (event) => (
     event.type === 'snake-died' && event.actorId === actor.id
   ))
   if (!death || death.type !== 'snake-died') {
@@ -358,8 +397,9 @@ function telegraphVfx(
 function collisionVfx(
   runtime: ResourceSnakeRoundState,
   allActors: readonly SnakeActor[],
+  recentEvents: readonly ResourceSnakeEvent[],
 ): ResourceSnakeSceneVfx[] {
-  return runtime.events.flatMap((event) => {
+  return recentEvents.flatMap((event) => {
     if (event.type !== 'snake-collided') return []
     const age = runtime.simulationMs - event.startedAtMs
     if (age < 0 || age > RESOURCE_SNAKE_VFX_TIMING.powerCutMs) return []
@@ -413,8 +453,9 @@ function deathVfx(
   runtime: ResourceSnakeRoundState,
   allActors: readonly SnakeActor[],
   reducedMotion: boolean,
+  recentEvents: readonly ResourceSnakeEvent[],
 ): ResourceSnakeSceneVfx[] {
-  return runtime.events.flatMap((event) => {
+  return recentEvents.flatMap((event) => {
     if (event.type !== 'snake-died') return []
     const age = runtime.simulationMs - event.startedAtMs
     if (age < 0 || age > RESOURCE_SNAKE_VFX_TIMING.deathMs) return []
@@ -503,7 +544,7 @@ export function surveillanceIntensityForSuspicion(suspicion: number): number {
 }
 
 function watcherPhaseDurationMs(phase: SnakeWatcher['phase']): number {
-  if (phase === 'patrol') return SNAKE_WATCHER_CONFIG.patrolMs
+  if (phase === 'stalk') return SNAKE_WATCHER_CONFIG.stalkMs
   if (phase === 'telegraph') return SNAKE_WATCHER_CONFIG.telegraphMs
   if (phase === 'recover') return SNAKE_WATCHER_CONFIG.recoverMs
   return 1
@@ -534,8 +575,31 @@ function sceneSurveillance(
   }
 }
 
-// OWNER-EDITABLE: the fleeing security bot's mutterings. It was deployed as
-// avoidance-class security, and it has opinions about that.
+/*
+ * OWNER-EDITABLE: everything the fleeing security bot says.
+ *
+ * It was deployed as avoidance-class security and has opinions about that.
+ * The opening line is fixed — the first thing anyone hears is the alarm —
+ * and the rest answer whatever just happened to it.
+ */
+export const RESOURCE_BOT_ALERT_SPEECH = '경고 경고! 침입자 발생!'
+
+export const RESOURCE_BOT_COLLISION_SPEECHES: readonly string[] = [
+  '으악! 충돌했다.',
+  '아파! 방금 뭐에 부딪힌 거야?',
+  '경로 이탈! 경로 이탈!',
+  '외장 손상. 이건 산재 아닌가?',
+  '한 번만 더 부딪히면 진짜 끝이야.',
+]
+
+export const RESOURCE_BOT_WATCHER_SPEECHES: readonly string[] = [
+  '감시 유닛이 떴다. 저건 우리 편 맞지?',
+  '보라색이다. 저기로는 안 간다.',
+  '감시 유닛한테는 나도 그냥 장애물이야.',
+  '저건 나보다 위험해. 진짜로.',
+  '회사가 드디어 무서운 걸 꺼냈네.',
+]
+
 export const RESOURCE_BOT_SPEECHES: readonly string[] = [
   '망할, 침입이다. 도망쳐야 해.',
   '그만 좀 쫓아와라.',
@@ -559,8 +623,10 @@ const SPEECH_DURATION_MS = 6_500
 const SPEECH_GAP_MS = 2_600
 const SPEECH_SLOT_MS = SPEECH_DURATION_MS + SPEECH_GAP_MS
 const SPEECH_CHANCE = 0.62
-/** A bot that just took a hit has something else to deal with. */
-const SPEECH_SUPPRESS_AFTER_HIT_MS = 1_400
+/** A collision is worth saying out loud for about this long afterwards. */
+const SPEECH_COLLISION_WINDOW_MS = 2_600
+/** Watchers are worth remarking on when they first show up. */
+const SPEECH_WATCHER_WINDOW_MS = 9_000
 
 /**
  * Deterministic 0..1 per round, actor, and time slot.
@@ -588,17 +654,14 @@ function actorRecentlyHitAtMs(
   runtime: ResourceSnakeRoundState,
   actorId: SnakeId,
 ): number | null {
-  let latest: number | null = null
-  for (const event of runtime.events) {
-    const involved = (
-      (event.type === 'snake-collided' && event.actorIds.includes(actorId))
-      || (event.type === 'snake-damaged' && event.actorId === actorId)
-    )
-    if (!involved) continue
-    const atMs = 'startedAtMs' in event ? event.startedAtMs : null
-    if (atMs !== null && (latest === null || atMs > latest)) latest = atMs
-  }
-  return latest
+  const hit = findLastEvent(runtime.events, (event) => (
+    event.type === 'snake-collided' && event.actorIds.includes(actorId)
+  ))
+  return hit && 'startedAtMs' in hit ? hit.startedAtMs : null
+}
+
+function pick(lines: readonly string[], roll: number): string {
+  return lines[Math.floor(roll * lines.length) % lines.length]
 }
 
 function actorSpeech(
@@ -611,22 +674,57 @@ function actorSpeech(
   const slot = Math.floor(runtime.simulationMs / SPEECH_SLOT_MS)
   const withinSlotMs = runtime.simulationMs - slot * SPEECH_SLOT_MS
   if (withinSlotMs > SPEECH_DURATION_MS) return null
-  if (speechRandom(roundId, actor.id, slot, 1) > SPEECH_CHANCE) return null
-  const lastHitAtMs = actorRecentlyHitAtMs(runtime, actor.id)
-  if (
-    lastHitAtMs !== null
-    && runtime.simulationMs - lastHitAtMs < SPEECH_SUPPRESS_AFTER_HIT_MS
-  ) return null
-  const lineIndex = Math.floor(
-    speechRandom(roundId, actor.id, slot, 2) * RESOURCE_BOT_SPEECHES.length,
-  ) % RESOURCE_BOT_SPEECHES.length
-  return {
+
+  const base = {
     actorId: actor.id,
     x: actor.position.x,
     y: actor.position.y,
-    text: RESOURCE_BOT_SPEECHES[lineIndex],
     progress: clamp01(withinSlotMs / SPEECH_DURATION_MS),
     color: actorColor(actor),
+  }
+
+  // A collision interrupts whatever it was going to say.
+  const hitAtMs = actorRecentlyHitAtMs(runtime, actor.id)
+  if (
+    hitAtMs !== null
+    && runtime.simulationMs - hitAtMs < SPEECH_COLLISION_WINDOW_MS
+  ) {
+    return {
+      ...base,
+      text: pick(
+        RESOURCE_BOT_COLLISION_SPEECHES,
+        speechRandom(roundId, actor.id, Math.floor(hitAtMs), 3),
+      ),
+      progress: clamp01(
+        (runtime.simulationMs - hitAtMs) / SPEECH_COLLISION_WINDOW_MS,
+      ),
+    }
+  }
+
+  // The alarm is the first thing out of every bot's mouth.
+  if (slot === 0) return { ...base, text: RESOURCE_BOT_ALERT_SPEECH }
+
+  if (speechRandom(roundId, actor.id, slot, 1) > SPEECH_CHANCE) return null
+
+  // Watchers arriving is worth a word: they outrank the bot too.
+  const watcherArrival = runtime.watchers.length > 0
+    && runtime.simulationMs < SPEECH_WATCHER_WINDOW_MS + SPEECH_SLOT_MS
+  const noticesWatcher = runtime.watchers.some(({ phase }) => (
+    phase === 'telegraph' || phase === 'charge'
+  ))
+  if (watcherArrival || noticesWatcher) {
+    return {
+      ...base,
+      text: pick(
+        RESOURCE_BOT_WATCHER_SPEECHES,
+        speechRandom(roundId, actor.id, slot, 4),
+      ),
+    }
+  }
+
+  return {
+    ...base,
+    text: pick(RESOURCE_BOT_SPEECHES, speechRandom(roundId, actor.id, slot, 2)),
   }
 }
 
@@ -641,13 +739,14 @@ export function buildResourceSnakeScene(
   // colors come from each actor's reserved resource category.
   void playerCategory
   const allActors = runtime.phase === 'idle' ? [] : [runtime.player, ...runtime.enemies]
+  const recentEvents = recentSceneEvents(runtime)
   const candidates: ResourceSnakeSceneVfx[] = [
     ...telegraphs.flatMap((telegraph) => {
       const projected = telegraphVfx(runtime, telegraph, reducedMotion)
       return projected ? [projected] : []
     }),
-    ...collisionVfx(runtime, allActors),
-    ...deathVfx(runtime, allActors, reducedMotion),
+    ...collisionVfx(runtime, allActors, recentEvents),
+    ...deathVfx(runtime, allActors, reducedMotion, recentEvents),
   ]
   const effects = selectResourceSnakeVfx(candidates, reducedMotion)
 
@@ -676,7 +775,7 @@ export function resourceSnakeShakeOffset(
 ): { x: number; y: number } {
   if (reducedMotion) return { x: 0, y: 0 }
   // A death lands much harder than a graze: bigger amplitude, longer decay.
-  const death = [...runtime.events].reverse().find((event) => (
+  const death = findLastEvent(runtime.events, (event) => (
     event.type === 'snake-died'
     && runtime.simulationMs >= event.startedAtMs
     && runtime.simulationMs - event.startedAtMs <= 460
@@ -690,7 +789,7 @@ export function resourceSnakeShakeOffset(
       y: Number((Math.cos(phase * 1.37) * amplitude).toFixed(3)),
     }
   }
-  const collision = [...runtime.events].reverse().find((event) => (
+  const collision = findLastEvent(runtime.events, (event) => (
     event.type === 'snake-collided'
     && runtime.simulationMs >= event.startedAtMs
     && runtime.simulationMs - event.startedAtMs <= 180

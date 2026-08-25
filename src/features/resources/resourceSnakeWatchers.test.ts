@@ -4,7 +4,7 @@ import {
   advanceSnakeWatchers,
   createSnakeWatchers,
   snakeWatcherCountForSuspicion,
-  snakeWatcherPatrolPosition,
+  snakeWatcherEntryPosition,
   snakeWatcherStrikeRadius,
   SNAKE_WATCHER_CONFIG,
   type SnakeWatcher,
@@ -51,7 +51,7 @@ describe('company watchers', () => {
     )
   })
 
-  it('spreads watchers around the field edge rather than stacking them', () => {
+  it('enters spread around the field edge rather than stacking up', () => {
     const watchers = createSnakeWatchers(4)
     const positions = watchers.map(({ position }) => `${position.x},${position.y}`)
 
@@ -62,12 +62,67 @@ describe('company watchers', () => {
       expect(position.y).toBeGreaterThanOrEqual(0)
       expect(position.y).toBeLessThanOrEqual(RESOURCE_SNAKE_CONFIG.fieldHeight)
     }
-    // The patrol walk closes on itself, so a lap returns to its start.
+    // The entry walk closes on itself, so a lap returns to its start.
     const perimeter = 2 * (
       RESOURCE_SNAKE_CONFIG.fieldWidth + RESOURCE_SNAKE_CONFIG.fieldHeight
     )
-    expect(snakeWatcherPatrolPosition(perimeter))
-      .toEqual(snakeWatcherPatrolPosition(0))
+    expect(snakeWatcherEntryPosition(perimeter))
+      .toEqual(snakeWatcherEntryPosition(0))
+  })
+
+  it('closes on the player instead of walking the edge', () => {
+    const player = { x: 25, y: 12 }
+    const start = createSnakeWatchers(1)
+    const before = Math.hypot(
+      start[0].position.x - player.x,
+      start[0].position.y - player.y,
+    )
+
+    const stalked = runWatchers(start, player, 0, 120)
+    const after = Math.hypot(
+      stalked.watchers[0].position.x - player.x,
+      stalked.watchers[0].position.y - player.y,
+    )
+
+    expect(stalked.watchers[0].phase).toBe('stalk')
+    expect(after).toBeLessThan(before)
+    // It travels through the field, not along its border.
+    expect(stalked.watchers[0].position.x).toBeGreaterThan(0)
+    expect(stalked.watchers[0].position.x).toBeLessThan(
+      RESOURCE_SNAKE_CONFIG.fieldWidth,
+    )
+    expect(stalked.watchers[0].position.y).toBeGreaterThan(0)
+    expect(stalked.watchers[0].position.y).toBeLessThan(
+      RESOURCE_SNAKE_CONFIG.fieldHeight,
+    )
+  })
+
+  it('never teleports: a dash leaves it where it landed', () => {
+    const player = { x: 25, y: 12 }
+    let watchers = createSnakeWatchers(1)
+    let simulationMs = 0
+    let previous = watchers[0].position
+
+    for (let step = 0; step < 1_200; step += 1) {
+      simulationMs += STEP_MS
+      const result = advanceSnakeWatchers(
+        watchers,
+        player,
+        { x: 0, y: 0 },
+        true,
+        simulationMs,
+        STEP_MS,
+      )
+      watchers = result.watchers
+      const current = watchers[0].position
+      const jump = Math.hypot(current.x - previous.x, current.y - previous.y)
+      // One step can only cover a dash's worth of ground; anything larger is
+      // the snap-back the owner reported.
+      expect(jump).toBeLessThanOrEqual(
+        (SNAKE_WATCHER_CONFIG.chargeUnitsPerSecond * STEP_MS) / 1000 + 1e-6,
+      )
+      previous = current
+    }
   })
 
   it('winds up before it dashes, so the strike can be answered by moving', () => {
@@ -133,12 +188,12 @@ describe('company watchers', () => {
       { x: 25, y: 12 },
       { x: 0, y: 0 },
       false,
-      SNAKE_WATCHER_CONFIG.patrolMs * 4,
+      SNAKE_WATCHER_CONFIG.stalkMs * 4,
       STEP_MS,
     )
 
     expect(result.strikes).toEqual([])
-    expect(result.watchers.every(({ phase }) => phase === 'patrol')).toBe(true)
+    expect(result.watchers.every(({ phase }) => phase === 'stalk')).toBe(true)
   })
 
   it('staggers the wind-ups so four watchers arrive in sequence', () => {
@@ -147,11 +202,11 @@ describe('company watchers', () => {
 
     expect(new Set(starts).size).toBe(4)
     expect(Math.max(...starts) - Math.min(...starts))
-      .toBeGreaterThanOrEqual(SNAKE_WATCHER_CONFIG.patrolMs / 2)
+      .toBeGreaterThanOrEqual(SNAKE_WATCHER_CONFIG.stalkMs / 2)
 
     // Only the earliest is winding up when the first window closes.
     const first = runWatchers(watchers, { x: 25, y: 12 }, 0, 400)
-    const windingUp = first.watchers.filter(({ phase }) => phase !== 'patrol')
+    const windingUp = first.watchers.filter(({ phase }) => phase !== 'stalk')
     expect(windingUp.length).toBeLessThan(4)
   })
 

@@ -710,3 +710,35 @@
   18% { opacity: 1; }
   100% { opacity: 0; }
 }
+
+/* A secured resource announces itself on the card that produced it: one
+   short bloom in the card's own colour, so the eye is told where the reward
+   came from without leaving the field. */
+.resource-intrusion-target-card[data-secured-pulse='true'] {
+  animation: intrusion-card-secured 900ms ease-out;
+}
+
+@keyframes intrusion-card-secured {
+  0% {
+    border-color: var(--target-card-color);
+    box-shadow:
+      0 0 0 1px var(--target-card-color),
+      0 0 26px -4px var(--target-card-color);
+    filter: brightness(1.35);
+  }
+
+  60% {
+    filter: brightness(1.12);
+  }
+
+  100% {
+    box-shadow: none;
+    filter: brightness(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .resource-intrusion-target-card[data-secured-pulse='true'] {
+    animation: none;
+  }
+}

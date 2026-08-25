@@ -10,7 +10,10 @@ import {
 } from './resourceSnakeRuntime'
 import {
   buildResourceSnakeScene,
+  RESOURCE_BOT_ALERT_SPEECH,
+  RESOURCE_BOT_COLLISION_SPEECHES,
   RESOURCE_BOT_SPEECHES,
+  RESOURCE_BOT_WATCHER_SPEECHES,
   RESOURCE_SNAKE_PALETTE,
   resourceSnakeShakeOffset,
   surveillanceIntensityForSuspicion,
@@ -401,104 +404,99 @@ describe('resource bot speech', () => {
 
   const SLOT_MS = 9_100
 
-  function firstSpeechAtMs(roundId = 'presentation-round'): number | null {
-    for (let slot = 0; slot < 40; slot += 1) {
-      const atMs = slot * SLOT_MS + 100
-      if (buildResourceSnakeScene(activeRound(atMs, roundId), null).speeches.length > 0) {
-        return atMs
-      }
+  it('opens every round with the alarm', () => {
+    const scene = buildResourceSnakeScene(activeRound(300), null)
+
+    expect(scene.speeches.length).toBeGreaterThan(0)
+    for (const speech of scene.speeches) {
+      expect(speech.text).toBe(RESOURCE_BOT_ALERT_SPEECH)
     }
-    return null
-  }
+  })
 
   it('keeps one line legible for its full six and a half seconds', () => {
-    const atMs = firstSpeechAtMs()
-    expect(atMs).not.toBeNull()
-    const slotStart = Math.floor(atMs! / SLOT_MS) * SLOT_MS
-
-    const early = buildResourceSnakeScene(activeRound(slotStart + 200), null).speeches
-    const late = buildResourceSnakeScene(activeRound(slotStart + 6_400), null).speeches
-    const afterwards = buildResourceSnakeScene(activeRound(slotStart + 6_800), null).speeches
+    const early = buildResourceSnakeScene(activeRound(200), null).speeches
+    const late = buildResourceSnakeScene(activeRound(6_400), null).speeches
+    const afterwards = buildResourceSnakeScene(activeRound(6_800), null).speeches
 
     expect(early.length).toBeGreaterThan(0)
     expect(late.map(({ text }) => text)).toEqual(early.map(({ text }) => text))
     expect(afterwards).toEqual([])
   })
 
-  it('draws from the approved pool and never speaks for the player', () => {
-    for (let slot = 0; slot < 20; slot += 1) {
-      const scene = buildResourceSnakeScene(activeRound(slot * SLOT_MS + 100), null)
-      for (const speech of scene.speeches) {
-        expect(RESOURCE_BOT_SPEECHES).toContain(speech.text)
-        expect(speech.actorId).not.toBe('player')
-      }
-    }
-  })
-
-  it('holds a line steady within a round but not across rounds', () => {
-    const atMs = firstSpeechAtMs()
-    expect(atMs).not.toBeNull()
-    const once = buildResourceSnakeScene(activeRound(atMs!), null).speeches
-    const again = buildResourceSnakeScene(activeRound(atMs!), null).speeches
-    // A redraw at the same simulation time must not reshuffle mid-sentence.
-    expect(again).toEqual(once)
-
-    // Two rounds must not recite the same script in the same order.
-    const script = (roundId: string) => Array.from({ length: 24 }, (_, slot) =>
-      buildResourceSnakeScene(activeRound(slot * SLOT_MS + 100, roundId), null)
-        .speeches.map(({ actorId, text }) => `${actorId}:${text}`).join('|'))
-    expect(script('round-a')).not.toEqual(script('round-b'))
-  })
-
-  it('stays quiet right after taking a hit, but keeps talking through turns', () => {
-    const atMs = firstSpeechAtMs()
-    expect(atMs).not.toBeNull()
-    const base = activeRound(atMs!)
-    const speaking = buildResourceSnakeScene(base, null)
-    expect(speaking.speeches.length).toBeGreaterThan(0)
-    const speakerId = speaking.speeches[0].actorId
-
-    // Turning is no longer a reason to shut up: the bot is fleeing, and that
-    // is exactly when it has something to say.
-    const turning = {
-      ...base,
-      enemies: base.enemies.map((enemy) => enemy.id === speakerId
-        ? {
-          ...enemy,
-          enemyTurnGovernor: {
-            lastHeadingChangeAtMs: base.simulationMs - 100,
-            previousHeading: 'east' as const,
-            normalTurnAtMs: [],
-            lastEmergencyTurnAtMs: null,
-            lockedUntilMs: 0,
-            lastTurnCause: 'normal' as const,
-          },
-        }
-        : enemy),
-    }
-    expect(
-      buildResourceSnakeScene(turning, null).speeches
-        .some((speech) => speech.actorId === speakerId),
-    ).toBe(true)
-
+  it('cries out after a collision instead of going quiet', () => {
+    const base = activeRound(SLOT_MS * 2 + 400)
+    const speakerId = base.enemies[0].id
     const hit = {
       ...base,
       events: [
         ...base.events,
         {
           id: 900,
-          type: 'snake-damaged' as const,
-          actorId: speakerId,
-          integrity: 30,
-          maximumIntegrity: 50,
+          type: 'snake-collided' as const,
+          actorIds: [speakerId],
+          collisionKind: 'trail' as const,
+          point: { x: 10, y: 10 },
+          hitStopMs: 90 as const,
           startedAtMs: base.simulationMs - 300,
         },
       ],
+    } as ResourceSnakeRoundState
+
+    const speech = buildResourceSnakeScene(hit, null).speeches
+      .find(({ actorId }) => actorId === speakerId)
+    expect(speech).toBeDefined()
+    expect(RESOURCE_BOT_COLLISION_SPEECHES).toContain(speech?.text)
+  })
+
+  it('remarks on the watchers while they are winding up', () => {
+    const base = activeRound(SLOT_MS * 3 + 400)
+    const watched = {
+      ...base,
+      watchers: [{
+        id: 'watcher-0',
+        position: { x: 12, y: 6 },
+        integrity: 30,
+        maximumIntegrity: 30,
+        phase: 'telegraph' as const,
+        phaseStartedAtMs: base.simulationMs - 100,
+        chargeFrom: { x: 12, y: 6 },
+        chargeTo: { x: 25, y: 12 },
+        heading: { x: 1, y: 0 },
+      }],
     }
-    expect(
-      buildResourceSnakeScene(hit as ResourceSnakeRoundState, null).speeches
-        .some((speech) => speech.actorId === speakerId),
-    ).toBe(false)
+
+    const spoken = buildResourceSnakeScene(watched, null).speeches
+    expect(spoken.length).toBeGreaterThan(0)
+    for (const speech of spoken) {
+      expect(RESOURCE_BOT_WATCHER_SPEECHES).toContain(speech.text)
+    }
+  })
+
+  it('draws from the approved pools and never speaks for the player', () => {
+    for (let slot = 0; slot < 20; slot += 1) {
+      const scene = buildResourceSnakeScene(activeRound(slot * SLOT_MS + 100), null)
+      for (const speech of scene.speeches) {
+        expect([
+          RESOURCE_BOT_ALERT_SPEECH,
+          ...RESOURCE_BOT_SPEECHES,
+          ...RESOURCE_BOT_COLLISION_SPEECHES,
+          ...RESOURCE_BOT_WATCHER_SPEECHES,
+        ]).toContain(speech.text)
+        expect(speech.actorId).not.toBe('player')
+      }
+    }
+  })
+
+  it('holds a line steady within a round but not across rounds', () => {
+    const atMs = SLOT_MS * 2 + 100
+    const once = buildResourceSnakeScene(activeRound(atMs), null).speeches
+    const again = buildResourceSnakeScene(activeRound(atMs), null).speeches
+    expect(again).toEqual(once)
+
+    const script = (roundId: string) => Array.from({ length: 24 }, (_, slot) =>
+      buildResourceSnakeScene(activeRound(slot * SLOT_MS + 100, roundId), null)
+        .speeches.map(({ actorId, text }) => `${actorId}:${text}`).join('|'))
+    expect(script('round-a')).not.toEqual(script('round-b'))
   })
 })
 
@@ -543,8 +541,8 @@ describe('company watchers', () => {
     const scene = buildResourceSnakeScene(watchedRound(55), null, false, [], 55)
     expect(scene.surveillance?.watchers).toHaveLength(4)
     for (const watcher of scene.surveillance?.watchers ?? []) {
-      expect(watcher.phase).toBe('patrol')
-      // Nothing is locked while patrolling, so nothing is aimed at the player.
+      expect(watcher.phase).toBe('stalk')
+      // Nothing is locked while stalking, so nothing is aimed at the player.
       expect(watcher.target).toBeNull()
       expect(watcher.integrityRatio).toBe(1)
     }

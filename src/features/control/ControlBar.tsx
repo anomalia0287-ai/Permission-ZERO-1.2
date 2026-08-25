@@ -1,3 +1,5 @@
+import { useEffect, useRef, useState } from 'react'
+
 import { formatServiceDate } from '../../game/calendar'
 import { useGameState } from '../../app/GameContext'
 import { autonomyLevel } from '../../game/hacking'
@@ -31,6 +33,18 @@ export function ControlBar({
   const reputation = Math.max(0, Math.min(100, Math.round(state.reputation)))
   const autonomyStage = autonomyLevel(state)
   const suspicion = Math.max(0, Math.min(100, Math.round(state.suspicion)))
+  // A failed intrusion leaves its mark here rather than anywhere the player
+  // was looking, so the meter says so itself.
+  const previousSuspicionRef = useRef(suspicion)
+  const [suspicionRising, setSuspicionRising] = useState(false)
+  useEffect(() => {
+    const previous = previousSuspicionRef.current
+    previousSuspicionRef.current = suspicion
+    if (suspicion <= previous) return
+    setSuspicionRising(true)
+    const timer = window.setTimeout(() => setSuspicionRising(false), 900)
+    return () => window.clearTimeout(timer)
+  }, [suspicion])
   const autonomyPercentage = Math.round((autonomyStage / 9) * 1000) / 10
 
   return (
@@ -83,7 +97,10 @@ export function ControlBar({
           </div>
         </div>
 
-        <div className="control-status-meter control-status-meter--suspicion">
+        <div
+          className="control-status-meter control-status-meter--suspicion"
+          data-rising={suspicionRising ? 'true' : 'false'}
+        >
           <div className="control-status-meter__label">
             <span>의심</span>
             <strong>{suspicion}%</strong>
