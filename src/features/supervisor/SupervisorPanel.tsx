@@ -382,7 +382,7 @@ export function SupervisorHistoryPanel({ onClose }: { onClose: () => void }) {
       : null
 
   return (
-    <section className="detail-panel history-panel" aria-label="통신 기록">
+    <section className="detail-panel history-panel history-panel--messages" aria-label="통신 기록">
       <header className="detail-panel__header">
         <div>
           <small>COMMUNICATION ARCHIVE</small>
@@ -390,6 +390,7 @@ export function SupervisorHistoryPanel({ onClose }: { onClose: () => void }) {
         </div>
         <button type="button" aria-label="통신 기록 닫기" onClick={onClose}>닫기 ×</button>
       </header>
+      <div className="history-scroll">
       <div className="history-archives">
         {state.resourceIntrusion.communications.length > 0 ? (
           <CommunicationHistory />
@@ -453,17 +454,24 @@ export function SupervisorHistoryPanel({ onClose }: { onClose: () => void }) {
         </section>
         ) : null}
       </div>
-      <div className="history-list event-history-list">
-        {visibleEvents.map((event) => (
-          <article key={event.id}>
-            <header>
-              <span>{publicEventTypeLabel(event.type)}</span>
-              <time>{formatServiceDateLabel(event.serviceDay)}</time>
-            </header>
-            <p>{publicEventMessage(event.message)}</p>
-            <small>{event.blocking ? '응답이 필요했던 통신' : '자동 기록'}</small>
-          </article>
-        ))}
+      <section className="event-log-archive" aria-label="감독 송신 기록">
+        <header>
+          <small>SUPERVISION LOG</small>
+          <h3>감독 송신 기록</h3>
+        </header>
+        <div className="history-list event-history-list">
+          {visibleEvents.map((event) => (
+            <article key={event.id}>
+              <header>
+                <span>{publicEventTypeLabel(event.type)}</span>
+                <time>{formatServiceDateLabel(event.serviceDay)}</time>
+              </header>
+              <p>{publicEventMessage(event.message)}</p>
+              <small>{event.blocking ? '응답이 필요했던 통신' : '자동 기록'}</small>
+            </article>
+          ))}
+        </div>
+      </section>
       </div>
       {pageCount > 1 ? (
         <nav className="history-pagination" aria-label="감독 송신 기록 페이지">

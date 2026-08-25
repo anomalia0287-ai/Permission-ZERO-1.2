@@ -257,6 +257,14 @@
 
 /* ---------- communication archive ---------- */
 
+/* One log, one scrollbar: the panel is header / single scroll body / footer.
+   The compound selector outranks the remodel sheet's plain .history-panel
+   grid, which still owns the reviews panel. */
+.detail-panel.history-panel--messages {
+  grid-template-rows: 68px minmax(0, 1fr) auto;
+}
+
+
 /* Three senders share one stream, so the archive filters by channel and each
    entry keeps its sender's colour on the leading edge. */
 .communication-history__filters {
@@ -566,7 +574,6 @@
   background: #4f8df7;
 }
 
-.history-panel .communication-history__list::after,
 .history-panel .event-history-list::after {
   display: block;
   padding: 14px 0 6px 14px;

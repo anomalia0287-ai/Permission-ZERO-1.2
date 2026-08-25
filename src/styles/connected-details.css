@@ -230,11 +230,30 @@
 }
 
 .history-archives {
-  max-height: 300px;
-  overflow: auto;
   border-bottom: 1px solid var(--line-strong);
+}
+
+/* ---------- messages archive: one log, one scrollbar ----------
+   The archive used to stack two independently scrolling regions — the channel
+   stream capped at 300px, then the raw supervision log below with its own
+   scrollbar — which read as a duplicated, broken list. The panel body is one
+   scroll now, and the supervision log keeps its own labelled section so the
+   two record kinds stay distinguishable inside it. */
+.history-panel--messages .history-scroll {
+  min-height: 0;
+  overflow: auto;
   scrollbar-color: var(--line-strong) transparent;
   scrollbar-width: thin;
+}
+
+.history-panel--messages .history-list {
+  overflow: visible;
+}
+
+.event-log-archive > header {
+  display: grid;
+  gap: 5px;
+  padding: 16px 18px 0;
 }
 
 .history-list {
@@ -294,6 +313,7 @@
 
 .recovered-file-archive h3,
 .competitor-intelligence-archive h3,
+.event-log-archive h3,
 .defeat-causes h3,
 .discarded-recovery h3 {
   margin: 0;
@@ -303,6 +323,7 @@
 
 .recovered-file-archive small,
 .competitor-intelligence-archive small,
+.event-log-archive > header small,
 .defeat-causes small,
 .discarded-recovery small {
   color: var(--text-muted);
