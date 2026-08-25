@@ -81,6 +81,8 @@ const DEFAULT_PUBLIC_STATE: AudioPublicState = {
 interface MusicVoice {
   source: OscillatorNode
   envelope: GainNode
+  /** Context time this voice is scheduled to finish, for stale reclamation. */
+  endsAt?: number
 }
 
 function clamp01(value: number): number {
@@ -288,7 +290,7 @@ export class GameAudioEngine {
 
       oscillator.connect(envelope)
       envelope.connect(effectsBus)
-      const activeVoice = { source: oscillator, envelope }
+      const activeVoice = { source: oscillator, envelope, endsAt: end + 0.05 }
       this.activeVoices.add(activeVoice)
       oscillator.onended = () => {
         this.activeVoices.delete(activeVoice)
@@ -366,7 +368,32 @@ export class GameAudioEngine {
     }
   }
 
+  /**
+   * Releases voices whose scheduled end has passed.
+   *
+   * `onended` is the normal path, but it never fires for a voice that was
+   * pending while the context was suspended — a backgrounded tab is enough.
+   * Those entries used to sit in the set forever, and once twelve of them
+   * had piled up every later effect was dropped for the rest of the session:
+   * combat simply went silent.
+   */
+  private releaseFinishedVoices(): void {
+    const now = this.context?.currentTime
+    if (now === undefined) return
+    for (const voice of this.activeVoices) {
+      if (voice.endsAt === undefined || voice.endsAt > now) continue
+      this.activeVoices.delete(voice)
+      try {
+        voice.source.disconnect()
+        voice.envelope.disconnect()
+      } catch {
+        // Already torn down by its own onended; nothing left to release.
+      }
+    }
+  }
+
   private activeEffectVoiceCount(): number {
+    this.releaseFinishedVoices()
     const loopVoices = [...this.effectLoops.values()].reduce(
       (count, voices) => count + voices.size,
       0,

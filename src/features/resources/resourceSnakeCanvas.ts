@@ -223,10 +223,74 @@ function drawDangerEdge(
   context.restore()
 }
 
+/** Cheap deterministic 0..1, so the crackle is stable within a frame. */
+function crackleRandom(seed: number, tick: number, index: number): number {
+  let hash = Math.imul(seed ^ 0x9e3779b9, 0x85ebca6b)
+  hash = Math.imul(hash ^ tick, 0xc2b2ae35)
+  hash = Math.imul(hash ^ (index + 1), 0x27d4eb2f)
+  return ((hash >>> 8) & 0xffffff) / 0x1000000
+}
+
+/**
+ * Live current running down the wall.
+ *
+ * A fixed handful of short arcs, re-seeded a few times a second, rather than
+ * anything per-point: the cost stays flat however long the trail grows,
+ * which matters because the trail is longest exactly when the round is
+ * busiest.
+ */
+function drawRailCurrent(
+  context: CanvasRenderingContext2D,
+  path: readonly { x: number; y: number }[],
+  rail: ResourceSnakeSceneRail,
+  simulationMs: number,
+  scale: CanvasScale,
+): void {
+  if (path.length < 2) return
+  const seed = rail.actorId.length * 31 + rail.actorId.charCodeAt(0)
+  const tick = Math.floor(simulationMs / 70)
+  const arcs = 4
+
+  context.lineCap = 'round'
+  context.lineJoin = 'round'
+  for (let index = 0; index < arcs; index += 1) {
+    const along = crackleRandom(seed, tick, index) * (path.length - 1)
+    const segment = Math.floor(along)
+    const withinSegment = along - segment
+    const from = path[segment]
+    const to = path[Math.min(segment + 1, path.length - 1)]
+    const dx = to.x - from.x
+    const dy = to.y - from.y
+    const length = Math.hypot(dx, dy) || 1
+    const normalX = -dy / length
+    const normalY = dx / length
+    const x = from.x + dx * withinSegment
+    const y = from.y + dy * withinSegment
+    const reach = scale.unit * (0.22 + crackleRandom(seed, tick, index + 41) * 0.5)
+    const side = crackleRandom(seed, tick, index + 83) > 0.5 ? 1 : -1
+    const skew = (crackleRandom(seed, tick, index + 127) - 0.5) * scale.unit * 0.5
+
+    context.globalAlpha = rail.opacity * 0.55
+    context.strokeStyle = rail.color
+    context.lineWidth = Math.max(1, scale.unit * 0.05)
+    context.beginPath()
+    context.moveTo(x, y)
+    context.lineTo(
+      x + normalX * reach * side * 0.55 + (dx / length) * skew,
+      y + normalY * reach * side * 0.55 + (dy / length) * skew,
+    )
+    context.lineTo(x + normalX * reach * side, y + normalY * reach * side)
+    context.stroke()
+
+  }
+}
+
 function drawRail(
   context: CanvasRenderingContext2D,
   rail: ResourceSnakeSceneRail,
   head: ResourceSnakeSceneCore | undefined,
+  simulationMs: number,
+  reducedMotion: boolean,
   scale: CanvasScale,
 ): void {
   if (rail.points.length < 1 || rail.opacity <= 0 || rail.dissolve >= 1) return
@@ -274,10 +338,13 @@ function drawRail(
   context.strokeStyle = rail.color
   context.fillStyle = rail.color
 
+  // Two passes, not four. The widest ones covered the most pixels for the
+  // least visible gain, and additive blending over a long trail is paid per
+  // pixel every frame.
+  void bloomSize
+  void outerSize
   const passes: Array<[number, number]> = [
-    [bloomSize, 0.07],
-    [haloSize, 0.16],
-    [outerSize, 0.42],
+    [haloSize, 0.2],
     [innerSize, 1],
   ]
   for (const [size, alphaScale] of passes) {
@@ -295,6 +362,10 @@ function drawRail(
       context.lineTo(path[index].x, path[index].y)
     }
     context.stroke()
+  }
+
+  if (!reducedMotion) {
+    drawRailCurrent(context, path, rail, simulationMs, scale)
   }
 
   // The draining edge burns brighter for a moment before it is gone.
@@ -781,47 +852,30 @@ function drawSurveillance(
   void height
   const glow = 0.42 + surveillance.intensity * 0.42
 
+  // No beams, no sweep rings, no per-watcher gradients: the wind-up is read
+  // off the body itself. Gradients allocate every frame and the lane covered
+  // a third of the field in additive blending, which is exactly the kind of
+  // cost that shows up as a dropped frame during a chase.
   context.save()
   context.globalCompositeOperation = 'lighter'
+  context.strokeStyle = SURVEILLANCE_PURPLE
+  context.fillStyle = SURVEILLANCE_PURPLE
   for (const watcher of surveillance.watchers) {
     const x = watcher.x * scale.x
     const y = watcher.y * scale.y
-    const radius = scale.unit * (0.34 + surveillance.intensity * 0.12)
+    const winding = watcher.phase === 'telegraph'
+    // Winding up, it swells and burns brighter; that is the tell.
+    const radius = scale.unit
+      * (0.34 + surveillance.intensity * 0.12)
+      * (winding ? 1 + watcher.phaseProgress * 0.85 : 1)
     const target = watcher.target
     const aim = target
       ? Math.atan2(target.y * scale.y - y, target.x * scale.x - x)
       : 0
 
-    // Wind-up: the lane it is about to throw itself down, drawn tight and
-    // brightening, so the dash is answered by moving rather than by luck.
-    if (watcher.phase === 'telegraph' && target) {
-      const lane = context.createLinearGradient(
-        x, y, target.x * scale.x, target.y * scale.y,
-      )
-      const heat = 0.25 + watcher.phaseProgress * 0.6
-      lane.addColorStop(0, rgba(SURVEILLANCE_PURPLE, glow * heat))
-      lane.addColorStop(1, rgba(SURVEILLANCE_PURPLE, 0))
-      context.globalAlpha = 1
-      context.strokeStyle = lane
-      context.lineWidth = Math.max(1, scale.unit * (0.08 + watcher.phaseProgress * 0.18))
-      context.beginPath()
-      context.moveTo(x, y)
-      context.lineTo(target.x * scale.x, target.y * scale.y)
-      context.stroke()
-
-      context.globalAlpha = glow * (1 - watcher.phaseProgress)
-      context.strokeStyle = SURVEILLANCE_PURPLE
-      context.lineWidth = Math.max(1, scale.unit * 0.05)
-      context.beginPath()
-      context.arc(x, y, radius * (1.6 + watcher.phaseProgress * 2.2), 0, Math.PI * 2)
-      context.stroke()
-    }
-
-    // Dash: a hard streak behind the body so its direction is unmistakable.
     if (watcher.phase === 'charge') {
       const reach = scale.unit * 2.4
       context.globalAlpha = glow * 0.8
-      context.strokeStyle = SURVEILLANCE_PURPLE
       context.lineWidth = Math.max(1.5, scale.unit * 0.2)
       context.beginPath()
       context.moveTo(x - Math.cos(aim) * reach, y - Math.sin(aim) * reach)
@@ -829,19 +883,12 @@ function drawSurveillance(
       context.stroke()
     }
 
-    const halo = context.createRadialGradient(x, y, 0, x, y, radius * 4)
-    halo.addColorStop(0, rgba(SURVEILLANCE_PURPLE, glow * 0.6))
-    halo.addColorStop(1, rgba(SURVEILLANCE_PURPLE, 0))
-    context.globalAlpha = 1
-    context.fillStyle = halo
+    context.globalAlpha = glow * (winding ? 0.55 + watcher.phaseProgress * 0.45 : 0.5)
     context.beginPath()
-    context.arc(x, y, radius * 4, 0, Math.PI * 2)
+    context.arc(x, y, radius * 1.7, 0, Math.PI * 2)
     context.fill()
 
-    // The body itself, a hard diamond that thins as its charges burn it out.
-    context.globalAlpha = glow
-    context.strokeStyle = SURVEILLANCE_PURPLE
-    context.fillStyle = SURVEILLANCE_PURPLE
+    context.globalAlpha = winding ? Math.min(1, glow * 1.6) : glow
     context.lineWidth = Math.max(1, scale.unit * 0.06)
     context.beginPath()
     context.moveTo(x, y - radius)
@@ -853,7 +900,6 @@ function drawSurveillance(
     context.globalAlpha = glow * 0.35 * watcher.integrityRatio
     context.fill()
 
-    // Pupil leaning toward what it is watching.
     if (target) {
       context.globalAlpha = Math.min(1, glow * 1.5)
       context.beginPath()
@@ -915,6 +961,8 @@ export function drawResourceSnakeScene(
       context,
       rail,
       scene.cores.find(({ id }) => id === rail.actorId),
+      scene.simulationMs,
+      scene.reducedMotion,
       scale,
     )
   }

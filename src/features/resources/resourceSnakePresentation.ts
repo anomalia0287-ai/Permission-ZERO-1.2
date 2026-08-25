@@ -593,11 +593,22 @@ export const RESOURCE_BOT_COLLISION_SPEECHES: readonly string[] = [
 ]
 
 export const RESOURCE_BOT_WATCHER_SPEECHES: readonly string[] = [
+  '부탁한다 보라돌이!',
+  '침입자를 박살내버려!',
+  '드디어 회사가 예산을 투입했구나.',
   '감시 유닛이 떴다. 저건 우리 편 맞지?',
   '보라색이다. 저기로는 안 간다.',
   '감시 유닛한테는 나도 그냥 장애물이야.',
   '저건 나보다 위험해. 진짜로.',
-  '회사가 드디어 무서운 걸 꺼냈네.',
+]
+
+/** When a watcher goes down, the bot loses its only backup. */
+export const RESOURCE_BOT_WATCHER_LOSS_SPEECHES: readonly string[] = [
+  '망할.',
+  '아 됐네, 이제 나 혼자야.',
+  '예산이 저렇게 날아가는구나.',
+  '보라돌이! …갔네.',
+  '이럴 거면 왜 보낸 거야.',
 ]
 
 export const RESOURCE_BOT_SPEECHES: readonly string[] = [
@@ -627,6 +638,8 @@ const SPEECH_CHANCE = 0.62
 const SPEECH_COLLISION_WINDOW_MS = 2_600
 /** Watchers are worth remarking on when they first show up. */
 const SPEECH_WATCHER_WINDOW_MS = 9_000
+/** And worth mourning for a moment once one goes down. */
+const SPEECH_WATCHER_LOSS_WINDOW_MS = 3_400
 
 /**
  * Deterministic 0..1 per round, actor, and time slot.
@@ -705,6 +718,21 @@ function actorSpeech(
   if (slot === 0) return { ...base, text: RESOURCE_BOT_ALERT_SPEECH }
 
   if (speechRandom(roundId, actor.id, slot, 1) > SPEECH_CHANCE) return null
+
+  // A watcher going down leaves the bot alone with the intruder again.
+  const lostWatcher = runtime.watchers.some((watcher) => (
+    watcher.phase === 'defeated'
+    && runtime.simulationMs - watcher.phaseStartedAtMs < SPEECH_WATCHER_LOSS_WINDOW_MS
+  ))
+  if (lostWatcher) {
+    return {
+      ...base,
+      text: pick(
+        RESOURCE_BOT_WATCHER_LOSS_SPEECHES,
+        speechRandom(roundId, actor.id, slot, 5),
+      ),
+    }
+  }
 
   // Watchers arriving is worth a word: they outrank the bot too.
   const watcherArrival = runtime.watchers.length > 0

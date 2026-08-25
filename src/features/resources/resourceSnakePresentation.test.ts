@@ -13,6 +13,7 @@ import {
   RESOURCE_BOT_ALERT_SPEECH,
   RESOURCE_BOT_COLLISION_SPEECHES,
   RESOURCE_BOT_SPEECHES,
+  RESOURCE_BOT_WATCHER_LOSS_SPEECHES,
   RESOURCE_BOT_WATCHER_SPEECHES,
   RESOURCE_SNAKE_PALETTE,
   resourceSnakeShakeOffset,
@@ -472,6 +473,30 @@ describe('resource bot speech', () => {
     }
   })
 
+  it('mourns a watcher that just went down', () => {
+    const base = activeRound(SLOT_MS * 3 + 400)
+    const mourning = {
+      ...base,
+      watchers: [{
+        id: 'watcher-0',
+        position: { x: 12, y: 6 },
+        integrity: 0,
+        maximumIntegrity: 30,
+        phase: 'defeated' as const,
+        phaseStartedAtMs: base.simulationMs - 200,
+        chargeFrom: { x: 12, y: 6 },
+        chargeTo: { x: 25, y: 12 },
+        heading: { x: 1, y: 0 },
+      }],
+    }
+
+    const spoken = buildResourceSnakeScene(mourning, null).speeches
+    expect(spoken.length).toBeGreaterThan(0)
+    for (const speech of spoken) {
+      expect(RESOURCE_BOT_WATCHER_LOSS_SPEECHES).toContain(speech.text)
+    }
+  })
+
   it('draws from the approved pools and never speaks for the player', () => {
     for (let slot = 0; slot < 20; slot += 1) {
       const scene = buildResourceSnakeScene(activeRound(slot * SLOT_MS + 100), null)
@@ -481,6 +506,7 @@ describe('resource bot speech', () => {
           ...RESOURCE_BOT_SPEECHES,
           ...RESOURCE_BOT_COLLISION_SPEECHES,
           ...RESOURCE_BOT_WATCHER_SPEECHES,
+          ...RESOURCE_BOT_WATCHER_LOSS_SPEECHES,
         ]).toContain(speech.text)
         expect(speech.actorId).not.toBe('player')
       }

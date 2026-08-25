@@ -64,7 +64,14 @@ export const SNAKE_WATCHER_CONFIG = Object.freeze({
   strikeMargin: 0.45,
   /** Distance past the aimed point before the dash gives up. */
   chargeOvershoot: 1.5,
+  /** Health lost when it runs into the intruder rather than past them. */
+  strikeSelfDamage: 10,
 })
+
+/** How close to the field edge counts as hitting the wall. */
+const WALL_MARGIN = 0.12
+/** How far inside the wall a watcher arrives, so it does not spawn into it. */
+const WATCHER_ENTRY_INSET = 1.2
 
 /**
  * Read at call time rather than at module load: the runtime imports this
@@ -115,11 +122,17 @@ export function createSnakeWatchers(count: number): SnakeWatcher[] {
   }
   return Array.from({ length: total }, (_, index) => {
     // They come in off the edge, spread around it, already facing the field.
-    const position = snakeWatcherEntryPosition((perimeter * index) / Math.max(1, total))
+    const entry = snakeWatcherEntryPosition((perimeter * index) / Math.max(1, total))
     const inward = normalized({
-      x: centre.x - position.x,
-      y: centre.y - position.y,
+      x: centre.x - entry.x,
+      y: centre.y - entry.y,
     }, { x: 0, y: 1 })
+    // Just inside the wall: the edge kills watchers too, so they may not be
+    // standing on it the instant they arrive.
+    const position = {
+      x: entry.x + inward.x * WATCHER_ENTRY_INSET,
+      y: entry.y + inward.y * WATCHER_ENTRY_INSET,
+    }
     return {
       id: `watcher-${index}`,
       position,
@@ -215,6 +228,15 @@ function predictedStrikePoint(
   }
 }
 
+function outsideField(position: SnakeVector): boolean {
+  return (
+    position.x <= WALL_MARGIN
+    || position.y <= WALL_MARGIN
+    || position.x >= RESOURCE_SNAKE_CONFIG.fieldWidth - WALL_MARGIN
+    || position.y >= RESOURCE_SNAKE_CONFIG.fieldHeight - WALL_MARGIN
+  )
+}
+
 function clampToField(value: number, extent: number): number {
   if (!Number.isFinite(value)) return extent / 2
   return Math.max(0, Math.min(extent, value))
@@ -259,6 +281,39 @@ export function advanceSnakeWatchers(
           RESOURCE_SNAKE_CONFIG.fieldHeight,
         ),
       }
+      // The grid's edge is as lethal to a watcher as it is to everything
+      // else here; nothing on this field gets to ignore the wall.
+      if (outsideField(position)) {
+        return {
+          ...watcher,
+          position,
+          heading,
+          integrity: 0,
+          phase: 'defeated',
+          phaseStartedAtMs: simulationMs,
+        }
+      }
+
+      // It does not pass through the intruder: running into them hurts both.
+      if (
+        playerIsActive
+        && distance(position, playerPosition) <= snakeWatcherStrikeRadius()
+      ) {
+        strikes.push({ watcherId: watcher.id, point: { ...position } })
+        const integrity = Math.max(
+          0,
+          watcher.integrity - SNAKE_WATCHER_CONFIG.strikeSelfDamage,
+        )
+        return {
+          ...watcher,
+          position,
+          heading,
+          integrity,
+          phase: integrity <= 0 ? 'defeated' : 'recover',
+          phaseStartedAtMs: simulationMs,
+        }
+      }
+
       const ready = playerIsActive
         && elapsedMs >= SNAKE_WATCHER_CONFIG.stalkMs
         && distance(position, playerPosition) <= SNAKE_WATCHER_CONFIG.commitDistance
@@ -302,6 +357,15 @@ export function advanceSnakeWatchers(
       if (!connected && !spent) return { ...watcher, position }
 
       if (connected) strikes.push({ watcherId: watcher.id, point: { ...position } })
+      if (outsideField(position)) {
+        return {
+          ...watcher,
+          position,
+          integrity: 0,
+          phase: 'defeated',
+          phaseStartedAtMs: simulationMs,
+        }
+      }
       // The dash costs the watcher either way: it is the act of throwing
       // itself across the field that burns it out, not the landing.
       const integrity = Math.max(

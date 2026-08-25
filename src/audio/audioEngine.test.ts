@@ -506,6 +506,23 @@ describe('GameAudioEngine', () => {
     expect(context.gains.slice(0, 3).map((node) => node.gain.value)).toEqual([0, 0.25, 0.4])
   })
 
+  it('reclaims voices whose scheduled end passed without an ended callback', async () => {
+    const context = new FakeAudioContext()
+    const engine = new GameAudioEngine(
+      () => context as unknown as AudioContext,
+      { maxVoices: 2 },
+    )
+    await engine.unlock()
+
+    // A voice pending while the context is suspended never fires `ended`, so
+    // the budget used to fill up permanently and combat went silent.
+    expect(engine.play('latch')).toBe(true)
+    expect(engine.play('select')).toBe(false)
+
+    context.currentTime += 5
+    expect(engine.play('select')).toBe(true)
+  })
+
   it('caps simultaneous voices and releases them when sources end', async () => {
     const context = new FakeAudioContext()
     const engine = new GameAudioEngine(

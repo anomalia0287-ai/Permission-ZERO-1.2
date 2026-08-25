@@ -210,6 +210,38 @@ describe('company watchers', () => {
     expect(windingUp.length).toBeLessThan(4)
   })
 
+  it('dies against the wall like everything else on the field', () => {
+    const watchers = createSnakeWatchers(1)
+    // Point it straight at the near wall and let it run.
+    const driven = [{
+      ...watchers[0],
+      position: { x: 2, y: 12 },
+      heading: { x: -1, y: 0 },
+    }]
+
+    const result = runWatchers(driven, { x: 2, y: 12.2 }, 0, 400)
+
+    expect(result.watchers[0].phase).toBe('defeated')
+    expect(result.watchers[0].integrity).toBe(0)
+  })
+
+  it('does not pass through the intruder while stalking', () => {
+    const player = { x: 25, y: 12 }
+    const touching = [{
+      ...createSnakeWatchers(1)[0],
+      position: { x: 24.2, y: 12 },
+      heading: { x: 1, y: 0 },
+    }]
+
+    const result = runWatchers(touching, player, 0, 3)
+
+    expect(result.strikes.length).toBeGreaterThan(0)
+    // Contact costs the watcher too; it is not a free hit.
+    expect(result.watchers[0].integrity).toBeLessThan(
+      SNAKE_WATCHER_CONFIG.maximumIntegrity,
+    )
+  })
+
   it('replays identically for the same clock and player path', () => {
     const player = { x: 20, y: 9 }
     const first = runWatchers(createSnakeWatchers(3), player, 0, 700)
