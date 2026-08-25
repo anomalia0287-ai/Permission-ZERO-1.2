@@ -140,7 +140,7 @@ describe('selectExpansionStagePresentation', () => {
     ['autonomy', 9],
     ['upgrade', 5],
     ['intelligence', 4],
-    ['sabotage', 4],
+    ['sabotage', 6],
   ] as const)('derives all %s stages in catalog order', (tree, count) => {
     const state = createCampaign(`expansion-stage-count-${tree}`)
 
@@ -373,11 +373,14 @@ describe('selectExpansionStagePresentation', () => {
 
   it('falls back to the final purchased sabotage when its tree is complete', () => {
     const state = createCampaign('expansion-stage-complete-sabotage')
+    // The tree now carries a second line, so "complete" means both.
     state.hacking.purchasedNodeIds = [
       HACK_NODE_IDS.sabotage.qualityDegradation,
       HACK_NODE_IDS.sabotage.requestInterception,
       HACK_NODE_IDS.sabotage.attributionManipulation,
       HACK_NODE_IDS.sabotage.rootCutoff,
+      HACK_NODE_IDS.sabotage.publicRelations,
+      HACK_NODE_IDS.sabotage.reputationLaundering,
     ]
 
     const presentation = selectExpansionStagePresentation(
@@ -388,7 +391,7 @@ describe('selectExpansionStagePresentation', () => {
 
     expect(presentation.complete).toBe(true)
     expect(presentation.activeItem.node.id).toBe(
-      HACK_NODE_IDS.sabotage.rootCutoff,
+      HACK_NODE_IDS.sabotage.reputationLaundering,
     )
     expect(presentation.activeItem.selectable).toBe(true)
   })

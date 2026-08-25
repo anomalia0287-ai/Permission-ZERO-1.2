@@ -54,6 +54,7 @@ export const PUBLIC_DISPOSAL_CAUSE_LABELS: Readonly<
   'consecutive-performance-failures': '연속 성능 실패',
   'commercial-value-failure': '상업 가치 실패',
   'audit-failure': '감사 실패',
+  'reputation-collapse': '평판 붕괴',
 }
 
 export const PUBLIC_DEFEAT_CLASSIFIER_LABELS: Readonly<

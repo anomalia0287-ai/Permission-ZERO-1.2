@@ -154,6 +154,18 @@ export const EXPANSION_STAGE_VISUALS = {
     alt: '대규모 네트워크가 근원 차단 공격으로 붕괴하는 장면',
     orientation: 'portrait',
   },
+  // The reputation line reuses the sabotage tree's closing plate: it is the
+  // same trade, turned on the company's own record instead of a rival's.
+  [HACK_NODE_IDS.sabotage.publicRelations]: {
+    imageUrl: publicAssetUrl('/expansion-stages/sabotage-04-root-cutoff.jpg'),
+    alt: '여론 지표가 조작되어 회사에 유리하게 기울어지는 장면',
+    orientation: 'portrait',
+  },
+  [HACK_NODE_IDS.sabotage.reputationLaundering]: {
+    imageUrl: publicAssetUrl('/expansion-stages/sabotage-04-root-cutoff.jpg'),
+    alt: '평판 기록이 세탁되어 실적과 무관하게 유지되는 장면',
+    orientation: 'portrait',
+  },
 } satisfies Partial<Record<HackNodeId, ExpansionStageVisual>>
 
 function stageVisual(nodeId: HackNodeId): ExpansionStageVisual | undefined {

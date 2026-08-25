@@ -45,6 +45,8 @@ import {
   pressResourceSnakeRuntimeKey,
   releaseResourceSnakeRuntimeKey,
   resetResourceSnakeRuntimeInput,
+  playerSkillActive,
+  playerSkillReadiness,
   resourceSnakeRoundSpeedScale,
   type ResourceSnakeRoundState,
   type SnakeActor,
@@ -74,6 +76,32 @@ const MOVEMENT_KEYS = new Set([
   'arrowup', 'arrowleft', 'arrowdown', 'arrowright',
 ])
 
+/*
+ * Physical key positions, not the characters they produce.
+ *
+ * `event.key` is what the keyboard *typed*, and with a Korean IME active that
+ * is 'ㅈㅁㄴㅇ' rather than 'wasd', so WASD steering went completely dead for
+ * anyone playing with 한글 input on — which in this game's audience is most
+ * people. `event.code` reports the physical key and is identical under any
+ * IME or layout, so it decides first and `event.key` only fills in for
+ * browsers that leave the code blank.
+ */
+const MOVEMENT_CODES: Readonly<Record<string, string>> = {
+  KeyW: 'w', KeyA: 'a', KeyS: 's', KeyD: 'd',
+  ArrowUp: 'arrowup', ArrowLeft: 'arrowleft',
+  ArrowDown: 'arrowdown', ArrowRight: 'arrowright',
+}
+
+/** Space engages the permission spoof; it is not an IME-translated key. */
+const SKILL_CODES = new Set(['Space'])
+
+function movementKeyOf(event: KeyboardEvent): string | null {
+  const byCode = MOVEMENT_CODES[event.code]
+  if (byCode) return byCode
+  const byKey = event.key.toLowerCase()
+  return MOVEMENT_KEYS.has(byKey) ? byKey : null
+}
+
 // The launch beat: the chosen card locks in, the rest fall away, and a short
 // 3-2-1 marks the fixed moment the round begins (the anticipation window).
 // Three ticks of half a second each: long enough to read every number, short
@@ -90,6 +118,16 @@ type ResourceIntrusionBoardPhase =
 function isEditableTarget(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && Boolean(
     target.closest('input, textarea, select, [contenteditable="true"]'),
+  )
+}
+
+/**
+ * Space belongs to a focused control before it belongs to the arena: a player
+ * tabbing the dock and pressing Space expects the button, not the spoof.
+ */
+function isActivatableTarget(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && Boolean(
+    target.closest('button, a[href], [role="button"], summary, details'),
   )
 }
 
@@ -330,6 +368,7 @@ function ResourceSnakeBoardSession() {
   const cyanProfileRef = useRef<CyanLightcycleProfile | null>(null)
   const aiControllerRef = useRef<ResourceSnakeAiControllerState | null>(null)
   const surveillanceControllersRef = useRef<Record<string, ResourceSnakeAiControllerState>>({})
+  const skillRequestedRef = useRef(false)
   const rolesRef = useRef<Record<string, SnakeEnemyRole>>({})
   const playerHistoryRef = useRef<SnakePlayerHistorySample[]>([])
   const bagRef = useRef<SnakeShuffleBagState>({
@@ -535,7 +574,6 @@ function ResourceSnakeBoardSession() {
     }
     if (runtimeSuspended) clearInput(true)
     const handleKeyDown = (event: KeyboardEvent) => {
-      const key = event.key.toLowerCase()
       const phase = runtimeRef.current.phase
       if (
         runtimeSuspended
@@ -544,8 +582,16 @@ function ResourceSnakeBoardSession() {
         || event.altKey
         || event.metaKey
         || isEditableTarget(event.target)
-        || !MOVEMENT_KEYS.has(key)
       ) return
+      if (SKILL_CODES.has(event.code)) {
+        if (isActivatableTarget(event.target)) return
+        // Space also scrolls the page, which would drag the arena out of view.
+        event.preventDefault()
+        if (!event.repeat) skillRequestedRef.current = true
+        return
+      }
+      const key = movementKeyOf(event)
+      if (key === null) return
       event.preventDefault()
       const current = runtimeRef.current
       const next = pressResourceSnakeRuntimeKey(
@@ -557,8 +603,8 @@ function ResourceSnakeBoardSession() {
       if (next !== current) commitRuntime(next)
     }
     const handleKeyUp = (event: KeyboardEvent) => {
-      const key = event.key.toLowerCase()
-      if (!MOVEMENT_KEYS.has(key)) return
+      const key = movementKeyOf(event)
+      if (key === null) return
       const current = runtimeRef.current
       const next = releaseResourceSnakeRuntimeKey(current, key)
       if (next !== current) commitRuntime(next)
@@ -686,10 +732,13 @@ function ResourceSnakeBoardSession() {
       controllerMaximumMs = Math.max(controllerMaximumMs, controllerDurationMs)
       plannerMaximumMs = Math.max(plannerMaximumMs, observedPlanningMs)
       const runtimeStartedAt = performance.now()
+      const playerSkillRequested = skillRequestedRef.current
+      skillRequestedRef.current = false
       const next = advanceResourceSnakeFrame(current, {
         enemyDirections,
         enemyDirectionSchedules,
         enemyTurnPolicies,
+        playerSkillRequested,
       }, deltaMs)
       const runtimeDurationMs = performance.now() - runtimeStartedAt
       runtimeMaximumMs = Math.max(runtimeMaximumMs, runtimeDurationMs)
@@ -782,6 +831,8 @@ function ResourceSnakeBoardSession() {
   ])
   const browserSnapshot = serializeBrowserSnakeSnapshot(runtime, aiPresentation.roles)
   const roundSpeedScale = resourceSnakeRoundSpeedScale(runtime.simulationMs)
+  const skillActive = playerSkillActive(runtime)
+  const skillReadiness = playerSkillReadiness(runtime)
   const shake = resourceSnakeShakeOffset(runtime, settings.reducedMotion)
 
   useEffect(() => {
@@ -904,6 +955,24 @@ function ResourceSnakeBoardSession() {
               <span>HDG {runtime.player.heading.toUpperCase()}</span>
               <span>SPD {Math.round(roundSpeedScale * 100)}%</span>
               <span>Q {queueLabel}</span>
+            </div>
+            <div
+              className="resource-snake-board__hud-skill"
+              data-skill-state={
+                skillActive ? 'active' : skillReadiness >= 1 ? 'ready' : 'charging'
+              }
+              aria-label={
+                skillActive
+                  ? '권한 위조 발동 중'
+                  : skillReadiness >= 1
+                    ? '권한 위조 준비 완료, 스페이스'
+                    : `권한 위조 충전 ${Math.round(skillReadiness * 100)}%`
+              }
+            >
+              <span>SPACE 권한 위조</span>
+              <span className="resource-snake-board__hud-skill-track">
+                <span style={{ width: `${Math.round((skillActive ? 1 : skillReadiness) * 100)}%` }} />
+              </span>
             </div>
           </div>
         ) : null}

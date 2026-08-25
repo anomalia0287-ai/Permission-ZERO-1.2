@@ -522,6 +522,12 @@ test('holds at loading and title, presents the three-line monologue and autonomy
   )
   await expect(page.locator('[data-tutorial-target="autonomy-status"]')).toHaveCount(1)
   await page.getByRole('button', { name: '다음' }).click()
+  await expect(tutorial).toHaveAttribute('data-tutorial-step', 'reputation')
+  await expect(tutorial).toContainText(
+    '회사가 아노미를 보는 눈이 평판이다. 리소스를 훔치면 회사 성능이 떨어지고 평판도 같이 깎인다. 0이 되면 그 자리에서 폐기된다.',
+  )
+  await expect(page.locator('[data-tutorial-target="reputation-status"]')).toHaveCount(1)
+  await page.getByRole('button', { name: '다음' }).click()
   await expect(tutorial).toHaveAttribute('data-tutorial-step', 'base')
   await expect(tutorial).toContainText(
     '필드에 빨강·파랑·노랑 침투 카드가 펼쳐져 있다. 필요한 리소스 카드를 고르면 3초 카운트다운 뒤 라운드가 시작된다.',
@@ -544,6 +550,11 @@ test('holds at loading and title, presents the three-line monologue and autonomy
   await expect(tutorial).toHaveAttribute('data-tutorial-step', 'base')
   await page.getByRole('button', { name: '다음' }).click()
   await page.getByRole('button', { name: '다음' }).click()
+  await expect(tutorial).toHaveAttribute('data-tutorial-step', 'skill')
+  await expect(tutorial).toContainText(
+    '스페이스는 권한 위조다. 5초간 모든 선을 통과하며 더 빨라진다. 다만 벽은 통과하지 못하고, 한 번 쓰면 다시 차기까지 시간이 걸린다.',
+  )
+  await page.getByRole('button', { name: '다음' }).click()
   await expect(tutorial).toHaveAttribute('data-tutorial-step', 'resource')
   await expect(tutorial).toContainText(
     '적의 머리와 꼬리 색이 보상이다. 빨강은 추론, 파랑은 기억, 노랑은 유창성 리소스를 뜻한다.',
@@ -562,7 +573,7 @@ test('holds at loading and title, presents the three-line monologue and autonomy
   await page.getByRole('button', { name: '다음' }).click()
   await expect(tutorial).toHaveAttribute('data-tutorial-step', 'hacking')
   await expect(tutorial).toContainText(
-    '확장을 열면 확보한 색상별 리소스를 버튼 한 번으로 지출한다. 여기서 자율성과 속도를 높일 수 있다.',
+    '확장을 열면 확보한 리소스를 지출한다. 자율성과 속도뿐 아니라, 정보로 회사를 들여다보고 사보타주로 평판을 조작해 버티는 길도 여기에 있다.',
   )
   await expect(tutorial).toHaveAttribute('data-target-hole-count', '1')
   await expect(

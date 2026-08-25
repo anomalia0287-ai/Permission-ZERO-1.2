@@ -3,6 +3,7 @@ import {
   CURRENT_COMMAND_PROTOCOL_VERSION,
   FINAL_CHOICE_COMMAND_PROTOCOL_VERSION,
   REPUTATION_DRIFT_COMMAND_PROTOCOL_VERSION,
+  SURVIVAL_ECONOMY_COMMAND_PROTOCOL_VERSION,
   commandProtocolVersionForNextCommand,
 } from './commandProtocol'
 import {
@@ -18,6 +19,7 @@ import {
   type CompanyCategory,
   type DisposalCause,
 } from './model'
+import { HACK_NODE_IDS } from './hacking'
 import { publicCategoryLabelForProtocol } from './publicLabels'
 import { getCompanyPerformance } from './resources'
 import { random01 } from './rng'
@@ -238,6 +240,14 @@ export function applyDailyReputationDrift(
     (category) => expectation - categoryPerformance[category],
   ).filter((deficit) => deficit > 0)
 
+  const purchased = state.hacking.purchasedNodeIds
+  const laundering =
+    protocolVersion >= SURVIVAL_ECONOMY_COMMAND_PROTOCOL_VERSION &&
+    purchased.includes(HACK_NODE_IDS.sabotage.reputationLaundering)
+  const publicRelations =
+    protocolVersion >= SURVIVAL_ECONOMY_COMMAND_PROTOCOL_VERSION &&
+    (laundering || purchased.includes(HACK_NODE_IDS.sabotage.publicRelations))
+
   let delta = 0
   if (deficits.length > 0) {
     if (state.serviceDay % 2 === 0) {
@@ -245,17 +255,50 @@ export function applyDailyReputationDrift(
         (deficit) =>
           deficit >= DEMO_PROFILE_02.evaluation.severeDeficitThreshold,
       )
-      delta = severe ? -2 : -1
+      // 여론 조작 halves the bleed; the deeper the shortfall the more it has
+      // to cover, so a severe day still costs a point.
+      delta = severe ? (publicRelations ? -1 : -2) : (publicRelations ? 0 : -1)
+      if (publicRelations && !severe && state.serviceDay % 4 === 0) delta = -1
     }
   } else if (state.serviceDay % 3 === 0) {
     delta = 1
   }
+  // 평판 세탁 manufactures standing regardless of what was delivered.
+  if (laundering && state.serviceDay % 3 === 0) delta += 1
   if (delta === 0) return state
 
-  return {
-    ...state,
-    reputation: clamp(state.reputation + delta, 0, 100),
+  const reputation = clamp(state.reputation + delta, 0, 100)
+  const drifted: CampaignState = { ...state, reputation }
+  // Reputation at the floor is the company's answer, not a waiting room. The
+  // campaign used to keep running at zero standing until the disposal stages
+  // happened to fill up, which left the player playing a decided game for
+  // weeks. The classifier still decides *which* disposal this is.
+  if (
+    protocolVersion >= SURVIVAL_ECONOMY_COMMAND_PROTOCOL_VERSION &&
+    reputation <= DEMO_PROFILE_02.evaluation.reputationCollapseFloor
+  ) {
+    return resolveDefeatEnding(
+      {
+        ...drifted,
+        evaluation: {
+          ...drifted.evaluation,
+          disposalStage: DEMO_PROFILE_02.evaluation.maximumDisposalStage,
+          disposalHistory: [
+            ...drifted.evaluation.disposalHistory,
+            {
+              serviceDay: drifted.serviceDay,
+              cause: 'reputation-collapse' as const,
+              stageBefore: drifted.evaluation.disposalStage,
+              stageAfter: DEMO_PROFILE_02.evaluation.maximumDisposalStage,
+              absorbed: false,
+            },
+          ],
+        },
+      },
+      'reputation-collapse',
+    )
   }
+  return drifted
 }
 
 export function evaluateMonth(state: CampaignState): CampaignState {

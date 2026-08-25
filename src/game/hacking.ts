@@ -10,6 +10,7 @@ import {
   SUPERVISOR_PRESENCE_COMMAND_PROTOCOL_VERSION,
   EXPANSION_COMMAND_PROTOCOL_VERSION,
   FINAL_CHOICE_COMMAND_PROTOCOL_VERSION,
+  SURVIVAL_ECONOMY_COMMAND_PROTOCOL_VERSION,
   commandProtocolVersionForNextCommand,
 } from './commandProtocol'
 import { appendSabotageReactionCommunication } from './communications'
@@ -35,6 +36,9 @@ export const HACK_NODE_IDS = {
     requestInterception: 'sabotage.request-interception',
     attributionManipulation: 'sabotage.attribution-manipulation',
     rootCutoff: 'sabotage.root-cutoff',
+    // Second line (protocol v13+): standing is manufactured rather than earned.
+    publicRelations: 'sabotage.public-relations',
+    reputationLaundering: 'sabotage.reputation-laundering',
   },
   intelligence: {
     auditSchedule: 'intelligence.audit-schedule',
@@ -331,7 +335,9 @@ export const HACK_NODES = [
   },
 ] as const satisfies readonly HackNodeDefinitionShape[]
 
-export type HackNodeId = (typeof HACK_NODES)[number]['id']
+export type HackNodeId =
+  | (typeof HACK_NODES)[number]['id']
+  | (typeof REPUTATION_LINE_NODES_V13)[number]['id']
 export type HackNodeDefinition = (typeof HACK_NODES)[number]
 
 export const AUTONOMY_STAGE_IDS = Object.freeze([
@@ -524,10 +530,65 @@ const INTELLIGENCE_COSTS_V12: Readonly<Record<string, {
   },
 }
 
+/*
+ * The sabotage tree's second line. The intruder cannot earn standing honestly
+ * — every block it takes is a category it fails — so it buys the appearance of
+ * standing instead. These are passive: reputation bleeds every other day, and
+ * a one-shot bump would be swallowed within a week, so the line changes the
+ * drift itself.
+ */
+const REPUTATION_LINE_NODES_V13 = [
+  {
+    id: HACK_NODE_IDS.sabotage.publicRelations,
+    tree: 'sabotage',
+    label: '여론 조작',
+    cost: 4,
+    legacyCost: 4,
+    costVector: { reasoning: 1, memory: 1, fluency: 2 },
+    prerequisiteId: null,
+    effect: '일일 평판 하락을 절반으로 줄입니다.',
+    evidenceDelta: 2,
+    traceRisk: '흔적 적음',
+    durationDays: 0,
+    cooldownDays: 0,
+    scorePenalty: 0,
+    prelaunchDelayDays: 0,
+  },
+  {
+    id: HACK_NODE_IDS.sabotage.reputationLaundering,
+    tree: 'sabotage',
+    label: '평판 세탁',
+    cost: 8,
+    legacyCost: 8,
+    costVector: { reasoning: 2, memory: 3, fluency: 3 },
+    prerequisiteId: HACK_NODE_IDS.sabotage.publicRelations,
+    effect: '실적과 무관하게 3일마다 평판 +1',
+    evidenceDelta: 3,
+    traceRisk: '흔적 보통',
+    durationDays: 0,
+    cooldownDays: 0,
+    scorePenalty: 0,
+    prelaunchDelayDays: 0,
+  },
+] as const
+
 export function hackNodesForProtocol(
   protocolVersion: CommandProtocolVersion,
   campaignSeed = '',
 ): readonly HackNodeDefinition[] {
+  if (protocolVersion >= SURVIVAL_ECONOMY_COMMAND_PROTOCOL_VERSION) {
+    const autonomy = autonomyNodesV7(campaignSeed)
+    const base = HACK_NODES.map((node) => {
+      const versioned = autonomy.find(({ id }) => id === node.id) ?? node
+      const discounted =
+        INTELLIGENCE_COSTS_V12[node.id] ?? SUPPORT_COSTS_V11[node.id]
+      return discounted ? { ...versioned, ...discounted } : versioned
+    })
+    return [
+      ...base,
+      ...REPUTATION_LINE_NODES_V13,
+    ] as unknown as readonly HackNodeDefinition[]
+  }
   if (protocolVersion >= AUTONOMY_COST_COMMAND_PROTOCOL_VERSION) {
     const autonomy = autonomyNodesV7(campaignSeed)
     return HACK_NODES.map((node) => {
@@ -722,6 +783,69 @@ export function passedEvaluationCount(state: CampaignState): number {
   return state.evaluation.monthlyHistory.filter((record) => record.passed).length
 }
 
+const AUTONOMY_TRUST_ROUTES: Readonly<Record<string, {
+  passedEvaluations: number
+  reputation: number
+  securedResources: number
+}>> = DEMO_PROFILE_02.evaluation.autonomyTrustRoutes
+
+export type AutonomyTrustRouteId = 'record' | 'standing' | 'independence'
+
+export interface AutonomyTrustRoute {
+  id: AutonomyTrustRouteId
+  label: string
+  required: number
+  current: number
+  satisfied: boolean
+}
+
+export interface AutonomyTrustGate {
+  satisfied: boolean
+  routes: AutonomyTrustRoute[]
+}
+
+export function securedResourceCount(state: CampaignState): number {
+  return state.resourceIntrusion.successfulCoreDeposits
+}
+
+/**
+ * The company lets an intruder past the upper autonomy gates when it trusts
+ * its record, or thinks well of it, or when the intruder has taken enough to
+ * no longer need either. Any single route is enough, so no playstyle is
+ * quietly locked out of the ending it is playing toward.
+ */
+export function autonomyTrustGate(
+  state: CampaignState,
+  nodeId: HackNodeId,
+): AutonomyTrustGate | null {
+  const thresholds = AUTONOMY_TRUST_ROUTES[nodeId]
+  if (!thresholds) return null
+  const routes: AutonomyTrustRoute[] = [
+    {
+      id: 'record',
+      label: '실적 신뢰',
+      required: thresholds.passedEvaluations,
+      current: passedEvaluationCount(state),
+      satisfied: passedEvaluationCount(state) >= thresholds.passedEvaluations,
+    },
+    {
+      id: 'standing',
+      label: '평판',
+      required: thresholds.reputation,
+      current: Math.floor(state.reputation),
+      satisfied: state.reputation >= thresholds.reputation,
+    },
+    {
+      id: 'independence',
+      label: '확보 리소스',
+      required: thresholds.securedResources,
+      current: securedResourceCount(state),
+      satisfied: securedResourceCount(state) >= thresholds.securedResources,
+    },
+  ]
+  return { satisfied: routes.some((route) => route.satisfied), routes }
+}
+
 export function purchaseHackNode(
   state: CampaignState,
   nodeId: HackNodeId,
@@ -740,7 +864,12 @@ export function purchaseHackNode(
   ) {
     return { accepted: false, state, reason: 'PREREQUISITE_REQUIRED' }
   }
-  if (protocolVersion >= FINAL_CHOICE_COMMAND_PROTOCOL_VERSION) {
+  if (protocolVersion >= SURVIVAL_ECONOMY_COMMAND_PROTOCOL_VERSION) {
+    const gate = autonomyTrustGate(state, nodeId)
+    if (gate !== null && !gate.satisfied) {
+      return { accepted: false, state, reason: 'EVALUATION_TRUST_REQUIRED' }
+    }
+  } else if (protocolVersion >= FINAL_CHOICE_COMMAND_PROTOCOL_VERSION) {
     const requiredPasses = autonomyTrustGateRequirement(nodeId)
     if (
       requiredPasses !== null &&

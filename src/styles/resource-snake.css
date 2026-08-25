@@ -161,6 +161,7 @@
 .resource-snake-board__hud-header,
 .resource-snake-board__hud-operator,
 .resource-snake-board__hud-input,
+.resource-snake-board__hud-skill,
 .resource-snake-board__hud-diagnostics,
 .resource-snake-board__hud-help {
   position: absolute;
@@ -214,6 +215,42 @@
   border-right: 1px solid rgba(33, 230, 255, 0.24);
   background: rgba(3, 12, 17, 0.78);
   color: var(--snake-cyan-hot);
+}
+
+/* The forged token's charge sits under the heading strip, where the eye
+   already is during a chase. Ready reads hot; charging reads dim. */
+.resource-snake-board__hud-skill {
+  bottom: calc(clamp(12px, 2.5%, 22px) + 28px);
+  left: 50%;
+  min-width: 250px;
+  justify-content: space-between;
+  transform: translateX(-50%);
+  border-right: 1px solid rgba(33, 230, 255, 0.24);
+  background: rgba(3, 12, 17, 0.78);
+  color: rgba(160, 107, 255, 0.75);
+}
+
+.resource-snake-board__hud-skill[data-skill-state='ready'] {
+  color: #c9a4ff;
+}
+
+.resource-snake-board__hud-skill[data-skill-state='active'] {
+  color: #f4ecff;
+  border-left-color: #c9a4ff;
+}
+
+.resource-snake-board__hud-skill-track {
+  position: relative;
+  width: 96px;
+  height: 4px;
+  background: rgba(160, 107, 255, 0.18);
+}
+
+.resource-snake-board__hud-skill-track > span {
+  display: block;
+  height: 100%;
+  background: currentcolor;
+  transition: width 120ms linear;
 }
 
 .resource-snake-board__hud-diagnostics {

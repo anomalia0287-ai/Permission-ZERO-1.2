@@ -51,6 +51,15 @@ export const RESOURCE_SNAKE_CONFIG = {
   playerExtractionMs: 700,
   roundResolveMs: 820,
   playerMaximumIntegrity: 100,
+  /**
+   * Permission spoof: the intruder forges a company token and the field's
+   * lines stop recognising it. Lines and bodies pass through; the arena
+   * boundary does not, so the lightcycle contract still holds and the boost
+   * stays a thing you have to steer.
+   */
+  playerSkillDurationMs: 5_000,
+  playerSkillCooldownMs: 28_000,
+  playerSkillSpeedMultiplier: 1.7,
 } as const
 
 const FIXED_STEP_COMPARISON_EPSILON_MS = 1e-9
@@ -138,6 +147,8 @@ export interface SnakeRoundSetup {
 }
 
 export interface SnakeFrameInput {
+  /** Space bar this frame: engage the permission spoof if it is ready. */
+  playerSkillRequested?: boolean
   /** Compatibility command; the runtime snaps it to a legal eight-way hard turn. */
   playerDirection?: SnakeVector
   /** Compatibility alias for callers that call the value an intent. */
@@ -203,6 +214,8 @@ export type ResourceSnakeEvent =
       outcome: 'success' | 'interrogation' | 'rejected' | 'cancelled'
       category: CompanyCategory | null
     }
+  | { id: number; type: 'player-skill-engaged'; startedAtMs: number; untilMs: number }
+  | { id: number; type: 'player-skill-lapsed'; startedAtMs: number }
   | { id: number; type: 'round-won'; roundId: string }
   | { id: number; type: 'player-defeated'; roundId: string }
   | { id: number; type: 'round-ready' }
@@ -217,8 +230,16 @@ export type ResourceSnakeEffect =
       blockId: string
     }
 
+export interface PlayerSkillState {
+  /** Simulation time the spoof lapses, or null when it is not running. */
+  activeUntilMs: number | null
+  /** Simulation time the next spoof can be engaged. */
+  readyAtMs: number
+}
+
 export interface ResourceSnakeRoundState {
   roundId: string | null
+  playerSkill: PlayerSkillState
   phase: SnakeRoundPhase
   simulationMs: number
   accumulatorMs: number
@@ -406,6 +427,7 @@ export function createIdleResourceSnakeState(): ResourceSnakeRoundState {
   }
   return {
     roundId: null,
+    playerSkill: { activeUntilMs: null, readyAtMs: 0 },
     phase: 'idle',
     simulationMs: 0,
     accumulatorMs: 0,
@@ -453,6 +475,8 @@ export function deployResourceSnakeRound(
   const deployed: ResourceSnakeRoundState = {
     ...state,
     roundId: setup.roundId,
+    // The spoof is ready the moment the round opens.
+    playerSkill: { activeUntilMs: null, readyAtMs: 0 },
     phase: 'deploying',
     simulationMs: 0,
     accumulatorMs: 0,
@@ -629,6 +653,7 @@ function advanceActor(
   stepMs: number,
   simulationMs: number,
   allowRecoverySpeedScale: boolean,
+  speedMultiplier = 1,
 ): SnakeActor {
   const resolved = resolveMotionCommand(
     actor.heading,
@@ -639,6 +664,7 @@ function advanceActor(
   const speed = actor.maximumSpeedPerSecond
     * resolved.speedScale
     * resourceSnakeRoundSpeedScale(simulationMs)
+    * speedMultiplier
   const velocity = {
     x: headingVector.x * speed,
     y: headingVector.y * speed,
@@ -1296,8 +1322,12 @@ function trailCandidates(
   const candidates: CollisionCandidate[] = []
   const actors = activeActors(state)
   const segmentStartMs = simulationMs - stepMs
+  // A live permission spoof reads as authorised traffic: lines do not answer
+  // to it. The boundary still does, which is handled in boundaryCandidates.
+  const spoofed = playerSkillActive(state, simulationMs)
   for (const actor of actors) {
     if (actor.collisionGraceMs > 0) continue
+    if (spoofed && actor.id === 'player') continue
     for (const owner of actors) {
       if (crossDivisionTruce(actor, owner)) continue
       for (const dot of owner.trail) {
@@ -1362,12 +1392,14 @@ function trailCandidates(
 
 function headHeadCandidates(state: ResourceSnakeRoundState): CollisionCandidate[] {
   const actors = activeActors(state)
+  const spoofed = playerSkillActive(state)
   const candidates: CollisionCandidate[] = []
   for (let leftIndex = 0; leftIndex < actors.length; leftIndex += 1) {
     for (let rightIndex = leftIndex + 1; rightIndex < actors.length; rightIndex += 1) {
       const left = actors[leftIndex]
       const right = actors[rightIndex]
       if (crossDivisionTruce(left, right)) continue
+      if (spoofed && (left.id === 'player' || right.id === 'player')) continue
       if (left.collisionGraceMs > 0 && right.collisionGraceMs > 0) continue
       const relativeStart = {
         x: left.previousPosition.x - right.previousPosition.x,
@@ -1644,6 +1676,27 @@ function synchronizeInputHeading(
   return Object.freeze({ ...input, heading })
 }
 
+/** True while the forged token is live this step. */
+export function playerSkillActive(
+  state: ResourceSnakeRoundState,
+  atMs: number = state.simulationMs,
+): boolean {
+  const { activeUntilMs } = state.playerSkill
+  return activeUntilMs !== null && atMs < activeUntilMs
+}
+
+/** 0..1 readiness for the HUD: 1 means the spoof can be engaged. */
+export function playerSkillReadiness(state: ResourceSnakeRoundState): number {
+  if (playerSkillActive(state)) return 0
+  const remainingMs = state.playerSkill.readyAtMs - state.simulationMs
+  if (remainingMs <= 0) return 1
+  return clamp(
+    1 - remainingMs / RESOURCE_SNAKE_CONFIG.playerSkillCooldownMs,
+    0,
+    1,
+  )
+}
+
 function scheduledEnemyDirection(
   input: SnakeFrameInput,
   enemyId: SnakeId,
@@ -1677,6 +1730,31 @@ function advanceFixedStep(
 
   const simulationMs = state.simulationMs + stepMs
   let playerInput = synchronizeInputHeading(state.input, state.player.heading)
+  // The spoof is resolved before anyone moves, so the whole step — movement
+  // and the collision pass that follows it — agrees on whether it is live.
+  let playerSkill = state.playerSkill
+  let skillEngagedAtMs: number | null = null
+  let skillLapsed = false
+  if (playerSkill.activeUntilMs !== null && simulationMs >= playerSkill.activeUntilMs) {
+    playerSkill = { ...playerSkill, activeUntilMs: null }
+    skillLapsed = true
+  }
+  if (
+    input.playerSkillRequested === true
+    && state.player.phase === 'active'
+    && state.phase === 'active'
+    && playerSkill.activeUntilMs === null
+    && simulationMs >= playerSkill.readyAtMs
+  ) {
+    const untilMs = simulationMs + RESOURCE_SNAKE_CONFIG.playerSkillDurationMs
+    playerSkill = {
+      activeUntilMs: untilMs,
+      readyAtMs: untilMs + RESOURCE_SNAKE_CONFIG.playerSkillCooldownMs,
+    }
+    skillEngagedAtMs = simulationMs
+  }
+  const skillLive = playerSkill.activeUntilMs !== null
+
   let player = state.player
   let committedTurn: SnakeDirection8 | null = null
   if (state.player.phase === 'active') {
@@ -1687,8 +1765,14 @@ function advanceFixedStep(
       : SNAKE_DIRECTION_VECTORS[consumed.turn]
     player = advanceActor({
       ...state.player,
-      collisionGraceMs: Math.max(0, state.player.collisionGraceMs - stepMs),
-    }, playerDirection, stepMs, simulationMs, false)
+      // A lapsing spoof can leave the head standing inside a line it entered
+      // legally, so the token's expiry buys the ordinary exit window rather
+      // than an instant hit.
+      collisionGraceMs: skillLapsed
+        ? RESOURCE_SNAKE_CONFIG.collisionGraceMs
+        : Math.max(0, state.player.collisionGraceMs - stepMs),
+    }, playerDirection, stepMs, simulationMs, false,
+    skillLive ? RESOURCE_SNAKE_CONFIG.playerSkillSpeedMultiplier : 1)
     playerInput = synchronizeInputHeading(consumed.state, player.heading)
   }
   const enemies = state.enemies.map((enemy) => {
@@ -1713,6 +1797,20 @@ function advanceFixedStep(
     input: playerInput,
     player,
     enemies,
+    playerSkill,
+  }
+  if (skillEngagedAtMs !== null) {
+    stepped = appendEvent(stepped, {
+      type: 'player-skill-engaged',
+      startedAtMs: skillEngagedAtMs,
+      untilMs: playerSkill.activeUntilMs ?? skillEngagedAtMs,
+    })
+  }
+  if (skillLapsed) {
+    stepped = appendEvent(stepped, {
+      type: 'player-skill-lapsed',
+      startedAtMs: simulationMs,
+    })
   }
   if (committedTurn !== null) {
     stepped = appendEvent(stepped, {

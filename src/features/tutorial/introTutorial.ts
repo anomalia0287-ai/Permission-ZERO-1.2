@@ -25,6 +25,11 @@ export const INTRO_TUTORIAL_STEPS = [
     preferredPlacement: 'bottom',
   },
   {
+    id: 'reputation',
+    copy: '회사가 아노미를 보는 눈이 평판이다. 리소스를 훔치면 회사 성능이 떨어지고 평판도 같이 깎인다. 0이 되면 그 자리에서 폐기된다.',
+    preferredPlacement: 'bottom',
+  },
+  {
     id: 'base',
     copy: '필드에 빨강·파랑·노랑 침투 카드가 펼쳐져 있다. 필요한 리소스 카드를 고르면 3초 카운트다운 뒤 라운드가 시작된다.',
     preferredPlacement: 'top',
@@ -32,6 +37,11 @@ export const INTRO_TUTORIAL_STEPS = [
   {
     id: 'movement',
     copy: 'WASD 또는 방향키를 한 번 눌러 8방향으로 회전한다. 이동은 계속되며 정반대 방향으로 즉시 돌 수 없다.',
+    preferredPlacement: 'bottom',
+  },
+  {
+    id: 'skill',
+    copy: '스페이스는 권한 위조다. 5초간 모든 선을 통과하며 더 빨라진다. 다만 벽은 통과하지 못하고, 한 번 쓰면 다시 차기까지 시간이 걸린다.',
     preferredPlacement: 'bottom',
   },
   {
@@ -47,7 +57,7 @@ export const INTRO_TUTORIAL_STEPS = [
   },
   {
     id: 'hacking',
-    copy: '확장을 열면 확보한 색상별 리소스를 버튼 한 번으로 지출한다. 여기서 자율성과 속도를 높일 수 있다.',
+    copy: '확장을 열면 확보한 리소스를 지출한다. 자율성과 속도뿐 아니라, 정보로 회사를 들여다보고 사보타주로 평판을 조작해 버티는 길도 여기에 있다.',
     preferredPlacement: 'left',
   },
   {
@@ -116,6 +126,11 @@ export function resolveIntroTutorialTarget(
     return targetFromRects([autonomy ? rectOf(autonomy) : canvasRect])
   }
 
+  if (stepId === 'reputation') {
+    const reputation = root.querySelector('[data-tutorial-target="reputation-status"]')
+    return targetFromRects([reputation ? rectOf(reputation) : canvasRect])
+  }
+
   // The round now starts from the intrusion cards, and the secured counts
   // live on those same cards, so both steps point at them.
   const cards = root.querySelector('[data-tutorial-target="intrusion-targets"]')
@@ -125,6 +140,7 @@ export function resolveIntroTutorialTarget(
 
   if (
     stepId === 'movement'
+    || stepId === 'skill'
     || stepId === 'resource'
     || stepId === 'salvage'
   ) {

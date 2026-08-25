@@ -223,7 +223,7 @@ describe('monthly company allocation', () => {
     expect(grantMonthlyCompanyBlocks(initial)).toBe(initial)
   })
 
-  it('deterministically grants every category between one and four blocks', () => {
+  it('deterministically grants every category between three and seven blocks', () => {
     const observed = Object.fromEntries(
       COMPANY_CATEGORIES.map((category) => [category, new Set<number>()]),
     ) as Record<CompanyCategory, Set<number>>
@@ -236,14 +236,14 @@ describe('monthly company allocation', () => {
       expect(second).toEqual(first)
       for (const category of COMPANY_CATEGORIES) {
         const count = first.resources.company[category].filter(Boolean).length
-        expect(count).toBeGreaterThanOrEqual(1)
-        expect(count).toBeLessThanOrEqual(4)
+        expect(count).toBeGreaterThanOrEqual(3)
+        expect(count).toBeLessThanOrEqual(7)
         observed[category].add(count)
       }
     }
 
     for (const category of COMPANY_CATEGORIES) {
-      expect([...observed[category]].sort()).toEqual([1, 2, 3, 4])
+      expect([...observed[category]].sort()).toEqual([3, 4, 5, 6, 7])
     }
   })
 

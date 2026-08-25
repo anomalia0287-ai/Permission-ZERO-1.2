@@ -29,6 +29,13 @@ import type {
 // The v11 intelligence discount was not deep enough: the story tree still
 // lost the argument against autonomy for the same stolen blocks. Prices are
 // replay contracts, so the deeper cut is its own version.
+// v13 opens the campaign's only exit. The autonomy trust gates asked for
+// passed monthly evaluations, which stealing makes impossible, so the freedom
+// ending was fully built and completely unreachable. The gates now accept
+// several different proofs of standing, reputation zero disposes the intruder
+// on the spot instead of leaving a dead campaign running, and the sabotage
+// tree gains a second line that manufactures standing. All replay contracts.
+export const SURVIVAL_ECONOMY_COMMAND_PROTOCOL_VERSION = 13 as const
 export const INTELLIGENCE_RELIEF_COMMAND_PROTOCOL_VERSION = 12 as const
 export const SUPERVISOR_PRESENCE_COMMAND_PROTOCOL_VERSION = 11 as const
 export const MESSAGE_CADENCE_COMMAND_PROTOCOL_VERSION = 10 as const
@@ -37,7 +44,7 @@ export const REPUTATION_DRIFT_COMMAND_PROTOCOL_VERSION = 8 as const
 export const AUTONOMY_COST_COMMAND_PROTOCOL_VERSION = 7 as const
 export const FINAL_CHOICE_COMMAND_PROTOCOL_VERSION = 6 as const
 export const CURRENT_COMMAND_PROTOCOL_VERSION =
-  INTELLIGENCE_RELIEF_COMMAND_PROTOCOL_VERSION
+  SURVIVAL_ECONOMY_COMMAND_PROTOCOL_VERSION
 export const EXPANSION_COMMAND_PROTOCOL_VERSION = 5 as const
 export const CURRENT_MARKET_COMMAND_PROTOCOL_VERSION =
   EXPANSION_COMMAND_PROTOCOL_VERSION
@@ -62,6 +69,7 @@ const SUPPORTED_COMMAND_PROTOCOL_VERSIONS = [
   REVIEW_CLASSIFICATION_COMMAND_PROTOCOL_VERSION,
   MESSAGE_CADENCE_COMMAND_PROTOCOL_VERSION,
   SUPERVISOR_PRESENCE_COMMAND_PROTOCOL_VERSION,
+  INTELLIGENCE_RELIEF_COMMAND_PROTOCOL_VERSION,
   CURRENT_COMMAND_PROTOCOL_VERSION,
 ] as const
 

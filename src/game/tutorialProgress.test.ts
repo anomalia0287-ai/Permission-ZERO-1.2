@@ -11,7 +11,7 @@ import {
 } from './tutorialProgress'
 
 describe('tutorial progress', () => {
-  it('starts with autonomy and advances through the seven approved intro steps', () => {
+  it('starts with autonomy and advances through the approved intro steps', () => {
     let progress = createNewCampaignTutorialProgress()
 
     expect(progress).toEqual({
@@ -21,8 +21,10 @@ describe('tutorial progress', () => {
     })
 
     for (const expected of [
+      'reputation',
       'base',
       'movement',
+      'skill',
       'resource',
       'salvage',
       'hacking',

@@ -200,7 +200,7 @@ describe('current expansion progression catalogs', () => {
     )
 
     expect(state.commandProtocol).toEqual({
-      segments: [{ version: 12, startsAtSequence: 1 }],
+      segments: [{ version: 13, startsAtSequence: 1 }],
     })
     expect(state.hacking.purchasedNodeIds).toContain(
       HACK_NODE_IDS.autonomy.controlDeparture,
@@ -255,37 +255,58 @@ describe('current expansion progression catalogs', () => {
     })
     expect(availableFinalChoices(merged.state)).toEqual([])
   })
-  it('locks autonomy stages seven and above behind cumulative evaluation passes on the current protocol', () => {
-    const base = createCampaign('autonomy-trust-gate-v6')
+  it('opens autonomy stage seven to any one proof of standing, and to none of them never', () => {
+    const base = createCampaign('autonomy-trust-gate-v13')
     const early = purchaseExpansionPath(base, AUTONOMY_STAGE_IDS.slice(0, 6))
-
     const seventh = hackNodesForCampaign(early).find(
       (candidate) => candidate.id === HACK_NODE_IDS.autonomy.selfCompute,
     )
     if (!seventh) throw new Error('missing stage seven definition')
     const funded = fundVector(early, seventh.costVector)
-    const blockIds = selectExpansionCostResources(funded, seventh)
-    if (!blockIds) throw new Error('stage seven fixture unfunded')
 
-    const blocked = applyCommand(funded, {
-      type: 'PURCHASE_HACK',
-      nodeId: seventh.id,
-      blockIds,
+    /** Strips every route at once: no record, no standing, no independence. */
+    const destitute = (state: CampaignState): CampaignState => ({
+      ...state,
+      reputation: 10,
+      evaluation: {
+        ...state.evaluation,
+        monthlyHistory: state.evaluation.monthlyHistory.map((record) => ({
+          ...record,
+          passed: false,
+        })),
+      },
+      resourceIntrusion: { ...state.resourceIntrusion, successfulCoreDeposits: 0 },
     })
-    expect(blocked).toMatchObject({
+
+    const buy = (state: CampaignState) => {
+      const blockIds = selectExpansionCostResources(state, seventh)
+      if (!blockIds) throw new Error('stage seven fixture unfunded')
+      return applyCommand(state, {
+        type: 'PURCHASE_HACK', nodeId: seventh.id, blockIds,
+      })
+    }
+
+    // Nothing to show for itself: the company keeps the gate shut.
+    expect(buy(destitute(funded))).toMatchObject({
       accepted: false,
       reason: 'EVALUATION_TRUST_REQUIRED',
     })
 
-    const trusted = withTrustedEvaluations(funded, 2)
-    const trustedBlockIds = selectExpansionCostResources(trusted, seventh)
-    if (!trustedBlockIds) throw new Error('trusted stage seven unfunded')
-    const allowed = applyCommand(trusted, {
-      type: 'PURCHASE_HACK',
-      nodeId: seventh.id,
-      blockIds: trustedBlockIds,
-    })
-    expect(allowed.accepted).toBe(true)
+    // Route 1 — the company trusts the record.
+    expect(buy(withTrustedEvaluations(destitute(funded), 2)).accepted).toBe(true)
+
+    // Route 2 — the company thinks well of it, however that was arranged.
+    expect(buy({ ...destitute(funded), reputation: 40 }).accepted).toBe(true)
+
+    // Route 3 — it took enough that it no longer needs the company's opinion.
+    const independent = destitute(funded)
+    expect(buy({
+      ...independent,
+      resourceIntrusion: {
+        ...independent.resourceIntrusion,
+        successfulCoreDeposits: 30,
+      },
+    }).accepted).toBe(true)
   })
 
   it('keeps protocol v5 purchases ungated for historical replays', () => {

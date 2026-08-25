@@ -127,7 +127,7 @@ afterEach(() => {
 })
 
 describe('IntroTutorialOverlay', () => {
-  it('traps focus, freezes runtime, survives Escape, and completes all seven unnumbered steps', () => {
+  it('traps focus, freezes runtime, survives Escape, and completes every unnumbered step', () => {
     render(<TutorialHarness />)
     flushAnimationFrames()
 
@@ -149,8 +149,10 @@ describe('IntroTutorialOverlay', () => {
     expect(screen.getByRole('button', { name: '다음' })).toHaveFocus()
 
     for (const expectedStep of [
+      'reputation',
       'base',
       'movement',
+      'skill',
       'resource',
       'salvage',
       'hacking',

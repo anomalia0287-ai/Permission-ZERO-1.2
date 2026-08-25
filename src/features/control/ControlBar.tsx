@@ -59,7 +59,10 @@ export function ControlBar({
       </div>
 
       <div className="reputation-cluster" aria-label="상태 지표">
-        <div className="control-status-meter control-status-meter--reputation">
+        <div
+          className="control-status-meter control-status-meter--reputation"
+          data-tutorial-target="reputation-status"
+        >
           <div className="reputation-cluster__label">
             <span>평판</span>
             <strong>{reputation}</strong>

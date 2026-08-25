@@ -9,12 +9,15 @@ import {
   pressResourceSnakeRuntimeKey,
   releaseResourceSnakeRuntimeKey,
   resetResourceSnakeRuntimeInput,
+  playerSkillActive,
+  playerSkillReadiness,
   RESOURCE_SNAKE_CONFIG,
   resourceSnakeRoundSpeedScale,
   trailDotScale,
   type ResourceSnakeRoundState,
   type SnakeActor,
   type SnakeFrameInput,
+  type SnakeVector,
   type SnakeRoundSetup,
   type SnakeTrailDot,
 } from './resourceSnakeRuntime'
@@ -200,6 +203,199 @@ describe('company surveillance units on the field', () => {
     const second = runCrossing(activeMixedState(true), 380)
     expect(second.enemies).toEqual(first.enemies)
     expect(second.player.integrity).toBe(first.player.integrity)
+  })
+})
+
+describe('permission spoof (the player skill)', () => {
+  function spoofSetup(): SnakeRoundSetup {
+    return {
+      ...setup,
+      roundId: 'spoof-round',
+      playerSpawn: { x: 25, y: 20 },
+      enemies: [
+        {
+          id: 'enemy-0',
+          category: 'reasoning',
+          reservedBlockId: 'block-0',
+          rewardKey: 'spoof-round:enemy-0:block-0',
+          role: 'pressure',
+          spawn: { x: 10, y: 4 },
+          maximumIntegrity: 50,
+          maximumSpeedPerSecond: 7,
+        },
+      ],
+    }
+  }
+
+  function activeSpoofState(): ResourceSnakeRoundState {
+    let state = deployResourceSnakeRound(createIdleResourceSnakeState(), spoofSetup())
+    let remainingMs = RESOURCE_SNAKE_CONFIG.deploymentMs
+    while (remainingMs > 0) {
+      const deltaMs = Math.min(100, remainingMs)
+      state = advanceResourceSnakeFrame(state, input, deltaMs)
+      remainingMs -= deltaMs
+    }
+    expect(state.phase).toBe('active')
+    return state
+  }
+
+  const SAFE_LAP: SnakeVector[] = [
+    { x: 1, y: 0 }, { x: 0, y: 1 }, { x: -1, y: 0 }, { x: 0, y: -1 },
+  ]
+
+  /** Circles the middle of the arena so the wall never ends the test early. */
+  function circle(
+    initial: ResourceSnakeRoundState,
+    frames: number,
+    extra: Partial<SnakeFrameInput> = {},
+  ): ResourceSnakeRoundState {
+    let state = initial
+    for (let frame = 0; frame < frames; frame += 1) {
+      if (state.phase !== 'active') break
+      state = advanceResourceSnakeFrame(state, {
+        enemyDirections: {},
+        playerDirection: SAFE_LAP[Math.floor(frame / 26) % SAFE_LAP.length],
+        ...extra,
+      }, 16)
+    }
+    return state
+  }
+
+  /** Lays a horizontal enemy line, then walks the player straight into it. */
+  function stateWithEnemyLineAhead(): ResourceSnakeRoundState {
+    let state = activeSpoofState()
+    for (let frame = 0; frame < 90; frame += 1) {
+      state = advanceResourceSnakeFrame(state, {
+        enemyDirections: { 'enemy-0': { x: 1, y: 0 } },
+        playerDirection: { x: 0, y: -1 },
+      }, 16)
+    }
+    return state
+  }
+
+  it('is ready at the opening bell and reports full readiness', () => {
+    const state = activeSpoofState()
+    expect(playerSkillActive(state)).toBe(false)
+    expect(playerSkillReadiness(state)).toBe(1)
+  })
+
+  it('engages on request, runs five seconds, then lapses', () => {
+    let state = circle(activeSpoofState(), 1, { playerSkillRequested: true })
+    expect(playerSkillActive(state)).toBe(true)
+    expect(state.events.some((event) => event.type === 'player-skill-engaged')).toBe(true)
+    expect(playerSkillReadiness(state)).toBe(0)
+
+    // Circle the arena for the whole window: the spoof ignores lines, not walls.
+    state = circle(state, 340)
+    expect(state.phase).toBe('active')
+    expect(playerSkillActive(state)).toBe(false)
+    expect(state.events.some((event) => event.type === 'player-skill-lapsed')).toBe(true)
+  })
+
+  it('passes through the lines it would otherwise die on', () => {
+    const base = stateWithEnemyLineAhead()
+    expect(base.enemies[0].trail.length).toBeGreaterThan(10)
+
+    // Same approach twice: once spoofed, once not.
+    let unprotected = base
+    for (let frame = 0; frame < 200; frame += 1) {
+      unprotected = advanceResourceSnakeFrame(unprotected, {
+        enemyDirections: { 'enemy-0': { x: 1, y: 0 } },
+        playerDirection: { x: 0, y: -1 },
+      }, 16)
+      if (unprotected.player.integrity < RESOURCE_SNAKE_CONFIG.playerMaximumIntegrity) break
+    }
+    expect(unprotected.player.integrity).toBeLessThan(
+      RESOURCE_SNAKE_CONFIG.playerMaximumIntegrity,
+    )
+
+    let spoofed = advanceResourceSnakeFrame(base, {
+      enemyDirections: { 'enemy-0': { x: 1, y: 0 } },
+      playerDirection: { x: 0, y: -1 },
+      playerSkillRequested: true,
+    }, 16)
+    // Cross the same line under the forged token, stopping before the wall.
+    for (let frame = 0; frame < 200; frame += 1) {
+      if (!playerSkillActive(spoofed)) break
+      if (spoofed.player.position.y < 3) break
+      spoofed = advanceResourceSnakeFrame(spoofed, {
+        enemyDirections: { 'enemy-0': { x: 1, y: 0 } },
+        playerDirection: { x: 0, y: -1 },
+      }, 16)
+    }
+    expect(spoofed.player.integrity).toBe(RESOURCE_SNAKE_CONFIG.playerMaximumIntegrity)
+  })
+
+  it('still dies on the arena wall: the boundary is not spoofable', () => {
+    let state = advanceResourceSnakeFrame(activeSpoofState(), {
+      enemyDirections: {},
+      playerDirection: { x: 0, y: 1 },
+      playerSkillRequested: true,
+    }, 16)
+    for (let frame = 0; frame < 200; frame += 1) {
+      state = advanceResourceSnakeFrame(state, {
+        ...input,
+        playerDirection: { x: 0, y: 1 },
+      }, 16)
+      if (state.player.integrity < RESOURCE_SNAKE_CONFIG.playerMaximumIntegrity) break
+    }
+    expect(playerSkillActive(state)).toBe(true)
+    expect(state.player.integrity).toBeLessThan(
+      RESOURCE_SNAKE_CONFIG.playerMaximumIntegrity,
+    )
+    expect(state.events.some((event) => (
+      event.type === 'snake-collided'
+      && event.collisionKind === 'boundary'
+      && event.actorIds.includes('player')
+    ))).toBe(true)
+  })
+
+  it('carries the intruder further in five seconds than an unboosted run', () => {
+    const base = activeSpoofState()
+    let plain = base
+    let boosted = advanceResourceSnakeFrame(base, {
+      ...input,
+      playerDirection: { x: 1, y: 0 },
+      playerSkillRequested: true,
+    }, 16)
+    for (let frame = 0; frame < 120; frame += 1) {
+      plain = advanceResourceSnakeFrame(plain, { ...input, playerDirection: { x: 1, y: 0 } }, 16)
+      boosted = advanceResourceSnakeFrame(boosted, { ...input, playerDirection: { x: 1, y: 0 } }, 16)
+    }
+    const plainTravel = Math.abs(plain.player.position.x - base.player.position.x)
+    const boostedTravel = Math.abs(boosted.player.position.x - base.player.position.x)
+    expect(boostedTravel).toBeGreaterThan(plainTravel * 1.4)
+  })
+
+  it('refuses a second engage until the cooldown has run', () => {
+    let state = circle(activeSpoofState(), 1, { playerSkillRequested: true })
+    const firstUntilMs = state.playerSkill.activeUntilMs
+    expect(firstUntilMs).not.toBeNull()
+    // Hold the key down through the window and well past the lapse.
+    state = circle(state, 400, { playerSkillRequested: true })
+    expect(state.phase).toBe('active')
+    expect(state.playerSkill.activeUntilMs).toBeNull()
+    expect(state.playerSkill.readyAtMs).toBeGreaterThan(state.simulationMs)
+    expect(playerSkillReadiness(state)).toBeLessThan(1)
+    expect(playerSkillReadiness(state)).toBeGreaterThan(0)
+  })
+
+  it('replays an identical spoofed round', () => {
+    const run = () => {
+      let state = advanceResourceSnakeFrame(activeSpoofState(), {
+        ...input,
+        playerSkillRequested: true,
+        playerDirection: { x: 1, y: 0 },
+      }, 16)
+      for (let frame = 0; frame < 240; frame += 1) {
+        state = advanceResourceSnakeFrame(state, {
+          enemyDirections: { 'enemy-0': { x: 0, y: 1 } },
+          playerDirection: frame % 80 === 0 ? { x: 0, y: -1 } : undefined,
+        }, 16)
+      }
+      return state
+    }
+    expect(run().player).toEqual(run().player)
   })
 })
 

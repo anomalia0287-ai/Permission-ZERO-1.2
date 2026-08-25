@@ -10,8 +10,10 @@ export const TUTORIAL_SEQUENCE_IDS = [
 
 export const INTRO_TUTORIAL_STEP_IDS = [
   'autonomy',
+  'reputation',
   'base',
   'movement',
+  'skill',
   'resource',
   'salvage',
   'hacking',

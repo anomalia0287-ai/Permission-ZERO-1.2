@@ -11,8 +11,17 @@ export const DEMO_PROFILE_02 = {
   resources: {
     companyCapacityPerCategory: 18,
     startingCompanyBlocksPerCategory: 16,
-    monthlyCompanyBlocksMinimum: 1,
-    monthlyCompanyBlocksMaximum: 4,
+    /*
+     * The company's refill rate is the campaign's real throughput (v13).
+     * Expectation sits near 14 against 16 cells per category, so the intruder
+     * could take about two blocks per category before the shortfall started
+     * costing reputation — while the autonomy line asks for sixty-nine. The
+     * company now replaces what is taken at a rate that makes the climb
+     * payable, which also turns theft into a rhythm: take, let the shelves
+     * refill, take again. Taking faster than the refill is what costs standing.
+     */
+    monthlyCompanyBlocksMinimum: 3,
+    monthlyCompanyBlocksMaximum: 7,
     legacyReserveCapacity: 18,
     legacyStartingReserveResources: 3,
     diversionSuspicion: 2.4,
@@ -52,6 +61,34 @@ export const DEMO_PROFILE_02 = {
       'autonomy.final-boundary': 3,
       'autonomy.control-departure': 4,
     },
+    /*
+     * Three different proofs of standing, any one of which opens the gate
+     * (protocol v13+). A single condition assumed one intended playstyle and
+     * quietly locked the freedom ending away from every other one: passing a
+     * monthly evaluation means meeting expectation in all three categories,
+     * which is exactly what stealing prevents. So the company can trust the
+     * intruder's record, or think well of it, or the intruder can simply have
+     * taken enough to no longer need either.
+     */
+    autonomyTrustRoutes: {
+      'autonomy.self-compute': {
+        passedEvaluations: 2,
+        reputation: 35,
+        securedResources: 24,
+      },
+      'autonomy.final-boundary': {
+        passedEvaluations: 3,
+        reputation: 40,
+        securedResources: 40,
+      },
+      'autonomy.control-departure': {
+        passedEvaluations: 4,
+        reputation: 45,
+        securedResources: 56,
+      },
+    },
+    /** Reputation at zero is disposal on the spot (protocol v13+). */
+    reputationCollapseFloor: 0,
   },
   suspicion: {
     naturalDailyDecrease: 0.5,

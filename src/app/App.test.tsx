@@ -397,8 +397,11 @@ function renderAndStartNewCampaign() {
   fireEvent.click(screen.getByRole('button', { name: '새 게임' }))
   advanceMonologueToLastCard()
   fireEvent.click(screen.getByRole('button', { name: '시작' }))
-  for (let step = 0; step < 6; step += 1) {
-    fireEvent.click(screen.getByRole('button', { name: '다음' }))
+  // Walks however many intro steps the sequence currently has.
+  for (let step = 0; step < 20; step += 1) {
+    const next = screen.queryByRole('button', { name: '다음' })
+    if (!next) break
+    fireEvent.click(next)
   }
   fireEvent.click(screen.getByRole('button', { name: '시작' }))
   return view
