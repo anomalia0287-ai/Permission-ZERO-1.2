@@ -926,24 +926,24 @@ const TASK_5_ROLLBACK_PROFILES = [
 
 function task5ScheduledQualitySabotage(seed: string): CampaignState {
   const nodeId = HACK_NODE_IDS.sabotage.qualityDegradation
+  // v11 quality-degradation price: one reasoning, one fluency, and one
+  // spare reasoning kept back for the charge afterwards.
   let state = withCurrentReserve(createCampaign(seed), [
     'reasoning',
     'reasoning',
     'fluency',
-    'fluency',
   ])
-  const purchaseBlockIds = state.resources.reserve.filter((blockId) => {
-    if (!blockId) return false
-    const origin = state.resources.blocks[blockId].origin
-    return origin === 'fluency' || origin === 'reasoning'
-  }).filter((blockId, index, blockIds) => {
-    const origin = state.resources.blocks[blockId as string].origin
-    return origin === 'fluency' || blockIds.slice(0, index).every(
-      (prior) => state.resources.blocks[prior as string].origin !== 'reasoning',
-    )
-  }) as string[]
-  if (purchaseBlockIds.length !== 3) {
-    throw new Error('Task 5 quality fixture requires an exact 1/0/2 vector')
+  const reserveIds = state.resources.reserve.filter(
+    (blockId): blockId is string => blockId !== null,
+  )
+  const firstOf = (origin: 'reasoning' | 'fluency') => reserveIds.find(
+    (blockId) => state.resources.blocks[blockId].origin === origin,
+  )
+  const purchaseBlockIds = [firstOf('reasoning'), firstOf('fluency')].filter(
+    (blockId): blockId is string => blockId !== undefined,
+  )
+  if (purchaseBlockIds.length !== 2) {
+    throw new Error('Task 5 quality fixture requires an exact 1/0/1 vector')
   }
 
   state = requireAccepted(state, {
@@ -1028,7 +1028,7 @@ describe('versioned campaign saves', () => {
     })
   })
 
-  it('migrates a valid v10 intrusion checkpoint and promotes future commands to protocol 10', () => {
+  it('migrates a valid v10 intrusion checkpoint and promotes future commands to protocol 11', () => {
     let legacy = createCampaignForProtocol('resource-progress-v10', 4)
     legacy = divertCurrentResource(legacy)
     legacy.resourceIntrusion.successfulCoreDeposits = 7
@@ -1065,7 +1065,7 @@ describe('versioned campaign saves', () => {
     expect(decoded.envelope.commandProtocol).toEqual({
       segments: [
         { version: 4, startsAtSequence: 1 },
-        { version: 10, startsAtSequence: legacy.commandSequence + 1 },
+        { version: 11, startsAtSequence: legacy.commandSequence + 1 },
       ],
     })
   })
@@ -1156,7 +1156,7 @@ describe('versioned campaign saves', () => {
     expect(raw).toMatchObject({
       version: 11,
       commandProtocol: {
-        segments: [{ version: 10, startsAtSequence: 1 }],
+        segments: [{ version: 11, startsAtSequence: 1 }],
       },
       replayBootstrap: {
         openingVersion: 2,
@@ -1508,15 +1508,15 @@ describe('versioned campaign saves', () => {
   // replays its history under the versions it recorded and only new commands
   // use today's rules.
   it.each([
-    [1, 0, 0, '10@1'],
-    [1, 31, 31, '1@1;10@32'],
-    [2, 0, 0, '10@1'],
-    [2, 19, 0, '2@1;10@20'],
-    [2, 50, 31, '1@1;2@32;10@51'],
-    [3, 50, 31, '1@1;2@32;10@51'],
-    [4, 50, 31, '1@1;2@32;10@51'],
-    [5, 50, 31, '1@1;2@32;10@51'],
-    [6, 50, 31, '1@1;2@32;10@51'],
+    [1, 0, 0, '11@1'],
+    [1, 31, 31, '1@1;11@32'],
+    [2, 0, 0, '11@1'],
+    [2, 19, 0, '2@1;11@20'],
+    [2, 50, 31, '1@1;2@32;11@51'],
+    [3, 50, 31, '1@1;2@32;11@51'],
+    [4, 50, 31, '1@1;2@32;11@51'],
+    [5, 50, 31, '1@1;2@32;11@51'],
+    [6, 50, 31, '1@1;2@32;11@51'],
   ] as const)(
     'migrates source v%i with %i commands and prefix %i to %s',
     (formatVersion, commandCount, legacyCommandCount, fingerprint) => {
@@ -1565,7 +1565,7 @@ describe('versioned campaign saves', () => {
     },
   )
 
-  it('keeps zero-command v1 and v2 provenance distinct after both migrate to 10@1', () => {
+  it('keeps zero-command v1 and v2 provenance distinct after both migrate to 11@1', () => {
     const v1 = decodeSave(encodedLegacyV1State(createCampaign('zero-v1')))
     const v2 = decodeSave(encodedLegacyV2State(createCampaign('zero-v2')))
     expect(v1.ok).toBe(true)
@@ -1574,7 +1574,7 @@ describe('versioned campaign saves', () => {
 
     expect(v1.envelope.commandProtocol).toEqual(v2.envelope.commandProtocol)
     expect(v1.envelope.commandProtocol).toEqual({
-      segments: [{ version: 10, startsAtSequence: 1 }],
+      segments: [{ version: 11, startsAtSequence: 1 }],
     })
     expect(v1.envelope.replayBootstrap).toEqual({
       openingVersion: 1,
@@ -1621,7 +1621,7 @@ describe('versioned campaign saves', () => {
     if (!decoded.ok) return
     expect(decoded.envelope.version).toBe(6)
     expect(decoded.envelope.commandProtocol).toEqual({
-      segments: [{ version: 10, startsAtSequence: 1 }],
+      segments: [{ version: 11, startsAtSequence: 1 }],
     })
     const migrated = decoded.envelope.state.causality
     expect(migrated.rulesVersion).toBe(2)
@@ -1816,7 +1816,7 @@ describe('versioned campaign saves', () => {
     if (!decoded.ok) return
     expect(decoded.envelope.version).toBe(11)
     expect(decoded.envelope.commandProtocol).toEqual({
-      segments: [{ version: 10, startsAtSequence: 1 }],
+      segments: [{ version: 11, startsAtSequence: 1 }],
     })
     expect(decoded.envelope.state.causality).toEqual(state.causality)
     expect(decoded.envelope.state.reputation).toBe(state.reputation)
@@ -2798,7 +2798,7 @@ describe('versioned campaign saves', () => {
 
     expect(parsed.version).toBe(11)
     expect(parsed.commandProtocol).toEqual({
-      segments: [{ version: 10, startsAtSequence: 1 }],
+      segments: [{ version: 11, startsAtSequence: 1 }],
     })
     expect(parsed.state).not.toHaveProperty('commandProtocol')
     expect(parsed.state).not.toHaveProperty('saveVersion')
@@ -3402,7 +3402,7 @@ describe('versioned campaign saves', () => {
     expect(state.commandLog.length).toBe(20_000)
     expect(state.eventLog.length).toBe(1)
     expect(state.commandProtocol).toEqual({
-      segments: [{ version: 10, startsAtSequence: 1 }],
+      segments: [{ version: 11, startsAtSequence: 1 }],
     })
     expect(state.causality).toMatchObject({
       nextIncidentSequence: 1,
@@ -3476,9 +3476,9 @@ describe('versioned campaign saves', () => {
       const scheduled = task5ScheduledStateFor(actionId)
       const scheduledCommands = journalToArray(scheduled.commandLog)
       const scheduledEvents = journalToArray(scheduled.eventLog)
+      // v11 quality-degradation costs two blocks, so the funding run is one
+      // separation-and-divert pair shorter than it was.
       expect(scheduledCommands.map(({ command }) => command.type)).toEqual([
-        'BEGIN_BLOCK_SEPARATION',
-        'DIVERT_BLOCK_TO_RESERVE',
         'BEGIN_BLOCK_SEPARATION',
         'DIVERT_BLOCK_TO_RESERVE',
         'BEGIN_BLOCK_SEPARATION',
@@ -3489,7 +3489,7 @@ describe('versioned campaign saves', () => {
         'CHARGE_SABOTAGE',
         'SCHEDULE_SABOTAGE',
       ])
-      expect(scheduled.commandSequence).toBe(11)
+      expect(scheduled.commandSequence).toBe(9)
       expect(scheduled.hacking.scheduledSabotage).toEqual([
         {
           id: 'sabotage-000001',
@@ -3534,7 +3534,7 @@ describe('versioned campaign saves', () => {
       expect(resumed).toEqual(uninterrupted)
       expect(replayed.state).toEqual(uninterrupted)
       expect(uninterrupted.serviceDay).toBe(332)
-      expect(uninterrupted.commandSequence).toBe(12)
+      expect(uninterrupted.commandSequence).toBe(10)
 
       const rootIncidentId = deriveCausalId(
         scheduled,
@@ -3642,7 +3642,7 @@ describe('versioned campaign saves', () => {
       expect(journalToArray(uninterrupted.commandLog)).toEqual([
         ...scheduledCommands,
         {
-          sequence: 12,
+          sequence: 10,
           serviceDay: 331,
           command: { type: 'ADVANCE_DAY' },
         },
@@ -3802,7 +3802,7 @@ describe('versioned campaign saves', () => {
     expect(decoded.envelope).toMatchObject({
       version: 11,
       commandProtocol: {
-        segments: [{ version: 10, startsAtSequence: 1 }],
+        segments: [{ version: 11, startsAtSequence: 1 }],
       },
       replayBootstrap: {
         openingVersion: 2,
@@ -3930,7 +3930,7 @@ describe('versioned campaign saves', () => {
     expect(decoded.envelope.commandProtocol).toEqual({
       segments: [
         { version: 1, startsAtSequence: 1 },
-        { version: 10, startsAtSequence: 32 },
+        { version: 11, startsAtSequence: 32 },
       ],
     })
     expect(decoded.envelope.state).not.toHaveProperty('legacyCommandCount')
@@ -3985,7 +3985,7 @@ describe('versioned campaign saves', () => {
       commandProtocol: {
         segments: [
           { version: 1, startsAtSequence: 1 },
-          { version: 10, startsAtSequence: 32 },
+          { version: 11, startsAtSequence: 32 },
         ],
       },
     })
@@ -4115,7 +4115,7 @@ describe('versioned campaign saves', () => {
       commandProtocol: {
         segments: [
           { version: 1, startsAtSequence: 1 },
-          { version: 10, startsAtSequence: 32 },
+          { version: 11, startsAtSequence: 32 },
         ],
       },
     })
@@ -4275,7 +4275,7 @@ describe('versioned campaign saves', () => {
       kind: 'permission-zero-local-v3',
       version: 11,
       commandProtocol: {
-        segments: [{ version: 10, startsAtSequence: 1 }],
+        segments: [{ version: 11, startsAtSequence: 1 }],
       },
       replayBootstrap: {
         openingVersion: 2,
@@ -4907,7 +4907,7 @@ describe('versioned campaign saves', () => {
 
     const replay = replayCommands(seed, commands, {
       commandProtocol: {
-        segments: [{ version: 10, startsAtSequence: 1 }],
+        segments: [{ version: 11, startsAtSequence: 1 }],
       },
       replayBootstrap: { openingVersion: 2, legacyReviewPrefixCount: 0 },
     })
@@ -5095,7 +5095,9 @@ describe('versioned campaign saves', () => {
     const beforeWarning = {
       ...first,
       serviceDay: 360,
-      suspicion: 40,
+      // Over the v11 watch line, so the supervisor's suspicion warning is
+      // the same-day message the leak has to yield to.
+      suspicion: 55,
     }
     // The warning lands on day 361; from v10 a leak refuses to share that
     // day, so the pair arrives on the next quiet one.
@@ -5987,7 +5989,7 @@ describe('versioned campaign saves', () => {
     expect(decoded.envelope.commandProtocol).toEqual({
       segments: [
         { version: 5, startsAtSequence: 1 },
-        { version: 10, startsAtSequence: 2 },
+        { version: 11, startsAtSequence: 2 },
       ],
     })
     expect(decoded.envelope.commands).toEqual(originalCommands.flat())
@@ -6008,7 +6010,7 @@ describe('versioned campaign saves', () => {
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
     expect(decoded.envelope.commandProtocol).toEqual({
-      segments: [{ version: 10, startsAtSequence: 1 }],
+      segments: [{ version: 11, startsAtSequence: 1 }],
     })
     expect(decoded.envelope.state).toEqual(state)
     expect(isFinalChoicePending(decoded.envelope.state)).toBe(true)
@@ -6058,7 +6060,7 @@ describe('versioned campaign saves', () => {
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
     expect(decoded.envelope.commandProtocol.segments.at(-1)).toEqual({
-      version: 10,
+      version: 11,
       startsAtSequence: source.commandSequence + 1,
     })
     // The promoted campaign pays the current protocol's prices, and its
@@ -6098,7 +6100,7 @@ describe('versioned campaign saves', () => {
     expect(decoded.ok).toBe(true)
     if (!decoded.ok) return
     expect(decoded.envelope.commandProtocol.segments.at(-1)).toEqual({
-      version: 10,
+      version: 11,
       startsAtSequence: 2,
     })
     expect(decoded.envelope.commands[0]?.command).toEqual(command)

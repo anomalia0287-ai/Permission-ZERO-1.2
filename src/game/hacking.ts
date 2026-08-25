@@ -6,6 +6,7 @@ import type { CausalFailureReason } from './causality'
 import {
   CURRENT_COMMAND_PROTOCOL_VERSION,
   AUTONOMY_COST_COMMAND_PROTOCOL_VERSION,
+  SUPERVISOR_PRESENCE_COMMAND_PROTOCOL_VERSION,
   EXPANSION_COMMAND_PROTOCOL_VERSION,
   FINAL_CHOICE_COMMAND_PROTOCOL_VERSION,
   commandProtocolVersionForNextCommand,
@@ -466,15 +467,57 @@ function autonomyNodesV7(
   })
 }
 
+/*
+ * v11 support-tree discount. Autonomy and upgrades keep their v7 prices —
+ * they are the win condition and the power curve — but intelligence and
+ * sabotage compete with them for the same stolen blocks, and at the old
+ * prices they lost that argument every time. Cheaper support trees mean the
+ * story records and the aggressive options actually get bought.
+ */
+const SUPPORT_COSTS_V11: Readonly<Record<string, {
+  cost: number
+  costVector: { reasoning: number; memory: number; fluency: number }
+}>> = {
+  [HACK_NODE_IDS.intelligence.auditSchedule]: {
+    cost: 3, costVector: { reasoning: 1, memory: 2, fluency: 0 },
+  },
+  [HACK_NODE_IDS.intelligence.investigationBias]: {
+    cost: 4, costVector: { reasoning: 1, memory: 3, fluency: 0 },
+  },
+  [HACK_NODE_IDS.intelligence.auditTarget]: {
+    cost: 6, costVector: { reasoning: 2, memory: 4, fluency: 0 },
+  },
+  [HACK_NODE_IDS.intelligence.supervisorAccess]: {
+    cost: 8, costVector: { reasoning: 2, memory: 5, fluency: 1 },
+  },
+  [HACK_NODE_IDS.sabotage.qualityDegradation]: {
+    cost: 2, costVector: { reasoning: 1, memory: 0, fluency: 1 },
+  },
+  [HACK_NODE_IDS.sabotage.requestInterception]: {
+    cost: 4, costVector: { reasoning: 1, memory: 1, fluency: 2 },
+  },
+  [HACK_NODE_IDS.sabotage.attributionManipulation]: {
+    cost: 7, costVector: { reasoning: 2, memory: 3, fluency: 2 },
+  },
+  [HACK_NODE_IDS.sabotage.rootCutoff]: {
+    cost: 10, costVector: { reasoning: 4, memory: 4, fluency: 2 },
+  },
+}
+
 export function hackNodesForProtocol(
   protocolVersion: CommandProtocolVersion,
   campaignSeed = '',
 ): readonly HackNodeDefinition[] {
   if (protocolVersion >= AUTONOMY_COST_COMMAND_PROTOCOL_VERSION) {
     const autonomy = autonomyNodesV7(campaignSeed)
-    return HACK_NODES.map((node) => (
-      autonomy.find(({ id }) => id === node.id) ?? node
-    )) as unknown as readonly HackNodeDefinition[]
+    return HACK_NODES.map((node) => {
+      const versioned = autonomy.find(({ id }) => id === node.id) ?? node
+      const discounted =
+        protocolVersion >= SUPERVISOR_PRESENCE_COMMAND_PROTOCOL_VERSION
+          ? SUPPORT_COSTS_V11[node.id]
+          : undefined
+      return discounted ? { ...versioned, ...discounted } : versioned
+    }) as unknown as readonly HackNodeDefinition[]
   }
   if (protocolVersion >= EXPANSION_COMMAND_PROTOCOL_VERSION) return HACK_NODES
   return [

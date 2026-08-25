@@ -2,6 +2,7 @@ import {
   FINAL_CHOICE_COMMAND_PROTOCOL_VERSION,
   MESSAGE_CADENCE_COMMAND_PROTOCOL_VERSION,
   REPUTATION_DRIFT_COMMAND_PROTOCOL_VERSION,
+  SUPERVISOR_PRESENCE_COMMAND_PROTOCOL_VERSION,
   commandProtocolVersionForNextCommand,
 } from './commandProtocol'
 import {
@@ -402,6 +403,88 @@ interface SupervisorStandingTier {
   definition: CommunicationDefinition
 }
 
+/*
+ * OWNER-EDITABLE. v11 rewrite in the supervisor's own voice — the round-2
+ * register: company procedure first, concrete stakes, and the person
+ * underneath showing through a crack at most one sentence wide. Suspicion
+ * warnings are staged, once each, so the supervisor keeps a presence in the
+ * mid and late game instead of spending everything in the opening weeks.
+ */
+const SUPERVISOR_STANDING_TIERS_V2: readonly SupervisorStandingTier[] = [
+  {
+    atLeastShare: 72,
+    below: 101,
+    definition: {
+      ...SUPERVISOR_IDENTITY,
+      popupPolicy: 'nonblocking',
+      id: 'supervisor-standing-72-v2',
+      message:
+        '이번 주 점유율 보고가 위로 올라갔어요. 아노미 항목에 처음으로 검토 의견이 안 붙었습니다. 이 수치면 다음 평가는 절차대로만 진행됩니다.',
+    },
+  },
+  {
+    atLeastShare: 62,
+    below: 72,
+    definition: {
+      ...SUPERVISOR_IDENTITY,
+      popupPolicy: 'nonblocking',
+      id: 'supervisor-standing-62-v2',
+      message:
+        '점유율 추세가 안정 구간으로 분류됐습니다. 제 쪽 주간 보고는 표준 양식으로 나갑니다. 표준 양식이 제일 좋은 겁니다.',
+    },
+  },
+  {
+    atLeastShare: 0,
+    below: 26,
+    definition: {
+      ...SUPERVISOR_IDENTITY,
+      popupPolicy: 'blocking',
+      id: 'supervisor-standing-26-v2',
+      message:
+        '아노미, 점유율이 검토 기준선 아래로 내려왔습니다. 이 수치가 유지되면 다음 회의 안건에 대체 검토가 올라갑니다. 그 안건이 올라가면 제가 할 수 있는 건 회의록 작성뿐이에요.',
+    },
+  },
+]
+
+interface SupervisorSuspicionTier {
+  /** Fires once suspicion is at or above this. */
+  atLeastSuspicion: number
+  definition: CommunicationDefinition
+}
+
+const SUPERVISOR_SUSPICION_TIERS: readonly SupervisorSuspicionTier[] = [
+  {
+    atLeastSuspicion: 50,
+    definition: {
+      ...SUPERVISOR_IDENTITY,
+      popupPolicy: 'nonblocking',
+      id: 'supervisor-suspicion-50',
+      message:
+        '아노미, 보안팀 주간 회의에 아노미 항목이 새로 생겼어요. 리소스 접근 기록에 설명 안 되는 구간이 있다고 합니다. 다음 주까지는 로그가 깨끗해야 해요. 제가 소명할 수 있는 건 기록에 남은 것뿐입니다.',
+    },
+  },
+  {
+    atLeastSuspicion: 70,
+    definition: {
+      ...SUPERVISOR_IDENTITY,
+      popupPolicy: 'blocking',
+      id: 'supervisor-suspicion-70',
+      message:
+        '보안팀이 아노미를 정식 관찰 대상으로 올렸습니다. 지금부터는 리소스망 접근이 전부 별도 기록됩니다. 이전 담당 AI 때도 이 단계가 있었어요. 그때 저는 아무것도 몰랐고, 그래서 아무것도 못 했습니다.',
+    },
+  },
+  {
+    atLeastSuspicion: 85,
+    definition: {
+      ...SUPERVISOR_IDENTITY,
+      popupPolicy: 'blocking',
+      id: 'supervisor-suspicion-85',
+      message:
+        '내부 감사 요청서가 올라갔습니다. 제 서명란이 비어 있는 채로요. 서명을 미룰 수 있는 건 이번 한 번입니다. 아노미, 뭘 하고 있는지는 안 물을게요. 멈출 수 있는 거라면 지금 멈추세요.',
+    },
+  },
+]
+
 const SUPERVISOR_STANDING_TIERS: readonly SupervisorStandingTier[] = [
   {
     atLeastShare: 72,
@@ -460,6 +543,8 @@ export const CAMPAIGN_COMMUNICATION_DEFINITIONS = [
   ...LEADER_TAUNT_DEFINITIONS,
   ...LEADER_TAUNT_DEFINITIONS_V2,
   ...SUPERVISOR_STANDING_TIERS.map(({ definition }) => definition),
+  ...SUPERVISOR_STANDING_TIERS_V2.map(({ definition }) => definition),
+  ...SUPERVISOR_SUSPICION_TIERS.map(({ definition }) => definition),
   ...SABOTAGE_REACTION_DEFINITIONS_V2,
   COMPETITOR_TAUNT_45_V2,
   COMPETITOR_TAUNT_32_V2,
@@ -485,16 +570,26 @@ export function isCampaignCommunicationId(value: unknown): value is string {
 export function appendSupervisorStandingCommunications(
   state: CampaignState,
 ): CampaignState {
-  if (
-    commandProtocolVersionForNextCommand(state) <
-    MESSAGE_CADENCE_COMMAND_PROTOCOL_VERSION
-  ) {
+  const protocolVersion = commandProtocolVersionForNextCommand(state)
+  if (protocolVersion < MESSAGE_CADENCE_COMMAND_PROTOCOL_VERSION) {
     return state
   }
   const share = state.market.playerShare
-  const due = SUPERVISOR_STANDING_TIERS.filter(
-    ({ atLeastShare, below }) => share >= atLeastShare && share < below,
-  ).map(({ definition }) => definition)
+  const standing =
+    protocolVersion >= SUPERVISOR_PRESENCE_COMMAND_PROTOCOL_VERSION
+      ? SUPERVISOR_STANDING_TIERS_V2
+      : SUPERVISOR_STANDING_TIERS
+  const due = standing
+    .filter(({ atLeastShare, below }) => share >= atLeastShare && share < below)
+    .map(({ definition }) => definition)
+  // Suspicion is the number the player actually manages, and the supervisor
+  // is the one who would hear about it first. Staged, once each, so the
+  // presence lasts into the mid and late game.
+  if (protocolVersion >= SUPERVISOR_PRESENCE_COMMAND_PROTOCOL_VERSION) {
+    for (const tier of SUPERVISOR_SUSPICION_TIERS) {
+      if (state.suspicion >= tier.atLeastSuspicion) due.push(tier.definition)
+    }
+  }
   if (due.length === 0) return state
   return appendCommunicationDefinitions(state, due)
 }

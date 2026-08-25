@@ -68,7 +68,8 @@ function resolveQualityRoot(seed: string): Omit<QualityFixture, 'roll'> {
   const nodeId = HACK_NODE_IDS.sabotage.qualityDegradation
   let state = createCampaign(seed)
   const purchaseIds: string[] = []
-  for (const category of ['reasoning', 'fluency', 'fluency'] as const) {
+  // v11 quality-degradation price: one reasoning, one fluency.
+  for (const category of ['reasoning', 'fluency'] as const) {
     const diverted = divertCurrentResource(state, category)
     state = diverted.state
     purchaseIds.push(diverted.blockId)

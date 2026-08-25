@@ -66,6 +66,8 @@ export const SNAKE_WATCHER_CONFIG = Object.freeze({
   chargeOvershoot: 1.5,
   /** Health lost when it runs into the intruder rather than past them. */
   strikeSelfDamage: 10,
+  /** Health lost on touching a live trail — the player's counterplay. */
+  trailContactDamage: 10,
 })
 
 /** How close to the field edge counts as hitting the wall. */
@@ -247,10 +249,32 @@ export function advanceSnakeWatchers(
   playerPosition: SnakeVector,
   playerVelocity: SnakeVector,
   playerIsActive: boolean,
+  hazardDots: readonly SnakeVector[],
   simulationMs: number,
   stepMs: number,
 ): AdvanceSnakeWatchersResult {
   const strikes: SnakeWatcherStrike[] = []
+  const trailContactRadius =
+    RESOURCE_SNAKE_CONFIG.trailRadius + 0.34
+  const touchesTrail = (position: SnakeVector): boolean => {
+    for (const dot of hazardDots) {
+      if (distance(position, dot) <= trailContactRadius) return true
+    }
+    return false
+  }
+  const burned = (watcher: SnakeWatcher, position: SnakeVector): SnakeWatcher => {
+    const integrity = Math.max(
+      0,
+      watcher.integrity - SNAKE_WATCHER_CONFIG.trailContactDamage,
+    )
+    return {
+      ...watcher,
+      position,
+      integrity,
+      phase: integrity <= 0 ? 'defeated' : 'recover',
+      phaseStartedAtMs: simulationMs,
+    }
+  }
   const stepped = watchers.map((watcher): SnakeWatcher => {
     if (watcher.phase === 'defeated') return watcher
     const elapsedMs = simulationMs - watcher.phaseStartedAtMs
@@ -293,6 +317,10 @@ export function advanceSnakeWatchers(
           phaseStartedAtMs: simulationMs,
         }
       }
+
+      // A live line burns it, exactly as it burns everything else that
+      // touches one — walling a watcher off is the player's counterplay.
+      if (touchesTrail(position)) return burned(watcher, position)
 
       // It does not pass through the intruder: running into them hurts both.
       if (
@@ -351,6 +379,19 @@ export function advanceSnakeWatchers(
         x: watcher.chargeFrom.x + direction.x * travelled,
         y: watcher.chargeFrom.y + direction.y * travelled,
       }
+      // The wall does not wait for the dash to finish, and neither does a
+      // line across its path — a dash through either ends there.
+      if (outsideField(position)) {
+        return {
+          ...watcher,
+          position,
+          integrity: 0,
+          phase: 'defeated',
+          phaseStartedAtMs: simulationMs,
+        }
+      }
+      if (touchesTrail(position)) return burned(watcher, position)
+
       const connected = playerIsActive
         && distance(position, playerPosition) <= snakeWatcherStrikeRadius()
       const spent = travelled >= span + SNAKE_WATCHER_CONFIG.chargeOvershoot - 1e-6

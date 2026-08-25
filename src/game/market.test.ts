@@ -188,9 +188,9 @@ describe('normalized market share', () => {
       })
       return blockId
     }
+    // v11 quality-degradation price: one reasoning, one fluency.
     const purchaseBlockIds = [
       divertForMarket('reasoning'),
-      divertForMarket('fluency'),
       divertForMarket('fluency'),
     ]
     const chargeBlockId = divertForMarket('reasoning')

@@ -249,7 +249,7 @@ function drawRailCurrent(
   if (path.length < 2) return
   const seed = rail.actorId.length * 31 + rail.actorId.charCodeAt(0)
   const tick = Math.floor(simulationMs / 70)
-  const arcs = 4
+  const arcs = 6
 
   context.lineCap = 'round'
   context.lineJoin = 'round'
@@ -338,13 +338,14 @@ function drawRail(
   context.strokeStyle = rail.color
   context.fillStyle = rail.color
 
-  // Two passes, not four. The widest ones covered the most pixels for the
-  // least visible gain, and additive blending over a long trail is paid per
-  // pixel every frame.
+  // Three passes. The frame cost that read as lag turned out to be the
+  // per-frame event-log rescans, not this; dropping to two passes bought
+  // little and visibly flattened the wall. Only the widest bloom — the most
+  // pixels for the least visible gain — stays retired.
   void bloomSize
-  void outerSize
   const passes: Array<[number, number]> = [
-    [haloSize, 0.2],
+    [haloSize, 0.18],
+    [outerSize, 0.42],
     [innerSize, 1],
   ]
   for (const [size, alphaScale] of passes) {

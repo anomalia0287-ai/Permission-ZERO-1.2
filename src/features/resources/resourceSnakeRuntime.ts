@@ -1733,11 +1733,17 @@ function advanceFixedStep(
   // Watchers move on their own clock and answer only to the intruder; their
   // strikes join the ordinary collision pass so damage, separation, grace,
   // and death all behave exactly as they do for a wall or a trail.
+  const hazardDots: SnakeVector[] = []
+  for (const actor of [stepped.player, ...stepped.enemies]) {
+    if (actor.phase !== 'active') continue
+    for (const dot of actor.trail) hazardDots.push(dot.position)
+  }
   const surveillance = advanceSnakeWatchers(
     stepped.watchers,
     stepped.player.position,
     stepped.player.velocity,
     stepped.player.phase === 'active',
+    hazardDots,
     simulationMs,
     stepMs,
   )

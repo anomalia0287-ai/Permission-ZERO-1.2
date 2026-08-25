@@ -19,6 +19,7 @@ function runWatchers(
   fromMs: number,
   steps: number,
   playerVelocity: { x: number; y: number } = { x: 0, y: 0 },
+  hazardDots: { x: number; y: number }[] = [],
 ) {
   let current = watchers
   const strikes: string[] = []
@@ -30,6 +31,7 @@ function runWatchers(
       playerPosition,
       playerVelocity,
       true,
+      hazardDots,
       simulationMs,
       STEP_MS,
     )
@@ -110,6 +112,7 @@ describe('company watchers', () => {
         player,
         { x: 0, y: 0 },
         true,
+        [],
         simulationMs,
         STEP_MS,
       )
@@ -188,6 +191,7 @@ describe('company watchers', () => {
       { x: 25, y: 12 },
       { x: 0, y: 0 },
       false,
+      [],
       SNAKE_WATCHER_CONFIG.stalkMs * 4,
       STEP_MS,
     )
@@ -208,6 +212,53 @@ describe('company watchers', () => {
     const first = runWatchers(watchers, { x: 25, y: 12 }, 0, 400)
     const windingUp = first.watchers.filter(({ phase }) => phase !== 'stalk')
     expect(windingUp.length).toBeLessThan(4)
+  })
+
+  it('never leaves the field even in the middle of a dash', () => {
+    // Aim a dash lane that would carry it past the edge with overshoot.
+    const charging = [{
+      ...createSnakeWatchers(1)[0],
+      position: { x: 3, y: 3 },
+      phase: 'charge' as const,
+      phaseStartedAtMs: 0,
+      chargeFrom: { x: 3, y: 3 },
+      chargeTo: { x: 0.4, y: 0.4 },
+      heading: { x: -1, y: -1 },
+    }]
+
+    let watchers: SnakeWatcher[] = charging
+    let simulationMs = 0
+    for (let step = 0; step < 240; step += 1) {
+      simulationMs += STEP_MS
+      const result = advanceSnakeWatchers(
+        watchers, { x: 40, y: 20 }, { x: 0, y: 0 }, true, [], simulationMs, STEP_MS,
+      )
+      watchers = result.watchers
+      const { position, phase } = watchers[0]
+      if (phase === 'defeated') break
+      // Mid-flight positions stay on the board; there is no phasing through.
+      expect(position.x).toBeGreaterThanOrEqual(0)
+      expect(position.y).toBeGreaterThanOrEqual(0)
+    }
+    expect(watchers[0].phase).toBe('defeated')
+  })
+
+  it('burns on a live trail instead of passing through it', () => {
+    const stalker = [{
+      ...createSnakeWatchers(1)[0],
+      position: { x: 20, y: 12 },
+      heading: { x: 1, y: 0 },
+    }]
+    // A wall of trail dots directly in its path toward the player.
+    const line = Array.from({ length: 9 }, (_, index) => ({
+      x: 22, y: 8 + index,
+    }))
+
+    const result = runWatchers(stalker, { x: 30, y: 12 }, 0, 300, { x: 0, y: 0 }, line)
+
+    expect(result.watchers[0].integrity).toBeLessThan(
+      SNAKE_WATCHER_CONFIG.maximumIntegrity,
+    )
   })
 
   it('dies against the wall like everything else on the field', () => {

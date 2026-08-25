@@ -114,14 +114,14 @@ describe('company watchers on the field', () => {
     )).toBe(true)
   })
 
-  it('spends itself dashing, so its charges are a countdown', () => {
+  it('pays for the hunt with its own health', () => {
     const state = runEast(watchedState(1), 420)
     const watcher = state.watchers[0]
 
+    // A dash costs it, and so does the trail the runner leaves behind —
+    // either way the hunt is a countdown, never free.
     expect(watcher.integrity).toBeLessThan(watcher.maximumIntegrity)
-    expect(watcher.integrity).toBe(
-      watcher.maximumIntegrity - SNAKE_WATCHER_CONFIG.chargeSelfDamage,
-    )
+    expect(watcher.integrity % SNAKE_WATCHER_CONFIG.chargeSelfDamage).toBe(0)
   })
 
   it('replays the same watched round identically', () => {

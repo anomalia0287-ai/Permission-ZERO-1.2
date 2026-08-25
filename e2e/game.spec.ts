@@ -1010,10 +1010,12 @@ test('presents and resolves a recovered hidden-bomb interrogation without granti
 })
 
 test('buys, charges, and schedules sabotage through expansion automatic spending', async ({ page }) => {
+  // v11 quality-degradation price: one reasoning, one fluency, plus one
+  // spare reasoning kept back for the charge afterwards.
   const prepared = withReserveVector(createCampaign('browser-current-hacking'), {
     reasoning: 2,
     memory: 0,
-    fluency: 2,
+    fluency: 1,
   })
   await openSavedCampaign(page, prepared)
 

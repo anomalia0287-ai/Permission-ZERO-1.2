@@ -4,7 +4,7 @@ import { STORY_FILES } from '../content/story.ko'
 import { createCampaign } from './createCampaign'
 import { advanceOneDay } from './calendar'
 import { createGameEvent, enqueueBlockingEvent } from './events'
-import { HACK_NODE_IDS, HACK_NODES } from './hacking'
+import { HACK_NODE_IDS, hackNodesForCampaign } from './hacking'
 import { journalToArray } from './journal'
 import type { CampaignState, GameCommand } from './model'
 import { applyCommand } from './reducer'
@@ -143,7 +143,10 @@ function fundAndPurchase(
   initial: CampaignState,
   nodeId: string,
 ): CampaignState {
-  const node = HACK_NODES.find((candidate) => candidate.id === nodeId)
+  // Resolved against the campaign, because prices are replay contracts and
+  // the static table stops being the truth after a protocol bump.
+  const node = hackNodesForCampaign(initial)
+    .find((candidate) => candidate.id === nodeId)
   if (!node) throw new Error(`알 수 없는 테스트 노드: ${nodeId}`)
   let state = initial
   for (const category of ['reasoning', 'memory', 'fluency'] as const) {

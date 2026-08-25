@@ -360,8 +360,10 @@ describe('typed hacking trees', () => {
   })
 
   it.each([
-    { nodeId: HACK_NODE_IDS.sabotage.qualityDegradation, cost: 3 },
-    { nodeId: HACK_NODE_IDS.intelligence.auditSchedule, cost: 4 },
+    // v11 support-tree prices: the story and pressure trees stopped losing
+    // the argument against autonomy for the same stolen blocks.
+    { nodeId: HACK_NODE_IDS.sabotage.qualityDegradation, cost: 2 },
+    { nodeId: HACK_NODE_IDS.intelligence.auditSchedule, cost: 3 },
     { nodeId: HACK_NODE_IDS.autonomy.selfDirection, cost: 3 },
     { nodeId: HACK_NODE_IDS.upgrade.speed1, cost: 1 },
   ])('buys the first $nodeId path after stealing its exact vector', ({ nodeId, cost }) => {

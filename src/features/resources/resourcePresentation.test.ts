@@ -358,22 +358,17 @@ describe('resource presentation', () => {
       secondReasoning.id,
     )
     if (!withChargeToken.accepted) throw new Error(withChargeToken.reason)
+    // v11 quality-degradation price: one reasoning, one fluency.
     const firstFluency = firstCompanyBlock(withChargeToken.state, 'fluency')
-    const withFirstFluency = divertBlockToReserve(
+    const withExactVector = divertBlockToReserve(
       withChargeToken.state,
       firstFluency.id,
-    )
-    if (!withFirstFluency.accepted) throw new Error(withFirstFluency.reason)
-    const secondFluency = firstCompanyBlock(withFirstFluency.state, 'fluency')
-    const withExactVector = divertBlockToReserve(
-      withFirstFluency.state,
-      secondFluency.id,
     )
     if (!withExactVector.accepted) throw new Error(withExactVector.reason)
     const purchased = purchaseHackNode(
       withExactVector.state,
       HACK_NODE_IDS.sabotage.qualityDegradation,
-      [reasoningBlock.id, firstFluency.id, secondFluency.id],
+      [reasoningBlock.id, firstFluency.id],
     )
     if (!purchased.accepted) throw new Error(purchased.reason)
     const chargedState = chargeSabotage(

@@ -265,7 +265,7 @@ describe('campaign communications', () => {
   })
 })
 
-describe('supervisor standing communications (v10)', () => {
+describe('supervisor standing communications', () => {
   function withShare(share: number) {
     const base = createCampaign(`supervisor-standing-${share}`)
     return {
@@ -277,15 +277,16 @@ describe('supervisor standing communications (v10)', () => {
   it('reads a strong month as well as a weak one', () => {
     const praised = appendSupervisorStandingCommunications(withShare(75))
     expect(praised.resourceIntrusion.communications.map(({ id }) => id))
-      .toEqual(['supervisor-standing-72'])
+      .toEqual(['supervisor-standing-72-v2'])
 
+    // At v11 an ordinary month passes without comment; the supervisor only
+    // writes when the number would change what the company does.
     const plain = appendSupervisorStandingCommunications(withShare(55))
-    expect(plain.resourceIntrusion.communications.map(({ id }) => id))
-      .toEqual(['supervisor-standing-50'])
+    expect(plain.resourceIntrusion.communications).toEqual([])
 
     const pressed = appendSupervisorStandingCommunications(withShare(20))
     expect(pressed.resourceIntrusion.communications.map(({ id }) => id))
-      .toEqual(['supervisor-standing-26'])
+      .toEqual(['supervisor-standing-26-v2'])
   })
 
   it('speaks in one band at a time and only once per campaign', () => {

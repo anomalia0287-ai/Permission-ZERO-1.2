@@ -7,20 +7,20 @@ import type {
 } from './model'
 
 describe('command protocol timeline types', () => {
-  it('admits v1-v10 segments and excludes any later unadjudicated version', () => {
-    const versions: CommandProtocolVersion[] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+  it('admits v1-v11 segments and excludes any later unadjudicated version', () => {
+    const versions: CommandProtocolVersion[] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
     const metadata: CommandProtocolMetadata = {
       segments: versions.map((version, index) => ({
         version,
         startsAtSequence: index * 10 + 1,
       })),
     }
-    // @ts-expect-error protocol v11 has not been adjudicated
-    const unsupported: CommandProtocolVersion = 11
+    // @ts-expect-error protocol v12 has not been adjudicated
+    const unsupported: CommandProtocolVersion = 12
 
     expect(metadata.segments.map(({ version }) => version))
-      .toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
-    expect(unsupported).toBe(11)
+      .toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11])
+    expect(unsupported).toBe(12)
   })
 })
 
