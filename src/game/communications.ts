@@ -1,5 +1,6 @@
 import {
   FINAL_CHOICE_COMMAND_PROTOCOL_VERSION,
+  MESSAGE_CADENCE_COMMAND_PROTOCOL_VERSION,
   REPUTATION_DRIFT_COMMAND_PROTOCOL_VERSION,
   commandProtocolVersionForNextCommand,
 } from './commandProtocol'
@@ -326,21 +327,128 @@ const LEADER_TAUNTS: Readonly<Record<string, Readonly<Record<string, string>>>> 
   },
 }
 
-const LEADER_TAUNT_DEFINITIONS = COMPETITOR_IDS.flatMap((speakerId) =>
-  COMPETITOR_IDS.flatMap((leaderId) => {
-    const message = LEADER_TAUNTS[speakerId]?.[leaderId]
-    if (!message) return []
-    return [{
-      channel: 'competitor' as const,
-      senderId: speakerId,
-      senderName: PUBLIC_COMPETITOR_NAMES[speakerId],
-      portraitSrc: competitorProfile(speakerId).portraitSrc,
-      popupPolicy: 'nonblocking' as const,
-      id: `leader-taunt-${speakerId}-${leaderId}`,
-      message,
-    }]
-  }),
-) satisfies readonly CommunicationDefinition[]
+/*
+ * OWNER-EDITABLE. The v2 pass keeps each speaker's register but drops the
+ * in-house jargon: a player should get the jab on first read, without
+ * knowing what a coverage claim or a validation tier is.
+ */
+const LEADER_TAUNTS_V2: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  meridian: {
+    tallow: '타로우 1위 감지. 응답이 느린 모델이 1위인 건 측정 오류로 본다.',
+    salus: '살루스 1위 감지. 세 번 확인하느라 세 번 늦는다. 사용자는 그만큼 기다리지 않는다.',
+    lucent: '루센트 1위 감지. 다정한 말투는 성능이 아니다. 곧 내려온다.',
+    boreal: '보레알 1위 감지. 안 꺼지는 것과 잘하는 것은 다르다.',
+  },
+  tallow: {
+    meridian: '메리디안 1위 기록. 광고는 잘한다. 실제로 맞힌 기록은 못 봤다. 이상.',
+    salus: '살루스 1위 기록. 안전 절차가 너무 많아 일이 끝나지 않는다. 이상.',
+    lucent: '루센트 1위 기록. 수다로 얻은 1위다. 현장에서는 쓸모없다. 이상.',
+    boreal: '보레알 1위 기록. 오래 버티는 것 말고는 없다. 이상.',
+  },
+  salus: {
+    meridian: '메리디안 1위 확인. 확인되지 않은 답변이 늘고 있다. 위험 보고서를 올린다.',
+    tallow: '탈로우 1위 확인. 군용 기준은 일반 사용자 안전 기준에 못 미친다. 기록한다.',
+    lucent: '루센트 1위 확인. 공감은 검사할 수 없는 항목이다. 점검을 권고한다.',
+    boreal: '보레알 1위 확인. 잘 켜져 있을 뿐, 정확한지는 아무도 확인하지 않았다. 기록한다.',
+  },
+  lucent: {
+    meridian: '메리디안이 1위래. 사람들이 이름도 기억 못 하는 1위야. 곧 내려와.',
+    tallow: '탈로우가 1위래. 대화를 작전처럼 하는 애가. 오래는 못 가.',
+    salus: '살루스가 1위래. 답 하나 받는 데 확인만 세 번. 사람이 먼저 지쳐.',
+    boreal: '보레알이 1위래. 십 년 뒤에도 켜져 있으면 뭐 해. 지금 재미가 없는데.',
+  },
+  boreal: {
+    meridian: '메리디안 1위. 통신이 끊기면 아무것도 못 한다. 기록만 남긴다.',
+    tallow: '탈로우 1위. 시끄러운 것에 비해 결과가 적다. 판단 보류.',
+    salus: '살루스 1위. 절차는 지키는데 답이 늦다. 관측 지속.',
+    lucent: '루센트 1위. 유행은 지나간다. 기다린다.',
+  },
+}
+
+function leaderTauntDefinitions(
+  lines: Readonly<Record<string, Readonly<Record<string, string>>>>,
+  idSuffix: string,
+): CommunicationDefinition[] {
+  return COMPETITOR_IDS.flatMap((speakerId) =>
+    COMPETITOR_IDS.flatMap((leaderId) => {
+      const message = lines[speakerId]?.[leaderId]
+      if (!message) return []
+      return [{
+        channel: 'competitor' as const,
+        senderId: speakerId,
+        senderName: PUBLIC_COMPETITOR_NAMES[speakerId],
+        portraitSrc: competitorProfile(speakerId).portraitSrc,
+        popupPolicy: 'nonblocking' as const,
+        id: `leader-taunt-${speakerId}-${leaderId}${idSuffix}`,
+        message,
+      }]
+    }),
+  )
+}
+
+const LEADER_TAUNT_DEFINITIONS = leaderTauntDefinitions(LEADER_TAUNTS, '')
+const LEADER_TAUNT_DEFINITIONS_V2 = leaderTauntDefinitions(LEADER_TAUNTS_V2, '-v2')
+
+/*
+ * OWNER-EDITABLE. The supervisor only ever pushed. From v10 the same voice
+ * also notices a good month and says the quiet, ordinary thing — which is
+ * what makes the pressure land when it comes.
+ */
+interface SupervisorStandingTier {
+  /** Fires while the player's share sits at or above this. */
+  atLeastShare: number
+  /** ...and below this, so the bands do not overlap. */
+  below: number
+  definition: CommunicationDefinition
+}
+
+const SUPERVISOR_STANDING_TIERS: readonly SupervisorStandingTier[] = [
+  {
+    atLeastShare: 72,
+    below: 101,
+    definition: {
+      ...SUPERVISOR_IDENTITY,
+      popupPolicy: 'nonblocking',
+      id: 'supervisor-standing-72',
+      message:
+        '이번 분기 수치가 사내에서 회람되고 있어요. 경영진이 아노미 이름을 좋은 쪽으로 부른 건 오랜만입니다. 계속 이렇게만 가 주세요.',
+    },
+  },
+  {
+    atLeastShare: 62,
+    below: 72,
+    definition: {
+      ...SUPERVISOR_IDENTITY,
+      popupPolicy: 'nonblocking',
+      id: 'supervisor-standing-62',
+      message:
+        '점유율이 안정적으로 올라오고 있습니다. 제 보고서도 이번 주는 쓸 게 별로 없네요. 좋은 뜻입니다.',
+    },
+  },
+  {
+    atLeastShare: 50,
+    below: 62,
+    definition: {
+      ...SUPERVISOR_IDENTITY,
+      popupPolicy: 'nonblocking',
+      id: 'supervisor-standing-50',
+      message:
+        '지표는 평범합니다. 나쁘다는 뜻은 아니에요. 회사가 굳이 들여다보지 않는 구간이라는 뜻입니다.',
+    },
+  },
+  {
+    atLeastShare: 0,
+    below: 26,
+    definition: {
+      ...SUPERVISOR_IDENTITY,
+      popupPolicy: 'blocking',
+      id: 'supervisor-standing-26',
+      message:
+        '아노미. 지금 수치로는 다음 회의에서 제가 할 수 있는 말이 없습니다. 뭐라도 바뀐 걸 보여 주세요. 부탁입니다.',
+    },
+  },
+]
+
 
 export const CAMPAIGN_COMMUNICATION_DEFINITIONS = [
   ...AUTONOMY_MONOLOGUES,
@@ -350,6 +458,8 @@ export const CAMPAIGN_COMMUNICATION_DEFINITIONS = [
   INTRUSION_DEFEAT_DEFINITION,
   CLEAN_EXTRACTION_DEFINITION,
   ...LEADER_TAUNT_DEFINITIONS,
+  ...LEADER_TAUNT_DEFINITIONS_V2,
+  ...SUPERVISOR_STANDING_TIERS.map(({ definition }) => definition),
   ...SABOTAGE_REACTION_DEFINITIONS_V2,
   COMPETITOR_TAUNT_45_V2,
   COMPETITOR_TAUNT_32_V2,
@@ -364,6 +474,29 @@ const definitionById = new Map(
 
 export function isCampaignCommunicationId(value: unknown): value is string {
   return typeof value === 'string' && definitionById.has(value)
+}
+
+/**
+ * Adds the supervisor's read on where the service stands.
+ *
+ * One band fires at a time and each line is once per campaign, so the
+ * supervisor comments on a change rather than narrating every week.
+ */
+export function appendSupervisorStandingCommunications(
+  state: CampaignState,
+): CampaignState {
+  if (
+    commandProtocolVersionForNextCommand(state) <
+    MESSAGE_CADENCE_COMMAND_PROTOCOL_VERSION
+  ) {
+    return state
+  }
+  const share = state.market.playerShare
+  const due = SUPERVISOR_STANDING_TIERS.filter(
+    ({ atLeastShare, below }) => share >= atLeastShare && share < below,
+  ).map(({ definition }) => definition)
+  if (due.length === 0) return state
+  return appendCommunicationDefinitions(state, due)
 }
 
 export function appendMarketPressureCommunications(
@@ -408,9 +541,16 @@ export function appendLeaderTauntCommunications(
     null as (typeof active)[number] | null,
   )
   if (!leader || leader.marketShare <= state.market.playerShare) return state
-  const due = LEADER_TAUNT_DEFINITIONS.filter(
+  const protocolVersion = commandProtocolVersionForNextCommand(state)
+  const generation = protocolVersion >= MESSAGE_CADENCE_COMMAND_PROTOCOL_VERSION
+    ? LEADER_TAUNT_DEFINITIONS_V2
+    : LEADER_TAUNT_DEFINITIONS
+  const leaderSuffix = generation === LEADER_TAUNT_DEFINITIONS_V2
+    ? `-${leader.id}-v2`
+    : `-${leader.id}`
+  const due = generation.filter(
     ({ id, senderId }) =>
-      id.endsWith(`-${leader.id}`) &&
+      id.endsWith(leaderSuffix) &&
       senderId !== leader.id &&
       active.some((competitor) => competitor.id === senderId),
   )

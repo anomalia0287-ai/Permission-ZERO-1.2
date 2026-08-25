@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   CAMPAIGN_COMMUNICATION_DEFINITIONS,
   appendLeaderTauntCommunications,
+  appendSupervisorStandingCommunications,
   appendIntrusionDefeatCommunication,
   appendCleanExtractionCommunication,
   isCampaignCommunicationId,
@@ -13,6 +14,8 @@ import {
   unreadCommunicationCount,
 } from './communications'
 import { createCampaign, createCampaignForProtocol } from './createCampaign'
+import { advanceOneDay } from './calendar'
+import { createGameEvent } from './events'
 import { decodeSave, encodeSave } from './persistence'
 import { applyCommand } from './reducer'
 import { journalAt } from './journal'
@@ -262,13 +265,78 @@ describe('campaign communications', () => {
   })
 })
 
-describe('leader taunt communications (v8)', () => {
+describe('supervisor standing communications (v10)', () => {
+  function withShare(share: number) {
+    const base = createCampaign(`supervisor-standing-${share}`)
+    return {
+      ...base,
+      market: { ...base.market, playerShare: share },
+    }
+  }
+
+  it('reads a strong month as well as a weak one', () => {
+    const praised = appendSupervisorStandingCommunications(withShare(75))
+    expect(praised.resourceIntrusion.communications.map(({ id }) => id))
+      .toEqual(['supervisor-standing-72'])
+
+    const plain = appendSupervisorStandingCommunications(withShare(55))
+    expect(plain.resourceIntrusion.communications.map(({ id }) => id))
+      .toEqual(['supervisor-standing-50'])
+
+    const pressed = appendSupervisorStandingCommunications(withShare(20))
+    expect(pressed.resourceIntrusion.communications.map(({ id }) => id))
+      .toEqual(['supervisor-standing-26'])
+  })
+
+  it('speaks in one band at a time and only once per campaign', () => {
+    const first = appendSupervisorStandingCommunications(withShare(65))
+    expect(first.resourceIntrusion.communications).toHaveLength(1)
+    const again = appendSupervisorStandingCommunications(first)
+    expect(again.resourceIntrusion.communications).toHaveLength(1)
+  })
+
+  it('registers every standing line for save validation', () => {
+    const standing = CAMPAIGN_COMMUNICATION_DEFINITIONS.filter(({ id }) =>
+      id.startsWith('supervisor-standing-'),
+    )
+    expect(standing.length).toBeGreaterThanOrEqual(4)
+    for (const line of standing) expect(line.channel).toBe('supervisor')
+  })
+})
+
+describe('ambient chatter yields to story beats (v10)', () => {
+  it('holds the daily messages while an event is waiting for the player', () => {
+    const base = createCampaign('quiet-day-guard')
+    const busy = {
+      ...base,
+      serviceDay: 400,
+      market: { ...base.market, playerShare: 75 },
+      clock: { speed: 0 as const, elapsedDayMs: 0, speedBeforeEvent: null },
+      activeEvent: createGameEvent(base, 'story', '플레이어가 읽어야 할 장면', true),
+    }
+
+    const advanced = advanceOneDay(busy)
+
+    // The supervisor's opinion of a good quarter can wait a day; a story
+    // beat the player is holding cannot share the channel with it.
+    expect(
+      advanced.resourceIntrusion.communications.filter(({ serviceDay }) =>
+        serviceDay === advanced.serviceDay,
+      ),
+    ).toEqual([])
+  })
+})
+
+describe('leader taunt communications', () => {
   it('has every taunt registered for save validation', () => {
     const taunts = CAMPAIGN_COMMUNICATION_DEFINITIONS.filter(({ id }) =>
       id.startsWith('leader-taunt-'),
     )
-    // Five rivals, each with a note about each of the other four.
-    expect(taunts).toHaveLength(20)
+    // Five rivals, each with a note about each of the other four — in two
+    // generations, because the plainer v10 rewrite could not overwrite the
+    // recorded text of campaigns that already heard the originals.
+    expect(taunts).toHaveLength(40)
+    expect(taunts.filter(({ id }) => id.endsWith('-v2'))).toHaveLength(20)
     for (const taunt of taunts) {
       expect(taunt.channel).toBe('competitor')
       expect(taunt.popupPolicy).toBe('nonblocking')
@@ -291,8 +359,9 @@ describe('leader taunt communications (v8)', () => {
     }
     const noted = appendLeaderTauntCommunications(led)
     const ids = noted.resourceIntrusion.communications.map(({ id }) => id)
-    // Only tallow is active besides the leader, so only tallow writes.
-    expect(ids).toEqual(['leader-taunt-tallow-meridian'])
+    // Only tallow is active besides the leader, so only tallow writes — and
+    // a current campaign gets the plainer line.
+    expect(ids).toEqual(['leader-taunt-tallow-meridian-v2'])
   })
 
   it('stays silent while the player leads', () => {

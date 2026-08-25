@@ -119,7 +119,11 @@ export class GameAudioEngine {
     options: AudioEngineOptions = {},
   ) {
     this.contextFactory = contextFactory
-    this.maxVoices = Math.max(1, options.maxVoices ?? 12)
+    // Combat is the loudest moment in the game and the one with the least
+    // headroom: the movement loop holds two voices, every turn fires one,
+    // and a collision needs three at once. Twelve meant the most important
+    // sound in the game was the first one refused.
+    this.maxVoices = Math.max(1, options.maxVoices ?? 32)
     this.proceduralMusic = options.proceduralMusic ?? true
   }
 
@@ -260,10 +264,17 @@ export class GameAudioEngine {
       context.state !== 'running' ||
       this.settings.muted ||
       this.settings.masterVolume <= 0 ||
-      this.settings.effectsVolume <= 0 ||
-      this.activeEffectVoiceCount() + voices.length > this.maxVoices
+      this.settings.effectsVolume <= 0
     ) {
       return false
+    }
+    if (this.activeEffectVoiceCount() + voices.length > this.maxVoices) {
+      // Rather than drop the sound, retire the oldest one-shot voices to make
+      // room. A refused effect is a silent bug; a clipped tail is not.
+      this.retireOldestVoices(voices.length)
+      if (this.activeEffectVoiceCount() + voices.length > this.maxVoices) {
+        return false
+      }
     }
 
     const now = context.currentTime
@@ -389,6 +400,27 @@ export class GameAudioEngine {
       } catch {
         // Already torn down by its own onended; nothing left to release.
       }
+    }
+  }
+
+  /** Stops the oldest one-shot voices so a newer sound can be heard. */
+  private retireOldestVoices(needed: number): void {
+    let released = 0
+    for (const voice of this.activeVoices) {
+      if (released >= needed) return
+      this.activeVoices.delete(voice)
+      try {
+        voice.source.stop()
+      } catch {
+        // Already stopped; the disconnect below is all that is left to do.
+      }
+      try {
+        voice.source.disconnect()
+        voice.envelope.disconnect()
+      } catch {
+        // Already torn down.
+      }
+      released += 1
     }
   }
 

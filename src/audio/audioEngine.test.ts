@@ -517,13 +517,36 @@ describe('GameAudioEngine', () => {
     // A voice pending while the context is suspended never fires `ended`, so
     // the budget used to fill up permanently and combat went silent.
     expect(engine.play('latch')).toBe(true)
-    expect(engine.play('select')).toBe(false)
+    const stranded = [...context.oscillators]
 
+    // Once their scheduled end has passed they are reclaimed, so the next
+    // sound plays without having to cut anything short.
     context.currentTime += 5
     expect(engine.play('select')).toBe(true)
+    expect(stranded.every(({ stopped }) => stopped)).toBe(false)
   })
 
-  it('caps simultaneous voices and releases them when sources end', async () => {
+  it('keeps the collision audible through a busy combat frame', async () => {
+    const context = new FakeAudioContext()
+    const engine = new GameAudioEngine(() => context as unknown as AudioContext)
+    await engine.unlock()
+
+    // What a real round sounds like: the movement loop running while turns,
+    // grazes and breaks fire in quick succession.
+    expect(engine.startLoop('rail-flow')).toBe(true)
+    for (let turn = 0; turn < 12; turn += 1) {
+      engine.play('snake-turn-queued')
+      engine.play('snake-turn-committed')
+      engine.play('snake-rail-break')
+    }
+
+    // The collision is the most expensive cue in the game at three voices,
+    // and it must still be heard.
+    expect(engine.play('snake-hit')).toBe(true)
+    expect(engine.play('snake-burst')).toBe(true)
+  })
+
+  it('retires the oldest voice rather than dropping a new sound', async () => {
     const context = new FakeAudioContext()
     const engine = new GameAudioEngine(
       () => context as unknown as AudioContext,
@@ -532,7 +555,12 @@ describe('GameAudioEngine', () => {
     await engine.unlock()
 
     expect(engine.play('latch')).toBe(true)
-    expect(engine.play('select')).toBe(false)
+    const oldest = [...context.oscillators]
+    // A full budget must never silence the newer sound: in combat that meant
+    // the collision — the loudest thing in the game — was the first to go.
+    expect(engine.play('select')).toBe(true)
+    expect(oldest.some(({ stopped }) => stopped)).toBe(true)
+
     context.oscillators.forEach((oscillator) => oscillator.finish())
     expect(engine.play('select')).toBe(true)
   })
@@ -548,10 +576,12 @@ describe('GameAudioEngine', () => {
     expect(engine.play('snake-hit')).toBe(true)
     const chordSources = [...context.oscillators]
     expect(chordSources).toHaveLength(3)
-    expect(engine.play('snake-burst')).toBe(false)
 
     chordSources.forEach((oscillator) => oscillator.finish())
+    const beforeBurst = context.oscillators.length
     expect(engine.play('snake-burst')).toBe(true)
+    // Finished voices free the budget without anything being cut short.
+    expect(context.oscillators.length).toBeGreaterThan(beforeBurst)
   })
 
   it('degrades silently when Web Audio is unavailable', async () => {

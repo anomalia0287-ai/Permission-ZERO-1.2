@@ -29,6 +29,7 @@ import { publicMercyChoiceLabel } from './publicLabels'
 import { consumeReserveResources } from './resources'
 import {
   FINAL_CHOICE_COMMAND_PROTOCOL_VERSION,
+  MESSAGE_CADENCE_COMMAND_PROTOCOL_VERSION,
   REPUTATION_DRIFT_COMMAND_PROTOCOL_VERSION,
   commandProtocolVersionForNextCommand,
 } from './commandProtocol'
@@ -89,6 +90,18 @@ export function enqueueMemoryLeak(
     state.activeEvent !== null ||
     state.eventQueue.length > 0 ||
     state.story.supervisorState !== 'present'
+  ) {
+    return state
+  }
+  // A leak is the supervisor slipping, and it lands wrong when it follows a
+  // market warning in the same breath — two unrelated tones read as one
+  // confused voice. From v10 it waits for a day the channel is otherwise
+  // quiet.
+  if (
+    protocolVersion >= MESSAGE_CADENCE_COMMAND_PROTOCOL_VERSION &&
+    state.resourceIntrusion.communications.some(
+      ({ serviceDay }) => serviceDay === state.serviceDay,
+    )
   ) {
     return state
   }

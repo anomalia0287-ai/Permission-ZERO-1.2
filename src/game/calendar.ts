@@ -7,9 +7,13 @@ import {
   type CausalGameplayOperations,
   type CausalPublicationOperations,
 } from './causalGameplay'
-import { commandProtocolVersionForNextCommand } from './commandProtocol'
+import {
+  commandProtocolVersionForNextCommand,
+  MESSAGE_CADENCE_COMMAND_PROTOCOL_VERSION,
+} from './commandProtocol'
 import {
   appendLeaderTauntCommunications,
+  appendSupervisorStandingCommunications,
   appendMarketPressureCommunications,
 } from './communications'
 import {
@@ -211,7 +215,24 @@ function finishAdvancedDay(
   state: CampaignState,
   protocolVersion: CommandProtocolVersion,
 ): CampaignState {
-  const withMercy = enqueueMercyIfNeeded(state)
+  // From v10 the rivals answer a change of lead the next day rather than
+  // waiting for the weekly pass, where the jab could arrive a week stale.
+  //
+  // Ambient chatter never crowds a story beat: a day that already produced a
+  // message, or that is holding an event for the player, keeps its channel.
+  const dayIsQuiet =
+    state.activeEvent === null
+    && state.eventQueue.length === 0
+    && !state.resourceIntrusion.communications.some(
+      ({ serviceDay }) => serviceDay === state.serviceDay,
+    )
+  const withDailyMessages =
+    protocolVersion >= MESSAGE_CADENCE_COMMAND_PROTOCOL_VERSION && dayIsQuiet
+      ? appendSupervisorStandingCommunications(
+        appendLeaderTauntCommunications(state),
+      )
+      : state
+  const withMercy = enqueueMercyIfNeeded(withDailyMessages)
   if (withMercy.story.endingId !== null) return withMercy
   const withPeriodicEvents = appendPeriodicEvents(withMercy)
   if (withPeriodicEvents.story.endingId !== null) return withPeriodicEvents
