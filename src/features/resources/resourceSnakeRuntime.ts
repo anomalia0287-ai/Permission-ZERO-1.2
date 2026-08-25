@@ -1,11 +1,5 @@
 import type { CompanyCategory } from '../../game/model'
 import {
-  advanceSnakeWatchers,
-  createSnakeWatchers,
-  type SnakeWatcher,
-  type SnakeWatcherStrike,
-} from './resourceSnakeWatchers'
-import {
   SNAKE_DIRECTION_VECTORS,
   consumeResourceSnakeTurn,
   createResourceSnakeInputState,
@@ -86,6 +80,7 @@ export interface SnakeActor {
   rewardKey: string | null
   reservationStatus: 'active' | 'pending' | 'resolved' | 'cancelled' | null
   role: SnakeEnemyRole | null
+  surveillance: boolean
   previousPosition: SnakeVector
   position: SnakeVector
   heading: SnakeDirection8
@@ -120,19 +115,23 @@ export interface SnakeEnemyTurnPolicy {
 
 export interface SnakeEnemySetup {
   id: `enemy-${number}`
-  category: CompanyCategory
-  reservedBlockId: string
-  rewardKey: string
+  category: CompanyCategory | null
+  reservedBlockId: string | null
+  rewardKey: string | null
   role: SnakeEnemyRole
   spawn: SnakeVector
   maximumIntegrity: 30 | 35 | 50 | 65 | 80
   maximumSpeedPerSecond: number
+  /**
+   * Company surveillance unit: hunts the intruder with the same lightcycle
+   * body and planner as every other bot, but holds no resource reservation
+   * and never trades damage with the security bots it escorts.
+   */
+  surveillance?: boolean
 }
 
 export interface SnakeRoundSetup {
   roundId: string
-  /** Company watchers on the field, from the campaign's suspicion. */
-  watcherCount?: number
   playerSpawn: SnakeVector
   playerMaximumSpeedPerSecond?: number
   enemies: SnakeEnemySetup[]
@@ -188,7 +187,7 @@ export type ResourceSnakeEvent =
       id: number
       type: 'snake-collided'
       actorIds: SnakeId[]
-      collisionKind?: 'boundary' | 'head-head' | 'trail' | 'watcher'
+      collisionKind?: 'boundary' | 'head-head' | 'trail'
       obstacleOwnerId?: SnakeId
       point: SnakeVector
       hitStopMs: 90
@@ -220,7 +219,6 @@ export type ResourceSnakeEffect =
 
 export interface ResourceSnakeRoundState {
   roundId: string | null
-  watchers: SnakeWatcher[]
   phase: SnakeRoundPhase
   simulationMs: number
   accumulatorMs: number
@@ -373,6 +371,7 @@ function createActor(
     rewardKey: null,
     reservationStatus: null,
     role: null,
+    surveillance: false,
     previousPosition: { ...safePosition },
     position: safePosition,
     heading: initialHeading,
@@ -407,7 +406,6 @@ export function createIdleResourceSnakeState(): ResourceSnakeRoundState {
   }
   return {
     roundId: null,
-    watchers: [],
     phase: 'idle',
     simulationMs: 0,
     accumulatorMs: 0,
@@ -443,8 +441,9 @@ export function deployResourceSnakeRound(
       category: enemy.category,
       reservedBlockId: enemy.reservedBlockId,
       rewardKey: enemy.rewardKey,
-      reservationStatus: 'active',
+      reservationStatus: enemy.surveillance ? null : 'active',
       role: enemy.role,
+      surveillance: enemy.surveillance ?? false,
       integrity: enemy.maximumIntegrity,
       maximumIntegrity: enemy.maximumIntegrity,
       maximumSpeedPerSecond: enemy.maximumSpeedPerSecond,
@@ -454,7 +453,6 @@ export function deployResourceSnakeRound(
   const deployed: ResourceSnakeRoundState = {
     ...state,
     roundId: setup.roundId,
-    watchers: createSnakeWatchers(setup.watcherCount ?? 0),
     phase: 'deploying',
     simulationMs: 0,
     accumulatorMs: 0,
@@ -669,7 +667,7 @@ function advanceActor(
   )
 }
 
-type CollisionKind = 'boundary' | 'head-head' | 'trail' | 'watcher'
+type CollisionKind = 'boundary' | 'head-head' | 'trail'
 
 interface CollisionCandidate {
   kind: CollisionKind
@@ -805,6 +803,9 @@ function enemyHeadingSafety(
     + RESOURCE_SNAKE_CONFIG.trailRadius
   for (const owner of [state.player, ...state.enemies]) {
     if (owner.phase !== 'active') continue
+    // Cross-division trails cannot hurt this actor, so treating them as
+    // hazards would only make it dodge phantom threats.
+    if (crossDivisionTruce(actor, owner)) continue
     for (const dot of owner.trail) {
       if (dot.spawnedAtMs >= state.simulationMs || dot.expiresAtMs <= state.simulationMs) {
         continue
@@ -1273,6 +1274,20 @@ function activeActors(state: ResourceSnakeRoundState): SnakeActor[] {
   return [state.player, ...state.enemies].filter((actor) => actor.phase === 'active')
 }
 
+/**
+ * Company units never trade damage across divisions: a surveillance bot and a
+ * security bot pass through each other's bodies and trails untouched. The
+ * intruder enjoys no such courtesy from either of them.
+ */
+function crossDivisionTruce(left: SnakeActor, right: SnakeActor): boolean {
+  return (
+    left.kind === 'enemy'
+    && right.kind === 'enemy'
+    && (left.surveillance || right.surveillance)
+    && left.id !== right.id
+  )
+}
+
 function trailCandidates(
   state: ResourceSnakeRoundState,
   simulationMs: number,
@@ -1284,6 +1299,7 @@ function trailCandidates(
   for (const actor of actors) {
     if (actor.collisionGraceMs > 0) continue
     for (const owner of actors) {
+      if (crossDivisionTruce(actor, owner)) continue
       for (const dot of owner.trail) {
         if (dot.spawnedAtMs >= simulationMs) continue
         const collisionRadius = (
@@ -1351,6 +1367,7 @@ function headHeadCandidates(state: ResourceSnakeRoundState): CollisionCandidate[
     for (let rightIndex = leftIndex + 1; rightIndex < actors.length; rightIndex += 1) {
       const left = actors[leftIndex]
       const right = actors[rightIndex]
+      if (crossDivisionTruce(left, right)) continue
       if (left.collisionGraceMs > 0 && right.collisionGraceMs > 0) continue
       const relativeStart = {
         x: left.previousPosition.x - right.previousPosition.x,
@@ -1459,42 +1476,14 @@ function appendEffect(
   }
 }
 
-function watcherCandidates(
-  state: ResourceSnakeRoundState,
-  strikes: readonly SnakeWatcherStrike[],
-): CollisionCandidate[] {
-  return strikes.map((strike) => {
-    const away = normalizedOrFallback(
-      {
-        x: state.player.position.x - strike.point.x,
-        y: state.player.position.y - strike.point.y,
-      },
-      normalizedOrFallback(state.player.velocity, { x: 0, y: -1 }),
-    )
-    return {
-      kind: 'watcher' as const,
-      contactTime: 1,
-      actorIds: ['player' as SnakeId],
-      deterministicKey: `player|${strike.watcherId}`,
-      point: { ...strike.point },
-      normal: away,
-      anchor: { ...strike.point },
-      separationDistance: RESOURCE_SNAKE_CONFIG.headRadius + 0.5,
-      gapActorIds: ['player' as SnakeId],
-    }
-  })
-}
-
 function resolveCollisions(
   state: ResourceSnakeRoundState,
   stepMs: number,
-  watcherStrikes: readonly SnakeWatcherStrike[] = [],
 ): ResourceSnakeRoundState {
   const candidates = [
     ...boundaryCandidates(state, stepMs),
     ...headHeadCandidates(state),
     ...trailCandidates(state, state.simulationMs, stepMs),
-    ...watcherCandidates(state, watcherStrikes),
   ].sort((left, right) => (
     left.contactTime - right.contactTime
     || left.kind.localeCompare(right.kind)
@@ -1617,7 +1606,10 @@ function resolveCollisions(
   }
 
   const playerDied = next.player.phase === 'exploding' || next.player.phase === 'defeated'
-  const allEnemiesDefeated = next.enemies.length > 0 && next.enemies.every(
+  // Surveillance escorts never hold the round open: the objective is the
+  // reserved resources, and their guards are the only required kills.
+  const requiredKills = next.enemies.filter((enemy) => !enemy.surveillance)
+  const allEnemiesDefeated = requiredKills.length > 0 && requiredKills.every(
     (enemy) => enemy.phase === 'exploding' || enemy.phase === 'defeated',
   )
   if (playerDied || allEnemiesDefeated) {
@@ -1730,25 +1722,7 @@ function advanceFixedStep(
       startedAtMs: simulationMs,
     })
   }
-  // Watchers move on their own clock and answer only to the intruder; their
-  // strikes join the ordinary collision pass so damage, separation, grace,
-  // and death all behave exactly as they do for a wall or a trail.
-  const hazardDots: SnakeVector[] = []
-  for (const actor of [stepped.player, ...stepped.enemies]) {
-    if (actor.phase !== 'active') continue
-    for (const dot of actor.trail) hazardDots.push(dot.position)
-  }
-  const surveillance = advanceSnakeWatchers(
-    stepped.watchers,
-    stepped.player.position,
-    stepped.player.velocity,
-    stepped.player.phase === 'active',
-    hazardDots,
-    simulationMs,
-    stepMs,
-  )
-  stepped = { ...stepped, watchers: surveillance.watchers }
-  return resolveCollisions(stepped, stepMs, surveillance.strikes)
+  return resolveCollisions(stepped, stepMs)
 }
 
 export function advanceResourceSnakeFrame(

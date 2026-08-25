@@ -7,6 +7,7 @@ import type {
   ResourceSnakeRoundState,
   SnakeEnemySetup,
   SnakeRoundSetup,
+  SnakeVector,
 } from './resourceSnakeRuntime'
 import {
   anomiMaximumSpeed,
@@ -312,6 +313,46 @@ export function createResourceSnakeEncounter(
     cyanProfile,
     plannerProfile,
   }
+}
+
+/** Watching begins at 25 suspicion; a second unit joins once it passes 55. */
+export const SNAKE_SURVEILLANCE_WATCH_THRESHOLD = 25
+const SNAKE_SURVEILLANCE_SECOND_UNIT_SUSPICION = 55
+/** A full lightcycle hunter, but paced a step under the security bots. */
+const SNAKE_SURVEILLANCE_SPEED_SCALE = 0.96
+const SNAKE_SURVEILLANCE_SPAWNS: readonly SnakeVector[] = [
+  { x: 4.5, y: 12 },
+  { x: 45.5, y: 12 },
+]
+
+export function snakeSurveillanceCountForSuspicion(suspicion: number): number {
+  if (!Number.isFinite(suspicion) || suspicion < SNAKE_SURVEILLANCE_WATCH_THRESHOLD) return 0
+  return suspicion >= SNAKE_SURVEILLANCE_SECOND_UNIT_SUSPICION ? 2 : 1
+}
+
+/**
+ * Suspicion puts company surveillance on the field: full snake bots that hunt
+ * the intruder through the same planner as every security bot, hold no
+ * reservation, and yield no reward. They spawn from the arena's flanks so the
+ * pressure arrives from a different axis than the guards on the top edge.
+ */
+export function surveillanceEnemySetups(
+  suspicion: number,
+  completedRounds: number,
+): SnakeEnemySetup[] {
+  const count = snakeSurveillanceCountForSuspicion(suspicion)
+  return SNAKE_SURVEILLANCE_SPAWNS.slice(0, count).map((spawn, index) => ({
+    id: `enemy-${8 + index}` as const,
+    category: null,
+    reservedBlockId: null,
+    rewardKey: null,
+    role: 'pressure',
+    spawn: { ...spawn },
+    maximumIntegrity: 30,
+    maximumSpeedPerSecond:
+      resourceSnakeBotMaximumSpeed(completedRounds) * SNAKE_SURVEILLANCE_SPEED_SCALE,
+    surveillance: true,
+  }))
 }
 
 /**

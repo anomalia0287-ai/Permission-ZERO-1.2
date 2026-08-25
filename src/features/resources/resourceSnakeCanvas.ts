@@ -709,16 +709,6 @@ export function drawDormantResourceSnakeField(
   context.setLineDash([])
 }
 
-const SURVEILLANCE_PURPLE = '#a06bff'
-
-/**
- * The company's watchers: purple markers that patrol the arena's perimeter
- * once suspicion crosses the watch line. They are pure presentation — no
- * collision, no runtime state — and their position derives from the
- * simulation clock, so a replay shows the same patrol. Above the alarm line a
- * second watcher joins from the opposite corner and the sweep gets brighter,
- * which is the field itself telling the player how closely they are watched.
- */
 // The fleeing bot mutters at the player: a small dark chip above its head,
 // tinted with the bot's own category color. Pure presentation.
 function drawSpeeches(
@@ -762,83 +752,6 @@ function drawSpeeches(
   context.restore()
 }
 
-function drawSurveillance(
-  context: CanvasRenderingContext2D,
-  scene: ResourceSnakeScene,
-  width: number,
-  height: number,
-  scale: CanvasScale,
-): void {
-  const surveillance = scene.surveillance
-  if (!surveillance) return
-  void width
-  void height
-  const glow = 0.42 + surveillance.intensity * 0.42
-
-  // No beams, no sweep rings, no per-watcher gradients: the wind-up is read
-  // off the body itself. Gradients allocate every frame and the lane covered
-  // a third of the field in additive blending, which is exactly the kind of
-  // cost that shows up as a dropped frame during a chase.
-  context.save()
-  context.globalCompositeOperation = 'lighter'
-  context.strokeStyle = SURVEILLANCE_PURPLE
-  context.fillStyle = SURVEILLANCE_PURPLE
-  for (const watcher of surveillance.watchers) {
-    const x = watcher.x * scale.x
-    const y = watcher.y * scale.y
-    const winding = watcher.phase === 'telegraph'
-    // Winding up, it swells and burns brighter; that is the tell.
-    const radius = scale.unit
-      * (0.34 + surveillance.intensity * 0.12)
-      * (winding ? 1 + watcher.phaseProgress * 0.85 : 1)
-    const target = watcher.target
-    const aim = target
-      ? Math.atan2(target.y * scale.y - y, target.x * scale.x - x)
-      : 0
-
-    if (watcher.phase === 'charge') {
-      const reach = scale.unit * 2.4
-      context.globalAlpha = glow * 0.8
-      context.lineWidth = Math.max(1.5, scale.unit * 0.2)
-      context.beginPath()
-      context.moveTo(x - Math.cos(aim) * reach, y - Math.sin(aim) * reach)
-      context.lineTo(x, y)
-      context.stroke()
-    }
-
-    context.globalAlpha = glow * (winding ? 0.55 + watcher.phaseProgress * 0.45 : 0.5)
-    context.beginPath()
-    context.arc(x, y, radius * 1.7, 0, Math.PI * 2)
-    context.fill()
-
-    context.globalAlpha = winding ? Math.min(1, glow * 1.6) : glow
-    context.lineWidth = Math.max(1, scale.unit * 0.06)
-    context.beginPath()
-    context.moveTo(x, y - radius)
-    context.lineTo(x + radius, y)
-    context.lineTo(x, y + radius)
-    context.lineTo(x - radius, y)
-    context.closePath()
-    context.stroke()
-    context.globalAlpha = glow * 0.35 * watcher.integrityRatio
-    context.fill()
-
-    if (target) {
-      context.globalAlpha = Math.min(1, glow * 1.5)
-      context.beginPath()
-      context.arc(
-        x + Math.cos(aim) * radius * 0.35,
-        y + Math.sin(aim) * radius * 0.35,
-        Math.max(1.2, radius * 0.22),
-        0,
-        Math.PI * 2,
-      )
-      context.fill()
-    }
-  }
-  context.restore()
-}
-
 // Drawn over the lit field rather than under it: the corners fall away so the
 // action sits inside a room instead of on a flat plate, and the additive
 // passes below stop building toward a uniformly grey rectangle at the edges.
@@ -878,7 +791,6 @@ export function drawResourceSnakeScene(
     drawDangerEdge(context, edge, scene, width, height, scale)
   }
   drawSpeeches(context, scene, width, height, scale)
-  drawSurveillance(context, scene, width, height, scale)
   for (const rail of scene.rails) {
     drawRail(
       context,

@@ -147,7 +147,7 @@ describe('snake encounter resource authority', () => {
     for (let ordinal = 1; ordinal <= 3; ordinal += 1) {
       const result = encounter(candidates, 0, ordinal, bag)
       expect(result.setup).not.toBeNull()
-      categories.push(result.setup!.enemies[0].category)
+      categories.push(result.setup!.enemies[0].category!)
       expect(new Set(result.setup!.enemies.map((enemy) => enemy.reservedBlockId)).size).toBe(
         result.setup!.enemies.length,
       )

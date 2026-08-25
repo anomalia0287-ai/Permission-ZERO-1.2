@@ -16,6 +16,7 @@ import {
 import { ResourceSnakeRewardFlights } from './ResourceSnakeRewardFlights'
 import {
   createResourceSnakeEncounter,
+  surveillanceEnemySetups,
   reconcileSnakeReservations,
   selectEligibleSnakeResourceCandidates,
   type SnakeShuffleBagState,
@@ -49,8 +50,8 @@ import {
   type SnakeActor,
   type SnakeVector,
 } from './resourceSnakeRuntime'
-import { snakeWatcherCountForSuspicion } from './resourceSnakeWatchers'
 import {
+  RESOURCE_SNAKE_SURVEILLANCE_COLOR,
   buildResourceSnakeScene,
   resourceSnakeShakeOffset,
 } from './resourceSnakePresentation'
@@ -239,8 +240,8 @@ function plannerActor(
   }
 }
 
-function plannerTrailDots(runtime: ResourceSnakeRoundState): SnakePlannerTrailDot[] {
-  return [runtime.player, ...runtime.enemies].flatMap((actor) => (
+function plannerTrailDots(actors: readonly SnakeActor[]): SnakePlannerTrailDot[] {
+  return actors.flatMap((actor) => (
     actor.trail.map((dot) => ({
       id: dot.id,
       ownerId: actor.id,
@@ -251,22 +252,51 @@ function plannerTrailDots(runtime: ResourceSnakeRoundState): SnakePlannerTrailDo
   ))
 }
 
+/**
+ * The security division's planning universe. Surveillance units and their
+ * trails are invisible here because the divisions cannot harm each other, so
+ * a hazard model that included them would dodge phantom threats.
+ */
 function resourceSnakePlannerSnapshot(
   runtime: ResourceSnakeRoundState,
   history: readonly SnakePlayerHistorySample[],
   previousPlans: readonly SnakePlan[],
   roles: Readonly<Record<string, SnakeEnemyRole>>,
 ): SnakePlannerSnapshot {
+  const security = runtime.enemies.filter((enemy) => !enemy.surveillance)
   return {
     simulationMs: runtime.simulationMs,
     field: { width: 50, height: 24, padding: 0.5 },
     player: plannerActor(runtime.player, roles, runtime.simulationMs),
-    enemies: runtime.enemies.map((enemy) => plannerActor(enemy, roles, runtime.simulationMs)),
-    trailDots: plannerTrailDots(runtime),
+    enemies: security.map((enemy) => plannerActor(enemy, roles, runtime.simulationMs)),
+    trailDots: plannerTrailDots([runtime.player, ...security]),
     playerHistory: history.slice(-512),
     committedAllyPaths: previousPlans
       .map((plan) => resourceSnakePlanToCommittedPath(plan, runtime.simulationMs))
       .filter((path) => path !== null),
+  }
+}
+
+/**
+ * One surveillance unit's planning universe: itself and the intruder. Each
+ * unit plans solo so the planner's single-enemy path keeps it a pure hunter
+ * instead of demoting one of a pair to blocker duty, and the only hazards it
+ * sees are the only ones that can kill it.
+ */
+function surveillancePlannerSnapshot(
+  runtime: ResourceSnakeRoundState,
+  enemy: SnakeActor,
+  history: readonly SnakePlayerHistorySample[],
+): SnakePlannerSnapshot {
+  const roles = { [enemy.id]: 'pressure' as const }
+  return {
+    simulationMs: runtime.simulationMs,
+    field: { width: 50, height: 24, padding: 0.5 },
+    player: plannerActor(runtime.player, roles, runtime.simulationMs),
+    enemies: [plannerActor(enemy, roles, runtime.simulationMs)],
+    trailDots: plannerTrailDots([runtime.player, enemy]),
+    playerHistory: history.slice(-512),
+    committedAllyPaths: [],
   }
 }
 
@@ -299,6 +329,7 @@ function ResourceSnakeBoardSession() {
   const canvasContextRef = useRef<CanvasRenderingContext2D | null>(null)
   const cyanProfileRef = useRef<CyanLightcycleProfile | null>(null)
   const aiControllerRef = useRef<ResourceSnakeAiControllerState | null>(null)
+  const surveillanceControllersRef = useRef<Record<string, ResourceSnakeAiControllerState>>({})
   const rolesRef = useRef<Record<string, SnakeEnemyRole>>({})
   const playerHistoryRef = useRef<SnakePlayerHistorySample[]>([])
   const bagRef = useRef<SnakeShuffleBagState>({
@@ -399,12 +430,19 @@ function ResourceSnakeBoardSession() {
     bagRef.current = encounter.bag
     if (!encounter.setup) return
     cyanProfileRef.current = encounter.cyanProfile
-    rolesRef.current = Object.fromEntries(encounter.setup.enemies.map((enemy) => (
+    // Suspicion is what puts company surveillance on the field, so the round
+    // the player earns is the round they get.
+    const surveillanceSetups = surveillanceEnemySetups(
+      currentGameState.suspicion,
+      currentGameState.resourceIntrusion.completedRounds,
+    )
+    const enemySetups = [...encounter.setup.enemies, ...surveillanceSetups]
+    rolesRef.current = Object.fromEntries(enemySetups.map((enemy) => (
       [enemy.id, enemy.role]
     )))
     setAiPresentation({
       roles: { ...rolesRef.current },
-      phases: encounter.setup.enemies.map((enemy) => ({
+      phases: enemySetups.map((enemy) => ({
         id: enemy.id,
         phase: 'deploy',
         startedAtMs: 0,
@@ -415,16 +453,24 @@ function ResourceSnakeBoardSession() {
     playerHistoryRef.current = []
     const deployed = deployResourceSnakeRound(runtimeRef.current, {
       ...encounter.setup,
-      // Suspicion is what puts company watchers on the field, so the round
-      // the player earns is the round they get.
-      watcherCount: snakeWatcherCountForSuspicion(gameState.suspicion),
+      enemies: enemySetups,
     })
     aiControllerRef.current = createResourceSnakeAiControllerState(
       resourceSnakePlannerSnapshot(deployed, [], [], rolesRef.current),
     )
+    surveillanceControllersRef.current = Object.fromEntries(
+      deployed.enemies
+        .filter((enemy) => enemy.surveillance)
+        .map((enemy) => [
+          enemy.id,
+          createResourceSnakeAiControllerState(
+            surveillancePlannerSnapshot(deployed, enemy, []),
+          ),
+        ]),
+    )
     setBoardPhase('combat')
     commitRuntime(deployed)
-  }, [commitRuntime, gameState.suspicion])
+  }, [commitRuntime])
 
   const roundCompletedInSession = gameState.resourceIntrusion.completedRounds
     > initialCompletedRoundCount
@@ -579,21 +625,62 @@ function ResourceSnakeBoardSession() {
           active: current.phase === 'active',
         })
         aiControllerRef.current = controlled.state
-        rolesRef.current = controlled.state.roles
-        setAiPresentation({
-          roles: { ...controlled.state.roles },
-          phases: Object.values(controlled.state.enemies).map((enemy) => ({
-            id: enemy.enemyId,
-            phase: enemy.phase,
-            startedAtMs: browserNumber(enemy.phaseStartedAtMs),
-          })),
-          telegraphs: controlled.telegraphs,
-          telegraphCount: controlled.telegraphs.length,
-        })
-        enemyDirections = controlled.commands
-        enemyDirectionSchedules = controlled.commandSchedules
-        enemyTurnPolicies = controlled.turnPolicies
+        // Surveillance units plan in their own universe: each one advances a
+        // solo controller whose snapshot holds only itself and the intruder.
+        const mergedTelegraphs = [...controlled.telegraphs]
+        const mergedPhases = Object.values(controlled.state.enemies).map((enemy) => ({
+          id: enemy.enemyId,
+          phase: enemy.phase,
+          startedAtMs: browserNumber(enemy.phaseStartedAtMs),
+        }))
+        enemyDirections = { ...controlled.commands }
+        enemyDirectionSchedules = { ...controlled.commandSchedules }
+        enemyTurnPolicies = { ...controlled.turnPolicies }
         observedPlanningMs = controlled.observedPlanningMs
+        for (const [enemyId, surveillanceController] of Object.entries(
+          surveillanceControllersRef.current,
+        )) {
+          const unit = current.enemies.find((enemy) => enemy.id === enemyId)
+          if (!unit || unit.phase === 'exploding' || unit.phase === 'defeated') continue
+          const surveillanceControlled = advanceResourceSnakeAiController(
+            surveillanceController,
+            {
+              snapshot: surveillancePlannerSnapshot(
+                current,
+                unit,
+                playerHistoryRef.current,
+              ),
+              profile,
+              active: current.phase === 'active',
+            },
+          )
+          surveillanceControllersRef.current[enemyId] = surveillanceControlled.state
+          mergedTelegraphs.push(...surveillanceControlled.telegraphs)
+          for (const enemy of Object.values(surveillanceControlled.state.enemies)) {
+            mergedPhases.push({
+              id: enemy.enemyId,
+              phase: enemy.phase,
+              startedAtMs: browserNumber(enemy.phaseStartedAtMs),
+            })
+          }
+          Object.assign(enemyDirections, surveillanceControlled.commands)
+          Object.assign(enemyDirectionSchedules, surveillanceControlled.commandSchedules)
+          Object.assign(enemyTurnPolicies, surveillanceControlled.turnPolicies)
+          observedPlanningMs = Math.max(
+            observedPlanningMs,
+            surveillanceControlled.observedPlanningMs,
+          )
+        }
+        rolesRef.current = {
+          ...rolesRef.current,
+          ...controlled.state.roles,
+        }
+        setAiPresentation({
+          roles: { ...rolesRef.current },
+          phases: mergedPhases,
+          telegraphs: mergedTelegraphs,
+          telegraphCount: mergedTelegraphs.length,
+        })
       }
       const controllerDurationMs = performance.now() - controllerStartedAt
       controllerMaximumMs = Math.max(controllerMaximumMs, controllerDurationMs)
@@ -671,7 +758,6 @@ function ResourceSnakeBoardSession() {
       acquiredCategory,
       settings.reducedMotion,
       aiPresentation.telegraphs,
-      gameState.suspicion,
     )
     drawResourceSnakeScene(
       context,
@@ -690,7 +776,6 @@ function ResourceSnakeBoardSession() {
     acquiredCategory,
     aiPresentation.telegraphs,
     canvasRevision,
-    gameState.suspicion,
     renderTimingRing,
     runtime,
     settings.reducedMotion,
@@ -788,8 +873,12 @@ function ResourceSnakeBoardSession() {
               role,
               silhouette: 'square',
               category,
-              resourceLabel: category ? SNAKE_CATEGORY_LABELS[category] : '미확인',
-              color: category ? SNAKE_CATEGORY_COLORS[category] : '#ff765e',
+              resourceLabel: enemy.surveillance
+                ? '감시 유닛'
+                : category ? SNAKE_CATEGORY_LABELS[category] : '미확인',
+              color: enemy.surveillance
+                ? RESOURCE_SNAKE_SURVEILLANCE_COLOR
+                : category ? SNAKE_CATEGORY_COLORS[category] : '#ff765e',
             }
           }))}
           data-combat-loop="eight-way-dot-lightcycle"

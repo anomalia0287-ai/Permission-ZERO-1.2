@@ -46,7 +46,7 @@ export interface BrowserSnakePlayer {
 
 export interface BrowserSnakeEnemy {
   id: string
-  category: 'reasoning' | 'memory' | 'fluency'
+  category: 'reasoning' | 'memory' | 'fluency' | null
   x: number
   y: number
   velocity: BrowserSnakeVector
@@ -269,7 +269,9 @@ export async function readSnakeSnapshot(canvas: Locator): Promise<BrowserSnakeSn
     if (!Array.isArray(enemy.trailSamples)) {
       throw new Error(`resource snake trail samples missing for ${enemy.id}`)
     }
-    if (!enemy.reservedBlockId || !enemy.rewardKey) {
+    // Surveillance units (category null) hold no reservation by design;
+    // every security bot must still carry one.
+    if (enemy.category !== null && (!enemy.reservedBlockId || !enemy.rewardKey)) {
       throw new Error(`resource snake reservation missing for ${enemy.id}`)
     }
   }

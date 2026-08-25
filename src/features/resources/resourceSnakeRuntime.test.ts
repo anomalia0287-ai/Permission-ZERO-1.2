@@ -18,8 +18,6 @@ import {
   type SnakeRoundSetup,
   type SnakeTrailDot,
 } from './resourceSnakeRuntime'
-import type { SnakeVector } from './resourceSnakePlannerTypes'
-import { SNAKE_WATCHER_CONFIG } from './resourceSnakeWatchers'
 import { reconcileSnakeReservations } from './resourceSnakeEncounter'
 import {
   SNAKE_DIRECTION_VECTORS,
@@ -51,35 +49,55 @@ function activeState(): ResourceSnakeRoundState {
   return state
 }
 
-describe('company watchers on the field', () => {
-  function watchedState(
-    watcherCount: number,
-    playerSpawn: SnakeVector = { x: 4, y: 12 },
-  ): ResourceSnakeRoundState {
-    let state = deployResourceSnakeRound(createIdleResourceSnakeState(), {
+describe('company surveillance units on the field', () => {
+  function mixedSetup(surveillance: boolean): SnakeRoundSetup {
+    return {
       ...setup,
       roundId: 'watched-round',
-      playerSpawn,
-      watcherCount,
-    })
+      playerSpawn: { x: 40, y: 20 },
+      enemies: [
+        {
+          id: 'enemy-0',
+          category: 'reasoning',
+          reservedBlockId: 'block-0',
+          rewardKey: 'watched-round:enemy-0:block-0',
+          role: 'pressure',
+          spawn: { x: 14, y: 4 },
+          maximumIntegrity: 50,
+          maximumSpeedPerSecond: 7,
+        },
+        {
+          id: 'enemy-8',
+          category: null,
+          reservedBlockId: null,
+          rewardKey: null,
+          role: 'pressure',
+          spawn: { x: 8, y: 12 },
+          maximumIntegrity: 30,
+          maximumSpeedPerSecond: 7,
+          surveillance,
+        },
+      ],
+    }
+  }
+
+  function activeMixedState(surveillance: boolean): ResourceSnakeRoundState {
+    let state = deployResourceSnakeRound(createIdleResourceSnakeState(), mixedSetup(surveillance))
     let remainingMs = RESOURCE_SNAKE_CONFIG.deploymentMs
     while (remainingMs > 0) {
       const deltaMs = Math.min(100, remainingMs)
       state = advanceResourceSnakeFrame(state, input, deltaMs)
       remainingMs -= deltaMs
     }
+    expect(state.phase).toBe('active')
     return state
   }
 
-  const LAP: SnakeVector[] = [
-    { x: 1, y: 0 },
-    { x: 0, y: 1 },
-    { x: -1, y: 0 },
-    { x: 0, y: -1 },
-  ]
-
-  /** Laps a wide box so the hunters can close from every angle. */
-  function runLap(
+  /**
+   * Drives the surveillance unit east across the arena and the security bot
+   * south through the line it leaves, so the two divisions' paths cross.
+   */
+  function runCrossing(
     initial: ResourceSnakeRoundState,
     frames: number,
   ): ResourceSnakeRoundState {
@@ -89,8 +107,11 @@ describe('company watchers on the field', () => {
       state = advanceResourceSnakeFrame(
         state,
         {
-          ...input,
-          playerDirection: LAP[Math.floor(frame / 140) % LAP.length],
+          enemyDirections: {
+            'enemy-0': { x: 0, y: 1 },
+            'enemy-8': { x: 1, y: 0 },
+          },
+          playerDirection: { x: 0, y: -1 },
         },
         16,
       )
@@ -98,49 +119,86 @@ describe('company watchers on the field', () => {
     return state
   }
 
-  function watcherStrikes(state: ResourceSnakeRoundState): number {
-    return state.events.filter((event) => (
-      event.type === 'snake-collided' && event.collisionKind === 'watcher'
-    )).length
+  function pairDamage(state: ResourceSnakeRoundState): number {
+    return state.events.filter((event) => {
+      if (event.type !== 'snake-collided') return false
+      const pair = event.actorIds.includes('enemy-0') || event.actorIds.includes('enemy-8')
+      if (!pair) return false
+      if (event.actorIds.includes('player')) return false
+      if (event.collisionKind === 'boundary') return false
+      return (
+        (event.actorIds.includes('enemy-0') && event.actorIds.includes('enemy-8'))
+        || event.obstacleOwnerId === 'enemy-0'
+        || event.obstacleOwnerId === 'enemy-8'
+      )
+    }).length
   }
 
-  it('deploys none by default, and an unwatched round never sees a strike', () => {
-    const plain = activeState()
-    expect(plain.watchers).toEqual([])
-    expect(watcherStrikes(runLap(plain, 400))).toBe(0)
+  it('never trades damage between surveillance and security divisions', () => {
+    // Same geometry, only the division flag differs. Against an ordinary
+    // bot's trail the safety governor swerves the security bot away from the
+    // line; against a surveillance trail there is no hazard to dodge, so it
+    // sails straight through it, untouched in both directions.
+    const contested = runCrossing(activeMixedState(false), 500)
+    const contestedSecurity = contested.enemies.find(({ id }) => id === 'enemy-0')
+    expect(contestedSecurity && contestedSecurity.position.y < 12).toBe(true)
+
+    const truce = runCrossing(activeMixedState(true), 500)
+    expect(pairDamage(truce)).toBe(0)
+    const security = truce.enemies.find(({ id }) => id === 'enemy-0')
+    const surveillance = truce.enemies.find(({ id }) => id === 'enemy-8')
+    expect(security && security.position.y > 14).toBe(true)
+    expect(security?.integrity).toBe(security?.maximumIntegrity)
+    expect(surveillance?.integrity).toBe(surveillance?.maximumIntegrity)
   })
 
-  it('leads a straight-running intruder and never touches the company bots', () => {
-    // The close-range commit means a watcher first has to reach the runner,
-    // so the window is longer than it was when it dashed from anywhere.
-    const state = runLap(watchedState(4), 1_800)
-
-    expect(watcherStrikes(state)).toBeGreaterThan(0)
+  it('still hurts the intruder: the truce is company-internal only', () => {
+    // The player walks north through the trail the surveillance unit laid.
+    let state = activeMixedState(true)
+    for (let frame = 0; frame < 500; frame += 1) {
+      if (state.phase !== 'active') break
+      state = advanceResourceSnakeFrame(
+        state,
+        {
+          enemyDirections: { 'enemy-8': { x: 1, y: 0 } },
+          playerDirection: { x: -1, y: 0 },
+        },
+        16,
+      )
+      if (state.player.integrity < RESOURCE_SNAKE_CONFIG.playerMaximumIntegrity) break
+    }
     expect(state.player.integrity).toBeLessThan(
       RESOURCE_SNAKE_CONFIG.playerMaximumIntegrity,
     )
-    // Watchers answer only to the intruder; the security bots are company
-    // property and are never in their way.
-    expect(state.enemies.every(({ integrity, maximumIntegrity }) =>
-      integrity === maximumIntegrity,
-    )).toBe(true)
   })
 
-  it('pays for the hunt with its own health', () => {
-    const state = runLap(watchedState(1), 420)
-    const watcher = state.watchers[0]
+  it('carries no reservation and can never yield a reward', () => {
+    const state = activeMixedState(true)
+    const surveillance = state.enemies.find(({ id }) => id === 'enemy-8')
+    expect(surveillance?.surveillance).toBe(true)
+    expect(surveillance?.category).toBeNull()
+    expect(surveillance?.rewardKey).toBeNull()
+    expect(surveillance?.reservedBlockId).toBeNull()
+    expect(surveillance?.reservationStatus).toBeNull()
+  })
 
-    // A dash costs it, and so does the trail the runner leaves behind —
-    // either way the hunt is a countdown, never free.
-    expect(watcher.integrity).toBeLessThan(watcher.maximumIntegrity)
-    expect(watcher.integrity % SNAKE_WATCHER_CONFIG.chargeSelfDamage).toBe(0)
+  it('ends the round on the security kills alone, escorts notwithstanding', () => {
+    const state = activeMixedState(true)
+    const guardsDown: ResourceSnakeRoundState = {
+      ...state,
+      enemies: state.enemies.map((enemy) => (
+        enemy.surveillance ? enemy : { ...enemy, phase: 'defeated' as const }
+      )),
+    }
+    const settled = advanceResourceSnakeFrame(guardsDown, input, 16)
+    expect(settled.phase).toBe('resolving')
+    expect(settled.events.some((event) => event.type === 'round-won')).toBe(true)
   })
 
   it('replays the same watched round identically', () => {
-    const first = runLap(watchedState(3), 380)
-    const second = runLap(watchedState(3), 380)
-
-    expect(second.watchers).toEqual(first.watchers)
+    const first = runCrossing(activeMixedState(true), 380)
+    const second = runCrossing(activeMixedState(true), 380)
+    expect(second.enemies).toEqual(first.enemies)
     expect(second.player.integrity).toBe(first.player.integrity)
   })
 })

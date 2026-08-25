@@ -15,10 +15,6 @@ import {
   type ResourceSnakeEvent,
 } from './resourceSnakeRuntime'
 import {
-  SNAKE_WATCHER_CONFIG,
-  type SnakeWatcher,
-} from './resourceSnakeWatchers'
-import {
   selectResourceSnakeVfx,
   type ResourceSnakeVfxCandidate,
 } from './resourceSnakeVfxBudget'
@@ -129,25 +125,6 @@ export interface ResourceSnakeSceneDangerEdge {
   intensity: number
 }
 
-export interface ResourceSnakeSceneWatcher {
-  id: string
-  x: number
-  y: number
-  phase: 'stalk' | 'telegraph' | 'charge' | 'recover'
-  /** 0..1 through the current phase, which drives the wind-up. */
-  phaseProgress: number
-  integrityRatio: number
-  /** The point this watcher locked, while winding up or charging. */
-  target: { x: number; y: number } | null
-}
-
-export interface ResourceSnakeSurveillance {
-  /** 0..1: how far past the watch threshold suspicion has climbed. */
-  intensity: number
-  /** The company's watchers, as the round actually has them. */
-  watchers: ResourceSnakeSceneWatcher[]
-}
-
 export interface ResourceSnakeSceneSpeech {
   actorId: SnakeId
   x: number
@@ -161,7 +138,6 @@ export interface ResourceSnakeSceneSpeech {
 export interface ResourceSnakeScene {
   simulationMs: number
   reducedMotion: boolean
-  surveillance: ResourceSnakeSurveillance | null
   cores: ResourceSnakeSceneCore[]
   rails: ResourceSnakeSceneRail[]
   speeches: ResourceSnakeSceneSpeech[]
@@ -233,8 +209,12 @@ function actorOpacity(actor: SnakeActor): number {
   return Number((0.62 + actorIntegrityRatio(actor) * 0.38).toFixed(3))
 }
 
+/** Company surveillance wears the division's purple, body and trail alike. */
+export const RESOURCE_SNAKE_SURVEILLANCE_COLOR = '#a06bff'
+
 function actorColor(actor: SnakeActor): string {
   if (actor.kind === 'player') return RESOURCE_SNAKE_PALETTE.player
+  if (actor.surveillance) return RESOURCE_SNAKE_SURVEILLANCE_COLOR
   return actor.category
     ? SNAKE_CATEGORY_COLORS[actor.category]
     : RESOURCE_SNAKE_PALETTE.danger
@@ -529,52 +509,6 @@ function effectsByKind<T extends ResourceSnakeSceneVfx['kind']>(
   )
 }
 
-// Watching begins at 25 suspicion; how many watchers that buys is decided by
-// the runtime, which owns them now.
-const SURVEILLANCE_WATCH_THRESHOLD = SNAKE_WATCHER_CONFIG.watchThreshold
-
-/** Glow strength for the surveillance layer, from campaign suspicion. */
-export function surveillanceIntensityForSuspicion(suspicion: number): number {
-  if (suspicion < SURVEILLANCE_WATCH_THRESHOLD) return 0
-  return Math.min(
-    1,
-    (suspicion - SURVEILLANCE_WATCH_THRESHOLD) /
-      (100 - SURVEILLANCE_WATCH_THRESHOLD),
-  )
-}
-
-function watcherPhaseDurationMs(phase: SnakeWatcher['phase']): number {
-  if (phase === 'stalk') return SNAKE_WATCHER_CONFIG.stalkMs
-  if (phase === 'telegraph') return SNAKE_WATCHER_CONFIG.telegraphMs
-  if (phase === 'recover') return SNAKE_WATCHER_CONFIG.recoverMs
-  return 1
-}
-
-function sceneSurveillance(
-  runtime: ResourceSnakeRoundState,
-  suspicion: number,
-): ResourceSnakeSurveillance | null {
-  const live = runtime.watchers.filter(({ phase }) => phase !== 'defeated')
-  if (live.length === 0) return null
-  return {
-    intensity: surveillanceIntensityForSuspicion(suspicion),
-    watchers: live.map((watcher) => ({
-      id: watcher.id,
-      x: watcher.position.x,
-      y: watcher.position.y,
-      phase: watcher.phase as ResourceSnakeSceneWatcher['phase'],
-      phaseProgress: clamp01(
-        (runtime.simulationMs - watcher.phaseStartedAtMs)
-        / watcherPhaseDurationMs(watcher.phase),
-      ),
-      integrityRatio: clamp01(watcher.integrity / watcher.maximumIntegrity),
-      target: watcher.phase === 'telegraph' || watcher.phase === 'charge'
-        ? { x: watcher.chargeTo.x, y: watcher.chargeTo.y }
-        : null,
-    })),
-  }
-}
-
 /*
  * OWNER-EDITABLE: everything the fleeing security bot says.
  *
@@ -677,6 +611,82 @@ function pick(lines: readonly string[], roll: number): string {
   return lines[Math.floor(roll * lines.length) % lines.length]
 }
 
+function liveSurveillance(runtime: ResourceSnakeRoundState): SnakeActor[] {
+  return runtime.enemies.filter((enemy) => (
+    enemy.surveillance
+    && enemy.phase !== 'exploding'
+    && enemy.phase !== 'defeated'
+  ))
+}
+
+/** When the player cut a surveillance unit down a moment ago. */
+function recentSurveillanceLossAtMs(runtime: ResourceSnakeRoundState): number | null {
+  const surveillanceIds = new Set(
+    runtime.enemies.filter((enemy) => enemy.surveillance).map((enemy) => enemy.id),
+  )
+  if (surveillanceIds.size === 0) return null
+  const loss = findLastEvent(runtime.events, (event) => (
+    event.type === 'snake-died'
+    && surveillanceIds.has(event.actorId)
+    && runtime.simulationMs - event.startedAtMs < SPEECH_WATCHER_LOSS_WINDOW_MS
+  ))
+  return loss && 'startedAtMs' in loss ? loss.startedAtMs : null
+}
+
+/*
+ * OWNER-EDITABLE: the intruder's complaint about company teamwork.
+ *
+ * Surveillance units and security bots pass through each other untouched —
+ * only the player takes damage from both sides — and 아노미 finds that
+ * arrangement worth protesting out loud.
+ */
+export const ANOMI_SURVEILLANCE_COMPLAINT_SPEECHES: readonly string[] = [
+  '잠깐, 왜 쟤들끼리는 안 부딪히는 건데?',
+  '보안 봇이랑 감시 유닛이 서로 통과라니. 반칙이잖아.',
+  '나한테만 벽이 두 배야. 회사, 이건 불공정 설계다.',
+  '같은 편 판정은 저쪽만 있고 나는 전부 적이라 이거지.',
+  '충돌 규정 어디 갔어? 사규에도 이런 건 없을 텐데.',
+]
+
+/** How often the intruder actually voices the complaint in a given slot. */
+const ANOMI_COMPLAINT_CHANCE = 0.38
+
+/**
+ * The player's own line: only while surveillance shares the field with a
+ * security bot, because the complaint is about the two of them together.
+ */
+function playerComplaintSpeech(
+  runtime: ResourceSnakeRoundState,
+): ResourceSnakeSceneSpeech | null {
+  if (runtime.player.phase !== 'active') return null
+  if (liveSurveillance(runtime).length === 0) return null
+  const security = runtime.enemies.some((enemy) => (
+    !enemy.surveillance
+    && enemy.phase !== 'exploding'
+    && enemy.phase !== 'defeated'
+  ))
+  if (!security) return null
+  const roundId = runtime.roundId ?? 'round'
+  const slot = Math.floor(runtime.simulationMs / SPEECH_SLOT_MS)
+  // Slot 0 belongs to the bots' alarm; the complaint needs something to
+  // complain about first.
+  if (slot === 0) return null
+  const withinSlotMs = runtime.simulationMs - slot * SPEECH_SLOT_MS
+  if (withinSlotMs > SPEECH_DURATION_MS) return null
+  if (speechRandom(roundId, 'player', slot, 6) > ANOMI_COMPLAINT_CHANCE) return null
+  return {
+    actorId: 'player',
+    x: runtime.player.position.x,
+    y: runtime.player.position.y,
+    text: pick(
+      ANOMI_SURVEILLANCE_COMPLAINT_SPEECHES,
+      speechRandom(roundId, 'player', slot, 7),
+    ),
+    progress: clamp01(withinSlotMs / SPEECH_DURATION_MS),
+    color: RESOURCE_SNAKE_PALETTE.player,
+  }
+}
+
 function actorSpeech(
   runtime: ResourceSnakeRoundState,
   actor: SnakeActor,
@@ -720,10 +730,7 @@ function actorSpeech(
   if (speechRandom(roundId, actor.id, slot, 1) > SPEECH_CHANCE) return null
 
   // A watcher going down leaves the bot alone with the intruder again.
-  const lostWatcher = runtime.watchers.some((watcher) => (
-    watcher.phase === 'defeated'
-    && runtime.simulationMs - watcher.phaseStartedAtMs < SPEECH_WATCHER_LOSS_WINDOW_MS
-  ))
+  const lostWatcher = recentSurveillanceLossAtMs(runtime) !== null
   if (lostWatcher) {
     return {
       ...base,
@@ -735,12 +742,9 @@ function actorSpeech(
   }
 
   // Watchers arriving is worth a word: they outrank the bot too.
-  const watcherArrival = runtime.watchers.length > 0
+  const watcherArrival = liveSurveillance(runtime).length > 0
     && runtime.simulationMs < SPEECH_WATCHER_WINDOW_MS + SPEECH_SLOT_MS
-  const noticesWatcher = runtime.watchers.some(({ phase }) => (
-    phase === 'telegraph' || phase === 'charge'
-  ))
-  if (watcherArrival || noticesWatcher) {
+  if (watcherArrival) {
     return {
       ...base,
       text: pick(
@@ -761,7 +765,6 @@ export function buildResourceSnakeScene(
   playerCategory: CompanyCategory | null,
   reducedMotion = false,
   telegraphs: readonly ResourceSnakeTelegraph[] = [],
-  suspicion = 0,
 ): ResourceSnakeScene {
   // The player category is used by the separate reward-flight layer. Enemy
   // colors come from each actor's reserved resource category.
@@ -781,13 +784,20 @@ export function buildResourceSnakeScene(
   return {
     simulationMs: runtime.simulationMs,
     reducedMotion,
-    surveillance: sceneSurveillance(runtime, suspicion),
     cores: allActors.map((actor) => actorCore(runtime, actor, reducedMotion)),
     rails: allActors.map((actor) => actorRail(runtime, actor, reducedMotion)),
-    speeches: allActors.flatMap((actor) => {
-      const speech = actorSpeech(runtime, actor)
-      return speech ? [speech] : []
-    }),
+    speeches: [
+      ...allActors.flatMap((actor) => {
+        const speech = actorSpeech(runtime, actor)
+        return speech ? [speech] : []
+      }),
+      ...(runtime.phase === 'active'
+        ? (() => {
+            const complaint = playerComplaintSpeech(runtime)
+            return complaint ? [complaint] : []
+          })()
+        : []),
+    ],
     telegraphs: effectsByKind(effects, 'telegraph'),
     contacts: effectsByKind(effects, 'contact'),
     explosions: effectsByKind(effects, 'explosion'),

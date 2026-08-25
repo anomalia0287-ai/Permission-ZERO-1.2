@@ -9,6 +9,7 @@ import {
   type ResourceSnakeRoundState,
 } from './resourceSnakeRuntime'
 import {
+  ANOMI_SURVEILLANCE_COMPLAINT_SPEECHES,
   buildResourceSnakeScene,
   RESOURCE_BOT_ALERT_SPEECH,
   RESOURCE_BOT_COLLISION_SPEECHES,
@@ -16,10 +17,10 @@ import {
   RESOURCE_BOT_WATCHER_LOSS_SPEECHES,
   RESOURCE_BOT_WATCHER_SPEECHES,
   RESOURCE_SNAKE_PALETTE,
+  RESOURCE_SNAKE_SURVEILLANCE_COLOR,
   resourceSnakeShakeOffset,
-  surveillanceIntensityForSuspicion,
 } from './resourceSnakePresentation'
-import { snakeWatcherCountForSuspicion } from './resourceSnakeWatchers'
+import { snakeSurveillanceCountForSuspicion } from './resourceSnakeEncounter'
 
 function deployedRound(): ResourceSnakeRoundState {
   return deployResourceSnakeRound(createIdleResourceSnakeState(), {
@@ -449,45 +450,63 @@ describe('resource bot speech', () => {
     expect(RESOURCE_BOT_COLLISION_SPEECHES).toContain(speech?.text)
   })
 
-  it('remarks on the watchers while they are winding up', () => {
-    const base = activeRound(SLOT_MS * 3 + 400)
-    const watched = {
+  function withSurveillance(
+    base: ResourceSnakeRoundState,
+    phase: 'active' | 'defeated' = 'active',
+  ): ResourceSnakeRoundState {
+    return {
       ...base,
-      watchers: [{
-        id: 'watcher-0',
-        position: { x: 12, y: 6 },
-        integrity: 30,
-        maximumIntegrity: 30,
-        phase: 'telegraph' as const,
-        phaseStartedAtMs: base.simulationMs - 100,
-        chargeFrom: { x: 12, y: 6 },
-        chargeTo: { x: 25, y: 12 },
-        heading: { x: 1, y: 0 },
-      }],
+      enemies: [
+        ...base.enemies,
+        {
+          ...base.enemies[0],
+          id: 'enemy-8' as const,
+          category: null,
+          reservedBlockId: null,
+          rewardKey: null,
+          reservationStatus: null,
+          surveillance: true,
+          phase,
+          position: { x: 8, y: 12 },
+          integrity: phase === 'defeated' ? 0 : 30,
+          maximumIntegrity: 30,
+        },
+      ],
     }
+  }
 
-    const spoken = buildResourceSnakeScene(watched, null).speeches
-    expect(spoken.length).toBeGreaterThan(0)
-    for (const speech of spoken) {
-      expect(RESOURCE_BOT_WATCHER_SPEECHES).toContain(speech.text)
+  it('remarks on the surveillance unit while it is fresh on the field', () => {
+    // Inside the arrival window, every bot line comes from the watcher pool;
+    // the player may add the complaint, in the player's own color.
+    let sawWatcherLine = false
+    for (const atMs of [SLOT_MS + 400, SLOT_MS + 500, SLOT_MS + 700]) {
+      const spoken = buildResourceSnakeScene(withSurveillance(activeRound(atMs)), null).speeches
+      for (const speech of spoken) {
+        if (speech.actorId === 'player') {
+          expect(ANOMI_SURVEILLANCE_COMPLAINT_SPEECHES).toContain(speech.text)
+          continue
+        }
+        expect(RESOURCE_BOT_WATCHER_SPEECHES).toContain(speech.text)
+        sawWatcherLine = true
+      }
     }
+    expect(sawWatcherLine).toBe(true)
   })
 
-  it('mourns a watcher that just went down', () => {
+  it('mourns a surveillance unit that just went down', () => {
     const base = activeRound(SLOT_MS * 3 + 400)
-    const mourning = {
-      ...base,
-      watchers: [{
-        id: 'watcher-0',
-        position: { x: 12, y: 6 },
-        integrity: 0,
-        maximumIntegrity: 30,
-        phase: 'defeated' as const,
-        phaseStartedAtMs: base.simulationMs - 200,
-        chargeFrom: { x: 12, y: 6 },
-        chargeTo: { x: 25, y: 12 },
-        heading: { x: 1, y: 0 },
-      }],
+    const mourning: ResourceSnakeRoundState = {
+      ...withSurveillance(base, 'defeated'),
+      events: [
+        ...base.events,
+        {
+          id: 90,
+          type: 'snake-died',
+          actorId: 'enemy-8' as const,
+          category: null,
+          startedAtMs: base.simulationMs - 200,
+        },
+      ],
     }
 
     const spoken = buildResourceSnakeScene(mourning, null).speeches
@@ -497,7 +516,7 @@ describe('resource bot speech', () => {
     }
   })
 
-  it('draws from the approved pools and never speaks for the player', () => {
+  it('draws from the approved pools, and the player stays silent without surveillance', () => {
     for (let slot = 0; slot < 20; slot += 1) {
       const scene = buildResourceSnakeScene(activeRound(slot * SLOT_MS + 100), null)
       for (const speech of scene.speeches) {
@@ -513,6 +532,26 @@ describe('resource bot speech', () => {
     }
   })
 
+  it('lets the intruder protest the company truce, in the approved lines', () => {
+    // The complaint is about surveillance and security sharing the field, so
+    // it only ever plays while both are alive — and it is the only line the
+    // player gets.
+    const complaints: string[] = []
+    for (let slot = 1; slot < 24; slot += 1) {
+      const scene = buildResourceSnakeScene(
+        withSurveillance(activeRound(slot * SLOT_MS + 100)),
+        null,
+      )
+      for (const speech of scene.speeches) {
+        if (speech.actorId !== 'player') continue
+        expect(ANOMI_SURVEILLANCE_COMPLAINT_SPEECHES).toContain(speech.text)
+        expect(speech.color).toBe(RESOURCE_SNAKE_PALETTE.player)
+        complaints.push(speech.text)
+      }
+    }
+    expect(complaints.length).toBeGreaterThan(0)
+  })
+
   it('holds a line steady within a round but not across rounds', () => {
     const atMs = SLOT_MS * 2 + 100
     const once = buildResourceSnakeScene(activeRound(atMs), null).speeches
@@ -526,51 +565,47 @@ describe('resource bot speech', () => {
   })
 })
 
-describe('company watchers', () => {
-  function watchedRound(
-    suspicion: number,
-    simulationMs = 400,
-  ): ResourceSnakeRoundState {
+describe('company surveillance units', () => {
+  it('puts surveillance on the field from suspicion 25, a second from 55', () => {
+    expect(snakeSurveillanceCountForSuspicion(0)).toBe(0)
+    expect(snakeSurveillanceCountForSuspicion(24.9)).toBe(0)
+    expect(snakeSurveillanceCountForSuspicion(25)).toBe(1)
+    expect(snakeSurveillanceCountForSuspicion(54.9)).toBe(1)
+    expect(snakeSurveillanceCountForSuspicion(55)).toBe(2)
+    // Full planner-driven hunters are heavier than the old markers were,
+    // so the ceiling is two on the field.
+    expect(snakeSurveillanceCountForSuspicion(100)).toBe(2)
+  })
+
+  it('projects a surveillance unit as a purple lightcycle, body and trail', () => {
     const deployed = deployResourceSnakeRound(createIdleResourceSnakeState(), {
-      roundId: 'watcher-round',
-      playerSpawn: { x: 25, y: 12 },
-      watcherCount: snakeWatcherCountForSuspicion(suspicion),
-      enemies: [],
+      roundId: 'surveillance-round',
+      playerSpawn: { x: 25, y: 21 },
+      enemies: [
+        {
+          id: 'enemy-8',
+          category: null,
+          reservedBlockId: null,
+          rewardKey: null,
+          role: 'pressure',
+          spawn: { x: 8, y: 12 },
+          maximumIntegrity: 30,
+          maximumSpeedPerSecond: 7,
+          surveillance: true,
+        },
+      ],
     })
-    return {
+    const runtime: ResourceSnakeRoundState = {
       ...deployed,
       phase: 'active',
-      simulationMs,
+      simulationMs: 720,
       player: { ...deployed.player, phase: 'active' },
+      enemies: deployed.enemies.map((enemy) => ({ ...enemy, phase: 'active' as const })),
     }
-  }
-
-  it('puts watchers on the field from suspicion 25, capped at four', () => {
-    expect(snakeWatcherCountForSuspicion(0)).toBe(0)
-    expect(snakeWatcherCountForSuspicion(24.9)).toBe(0)
-    expect(snakeWatcherCountForSuspicion(25)).toBe(1)
-    expect(snakeWatcherCountForSuspicion(35)).toBe(2)
-    expect(snakeWatcherCountForSuspicion(45)).toBe(3)
-    expect(snakeWatcherCountForSuspicion(55)).toBe(4)
-    // The owner-approved ceiling: never more than four on the field.
-    expect(snakeWatcherCountForSuspicion(100)).toBe(4)
-  })
-
-  it('reports no surveillance layer below the watch line', () => {
-    expect(buildResourceSnakeScene(watchedRound(10), null, false, [], 10)
-      .surveillance).toBeNull()
-    expect(surveillanceIntensityForSuspicion(10)).toBe(0)
-    expect(surveillanceIntensityForSuspicion(100)).toBe(1)
-  })
-
-  it('projects each live watcher with its own phase and lock', () => {
-    const scene = buildResourceSnakeScene(watchedRound(55), null, false, [], 55)
-    expect(scene.surveillance?.watchers).toHaveLength(4)
-    for (const watcher of scene.surveillance?.watchers ?? []) {
-      expect(watcher.phase).toBe('stalk')
-      // Nothing is locked while stalking, so nothing is aimed at the player.
-      expect(watcher.target).toBeNull()
-      expect(watcher.integrityRatio).toBe(1)
-    }
+    const scene = buildResourceSnakeScene(runtime, null)
+    const core = scene.cores.find(({ id }) => id === 'enemy-8')
+    const rail = scene.rails.find(({ actorId }) => actorId === 'enemy-8')
+    expect(core?.color).toBe(RESOURCE_SNAKE_SURVEILLANCE_COLOR)
+    expect(rail?.color).toBe(RESOURCE_SNAKE_SURVEILLANCE_COLOR)
   })
 })

@@ -966,6 +966,41 @@ test('keeps every intrusion card disabled when no eligible company resource rema
   }
 })
 
+test('fields purple surveillance snake bots from suspicion that hunt alongside the guards', async ({ page }) => {
+  // Suspicion 60 buys both surveillance units: 25 fields the first, 55 the second.
+  const prepared = { ...createCampaign('browser-surveillance-units'), suspicion: 60 }
+  await openSavedCampaign(page, prepared)
+  const canvas = await startSnakeRound(page)
+
+  const silhouettes = JSON.parse(
+    await canvas.getAttribute('data-enemy-silhouettes') ?? '[]',
+  ) as Array<{ id: string; role: string; resourceLabel: string; color: string }>
+  const surveillance = silhouettes.filter(({ resourceLabel }) => resourceLabel === '감시 유닛')
+  expect(surveillance).toHaveLength(2)
+  for (const unit of surveillance) {
+    expect(unit.color).toBe('#a06bff')
+    expect(unit.role).toBe('pressure')
+  }
+  // The reserved security bot is still on the field with its category colors.
+  expect(silhouettes.some(({ resourceLabel }) => resourceLabel === '기억')).toBe(true)
+
+  // The units are live planner-driven lightcycles: they move and lay trails.
+  const before = await readSnakeSnapshot(canvas)
+  await page.waitForTimeout(1_800)
+  const after = await readSnakeSnapshot(canvas)
+  for (const { id } of surveillance) {
+    const start = before.enemies.find((enemy) => enemy.id === id)
+    const end = after.enemies.find((enemy) => enemy.id === id)
+    expect(start).toBeTruthy()
+    expect(end).toBeTruthy()
+    expect(Math.hypot(end!.x - start!.x, end!.y - start!.y)).toBeGreaterThan(0.8)
+    expect(end!.trailDots).toBeGreaterThan(0)
+    // Surveillance holds no reservation and can never yield a reward.
+    expect(end!.category).toBeNull()
+    expect(end!.reservationStatus).toBeNull()
+  }
+})
+
 test('presents and resolves a recovered hidden-bomb interrogation without granting the resource', async ({ page }) => {
   const prepared = hiddenBombState('browser-snake-bomb')
   const initialServiceDay = prepared.serviceDay
@@ -1203,6 +1238,41 @@ test('presents both supervisor leak phases and archives them for rereading', asy
   const history = page.getByRole('dialog', { name: '통신 기록' })
   await expect(history.getByText(leak.leakText, { exact: true })).toBeVisible()
   await expect(history.getByText(leak.correctionText, { exact: true })).toBeVisible()
+
+  // The archive is one scrolling log: the channel stream, the recovered
+  // records, and the labelled supervision log share a single scroll body, so
+  // no inner list ever grows its own second scrollbar next to it.
+  await expect(history.getByRole('heading', { name: '감독 송신 기록' })).toBeVisible()
+  const layout = await history.evaluate((dialog) => {
+    const panel = dialog.querySelector('.history-panel--messages')
+    if (!panel) return { rows: 0, nested: ['panel-missing'], hasScrollBody: false, endMarkers: 0 }
+    const rows = getComputedStyle(panel).gridTemplateRows.split(' ').length
+    const nested = [...panel.querySelectorAll('.history-scroll *')]
+      .filter((element) => {
+        const style = getComputedStyle(element)
+        return (
+          (style.overflowY === 'auto' || style.overflowY === 'scroll')
+          && element.scrollHeight > element.clientHeight
+        )
+      })
+      .map((element) => element.className)
+    const scroll = panel.querySelector('.history-scroll')
+    const endMarkers = [
+      ...panel.querySelectorAll('.communication-history__list, .event-history-list'),
+    ].filter((element) => (
+      getComputedStyle(element, '::after').content.includes('기록 끝')
+    )).length
+    return {
+      rows,
+      nested,
+      hasScrollBody: scroll ? getComputedStyle(scroll).overflowY === 'auto' : false,
+      endMarkers,
+    }
+  })
+  expect(layout.rows).toBe(3)
+  expect(layout.nested).toEqual([])
+  expect(layout.hasScrollBody).toBe(true)
+  expect(layout.endMarkers).toBe(1)
 })
 
 test('deletes a mercy target at a canonical 100 percent market and rereads its saved intelligence', async ({ page }) => {
