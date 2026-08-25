@@ -1153,8 +1153,12 @@ test('recovers a confidential file through the hacking UI and keeps its archive 
   await page.getByRole('button', { name: '확장 열기' }).click()
   await page.getByRole('tab', { name: '정보' }).click()
   const recovery = page.getByRole('region', { name: '미분류 데이터 복구' })
-  await expect(recovery).toContainText('예상 효용: 없음')
-  await page.getByRole('button', { name: '미분류 데이터 복구 리소스 지출' }).click()
+  // The card states its bound instead of claiming the spend buys nothing.
+  await expect(recovery).toContainText('복구 0/3')
+  await expect(recovery).not.toContainText('예상 효용: 없음')
+  await page.getByRole('button', {
+    name: '미분류 데이터 복구 리소스 지출, 0/3 복구됨',
+  }).click()
   await page.getByRole('button', { name: '확장 닫기' }).click()
 
   await expect.poll(async () =>

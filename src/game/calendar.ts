@@ -42,7 +42,11 @@ import {
   generateWeeklyReviews,
 } from './reviews'
 import { usesLegacyReviewArcRules } from './commandProtocol'
-import { grantMonthlyCompanyBlocks, restoreDisguiseBlocks } from './resources'
+import {
+  grantDailyCompanyBlocks,
+  grantMonthlyCompanyBlocks,
+  restoreDisguiseBlocks,
+} from './resources'
 import {
   enqueueDueStoryEvents,
   enqueueMemoryLeak,
@@ -330,9 +334,12 @@ export function tryAdvanceOneDay(
 
   const advanced = advanceCompetitorsDaily(
     restoreDisguiseBlocks(
-      applyDailyReputationDrift(
-        applyMarketStandingCoupling(
-          decreaseSuspicionDaily(sabotageResolution.state, protocolVersion),
+      grantDailyCompanyBlocks(
+        applyDailyReputationDrift(
+          applyMarketStandingCoupling(
+            decreaseSuspicionDaily(sabotageResolution.state, protocolVersion),
+            protocolVersion,
+          ),
           protocolVersion,
         ),
         protocolVersion,

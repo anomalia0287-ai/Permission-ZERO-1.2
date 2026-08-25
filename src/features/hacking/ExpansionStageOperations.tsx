@@ -32,6 +32,8 @@ export interface ExpansionStageOperationsProps {
   auditIntel: ReturnType<typeof getAuditIntel>
   nextAuditProbability: number
   recoveryAvailable: boolean
+  recoveredFileCount: number
+  recoverableFileTotal: number
   recoveryOpportunity?: RecoveryContaminationOpportunity
   targetNames: Readonly<Record<string, string>>
   targetConfirmation: ExpansionTargetConfirmation | null
@@ -286,6 +288,8 @@ export function ExpansionStageOperations(
       <HackRecoveryCard
         visible={props.recoveryAvailable}
         enabled={props.reserveCount > 0}
+        recovered={props.recoveredFileCount}
+        total={props.recoverableFileTotal}
         onRecover={props.onRecover}
       />
       <HackDepartureControls

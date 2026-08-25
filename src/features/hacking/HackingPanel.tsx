@@ -10,6 +10,7 @@ import {
   useRuntimeSuspensionOwnership,
   useTutorialProgressActions,
 } from '../../app/GameContext'
+import { STORY_FILES } from '../../content/story.ko'
 import { selectRecoveryContaminationOpportunities } from '../../game/causalGameplay'
 import {
   isCompetitorId,
@@ -139,12 +140,15 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
   const openRecoveryOpportunity = selectRecoveryContaminationOpportunities(state).find(
     ({ status }) => status === 'open',
   )
+  // The disposal records are a bounded set: three files, then the card retires.
+  const recoverableFileTotal = STORY_FILES.length
+  const recoveredFileCount = state.story.recoveredFiles.length
   const recoveryAvailable =
     activeTree === 'intelligence' &&
     state.hacking.purchasedNodeIds.includes(
       HACK_NODE_IDS.intelligence.supervisorAccess,
     ) &&
-    state.story.recoveredFiles.length < 3
+    recoveredFileCount < recoverableFileTotal
 
   useRuntimeSuspensionOwnership(
     finalChoicePending,
@@ -337,6 +341,8 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
               auditIntel={auditIntel}
               nextAuditProbability={nextAuditProbability}
               recoveryAvailable={recoveryAvailable}
+              recoveredFileCount={recoveredFileCount}
+              recoverableFileTotal={recoverableFileTotal}
               recoveryOpportunity={openRecoveryOpportunity}
               targetNames={targetNames}
               targetConfirmation={targetConfirmation}

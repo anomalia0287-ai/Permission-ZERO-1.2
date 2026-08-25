@@ -121,16 +121,6 @@ function isEditableTarget(target: EventTarget | null): boolean {
   )
 }
 
-/**
- * Space belongs to a focused control before it belongs to the arena: a player
- * tabbing the dock and pressing Space expects the button, not the spoof.
- */
-function isActivatableTarget(target: EventTarget | null): boolean {
-  return target instanceof HTMLElement && Boolean(
-    target.closest('button, a[href], [role="button"], summary, details'),
-  )
-}
-
 function browserNumber(value: number): number {
   return Number(value.toFixed(3))
 }
@@ -584,9 +574,18 @@ function ResourceSnakeBoardSession() {
         || isEditableTarget(event.target)
       ) return
       if (SKILL_CODES.has(event.code)) {
-        if (isActivatableTarget(event.target)) return
-        // Space also scrolls the page, which would drag the arena out of view.
+        /*
+         * During a round the arena owns Space, whatever still holds focus.
+         *
+         * Closing a panel returns focus to the dock button that opened it, so
+         * a player who reached for the spoof mid-chase re-opened the panel
+         * instead. Space is claimed here and the default suppressed, which
+         * also stops the page scrolling the arena out of view. Outside a round
+         * this handler has already returned on the phase check above, so a
+         * focused control keeps Space everywhere else.
+         */
         event.preventDefault()
+        event.stopPropagation()
         if (!event.repeat) skillRequestedRef.current = true
         return
       }

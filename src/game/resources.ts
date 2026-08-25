@@ -1,8 +1,10 @@
+import { CONTINUOUS_SUPPLY_COMMAND_PROTOCOL_VERSION } from './commandProtocol'
 import { DEMO_PROFILE_02 } from './config'
 import {
   COMPANY_CATEGORIES,
   type BlockLocation,
   type CampaignState,
+  type CommandProtocolVersion,
   type CompanyCategory,
   type ResourceBlock,
   type ResourceState,
@@ -183,6 +185,68 @@ export function grantMonthlyCompanyBlocks(state: CampaignState): CampaignState {
     }
   }
 
+  return resources === state.resources ? state : { ...state, resources }
+}
+
+/*
+ * The company keeps a skeleton crew in every division (protocol v14+).
+ *
+ * Supply used to arrive once a month in a lump while theft ran continuously,
+ * so a category the player worked through sat empty until the next month
+ * started — up to twenty-one consecutive days with an intrusion card reading
+ * "대상 없음", locking the player out of a resource line by the clock.
+ *
+ * This is a floor, not a flow. A first pass restocked freely and quietly
+ * removed the game's central tension: company performance is its block count,
+ * so replacing what was taken meant stealing no longer cost reputation, and
+ * every measured playstyle won. The company instead keeps each division just
+ * barely staffed — enough that there is always something to raid, never
+ * enough to undo the damage. A gutted division stays gutted.
+ */
+export function grantDailyCompanyBlocks(
+  state: CampaignState,
+  protocolVersion: CommandProtocolVersion,
+): CampaignState {
+  if (protocolVersion < CONTINUOUS_SUPPLY_COMMAND_PROTOCOL_VERSION) return state
+  if (state.story.endingId !== null) return state
+
+  const floor = DEMO_PROFILE_02.resources.dailyCompanyFloorPerCategory
+  let resources = state.resources
+  for (const category of COMPANY_CATEGORIES) {
+    const held = resources.company[category].filter(Boolean).length
+    const missing = Math.min(
+      DEMO_PROFILE_02.resources.dailyCompanyBlocksPerCategory,
+      Math.max(0, floor - held),
+    )
+    for (let granted = 0; granted < missing; granted += 1) {
+      const cellIndex = resources.company[category].findIndex(
+        (blockId) => blockId === null,
+      )
+      if (cellIndex < 0) break
+
+      const sequence = resources.nextBlockSequence
+      const blockId = `company-${String(sequence).padStart(6, '0')}`
+      const cells = [...resources.company[category]]
+      cells[cellIndex] = blockId
+      resources = {
+        ...resources,
+        company: { ...resources.company, [category]: cells },
+        blocks: {
+          ...resources.blocks,
+          [blockId]: {
+            id: blockId,
+            origin: category,
+            location: { kind: 'company', category, cellIndex },
+            contribution: 'normal',
+            hiddenBomb: false,
+            disguisedFrom: null,
+            recoverOnServiceDay: null,
+          },
+        },
+        nextBlockSequence: sequence + 1,
+      }
+    }
+  }
   return resources === state.resources ? state : { ...state, resources }
 }
 

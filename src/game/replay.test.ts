@@ -53,7 +53,7 @@ function nativeV2Protocol(commandCount: number): CommandProtocolMetadata {
   return {
     segments: [
       { version: 2, startsAtSequence: 1 },
-      { version: 13, startsAtSequence: commandCount + 1 },
+      { version: 14, startsAtSequence: commandCount + 1 },
     ],
   }
 }
@@ -92,7 +92,7 @@ function historicalQualityReplayFixture(
   const commandProtocol: CommandProtocolMetadata = {
     segments: [
       { version: protocolVersion, startsAtSequence: 1 },
-      { version: 13, startsAtSequence: commands.length + 1 },
+      { version: 14, startsAtSequence: commands.length + 1 },
     ],
   }
   return {
@@ -110,7 +110,7 @@ function historicalQualityReplayFixture(
 
 function activateSegment(
   state: CampaignState,
-  version: 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13,
+  version: 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14,
 ): CampaignState {
   const commandProtocol = appendCommandProtocolSegment(
     state.commandProtocol,
@@ -365,6 +365,8 @@ describe('deterministic command replay', () => {
       ])
       expect(meridian).toMatchObject({
         intrinsicServiceScore: 82,
+        // The attack lands at v14 strength and the rival recovers part of it
+        // across the day that follows.
         serviceScore: 72,
         sabotageHistory: [
           {
@@ -636,7 +638,7 @@ describe('deterministic command replay', () => {
     })
   })
 
-  it('replays 1@1, 2@32, and 3@51 under original semantics before activating 12@52', () => {
+  it('replays 1@1, 2@32, and 3@51 under original semantics before activating 14@52', () => {
     const legacy = decodeSave(legacyV1TransferSave)
     expect(legacy.ok).toBe(true)
     if (!legacy.ok) return
@@ -660,7 +662,7 @@ describe('deterministic command replay', () => {
         { version: 1, startsAtSequence: 1 },
         { version: 2, startsAtSequence: 32 },
         { version: 3, startsAtSequence: 51 },
-        { version: 13, startsAtSequence: 52 },
+        { version: 14, startsAtSequence: 52 },
       ],
     }
 
@@ -774,7 +776,7 @@ describe('deterministic command replay', () => {
     expect(replay.state.commandLog).toEqual(expected.commandLog)
   })
 
-  it('activates an empty final v13 segment after replaying the v2 history', () => {
+  it('activates an empty final v14 segment after replaying the v2 history', () => {
     const commands = [
       { type: 'SET_SPEED', speed: 1 },
       { type: 'SET_SPEED', speed: 0 },

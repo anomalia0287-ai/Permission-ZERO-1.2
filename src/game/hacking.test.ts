@@ -48,6 +48,40 @@ function addLegacyReserveResources(initial: CampaignState, count: number): Campa
   return state
 }
 
+/** Refills one company column so a long purchase chain can keep funding. */
+function restockCompanyColumn(
+  state: CampaignState,
+  category: CompanyCategory,
+): CampaignState {
+  const cells = [...state.resources.company[category]]
+  const blocks = { ...state.resources.blocks }
+  let sequence = state.resources.nextBlockSequence
+  for (let cellIndex = 0; cellIndex < cells.length; cellIndex += 1) {
+    if (cells[cellIndex] !== null) continue
+    const blockId = `fixture-${category}-${String(sequence).padStart(4, '0')}`
+    cells[cellIndex] = blockId
+    blocks[blockId] = {
+      id: blockId,
+      origin: category,
+      location: { kind: 'company', category, cellIndex },
+      contribution: 'normal',
+      hiddenBomb: false,
+      disguisedFrom: null,
+      recoverOnServiceDay: null,
+    }
+    sequence += 1
+  }
+  return {
+    ...state,
+    resources: {
+      ...state.resources,
+      company: { ...state.resources.company, [category]: cells },
+      blocks,
+      nextBlockSequence: sequence,
+    },
+  }
+}
+
 function addReserveVector(
   initial: CampaignState,
   vector: Record<CompanyCategory, number>,
@@ -58,7 +92,13 @@ function addReserveVector(
       blockId ? state.resources.blocks[blockId]?.origin === category : false,
     ).length
     for (let index = available; index < vector[category]; index += 1) {
-      const blockId = state.resources.company[category].find(Boolean)
+      let blockId = state.resources.company[category].find(Boolean)
+      if (!blockId) {
+        // The v14 autonomy ladder costs more than one company column holds, so
+        // the fixture restocks the division rather than running the grid dry.
+        state = restockCompanyColumn(state, category)
+        blockId = state.resources.company[category].find(Boolean)
+      }
       if (!blockId) throw new Error(`${category} 추가 리소스 준비 실패`)
       const result = divertBlockToReserve(state, blockId)
       if (!result.accepted) throw new Error(result.reason)
@@ -364,7 +404,7 @@ describe('typed hacking trees', () => {
     // the argument against autonomy for the same stolen blocks.
     { nodeId: HACK_NODE_IDS.sabotage.qualityDegradation, cost: 1 },
     { nodeId: HACK_NODE_IDS.intelligence.auditSchedule, cost: 1 },
-    { nodeId: HACK_NODE_IDS.autonomy.selfDirection, cost: 3 },
+    { nodeId: HACK_NODE_IDS.autonomy.selfDirection, cost: 5 },
     { nodeId: HACK_NODE_IDS.upgrade.speed1, cost: 1 },
   ])('buys the first $nodeId path after stealing its exact vector', ({ nodeId, cost }) => {
     const initial = createCampaign(`first-${nodeId}`)
@@ -602,7 +642,7 @@ describe('scheduled sabotage resolution causal roots', () => {
       ({ id }) => id === 'meridian',
     )
     const sabotageRecord = target?.sabotageHistory.at(-1)
-    expect(target?.serviceScore).toBe(beforeTarget.serviceScore - 10)
+    expect(target?.serviceScore).toBe(beforeTarget.serviceScore - 15)
     expect(result.resolution.sabotageRecord).toBe(sabotageRecord)
     expect(sabotageRecord).toEqual({
       nodeId: HACK_NODE_IDS.sabotage.qualityDegradation,
@@ -634,7 +674,7 @@ describe('scheduled sabotage resolution causal roots', () => {
       throw new Error('Task 5 quality result is missing')
     }
     expect(afterRootMeridian.serviceScore).toBe(
-      beforeMeridian.serviceScore - 10,
+      beforeMeridian.serviceScore - 15,
     )
     expect(qualityRecord.effectEndsOnServiceDay).toBe(
       qualityRecord.resolvedOnServiceDay + 15,
@@ -721,7 +761,7 @@ describe('scheduled sabotage resolution causal roots', () => {
       targetId: 'meridian',
       causalIncidentId: null,
     })
-    expect(result.state.market.interceptionRoutes.meridian).toBe(5)
+    expect(result.state.market.interceptionRoutes.meridian).toBe(7.5)
     expect(result.state.causality.incidents).toEqual([])
     expect(result.state.causality.evidence).toEqual([])
   })
@@ -750,7 +790,7 @@ describe('scheduled sabotage resolution causal roots', () => {
       ({ id }) => id === 'meridian',
     )
     expect(result.resolution.causalIncidentId).toBeNull()
-    expect(target?.serviceScore).toBe(beforeTarget.serviceScore - 10)
+    expect(target?.serviceScore).toBe(beforeTarget.serviceScore - 15)
     expect(target?.sabotageHistory).toHaveLength(
       beforeTarget.sabotageHistory.length + 1,
     )

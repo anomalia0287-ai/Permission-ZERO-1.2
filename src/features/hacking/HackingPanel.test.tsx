@@ -380,9 +380,9 @@ describe('HackingPanel stage-scene expansion UI', () => {
     fireEvent.click(screen.getByRole('tab', { name: '정보' }))
 
     const recovery = screen.getByRole('region', { name: '미분류 데이터 복구' })
-    expect(recovery).toHaveTextContent('필요 리소스: 1')
+    expect(recovery).toHaveTextContent('필요 리소스 1개')
     fireEvent.click(screen.getByRole('button', {
-      name: '미분류 데이터 복구 리소스 지출',
+      name: '미분류 데이터 복구 리소스 지출, 0/3 복구됨',
     }))
     expect(screen.getByLabelText('reserve count')).toHaveTextContent('0')
     expect(screen.getByLabelText('recovered archive')).toHaveTextContent('1')

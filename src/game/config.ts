@@ -22,6 +22,13 @@ export const DEMO_PROFILE_02 = {
      */
     monthlyCompanyBlocksMinimum: 3,
     monthlyCompanyBlocksMaximum: 7,
+    /**
+     * Daily top-up per category, and the level it tops up to (protocol v14+).
+     * The floor is deliberately far below the sixteen-cell grid: it exists so
+     * an intrusion card always has a target, not to repair the damage.
+     */
+    dailyCompanyBlocksPerCategory: 1,
+    dailyCompanyFloorPerCategory: 3,
     legacyReserveCapacity: 18,
     legacyStartingReserveResources: 3,
     diversionSuspicion: 2.4,

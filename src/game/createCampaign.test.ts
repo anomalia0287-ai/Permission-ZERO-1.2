@@ -5,7 +5,7 @@ import { journalToArray } from './journal'
 import { COMPANY_CATEGORIES } from './model'
 
 describe('createCampaign', () => {
-  it('creates only native protocol v13 with causal and resource rules v2', () => {
+  it('creates only native protocol v14 with causal and resource rules v2', () => {
     const campaign = createCampaign('native-v6')
 
     expect(campaign).toMatchObject({
@@ -14,7 +14,7 @@ describe('createCampaign', () => {
         legacyReviewPrefixCount: 0,
       },
       commandProtocol: {
-        segments: [{ version: 13, startsAtSequence: 1 }],
+        segments: [{ version: 14, startsAtSequence: 1 }],
       },
       causality: { rulesVersion: 2 },
       resources: { rulesVersion: 2 },

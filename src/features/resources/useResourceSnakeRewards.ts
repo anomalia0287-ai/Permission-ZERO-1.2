@@ -47,7 +47,7 @@ export function useResourceSnakeRewards(
     if (requests.length === 0) return
     for (const request of requests) {
       handledRewardKeysRef.current.add(request.rewardKey)
-      for (const command of resourceSnakeRewardCommands(request)) dispatch(command)
+      for (const command of resourceSnakeRewardCommands(request, gameState)) dispatch(command)
       pendingRef.current.push({ request, issuedState: gameState })
     }
   }, [commitRuntime, dispatch, gameState, runtime])

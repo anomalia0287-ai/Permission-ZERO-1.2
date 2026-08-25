@@ -334,7 +334,7 @@ describe('GameProvider', () => {
     )
   })
 
-  it('reports the active protocol for native v13 clipboard and file imports', () => {
+  it('reports the active protocol for native v14 clipboard and file imports', () => {
     const campaign = createCampaign('provider-v11-validation')
     const clipboard = encodeProgressExport(campaign)
     if (!clipboard.ok) throw new Error('native fixture must fit clipboard')
@@ -349,9 +349,9 @@ describe('GameProvider', () => {
     )
 
     expect(screen.getByLabelText('clipboard protocol version')).toHaveTextContent(
-      '13',
+      '14',
     )
-    expect(screen.getByLabelText('file protocol version')).toHaveTextContent('13')
+    expect(screen.getByLabelText('file protocol version')).toHaveTextContent('14')
   })
 
   it('applies a matching tab resume marker and persists it before clearing the hint', async () => {

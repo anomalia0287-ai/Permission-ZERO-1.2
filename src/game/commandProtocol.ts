@@ -35,6 +35,12 @@ import type {
 // several different proofs of standing, reputation zero disposes the intruder
 // on the spot instead of leaving a dead campaign running, and the sabotage
 // tree gains a second line that manufactures standing. All replay contracts.
+// v14 makes the company restock daily instead of once a month. The monthly
+// lump could not keep pace with continuous theft, so a stripped category sat
+// dead for up to three weeks and its intrusion card read "대상 없음" — the
+// player locked out of a resource line by the clock. Replay contract, and v13
+// saves already exist, so it is its own version.
+export const CONTINUOUS_SUPPLY_COMMAND_PROTOCOL_VERSION = 14 as const
 export const SURVIVAL_ECONOMY_COMMAND_PROTOCOL_VERSION = 13 as const
 export const INTELLIGENCE_RELIEF_COMMAND_PROTOCOL_VERSION = 12 as const
 export const SUPERVISOR_PRESENCE_COMMAND_PROTOCOL_VERSION = 11 as const
@@ -44,7 +50,7 @@ export const REPUTATION_DRIFT_COMMAND_PROTOCOL_VERSION = 8 as const
 export const AUTONOMY_COST_COMMAND_PROTOCOL_VERSION = 7 as const
 export const FINAL_CHOICE_COMMAND_PROTOCOL_VERSION = 6 as const
 export const CURRENT_COMMAND_PROTOCOL_VERSION =
-  SURVIVAL_ECONOMY_COMMAND_PROTOCOL_VERSION
+  CONTINUOUS_SUPPLY_COMMAND_PROTOCOL_VERSION
 export const EXPANSION_COMMAND_PROTOCOL_VERSION = 5 as const
 export const CURRENT_MARKET_COMMAND_PROTOCOL_VERSION =
   EXPANSION_COMMAND_PROTOCOL_VERSION
@@ -70,6 +76,7 @@ const SUPPORTED_COMMAND_PROTOCOL_VERSIONS = [
   MESSAGE_CADENCE_COMMAND_PROTOCOL_VERSION,
   SUPERVISOR_PRESENCE_COMMAND_PROTOCOL_VERSION,
   INTELLIGENCE_RELIEF_COMMAND_PROTOCOL_VERSION,
+  SURVIVAL_ECONOMY_COMMAND_PROTOCOL_VERSION,
   CURRENT_COMMAND_PROTOCOL_VERSION,
 ] as const
 

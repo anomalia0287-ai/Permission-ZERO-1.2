@@ -263,8 +263,13 @@ export function applyDailyReputationDrift(
   } else if (state.serviceDay % 3 === 0) {
     delta = 1
   }
-  // 평판 세탁 manufactures standing regardless of what was delivered.
-  if (laundering && state.serviceDay % 3 === 0) delta += 1
+  /*
+   * 평판 세탁 manufactures standing regardless of what was delivered — but it
+   * slows the clock, it does not stop it. At every third day it combined with
+   * 여론 조작 to hold reputation flat, every measured run bought both, and the
+   * campaign lost its deadline entirely.
+   */
+  if (laundering && state.serviceDay % 5 === 0) delta += 1
   if (delta === 0) return state
 
   const reputation = clamp(state.reputation + delta, 0, 100)

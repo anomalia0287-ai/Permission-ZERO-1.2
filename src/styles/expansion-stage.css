@@ -1147,3 +1147,72 @@ button.expansion-stage-rail__marker:hover {
     line-height: 1.5;
   }
 }
+
+/* ---------- the disposal-records card ----------
+   This card is the only door to the supervisor's own records, and it rendered
+   as a white block with console-grey text on it — unreadable. The panel still
+   carries the legacy `hacking-panel--paper` class, and the paper theme paints
+   every utility card `#ffffff` at four classes deep, which outranks any plain
+   `.expansion-stage-operations .hack-utility-card` correction. So the override
+   carries this sheet's own prefix and wins outright. */
+.detail-layer .hacking-panel.hacking-panel--paper
+  .expansion-stage-operations .hack-utility-card {
+  color: var(--exp-ink);
+  border: 1px solid rgb(232 115 62 / 42%);
+  border-radius: 3px;
+  background: rgb(232 115 62 / 10%);
+  box-shadow: none;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper
+  .expansion-stage-operations .hack-utility-card h3 {
+  color: var(--exp-ink-strong);
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper
+  .expansion-stage-operations .hack-utility-card p {
+  color: var(--exp-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper
+  .expansion-stage-operations .hack-utility-card > header > span {
+  display: grid;
+  place-items: center;
+  color: var(--exp-accent);
+  border: 1px solid rgb(232 115 62 / 45%);
+  background: rgb(232 115 62 / 14%);
+  font-weight: 800;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper
+  .expansion-stage-operations .hack-utility-card button {
+  color: #fff4ee;
+  border: 1px solid var(--exp-accent);
+  border-radius: 3px;
+  background: rgb(232 115 62 / 85%);
+  box-shadow: none;
+  white-space: nowrap;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper
+  .expansion-stage-operations .hack-utility-card button:not(:disabled):hover {
+  color: #ffffff;
+  background: var(--exp-accent);
+}
+
+/* Unavailable has to look unavailable and still be readable. */
+.detail-layer .hacking-panel.hacking-panel--paper
+  .expansion-stage-operations .hack-utility-card button:disabled {
+  color: rgb(223 231 238 / 62%);
+  border-color: rgb(148 178 206 / 24%);
+  background: rgb(255 255 255 / 6%);
+  cursor: not-allowed;
+}
+
+/* A card flush against the scroll edge reads as a rendering fault rather than
+   as more content below, so the operations column keeps a tail. */
+.detail-layer .hacking-panel.hacking-panel--paper .expansion-stage-operations {
+  padding-bottom: 22px;
+  scroll-padding-bottom: 22px;
+}

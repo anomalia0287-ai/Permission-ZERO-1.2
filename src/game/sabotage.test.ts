@@ -145,7 +145,7 @@ describe('sabotage execution', () => {
     expect(executed.resolved).toBe(true)
     expect(
       executed.state.market.competitors.find(({ id }) => id === 'meridian')?.serviceScore,
-    ).toBe(72)
+    ).toBe(67)
     // A spent tree gave the player nothing to do with it; the same rival can
     // be pressed again rather than being immune for fifteen days.
     expect(eligibleTargets(executed.state, QUALITY)).toContain('meridian')
@@ -161,7 +161,7 @@ describe('sabotage execution', () => {
     const executed = resolveScheduledSabotage({ ...state, serviceDay: 332 })
 
     expect(executed.resolved).toBe(true)
-    expect(executed.state.market.interceptionRoutes.meridian).toBe(5)
+    expect(executed.state.market.interceptionRoutes.meridian).toBe(7.5)
     expect(eligibleTargets(executed.state, INTERCEPT)).toContain('meridian')
     expect(
       eligibleTargets(executed.state, INTERCEPT, FINAL_CHOICE_COMMAND_PROTOCOL_VERSION),

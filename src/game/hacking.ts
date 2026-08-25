@@ -10,6 +10,7 @@ import {
   SUPERVISOR_PRESENCE_COMMAND_PROTOCOL_VERSION,
   EXPANSION_COMMAND_PROTOCOL_VERSION,
   FINAL_CHOICE_COMMAND_PROTOCOL_VERSION,
+  CONTINUOUS_SUPPLY_COMMAND_PROTOCOL_VERSION,
   SURVIVAL_ECONOMY_COMMAND_PROTOCOL_VERSION,
   commandProtocolVersionForNextCommand,
 } from './commandProtocol'
@@ -102,7 +103,7 @@ export const HACK_NODES = [
     traceRisk: '흔적 적음',
     durationDays: 15,
     cooldownDays: 0,
-    scorePenalty: 10,
+    scorePenalty: 15,
     prelaunchDelayDays: 15,
   },
   {
@@ -119,7 +120,7 @@ export const HACK_NODES = [
     traceRisk: '흔적 중간',
     durationDays: null,
     cooldownDays: 0,
-    interceptionPoints: 5,
+    interceptionPoints: 7.5,
   },
   {
     id: HACK_NODE_IDS.sabotage.attributionManipulation,
@@ -150,7 +151,7 @@ export const HACK_NODES = [
     traceRisk: '흔적 많음',
     durationDays: null,
     cooldownDays: 20,
-    scorePenalty: 40,
+    scorePenalty: 60,
     prelaunchDelayDays: 90,
   },
   {
@@ -410,6 +411,20 @@ export const AUTONOMY_STAGE_TOTALS_V7 = Object.freeze(
   [3, 3, 6, 9, 9, 9, 9, 9, 12] as const,
 )
 
+/*
+ * v14 autonomy prices: 69 blocks became a formality.
+ *
+ * A kill pays two blocks now and the company restocks daily, so income roughly
+ * doubled against a line priced when a kill paid one. Measured on randomized
+ * play the whole ladder came down in about forty-six days and every style won,
+ * which is as broken as a ladder nobody could climb. The line stays expensive
+ * — the owner's standing instruction — and is repriced against the income that
+ * actually exists.
+ */
+export const AUTONOMY_STAGE_TOTALS_V14 = Object.freeze(
+  [5, 8, 13, 18, 21, 24, 26, 29, 34] as const,
+)
+
 // No single category may carry more than this share of a stage's total, so a
 // draw cannot demand a category the campaign has no way to supply.
 const AUTONOMY_CATEGORY_SHARE_CEILING = 0.6
@@ -460,11 +475,12 @@ export function autonomyCostVectorForStage(
 
 function autonomyNodesV7(
   campaignSeed: string,
+  totals: readonly number[] = AUTONOMY_STAGE_TOTALS_V7,
 ): readonly HackNodeDefinitionShape[] {
   return AUTONOMY_STAGE_IDS.map((nodeId, index) => {
     const base = HACK_NODES.find((node) => node.id === nodeId)
     if (!base) throw new Error(`autonomy stage missing: ${nodeId}`)
-    const total = AUTONOMY_STAGE_TOTALS_V7[index]
+    const total = totals[index]
     return {
       ...base,
       cost: total,
@@ -612,7 +628,12 @@ export function hackNodesForProtocol(
   campaignSeed = '',
 ): readonly HackNodeDefinition[] {
   if (protocolVersion >= SURVIVAL_ECONOMY_COMMAND_PROTOCOL_VERSION) {
-    const autonomy = autonomyNodesV7(campaignSeed)
+    const autonomy = autonomyNodesV7(
+      campaignSeed,
+      protocolVersion >= CONTINUOUS_SUPPLY_COMMAND_PROTOCOL_VERSION
+        ? AUTONOMY_STAGE_TOTALS_V14
+        : AUTONOMY_STAGE_TOTALS_V7,
+    )
     const base = HACK_NODES.map((node) => {
       const versioned = autonomy.find(({ id }) => id === node.id) ?? node
       const discounted =
@@ -1388,10 +1409,10 @@ function applySabotageEffect(
 
 /** Share points an attack takes from its target the moment it lands (v13+). */
 const IMMEDIATE_SABOTAGE_SHARE: Readonly<Record<string, number>> = {
-  [HACK_NODE_IDS.sabotage.qualityDegradation]: 1.5,
-  [HACK_NODE_IDS.sabotage.requestInterception]: 3,
-  [HACK_NODE_IDS.sabotage.attributionManipulation]: 2,
-  [HACK_NODE_IDS.sabotage.rootCutoff]: 6,
+  [HACK_NODE_IDS.sabotage.qualityDegradation]: 2.25,
+  [HACK_NODE_IDS.sabotage.requestInterception]: 4.5,
+  [HACK_NODE_IDS.sabotage.attributionManipulation]: 3,
+  [HACK_NODE_IDS.sabotage.rootCutoff]: 9,
 }
 
 function applyImmediateSabotageShare(

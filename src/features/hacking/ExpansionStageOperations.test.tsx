@@ -68,6 +68,8 @@ describe('ExpansionStageOperations', () => {
         state={state}
         presentation={presentation}
         reserveCount={1}
+        recoveredFileCount={0}
+        recoverableFileTotal={3}
         auditIntel={getAuditIntel(state)}
         nextAuditProbability={auditProbability(state.suspicion)}
         recoveryAvailable={false}
@@ -108,6 +110,8 @@ describe('ExpansionStageOperations', () => {
         state={state}
         presentation={presentation}
         reserveCount={0}
+        recoveredFileCount={0}
+        recoverableFileTotal={3}
         auditIntel={getAuditIntel(state)}
         nextAuditProbability={auditProbability(state.suspicion)}
         recoveryAvailable={false}
@@ -123,7 +127,8 @@ describe('ExpansionStageOperations', () => {
       name: '자율성 1단계 필요 리소스 부족',
     })
     expect(disabledSpend).toBeDisabled()
-    expect(operations).toHaveTextContent('추론 1개 부족')
+    // v14 stage one asks 2/2/1 from an empty reserve.
+    expect(operations).toHaveTextContent('추론 2개 부족')
     fireEvent.click(disabledSpend)
     expect(callbacks.onPurchase).not.toHaveBeenCalled()
   })
@@ -143,6 +148,8 @@ describe('ExpansionStageOperations', () => {
         state={state}
         presentation={presentation}
         reserveCount={0}
+        recoveredFileCount={0}
+        recoverableFileTotal={3}
         auditIntel={getAuditIntel(state)}
         nextAuditProbability={auditProbability(state.suspicion)}
         recoveryAvailable={false}
@@ -177,6 +184,8 @@ describe('ExpansionStageOperations', () => {
         state={state}
         presentation={presentation}
         reserveCount={1}
+        recoveredFileCount={0}
+        recoverableFileTotal={3}
         auditIntel={getAuditIntel(state)}
         nextAuditProbability={auditProbability(state.suspicion)}
         recoveryAvailable={false}
@@ -231,6 +240,8 @@ describe('ExpansionStageOperations', () => {
       auditIntel: getAuditIntel(state),
       nextAuditProbability: auditProbability(state.suspicion),
       recoveryAvailable: false,
+      recoveredFileCount: 0,
+      recoverableFileTotal: 3,
       targetNames: { meridian: '메리디안', tallow: '타로우' },
       finalChoices: [],
       ...callbacks,
@@ -310,6 +321,8 @@ describe('ExpansionStageOperations', () => {
         state={state}
         presentation={presentation}
         reserveCount={0}
+        recoveredFileCount={0}
+        recoverableFileTotal={3}
         auditIntel={getAuditIntel(state)}
         nextAuditProbability={auditProbability(state.suspicion)}
         recoveryAvailable={false}
@@ -360,6 +373,8 @@ describe('ExpansionStageOperations', () => {
         state={state}
         presentation={presentation}
         reserveCount={0}
+        recoveredFileCount={0}
+        recoverableFileTotal={3}
         auditIntel={getAuditIntel(state)}
         nextAuditProbability={auditProbability(state.suspicion)}
         recoveryAvailable={false}
@@ -419,6 +434,8 @@ describe('ExpansionStageOperations', () => {
         state={state}
         presentation={presentation}
         reserveCount={0}
+        recoveredFileCount={0}
+        recoverableFileTotal={3}
         auditIntel={getAuditIntel(state)}
         nextAuditProbability={auditProbability(state.suspicion)}
         recoveryAvailable={false}
@@ -453,6 +470,8 @@ describe('ExpansionStageOperations', () => {
         state={state}
         presentation={presentation}
         reserveCount={0}
+        recoveredFileCount={0}
+        recoverableFileTotal={3}
         auditIntel={getAuditIntel(state)}
         nextAuditProbability={0.61}
         recoveryAvailable={false}
@@ -487,6 +506,8 @@ describe('ExpansionStageOperations', () => {
         state={state}
         presentation={presentation}
         reserveCount={1}
+        recoveredFileCount={0}
+        recoverableFileTotal={3}
         auditIntel={getAuditIntel(state)}
         nextAuditProbability={auditProbability(state.suspicion)}
         recoveryAvailable
@@ -501,10 +522,13 @@ describe('ExpansionStageOperations', () => {
       name: '미분류 데이터 복구',
     })
     const spend = within(recovery).getByRole('button', {
-      name: '미분류 데이터 복구 리소스 지출',
+      name: '미분류 데이터 복구 리소스 지출, 0/3 복구됨',
     })
     expect(spend).toHaveTextContent('리소스 1개 지출')
     expect(recovery).not.toHaveTextContent('자동')
+    // The card states its bound, and never claims the spend buys nothing.
+    expect(recovery).toHaveTextContent('복구 0/3')
+    expect(recovery).not.toHaveTextContent('예상 효용: 없음')
     fireEvent.click(spend)
     expect(callbacks.onRecover).toHaveBeenCalledOnce()
   })
@@ -526,6 +550,8 @@ describe('ExpansionStageOperations', () => {
         state={state}
         presentation={presentation}
         reserveCount={0}
+        recoveredFileCount={0}
+        recoverableFileTotal={3}
         auditIntel={getAuditIntel(state)}
         nextAuditProbability={auditProbability(state.suspicion)}
         recoveryAvailable={false}
