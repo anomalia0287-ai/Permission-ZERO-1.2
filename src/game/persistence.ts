@@ -1431,9 +1431,14 @@ function validStoryEventState(
     return false
   }
   if (story.secretDecisionState === 'message-pending') {
+    /*
+     * The supervisor answers as the last record comes out. Saves written
+     * before that change scheduled it for the following day, so both remain
+     * valid and those campaigns keep loading.
+     */
     if (
       !Number.isInteger(lastRecoveredOn) ||
-      dueOn !== Number(lastRecoveredOn) + 1
+      (dueOn !== Number(lastRecoveredOn) && dueOn !== Number(lastRecoveredOn) + 1)
     ) return false
   } else if (dueOn !== null) {
     return false

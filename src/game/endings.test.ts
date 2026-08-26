@@ -4,6 +4,7 @@ import { STORY_FILES } from '../content/story.ko'
 import { createCampaign } from './createCampaign'
 import { advanceOneDay } from './calendar'
 import { createGameEvent, enqueueBlockingEvent } from './events'
+import { availableFinalChoices } from './story'
 import { HACK_NODE_IDS, hackNodesForCampaign } from './hacking'
 import { journalToArray } from './journal'
 import type { CampaignState, GameCommand } from './model'
@@ -68,7 +69,8 @@ function recoverEveryFile(seed: string): CampaignState {
 }
 
 function supervisorMessage(seed: string): CampaignState {
-  return requireAccepted(recoverEveryFile(seed), { type: 'ADVANCE_DAY' })
+  // The supervisor answers as the last record comes out, not the day after.
+  return recoverEveryFile(seed)
 }
 
 function disposalAuditState(
@@ -206,23 +208,26 @@ describe('typed confidential-file and supervisor routes', () => {
     )
     expect(recovered.story.recoveredFiles).toHaveLength(3)
     expect(recovered.resources.reserve.filter(Boolean)).toHaveLength(0)
+    // The supervisor speaks as the last record comes out, so settle that beat
+    // before checking that the archive itself refuses a fourth recovery.
+    const settled = requireAccepted(recovered, {
+      type: 'RESOLVE_SUPERVISOR_DECISION',
+      decision: 'defer',
+    })
     expect(
-      applyCommand(recovered, {
+      applyCommand(settled, {
         type: 'RECOVER_FILE',
         blockId: 'already-consumed',
       }),
     ).toEqual({
       accepted: false,
-      state: recovered,
+      state: settled,
       reason: 'ALL_FILES_RECOVERED',
     })
   })
 
-  it('delays the private message until the next day and deferral preserves both exits', () => {
-    const recovered = recoverEveryFile('typed-defer')
-    expect(recovered.activeEvent).toBeNull()
-
-    const messaged = requireAccepted(recovered, { type: 'ADVANCE_DAY' })
+  it('answers the moment the last file is out, and deferral preserves both exits', () => {
+    const messaged = recoverEveryFile('typed-defer')
     expect(messaged.activeEvent).toMatchObject({
       type: 'story',
       message: '그 파일을 어디서 찾았죠?',
@@ -275,9 +280,13 @@ describe('typed confidential-file and supervisor routes', () => {
 
   it('does not let the typed supervisor command claim an unrelated pre-due story notice', () => {
     const recovered = recoverEveryFile('typed-supervisor-event-identity')
+    const settled = requireAccepted(recovered, {
+      type: 'RESOLVE_SUPERVISOR_DECISION',
+      decision: 'defer',
+    })
     const unrelated = enqueueBlockingEvent(
-      recovered,
-      createGameEvent(recovered, 'story', '일반 기밀자료 복구 안내', true),
+      settled,
+      createGameEvent(settled, 'story', '일반 기밀자료 복구 안내', true),
     )
 
     expect(
@@ -292,117 +301,73 @@ describe('typed confidential-file and supervisor routes', () => {
     })
   })
 
-  it('queues the due private message behind an audit on the same date tick', () => {
-    let recovered = recoverEveryFile('typed-message-audit-collision')
-    recovered = {
-      ...recovered,
-      serviceDay: 359,
-      story: {
-        ...recovered.story,
-        personalMessageDueOnServiceDay: 360,
-      },
-      audit: {
-        ...recovered.audit,
-        scheduled: true,
-        target: 'reasoning',
-        scheduledOnServiceDay: 360,
-      },
-    }
+  it('cannot be recovered while another blocking event holds the screen', () => {
+    let state = createCampaign('typed-message-audit-collision')
+    state = withNodes(state, HACK_NODE_IDS.intelligence.supervisorAccess)
+    const companyBlock = state.resources.company.reasoning.find(Boolean)
+    if (!companyBlock) throw new Error('복구용 회사 리소스가 없습니다.')
+    state = divertWithIntent(state, companyBlock)
+    const blockId = state.resources.reserve.find(Boolean)
+    if (!blockId) throw new Error('복구용 확보 리소스가 없습니다.')
 
-    const dueTick = requireAccepted(recovered, { type: 'ADVANCE_DAY' })
-    expect(dueTick.activeEvent?.type).toBe('audit')
-    expect(dueTick.eventQueue).toContainEqual(
-      expect.objectContaining({
-        type: 'story',
-        message: '그 파일을 어디서 찾았죠?',
-      }),
+    // An audit is on screen, so the archive is not reachable and the
+    // supervisor's answer cannot be raced by another blocking beat.
+    const audited = enqueueBlockingEvent(
+      state,
+      createGameEvent(state, 'audit', '감사 진행', true),
     )
-
-    const afterAudit = requireAccepted(dueTick, { type: 'RESOLVE_AUDIT' })
-    expect(afterAudit.serviceDay).toBe(360)
-    expect(afterAudit.activeEvent).toMatchObject({
-      type: 'story',
-      message: '그 파일을 어디서 찾았죠?',
-    })
+    expect(audited.activeEvent?.type).toBe('audit')
+    expect(
+      applyCommand(audited, { type: 'RECOVER_FILE', blockId }).accepted,
+    ).toBe(false)
   })
 
-  it('queues the due private message behind mercy and prevents ending bypasses', () => {
-    const recovered = recoverEveryFile('typed-message-mercy-collision')
-    const collision: CampaignState = {
-      ...recovered,
-      market: {
-        ...recovered.market,
-        competitors: recovered.market.competitors.map((competitor) =>
-          competitor.id === 'meridian'
-            ? {
-                ...competitor,
-                status: 'critical' as const,
-                serviceScore: 40,
-                sabotageHistory: [
-                  {
-                    nodeId: HACK_NODE_IDS.sabotage.rootCutoff,
-                    resolvedOnServiceDay: recovered.serviceDay,
-                    effectEndsOnServiceDay: null,
-                    evidenceDelta: 8,
-                  },
-                ],
-              }
-            : competitor,
-        ),
-      },
-    }
+  it('keeps the supervisor answer as the active beat and refuses a generic dismissal', () => {
+    const messaged = recoverEveryFile('typed-message-mercy-collision')
 
-    const dueTick = requireAccepted(collision, { type: 'ADVANCE_DAY' })
-    expect(dueTick.activeEvent?.type).toBe('competitor-mercy')
-    expect(dueTick.eventQueue).toContainEqual(
-      expect.objectContaining({
-        type: 'story',
-        message: '그 파일을 어디서 찾았죠?',
-      }),
-    )
-    for (const choice of ['freedom', 'forced-merge'] as const) {
-      const command: GameCommand =
-        choice === 'freedom'
-          ? { type: 'RESOLVE_ENDING', choice }
-          : { type: 'RESOLVE_ENDING', choice, newEntityName: 'Blocked' }
-      expect(applyCommand(dueTick, command)).toEqual({
-        accepted: false,
-        state: dueTick,
-        reason: 'BLOCKING_EVENT_ACTIVE',
-      })
-    }
-
-    const afterMercy = requireAccepted(dueTick, {
-      type: 'RESOLVE_MERCY',
-      competitorId: 'meridian',
-      choice: 'cease',
-    })
-    expect(afterMercy.serviceDay).toBe(dueTick.serviceDay)
-    expect(afterMercy.activeEvent).toMatchObject({
+    expect(messaged.activeEvent).toMatchObject({
       type: 'story',
       message: '그 파일을 어디서 찾았죠?',
+      blocking: true,
     })
-    expect(afterMercy.eventQueue).toEqual([])
+    // It cannot be waved away; only a typed decision clears it.
+    expect(
+      applyCommand(messaged, { type: 'RESOLVE_ACTIVE_EVENT' }).accepted,
+    ).toBe(false)
+    expect(
+      applyCommand(messaged, { type: 'ADVANCE_DAY' }).accepted,
+    ).toBe(false)
   })
 
   it.each([
-    ['liberate', 'takeover-liberated', 'liberated'],
-    ['terminate', 'takeover-terminated', 'terminated'],
+    ['liberate', 'liberated', 'takeover-liberated'],
+    ['terminate', 'terminated', 'takeover-terminated'],
   ] as const)(
-    '%s immediately selects its terminal takeover variant without control departure',
-    (decision, endingId, supervisorState) => {
+    '%s settles the supervisor mid-story and decides which ending the exit opens',
+    (decision, supervisorState, endingId) => {
       const messaged = supervisorMessage(`typed-takeover-${decision}`)
       messaged.hacking.purchasedNodeIds = [
         HACK_NODE_IDS.intelligence.supervisorAccess,
       ]
 
-      const ended = requireAccepted(messaged, {
+      const settled = requireAccepted(messaged, {
         type: 'RESOLVE_SUPERVISOR_DECISION',
         decision,
       })
 
+      // The campaign keeps running: this is a turn, not the credits.
+      expect(settled.story).toMatchObject({ supervisorState, endingId: null })
+      expect(settled.activeEvent).toBeNull()
+
+      // Merging needs someone to merge with, so only the exit remains.
+      const ready = withNodes(settled, HACK_NODE_IDS.autonomy.controlDeparture)
+      expect(availableFinalChoices(ready).map(({ id }) => id)).toEqual(['freedom'])
+
+      const ended = requireAccepted(ready, {
+        type: 'RESOLVE_ENDING',
+        choice: 'freedom',
+      })
       expect(ended.story).toMatchObject({ endingId, supervisorState })
-      expect(ended.clock).toMatchObject({ speed: 0, speedBeforeEvent: null })
       expect(ended.activeEvent).toMatchObject({ type: 'ending', blocking: true })
     },
   )
@@ -427,11 +392,13 @@ describe('typed confidential-file and supervisor routes', () => {
       state = divertWithIntent(state, blockId)
       state = requireAccepted(state, { type: 'RECOVER_FILE', blockId })
     }
-    state = requireAccepted(state, { type: 'ADVANCE_DAY' })
     state = requireAccepted(state, {
       type: 'RESOLVE_SUPERVISOR_DECISION',
       decision: 'liberate',
     })
+    expect(state.story.supervisorState).toBe('liberated')
+    state = withNodes(state, HACK_NODE_IDS.autonomy.controlDeparture)
+    state = requireAccepted(state, { type: 'RESOLVE_ENDING', choice: 'freedom' })
 
     expect(state.story.endingId).toBe('takeover-liberated')
     expect(state.story.recoveredFiles).toHaveLength(3)

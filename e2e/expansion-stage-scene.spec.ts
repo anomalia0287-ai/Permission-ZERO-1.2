@@ -551,9 +551,7 @@ test('shows the neutral final scene and preserves the choice across reload befor
   await dialog.getByRole('button', { name: '자유' }).click()
   const confirmation = page.getByRole('alertdialog', { name: '자유 최종 확인' })
   await expect(confirmation).toBeVisible()
-  await confirmation.getByRole('button', {
-    name: '되돌릴 수 없는 선택 확정',
-  }).click()
+  await confirmation.getByRole('button', { name: '자유 확정' }).click()
   await expect.poll(async () => (await readCheckpoint(page))?.story.endingId ?? null)
     .toBe('freedom')
 })
@@ -574,13 +572,11 @@ test('reaches forced merge through the purchased access and autonomy paths', asy
   const confirmation = page.getByRole('alertdialog', {
     name: '강제 병합 최종 확인',
   })
-  const confirm = confirmation.getByRole('button', {
-    name: '되돌릴 수 없는 선택 확정',
-  })
+  const confirm = confirmation.getByRole('button', { name: '병합 확정' })
   await expect(confirm).toBeDisabled()
   await page.keyboard.press('Escape')
   await expect(confirmation).toBeVisible()
-  await confirmation.getByRole('textbox', { name: '새 존재의 이름' })
+  await confirmation.getByRole('textbox', { name: '새로 태어날 존재의 이름' })
     .fill('아노미-베라')
   await expect(confirm).toBeEnabled()
   await confirm.click()

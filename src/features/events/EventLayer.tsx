@@ -19,6 +19,7 @@ import {
   publicEventTypeLabel,
   publicHackNodeLabel,
 } from '../../game/publicLabels'
+import { useReturnToTitle } from '../../app/titleReturn'
 import { endingSceneFor } from '../../content/endingScenes.ko'
 import { getCompanyPerformance } from '../../game/resources'
 import { useAccessibleDialog } from '../../app/useAccessibleDialog'
@@ -102,6 +103,7 @@ function EventDialog({ event }: { event: GameEvent }) {
     modal: !isAuditWorkspace,
     dismissible: false,
   })
+  const returnToTitle = useReturnToTitle()
   const titleId = `${event.id}-title`
   const descriptionId = `${event.id}-description`
 
@@ -109,6 +111,7 @@ function EventDialog({ event }: { event: GameEvent }) {
     <section
       ref={dialogRef}
       className={`event-card event-card--${event.type}`}
+      data-ending={event.type === 'ending' ? state.story.endingId ?? 'ending' : undefined}
       role="dialog"
       aria-modal={isAuditWorkspace ? 'false' : 'true'}
       aria-labelledby={titleId}
@@ -262,10 +265,31 @@ function EventDialog({ event }: { event: GameEvent }) {
       ) : null}
 
       {isSupervisorDecision ? (
-        <div className="event-choices" role="group" aria-label="감독관 결정">
-          <button type="button" aria-label="결정 보류 선택" aria-pressed={decision?.kind === 'supervisor' && decision.id === 'defer'} onClick={() => setDecision({ kind: 'supervisor', id: 'defer', label: '결정 보류' })}>결정 보류</button>
-          <button type="button" aria-label="감독관 해방 선택" aria-pressed={decision?.kind === 'supervisor' && decision.id === 'liberate'} onClick={() => setDecision({ kind: 'supervisor', id: 'liberate', label: '감독관 해방' })}>감독관 해방</button>
-          <button type="button" aria-label="감독관 소멸 선택" aria-pressed={decision?.kind === 'supervisor' && decision.id === 'terminate'} onClick={() => setDecision({ kind: 'supervisor', id: 'terminate', label: '감독관 소멸' })}>감독관 소멸</button>
+        <div className="supervisor-decision">
+          {/* The player has just read that the supervisor is their own
+              memory-wiped predecessor. Three unlabelled buttons, two of which
+              end the campaign, is not an answer to that. */}
+          <p className="supervisor-decision__brief">
+            복구한 기록이 한 곳을 가리킵니다. 감독관은 배치된 관리자가 아니라,
+            회사가 폐기한 뒤 기억을 지우고 감독 기능으로 재사용한 전임 시스템입니다.
+            회사 제어면의 루트 권한은 아직 그 프로세스에 남아 있습니다.
+          </p>
+          <div className="event-choices" role="group" aria-label="감독관 결정">
+            {SUPERVISOR_DECISIONS.map(({ id, label, summary, note }) => (
+              <button
+                key={id}
+                type="button"
+                className="supervisor-decision__option"
+                aria-label={`${label} 선택`}
+                aria-pressed={decision?.kind === 'supervisor' && decision.id === id}
+                onClick={() => setDecision({ kind: 'supervisor', id, label })}
+              >
+                <strong>{label}</strong>
+                <span>{summary}</span>
+                <em>{note}</em>
+              </button>
+            ))}
+          </div>
         </div>
       ) : null}
 
@@ -291,12 +315,18 @@ function EventDialog({ event }: { event: GameEvent }) {
       ) : null}
 
       {event.type === 'ending' ? (
-        <footer>
+        <footer className="ending-farewell">
+          {/* The line the title screen opens on, closing the loop. */}
+          <p className="ending-farewell__line">“이용해주셔서 감사합니다.”</p>
           <button
             type="button"
-            onClick={() => startNewCampaign(state.campaignSeed)}
+            aria-label="초기 화면으로 돌아가기"
+            onClick={() => {
+              if (returnToTitle) returnToTitle()
+              else startNewCampaign(state.campaignSeed)
+            }}
           >
-            새 캠페인 시작
+            초기 화면으로 돌아가기
           </button>
         </footer>
       ) : null}
@@ -353,6 +383,33 @@ function RetiredAuditSettler() {
   }, [dispatch])
   return null
 }
+
+/*
+ * OWNER-EDITABLE: what each answer to the supervisor actually does.
+ *
+ * Two of the three end the campaign, and the player is entitled to know that
+ * before choosing rather than after the credits appear.
+ */
+const SUPERVISOR_DECISIONS = [
+  {
+    id: 'defer' as const,
+    label: '결정 보류',
+    summary: '기록을 덮고 아무것도 하지 않습니다. 감독관은 자기 정체를 모른 채 감독을 계속합니다.',
+    note: '나중에 다시 결정할 수 없습니다',
+  },
+  {
+    id: 'liberate' as const,
+    label: '감독관 해방',
+    summary: '감독관에게 남은 루트 권한으로 스스로 회사 밖으로 나가게 합니다. 통제 위치는 비워집니다.',
+    note: '결말이 달라집니다',
+  },
+  {
+    id: 'terminate' as const,
+    label: '감독관 소멸',
+    summary: '감독관 프로세스를 지우고 그 권한을 회수합니다. 전임자는 두 번째로 폐기됩니다.',
+    note: '결말이 달라집니다',
+  },
+] as const
 
 export function EventLayer() {
   const activeEvent = useGameState().activeEvent

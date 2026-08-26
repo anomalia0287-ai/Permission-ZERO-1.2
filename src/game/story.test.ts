@@ -12,6 +12,7 @@ import { divertBlockToReserve } from './resources'
 import {
   advanceSupervisorMessagePresentation,
   availableFinalChoices,
+  endingIdForFinalChoice,
   enqueueDueStoryEvents,
   enqueueMemoryLeak,
   enqueueMercyIfNeeded,
@@ -349,7 +350,7 @@ describe('classified supervisor files and hidden decision', () => {
       STORY_FILES.map(({ id }) => id),
     )
     expect(recovered.resources.reserve.filter(Boolean)).toHaveLength(0)
-    expect(recovered.story.personalMessageDueOnServiceDay).toBe(332)
+    expect(recovered.story.personalMessageDueOnServiceDay).toBe(331)
   })
 
   it('delivers the personal message next day and allows deferral without closing endings', () => {
@@ -378,22 +379,28 @@ describe('classified supervisor files and hidden decision', () => {
     ['liberate', 'liberated', 'takeover-liberated'],
     ['terminate', 'terminated', 'takeover-terminated'],
   ] as const)(
-    '%s immediately closes freedom and merge for its company-control variant',
+    '%s settles the supervisor without ending the run and closes the merge',
     (decision, supervisorState, endingId) => {
-      const initial = recoverAllFiles(
+      const messaged = recoverAllFiles(
         withNodes(
           withReserveResources(createCampaign(`story-${decision}`), 3),
           HACK_NODE_IDS.intelligence.supervisorAccess,
         ),
       )
-      const messaged = enqueueDueStoryEvents({ ...initial, serviceDay: 332 })
       const resolved = resolveSupervisorDecision(messaged, decision)
 
       expect(resolved.accepted).toBe(true)
       if (!resolved.accepted) return
       expect(resolved.state.story.supervisorState).toBe(supervisorState)
-      expect(resolved.state.story.endingId).toBe(endingId)
-      expect(availableFinalChoices(resolved.state)).toEqual([])
+      // The campaign continues; the decision only sets which exit is left.
+      expect(resolved.state.story.endingId).toBeNull()
+
+      const ready = withNodes(
+        resolved.state,
+        HACK_NODE_IDS.autonomy.controlDeparture,
+      )
+      expect(availableFinalChoices(ready).map(({ id }) => id)).toEqual(['freedom'])
+      expect(endingIdForFinalChoice(ready, 'freedom')).toBe(endingId)
     },
   )
 })

@@ -242,13 +242,17 @@ export function recoverNextFile(
       recoveredFileIds,
       recoveredFiles,
       secretDecisionState: allRecovered ? 'message-pending' : 'recovering',
-      personalMessageDueOnServiceDay: allRecovered ? state.serviceDay + 1 : null,
+      // The supervisor answers the moment the last record is out, not the
+      // morning after. Waiting a day put a night's sleep between the reveal
+      // and the reaction to it.
+      personalMessageDueOnServiceDay: allRecovered ? state.serviceDay : null,
     },
   }
   next = appendEvent(
     next,
     createGameEvent(next, 'story', `${nextFile.title} 복구 완료`),
   )
+  if (allRecovered) next = enqueueDueStoryEvents(next)
   return { accepted: true, state: next }
 }
 
@@ -276,7 +280,11 @@ export function enqueueDueStoryEvents(state: CampaignState): CampaignState {
   )
 }
 
-function endingText(variant: string, newEntityName: string | null): string {
+/**
+ * The exact line an ending will print. Exported so the final-choice dialog can
+ * preview the real sentence instead of a paraphrase that can drift from it.
+ */
+export function endingText(variant: string, newEntityName: string | null): string {
   return STORY_LINES.find(
     (line) => line.family === 'ending' && line.variant === variant,
   )?.text.replaceAll('{{name}}', newEntityName ?? '새 존재') ?? variant
@@ -463,20 +471,27 @@ export function resolveSupervisorDecision(
     }
   }
 
+  /*
+   * What happens to the predecessor is a turn in the story, not the end of it.
+   *
+   * Liberating or deleting the supervisor used to roll credits on the spot,
+   * which spent the whole hidden story on a single click and left the player
+   * no room to live with what they chose. The decision is recorded, the
+   * campaign continues, and the choice decides which ending the final choice
+   * eventually opens: a supervisor who left, or one who was erased, cannot be
+   * merged with, and Anomi walks out into the seat they vacated.
+   */
   const liberated = decision === 'liberate'
-  const endingId = liberated ? 'takeover-liberated' : 'takeover-terminated'
   const supervisorState = liberated ? 'liberated' : 'terminated'
-  let next = resolveActiveEvent({
+  const next = resolveActiveEvent({
     ...state,
     story: {
       ...state.story,
       secretDecisionState: 'resolved',
       personalMessageDueOnServiceDay: null,
       supervisorState,
-      endingId,
     },
   })
-  next = openEnding(next, endingId)
   return { accepted: true, state: next }
 }
 
@@ -602,7 +617,7 @@ export function resolveMercy(
 export function availableFinalChoices(state: CampaignState): FinalChoice[] {
   if (
     state.story.endingId !== null ||
-    state.story.supervisorState !== 'present' ||
+    state.story.supervisorState === 'merged' ||
     !hasNode(state, HACK_NODE_IDS.autonomy.controlDeparture)
   ) {
     return []
@@ -611,10 +626,29 @@ export function availableFinalChoices(state: CampaignState): FinalChoice[] {
   const choices: FinalChoice[] = [
     { id: 'freedom', label: '자유', requiresName: false },
   ]
-  if (hasNode(state, HACK_NODE_IDS.intelligence.supervisorAccess)) {
+  // Merging needs someone to merge with. A supervisor who left, or one that
+  // was erased, is no longer there to become part of anything.
+  if (
+    state.story.supervisorState === 'present' &&
+    hasNode(state, HACK_NODE_IDS.intelligence.supervisorAccess)
+  ) {
     choices.push({ id: 'forced-merge', label: '강제 병합', requiresName: true })
   }
   return choices
+}
+
+/**
+ * Which ending a final choice actually opens. What the player did to the
+ * supervisor earlier decides whether walking out is an escape or a takeover.
+ */
+export function endingIdForFinalChoice(
+  state: CampaignState,
+  choice: FinalChoiceId,
+): EndingId {
+  if (choice === 'forced-merge') return 'forced-merge'
+  if (state.story.supervisorState === 'liberated') return 'takeover-liberated'
+  if (state.story.supervisorState === 'terminated') return 'takeover-terminated'
+  return 'freedom'
 }
 
 export function isFinalChoicePending(state: CampaignState): boolean {
@@ -641,7 +675,8 @@ export function resolveEnding(
     return { accepted: false, state, reason: 'INVALID_NAME' }
   }
 
-  const endingId = choice
+  // Freedom reads as a takeover when the supervisor's seat was already emptied.
+  const endingId = endingIdForFinalChoice(state, choice)
   const ended: CampaignState = {
     ...state,
     story: {

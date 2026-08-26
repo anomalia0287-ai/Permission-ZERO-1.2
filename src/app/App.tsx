@@ -35,6 +35,7 @@ import {
   useSupervisorPresentationCheckpoint,
 } from './GameContext'
 import { GameProvider } from './GameProvider'
+import { TitleReturnProvider } from './titleReturn'
 import { useGameClock } from './useGameClock'
 import { usePopupStage } from './usePopupStage'
 import {
@@ -394,6 +395,14 @@ function EntryFlow() {
     setGameAudioMainEntered(screen === 'playing')
   }, [screen])
 
+  /*
+   * The ending hands the player back to the title rather than dropping them
+   * into a fresh campaign from the last screen of the finished one.
+   */
+  const returnToTitle = useCallback(() => {
+    setScreen('title')
+  }, [])
+
   useEffect(() => {
     if (screen !== 'loading') return
     const loadingTimer = window.setTimeout(() => {
@@ -449,7 +458,9 @@ function EntryFlow() {
   return (
     <>
       {screen === 'playing' ? (
-        <GameWorkspace />
+        <TitleReturnProvider value={returnToTitle}>
+          <GameWorkspace />
+        </TitleReturnProvider>
       ) : (
         <TitleScreen
           screen={screen}

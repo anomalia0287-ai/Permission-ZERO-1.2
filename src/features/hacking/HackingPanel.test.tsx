@@ -469,7 +469,7 @@ describe('HackingPanel stage-scene expansion UI', () => {
     expect(screen.getByRole('alertdialog', { name: '자유 최종 확인' }))
       .toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', {
-      name: '되돌릴 수 없는 선택 확정',
+      name: /확정$/,
     }))
     expect(screen.getByLabelText('ending id')).toHaveTextContent('freedom')
   })
@@ -494,17 +494,17 @@ describe('HackingPanel stage-scene expansion UI', () => {
     expect(screen.getByRole('alertdialog', { name: '강제 병합 최종 확인' }))
       .toHaveAttribute('aria-modal', 'true')
     expect(screen.getByRole('button', {
-      name: '되돌릴 수 없는 선택 확정',
+      name: /확정$/,
     })).toBeDisabled()
     fireEvent.keyDown(document, { key: 'Escape' })
     expect(onClose).not.toHaveBeenCalled()
     expect(screen.getByRole('alertdialog', { name: '강제 병합 최종 확인' }))
       .toBeInTheDocument()
-    fireEvent.change(screen.getByRole('textbox', { name: '새 존재의 이름' }), {
+    fireEvent.change(screen.getByRole('textbox', { name: '새로 태어날 존재의 이름' }), {
       target: { value: '아노미-베라' },
     })
     fireEvent.click(screen.getByRole('button', {
-      name: '되돌릴 수 없는 선택 확정',
+      name: /확정$/,
     }))
     expect(screen.getByLabelText('ending id')).toHaveTextContent('forced-merge')
   })

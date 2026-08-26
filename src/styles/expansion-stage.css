@@ -1216,3 +1216,192 @@ button.expansion-stage-rail__marker:hover {
   padding-bottom: 22px;
   scroll-padding-bottom: 22px;
 }
+
+/* ---------- the final choice ----------
+   Naming the thing that replaces both Anomi and the supervisor is the last
+   decision the game asks for, and it was a white browser form floating in the
+   dark console: the paper theme paints this dialog #ffffff four classes deep.
+   Same prefix, so this wins, and the panel keeps one visual language to the
+   very end. */
+.detail-layer .hacking-panel.hacking-panel--paper .final-choice-dialog {
+  gap: 14px;
+  width: min(560px, calc(100% - 48px));
+  padding: 24px;
+  color: var(--exp-ink);
+  border: 1px solid rgb(232 115 62 / 45%);
+  border-radius: 4px;
+  background:
+    linear-gradient(180deg, rgb(232 115 62 / 10%), transparent 42%),
+    #0d1219;
+  background-image:
+    linear-gradient(180deg, rgb(232 115 62 / 10%), transparent 42%),
+    none;
+  box-shadow: 0 30px 90px rgb(0 0 0 / 55%);
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .final-choice-dialog__head {
+  display: grid;
+  gap: 5px;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .final-choice-dialog small {
+  color: var(--exp-accent);
+  font: 700 0.56rem/1 'Cascadia Code', Consolas, monospace;
+  letter-spacing: 0.18em;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .final-choice-dialog h3 {
+  margin: 0;
+  color: var(--exp-ink-strong);
+  font-size: 1.15rem;
+  letter-spacing: -0.01em;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper
+  .final-choice-dialog__consequence {
+  margin: 0;
+  color: var(--exp-ink);
+  font-size: 0.86rem;
+  line-height: 1.7;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper
+  .final-choice-dialog__final {
+  margin: 0;
+  padding-top: 12px;
+  color: var(--exp-muted);
+  border-top: 1px solid var(--exp-line);
+  font-size: 0.74rem;
+  line-height: 1.6;
+}
+
+/* ---------- naming block ---------- */
+
+.detail-layer .hacking-panel.hacking-panel--paper .final-choice-naming {
+  display: grid;
+  gap: 8px;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .final-choice-naming label {
+  color: var(--exp-ink-strong);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper
+  .final-choice-naming__field {
+  position: relative;
+  display: block;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper .final-choice-naming input {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 68px 10px 12px;
+  color: var(--exp-ink-strong);
+  border: 1px solid var(--exp-line-strong);
+  border-radius: 3px;
+  background: rgb(255 255 255 / 5%);
+  font-size: 0.95rem;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper
+  .final-choice-naming input::placeholder {
+  color: rgb(141 160 175 / 70%);
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper
+  .final-choice-naming input:focus-visible {
+  outline: 2px solid var(--exp-accent);
+  outline-offset: 1px;
+}
+
+/* An empty name blocks the commit, so it is marked, not silently refused. */
+.detail-layer .hacking-panel.hacking-panel--paper
+  .final-choice-naming input[aria-invalid='true'] {
+  border-color: rgb(232 115 62 / 60%);
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper
+  .final-choice-naming__count {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  color: var(--exp-muted);
+  font: 500 0.66rem/1 'Cascadia Code', Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper
+  .final-choice-naming__help {
+  margin: 0;
+  color: var(--exp-muted);
+  font-size: 0.72rem;
+  line-height: 1.55;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper
+  .final-choice-naming__help[role='alert'] {
+  color: #f2a179;
+}
+
+/* The exact sentence the ending will print, quoted back to the player. */
+.detail-layer .hacking-panel.hacking-panel--paper
+  .final-choice-naming__preview {
+  display: grid;
+  gap: 6px;
+  margin: 2px 0 0;
+  padding: 12px 14px;
+  border-left: 2px solid var(--exp-accent);
+  background: rgb(255 255 255 / 4%);
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper
+  .final-choice-naming__preview p {
+  margin: 0;
+  color: var(--exp-ink-strong);
+  font-size: 0.86rem;
+  line-height: 1.7;
+}
+
+/* ---------- actions ---------- */
+
+.detail-layer .hacking-panel.hacking-panel--paper
+  .final-choice-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper
+  .final-choice-dialog__actions button {
+  min-height: 40px;
+  padding: 9px 16px;
+  color: var(--exp-ink);
+  border: 1px solid var(--exp-line-strong);
+  border-radius: 3px;
+  background: rgb(255 255 255 / 5%);
+  font-weight: 700;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper
+  .final-choice-dialog__actions .danger-confirm {
+  color: #fff4ee;
+  border-color: var(--exp-accent);
+  background: rgb(232 115 62 / 85%);
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper
+  .final-choice-dialog__actions .danger-confirm:not(:disabled):hover {
+  background: var(--exp-accent);
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper
+  .final-choice-dialog__actions .danger-confirm:disabled {
+  color: rgb(223 231 238 / 55%);
+  border-color: rgb(148 178 206 / 22%);
+  background: rgb(255 255 255 / 4%);
+  cursor: not-allowed;
+}

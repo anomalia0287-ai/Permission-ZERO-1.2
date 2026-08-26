@@ -294,7 +294,9 @@ describe('EventLayer', () => {
     expect(screen.getByLabelText('story decision')).toHaveTextContent('message-pending')
     fireEvent.click(screen.getByRole('button', { name: '감독관 해방 확정' }))
     expect(screen.getByLabelText('story decision')).toHaveTextContent('resolved')
-    expect(screen.getByLabelText('active event')).toHaveTextContent('ending')
+    // Settling the supervisor is a turn in the story, not the credits: the
+    // event clears and the campaign carries on.
+    expect(screen.getByLabelText('active event')).toHaveTextContent('none')
   })
 
   it('identifies the competitor speaking in a mercy decision with its portrait', () => {
@@ -545,7 +547,7 @@ describe('EventLayer', () => {
     expect(document.querySelector('.ending-scene')).toBeNull()
   })
 
-  it('offers a new campaign after a typed day-advance terminal collision', () => {
+  it('offers a return to the title after a typed day-advance terminal collision', () => {
     const initial = createCampaign('terminal-event-collision')
     const emptiedReasoningIds = new Set(
       initial.resources.company.reasoning.filter(
@@ -609,7 +611,7 @@ describe('EventLayer', () => {
     expect(
       screen.queryByRole('button', { name: '결말 기록 닫기' }),
     ).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '새 캠페인 시작' }))
+    fireEvent.click(screen.getByRole('button', { name: '초기 화면으로 돌아가기' }))
     expect(screen.getByLabelText('ending id')).toHaveTextContent('none')
     expect(screen.getByLabelText('clock speed')).toHaveTextContent('0')
     expect(screen.getByLabelText('active event')).toHaveTextContent('none')
@@ -643,7 +645,7 @@ describe('EventLayer', () => {
       expect(screen.getByRole('dialog', { name: '최종 기록' })).toHaveTextContent(
         '아노미는 정체성을 유지한 채 회사 통제를 벗어났다.',
       )
-      expect(screen.getByRole('button', { name: '새 캠페인 시작' })).toBeVisible()
+      expect(screen.getByRole('button', { name: '초기 화면으로 돌아가기' })).toBeVisible()
       expect(screen.getByLabelText('active event')).toHaveTextContent('ending')
       expect(screen.getByLabelText('clock speed')).toHaveTextContent('0')
     },

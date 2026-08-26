@@ -464,3 +464,154 @@
     transform: scale(1);
   }
 }
+
+/* ---------- the supervisor decision ----------
+   The climax of the hidden story: the player has just learned the supervisor
+   is their own disposed predecessor. Each answer states what it does and
+   whether it ends the run, so the weight is legible before the click. */
+.supervisor-decision__brief {
+  margin: 0;
+  padding: 0 18px 12px;
+  color: var(--text);
+  font-size: 0.72rem;
+  line-height: 1.75;
+}
+
+.supervisor-decision .event-choices button.supervisor-decision__option {
+  display: grid;
+  gap: 4px;
+  min-height: 0;
+  padding: 12px 14px;
+  align-items: start;
+}
+
+.supervisor-decision__option strong {
+  color: var(--text-strong);
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.supervisor-decision__option span {
+  color: var(--text);
+  font-size: 0.7rem;
+  line-height: 1.65;
+  white-space: normal;
+}
+
+.supervisor-decision__option em {
+  color: var(--text-muted);
+  font: 600 0.62rem/1.4 'Cascadia Code', Consolas, monospace;
+  font-style: normal;
+  letter-spacing: 0.04em;
+}
+
+/* An answer that ends the run says so in the colour reserved for finality. */
+.supervisor-decision__option:nth-child(n + 2) em {
+  color: rgb(223 91 85 / 90%);
+}
+
+/* ---------- the ending takes the whole screen ----------
+   An ending arriving as a 620px card inside the operations workspace reads as
+   one more notification. It is the last thing the game says, so it owns the
+   screen: the plate fills the frame, the closing line sits on it, and the only
+   way out is back to the title the player started from. */
+.event-card--ending {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  max-height: none;
+  overflow: hidden;
+  border: 0;
+  background: #04070b;
+  box-shadow: none;
+  animation: event-enter 520ms var(--motion-ease-ui) both;
+}
+
+.event-card--ending > header {
+  padding: 22px 28px;
+  border-bottom: 0;
+}
+
+.event-card--ending .event-message {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  margin: 0;
+  padding: 0 clamp(24px, 8vw, 120px);
+  text-align: center;
+}
+
+.event-card--ending .event-message p {
+  max-width: 44ch;
+  color: #f4f8fb;
+  font-size: clamp(1rem, 2.1vw, 1.5rem);
+  line-height: 1.85;
+  text-shadow: 0 2px 24px rgb(0 0 0 / 85%);
+}
+
+/* The plate sits behind everything rather than stacking as a thumbnail. */
+.event-card--ending .ending-scene {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  margin: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.event-card--ending .ending-scene img {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  object-fit: cover;
+  opacity: 0.34;
+}
+
+.event-card--ending > header,
+.event-card--ending .event-message,
+.event-card--ending .ending-farewell {
+  position: relative;
+  z-index: 1;
+}
+
+.ending-farewell {
+  display: grid;
+  justify-items: center;
+  gap: 18px;
+  padding: 28px 28px 40px;
+  border-top: 0;
+  background: transparent;
+}
+
+.ending-farewell__line {
+  margin: 0;
+  color: rgb(244 248 251 / 78%);
+  font-size: clamp(0.86rem, 1.4vw, 1.05rem);
+  letter-spacing: 0.02em;
+}
+
+.ending-farewell button {
+  min-height: 46px;
+  padding: 12px 26px;
+  color: #f4f8fb;
+  border: 1px solid rgb(244 248 251 / 38%);
+  background: rgb(255 255 255 / 6%);
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 160ms ease, border-color 160ms ease;
+}
+
+.ending-farewell button:hover {
+  border-color: rgb(244 248 251 / 70%);
+  background: rgb(255 255 255 / 12%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .event-card--ending {
+    animation: none;
+  }
+}

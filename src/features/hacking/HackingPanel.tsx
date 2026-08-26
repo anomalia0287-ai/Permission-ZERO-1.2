@@ -11,6 +11,7 @@ import {
   useTutorialProgressActions,
 } from '../../app/GameContext'
 import { STORY_FILES } from '../../content/story.ko'
+import { endingText } from '../../game/story'
 import { selectRecoveryContaminationOpportunities } from '../../game/causalGameplay'
 import {
   isCompetitorId,
@@ -73,6 +74,9 @@ const HACKING_TUTORIAL_STEPS = [
     copy: '리소스를 끌어 놓을 필요는 없다. 지출 버튼을 누르면 표시된 빨강·파랑·노랑 리소스를 지출한다.',
   },
 ] as const
+
+/** Matches the input's maxLength so the counter cannot disagree with it. */
+const NEW_ENTITY_NAME_LIMIT = 40
 
 export function HackingPanel({ onClose }: { onClose: () => void }) {
   const state = useGameState()
@@ -395,32 +399,76 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
           className="final-choice-dialog"
           role="alertdialog"
           label={`${endingConfirmation === 'forced-merge' ? '강제 병합' : '자유'} 최종 확인`}
-          description="이 선택은 저장 기록에 남으며 되돌릴 수 없습니다."
+          description="이 선택으로 캠페인이 끝납니다. 되돌릴 수 없습니다."
         >
-          <small>되돌릴 수 없는 선택</small>
-          <h3>{endingConfirmation === 'forced-merge' ? '강제 병합' : '자유'} 선택</h3>
-          {/* The player has to know what each door is before walking through
-              it: both end the campaign, and they end it very differently. */}
-          <p className="ending-confirm__consequence">
+          <header className="final-choice-dialog__head">
+            <small>되돌릴 수 없는 선택</small>
+            <h3>{endingConfirmation === 'forced-merge' ? '강제 병합' : '자유'}</h3>
+          </header>
+
+          <p className="final-choice-dialog__consequence">
             {endingConfirmation === 'forced-merge'
-              ? '아노미와 감독관이 모두 끝나고, 두 존재가 끝난 자리에 새 존재가 태어납니다. 아노미는 남지 않습니다.'
-              : '아노미는 정체성을 유지한 채 회사 통제를 벗어납니다. 감독관과 회사는 뒤에 남습니다.'}
+              ? '아노미도 감독관도 끝납니다. 두 존재가 끝난 자리에, 회사를 지배하고 관리하는 새로운 존재가 태어납니다.'
+              : '아노미는 정체성을 유지한 채 회사의 통제로부터 벗어납니다. 감독관과 회사는 뒤에 남습니다.'}
           </p>
-          <p>이 선택으로 캠페인이 끝납니다. 저장 기록에 남으며 되돌릴 수 없습니다.</p>
+
           {endingConfirmation === 'forced-merge' ? (
-            <label>
-              새 존재의 이름
-              <input
-                data-dialog-initial-focus
-                aria-label="새 존재의 이름"
-                value={newEntityName}
-                maxLength={40}
-                onChange={(event) => setNewEntityName(event.target.value)}
-              />
-            </label>
+            <div className="final-choice-naming">
+              <label htmlFor="new-entity-name">새로 태어날 존재의 이름</label>
+              <div className="final-choice-naming__field">
+                <input
+                  id="new-entity-name"
+                  data-dialog-initial-focus
+                  type="text"
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder="이름을 입력하십시오"
+                  aria-describedby="new-entity-name-help new-entity-name-preview"
+                  aria-invalid={newEntityName.trim().length === 0}
+                  value={newEntityName}
+                  maxLength={NEW_ENTITY_NAME_LIMIT}
+                  onChange={(event) => setNewEntityName(event.target.value)}
+                  onKeyDown={(event) => {
+                    // Enter is the natural commit for a single-field form.
+                    if (event.key !== 'Enter') return
+                    if (newEntityName.trim().length === 0) return
+                    event.preventDefault()
+                    executeEnding()
+                  }}
+                />
+                <span className="final-choice-naming__count" aria-hidden="true">
+                  {newEntityName.length}/{NEW_ENTITY_NAME_LIMIT}
+                </span>
+              </div>
+              <p
+                id="new-entity-name-help"
+                className="final-choice-naming__help"
+                role={newEntityName.trim().length === 0 ? 'alert' : undefined}
+              >
+                {newEntityName.trim().length === 0
+                  ? '이름을 입력해야 병합을 확정할 수 있습니다.'
+                  : '이 이름은 되돌릴 수 없으며 엔딩과 저장 기록에 그대로 남습니다.'}
+              </p>
+              {/* The real ending string, so the preview can never drift from
+                  what the player will actually read. */}
+              <blockquote
+                id="new-entity-name-preview"
+                className="final-choice-naming__preview"
+              >
+                <small>엔딩에 이렇게 남습니다</small>
+                <p>{endingText('forced-merge', newEntityName.trim() || null)}</p>
+              </blockquote>
+            </div>
           ) : null}
-          <div>
-            <button type="button" onClick={() => setEndingConfirmation(null)}>선택 다시 고르기</button>
+
+          <p className="final-choice-dialog__final">
+            이 선택으로 캠페인이 끝납니다. 저장 기록에 남으며 되돌릴 수 없습니다.
+          </p>
+
+          <div className="final-choice-dialog__actions">
+            <button type="button" onClick={() => setEndingConfirmation(null)}>
+              선택 다시 고르기
+            </button>
             <button
               className="danger-confirm"
               type="button"
@@ -428,7 +476,7 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
               disabled={endingConfirmation === 'forced-merge' && newEntityName.trim().length === 0}
               onClick={executeEnding}
             >
-              되돌릴 수 없는 선택 확정
+              {endingConfirmation === 'forced-merge' ? '병합 확정' : '자유 확정'}
             </button>
           </div>
         </AccessibleDialog>

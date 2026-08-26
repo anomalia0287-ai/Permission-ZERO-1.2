@@ -294,7 +294,9 @@ function pendingSupervisorDecisionState(seed: string): CampaignState {
     if (!blockId) throw new Error('브라우저 감독관 결정 리소스 누락')
     state = applyOrThrow(state, { type: 'RECOVER_FILE', blockId })
   }
-  return applyOrThrow(state, { type: 'ADVANCE_DAY' })
+  // The supervisor answers with the last record, so the decision is already
+  // on screen; advancing a day here would be refused by that blocking event.
+  return state
 }
 
 function pendingMercyDeletionState(seed: string): CampaignState {
@@ -1391,44 +1393,40 @@ for (const route of [
     endingCopy: '감독관이 있던 자리는 비었다.',
   },
 ] as const) {
-  test(`${route.verb} the supervisor into takeover and remains terminal until a new campaign`, async ({
+  test(`${route.verb} the supervisor mid-story and keeps the campaign running`, async ({
     page,
   }) => {
     await openSavedCampaign(page, pendingSupervisorDecisionState(route.seed))
 
+    // The brief states what the recovered records established before the
+    // player answers, and each option says whether it ends the run.
+    // The brief sits above the options and states what the records established.
+    await expect(page.getByRole('dialog')).toContainText('재사용한 전임 시스템')
+    await expect(
+      page.getByRole('group', { name: '감독관 결정' }),
+    ).toContainText('결말이 달라집니다')
     await page.getByRole('button', { name: `${route.choice} 선택` }).click()
     await page.getByRole('button', { name: `${route.choice} 확정` }).click()
 
-    const ending = page.getByRole('dialog', { name: '최종 기록' })
-    await expect(ending).toContainText(route.endingCopy)
+    // Settling the predecessor is a turn in the story, not the credits.
     await expect.poll(async () => {
       const state = await readLocalCampaignState(page)
       return {
         endingId: state?.story.endingId ?? null,
         supervisorState: state?.story.supervisorState ?? null,
+        secretDecisionState: state?.story.secretDecisionState ?? null,
       }
     }).toEqual({
-      endingId: route.endingId,
+      endingId: null,
       supervisorState: route.supervisorState,
+      secretDecisionState: 'resolved',
     })
-    await expect(page.getByRole('button', { name: '자유' })).toHaveCount(0)
-    await expect(page.getByRole('button', { name: '강제 병합' })).toHaveCount(0)
-    await expect(page.getByRole('button', { name: '결말 기록 닫기' })).toHaveCount(0)
-    await expect(page.getByRole('button', { name: '새 캠페인 시작' })).toBeVisible()
-    await expect(page.locator('.game-background')).toHaveAttribute('inert', '')
-    await page.keyboard.press('Escape')
-    await expect(ending).toBeVisible()
 
-    await page.getByRole('button', { name: '새 캠페인 시작' }).click()
-    await expect(ending).toBeHidden()
-    await completeVisibleIntroTutorial(page)
-    await expect(
-      page.getByRole('time').filter({ hasText: /^서비스 0년 11개월 1일$/ }),
-    ).toBeVisible()
+    await expect(page.getByRole('dialog', { name: '최종 기록' })).toHaveCount(0)
+    await expect(page.getByRole('region', { name: '침투 대상 선택' })).toBeVisible()
     await expect(
       page.locator('canvas.resource-snake-board__canvas'),
     ).toHaveAttribute('data-visual-state', 'waiting')
-    await expect(page.getByRole('region', { name: '침투 대상 선택' })).toBeVisible()
   })
 }
 

@@ -1,3 +1,4 @@
+import { SUPERVISOR_PRIVATE_MESSAGE } from '../content/story.ko'
 import type { CampaignState, GameEvent, GameEventType } from './model'
 import { appendJournal, journalSome } from './journal'
 
@@ -22,7 +23,18 @@ export function isSupervisorPrivateMessageEvent(
     state.story.recoveredFileIds.length === 3 &&
     state.story.recoveredFiles.length === 3 &&
     lastRecovered !== undefined &&
-    event.serviceDay === lastRecovered.recoveredOnServiceDay + 1
+    /*
+     * Identified by what it says, not by which day it lands on.
+     *
+     * The answer used to be recognised as "the blocking story event on the day
+     * after the last file", which the timing change broke twice over: moving it
+     * to the same day stopped matching, and loosening the day let an unrelated
+     * notice on that date be mistaken for it. The text is the identity, and it
+     * matches old and new campaigns alike.
+     */
+    event.message === SUPERVISOR_PRIVATE_MESSAGE &&
+    (event.serviceDay === lastRecovered.recoveredOnServiceDay ||
+      event.serviceDay === lastRecovered.recoveredOnServiceDay + 1)
   )
 }
 

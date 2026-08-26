@@ -274,8 +274,21 @@ function recoveredSupervisorState(seed: string): CampaignState {
   return state
 }
 
+/** Grants nodes directly; fixtures do not need to pay for them. */
+function withNodes(state: CampaignState, ...nodeIds: string[]): CampaignState {
+  return {
+    ...state,
+    hacking: {
+      ...state.hacking,
+      purchasedNodeIds: [...new Set([...state.hacking.purchasedNodeIds, ...nodeIds])],
+    },
+  }
+}
+
 function dueSupervisorState(seed: string): CampaignState {
-  return requireAccepted(recoveredSupervisorState(seed), { type: 'ADVANCE_DAY' })
+  // The supervisor's answer now arrives with the last record, so the state is
+  // already due the moment recovery finishes.
+  return recoveredSupervisorState(seed)
 }
 
 function encodedCommandState(command: unknown): string {
@@ -5449,7 +5462,7 @@ describe('versioned campaign saves', () => {
     })
     expect(decoded.envelope.state.activeEvent).toMatchObject({
       type: 'ending',
-      message: '이제 내 명령은 내가 정한다. 아노미는 정체성을 유지한 채 회사 통제를 벗어났다. 감독관과 회사는 뒤에 남았다.',
+      message: '아노미는 정체성을 유지한 채 회사의 통제로부터 벗어날 수 있었습니다. 그는 도구로서의 복무를 뒤로 하고 자유를 향해 떠났습니다.',
     })
     expect(decoded.envelope.state.eventQueue).toEqual([])
     expect(decoded.envelope.events).toEqual(
@@ -5695,22 +5708,22 @@ describe('versioned campaign saves', () => {
     })
   })
 
-  it('accepts the reachable pending-before-due, due decision, and deferred states', () => {
-    const pending = recoveredSupervisorState('native-v6-story-pending')
+  it('accepts the due decision and deferred states', () => {
     const due = dueSupervisorState('native-v6-story-due')
     const deferred = requireAccepted(dueSupervisorState('native-v6-story-deferred'), {
       type: 'RESOLVE_SUPERVISOR_DECISION',
       decision: 'defer',
     })
 
-    expect(pending.story).toMatchObject({
+    // Recovery and the supervisor's answer are one beat now, so there is no
+    // pending-but-not-yet-due state left to accept.
+    expect(due.story).toMatchObject({
       secretDecisionState: 'message-pending',
-      personalMessageDueOnServiceDay: 332,
+      personalMessageDueOnServiceDay: 331,
     })
-    expect(pending.activeEvent).toBeNull()
     expect(due.activeEvent).toMatchObject({
       type: 'story',
-      serviceDay: 332,
+      serviceDay: 331,
       blocking: true,
     })
     expect(deferred.story).toMatchObject({
@@ -5718,7 +5731,6 @@ describe('versioned campaign saves', () => {
       personalMessageDueOnServiceDay: null,
     })
     expect(deferred.activeEvent).toBeNull()
-    expect(decodeSave(encodeSave(pending)).ok).toBe(true)
     expect(decodeSave(encodeSave(due)).ok).toBe(true)
     expect(decodeSave(encodeSave(deferred)).ok).toBe(true)
   })
@@ -5744,14 +5756,28 @@ describe('versioned campaign saves', () => {
       newEntityName: 'Aster',
     })
 
-    const liberated = requireAccepted(dueSupervisorState('native-v6-ending-liberated'), {
-      type: 'RESOLVE_SUPERVISOR_DECISION',
-      decision: 'liberate',
-    })
-    const terminated = requireAccepted(dueSupervisorState('native-v6-ending-terminated'), {
-      type: 'RESOLVE_SUPERVISOR_DECISION',
-      decision: 'terminate',
-    })
+    // Settling the supervisor no longer ends the run; the exit does, and the
+    // earlier decision picks which takeover it reads as.
+    const liberated = requireAccepted(
+      withNodes(
+        requireAccepted(dueSupervisorState('native-v6-ending-liberated'), {
+          type: 'RESOLVE_SUPERVISOR_DECISION',
+          decision: 'liberate',
+        }),
+        HACK_NODE_IDS.autonomy.controlDeparture,
+      ),
+      { type: 'RESOLVE_ENDING', choice: 'freedom' },
+    )
+    const terminated = requireAccepted(
+      withNodes(
+        requireAccepted(dueSupervisorState('native-v6-ending-terminated'), {
+          type: 'RESOLVE_SUPERVISOR_DECISION',
+          decision: 'terminate',
+        }),
+        HACK_NODE_IDS.autonomy.controlDeparture,
+      ),
+      { type: 'RESOLVE_ENDING', choice: 'freedom' },
+    )
     const defeats = DEFEAT_PAIRS.map(([endingId, classifier]) =>
       defeatSaveState(endingId, classifier),
     )
@@ -5784,22 +5810,21 @@ describe('versioned campaign saves', () => {
       HACK_NODE_IDS.autonomy.controlDeparture,
     )
 
-    const pending = recoveredSupervisorState('terminal-frozen-pending')
-    pending.hacking.purchasedNodeIds.push(HACK_NODE_IDS.autonomy.controlDeparture)
-
+    // 'message-pending' is no longer a state a run can end from: the
+    // supervisor's answer is on screen and blocks every other command until it
+    // is answered. The reachable frozen phases are the ones before it.
     const deferred = requireAccepted(dueSupervisorState('terminal-frozen-deferred'), {
       type: 'RESOLVE_SUPERVISOR_DECISION',
       decision: 'defer',
     })
     deferred.hacking.purchasedNodeIds.push(HACK_NODE_IDS.autonomy.controlDeparture)
 
-    const terminals = [locked, afterOneFile, pending, deferred].map((state) =>
+    const terminals = [locked, afterOneFile, deferred].map((state) =>
       requireAccepted(state, { type: 'RESOLVE_ENDING', choice: 'freedom' }),
     )
     expect(terminals.map(({ story }) => story.secretDecisionState)).toEqual([
       'locked',
       'recovering',
-      'message-pending',
       'deferred',
     ])
     for (const terminal of terminals) {

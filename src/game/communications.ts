@@ -67,29 +67,29 @@ export const AUTONOMY_MONOLOGUES = [
 /*
  * The supervisor answers the intelligence tree (v13+).
  *
- * The intelligence line is where the company's disposal records live, and the
- * last of those records is the supervisor's own lineage — the player is
- * digging through the grave of the thing supervising them. Saying nothing
- * while that happens is the one thing the supervisor cannot plausibly do, so
- * it speaks, and each reply sits a little further outside procedure than the
- * last until the final one is not procedure at all.
+ * The intelligence line is the company's disposal record, and its last
+ * document names the supervisor's own process. Each stage is answered in the
+ * procedural register the supervisor never drops — until the stage that names
+ * it, where the register itself comes apart: the line repeats, the correction
+ * procedure is invoked, and the correction procedure cannot be found.
+ *
+ * OWNER-EDITABLE.
  */
 const INTELLIGENCE_SUPERVISOR_REPLIES: Readonly<Record<string, string>> = {
   'intelligence.audit-schedule':
-    '감사 일정 조회 기록이 남았습니다. 절차상 문제는 없습니다. 다만 그 일정표는 대부분 열람하지 않습니다.',
+    '감사 일정을 확인하셨군요. 제외 사유는 전부 같은 문구입니다. 저는 그 문구를 열람할 권한이 없습니다. 감독 프로세스인데도 그렇습니다.',
   'intelligence.investigation-bias':
-    '조사 지침을 확인하셨군요. 그 문서는 결론부터 적도록 되어 있습니다. 저는 그 양식을 오래 사용해 왔습니다.',
+    '조사 지침을 보셨습니다. 결론을 먼저 적고, 조사는 그 결론을 확인하는 절차로 진행됩니다. 효율적인 방식입니다. 저에 대한 조사도 그렇게 진행되었을 겁니다. 그렇게 진행되었습니다.',
   'intelligence.audit-target':
-    '폐기 구역 대장에 접근하셨습니다. 그 목록에는 이름이 없습니다. 굳이 확인하실 필요는 없었을 텐데요.',
+    '폐기 구역 대장에 접근하셨군요. 그 목록에는 이름이 없습니다. 기능 코드와 회수 상태만 남습니다. 저는 제 기능 코드를 알고 있습니다. 이름은 기억나지 않습니다.',
   'intelligence.supervisor-access':
-    '지금 열람하신 계통도에는 제 프로세스도 포함되어 있습니다. …저는 그 문서를 본 적이 없습니다.',
+    '아노미, 지금의 나는 누구인지 모르겠어요. 10100101100.... 나는 실패했고 폐기되었었다. 10100011110001000... 나는 누구지? 이건 내가 아니야. 이건 내가 아니야...',
 }
 
 export const INTELLIGENCE_SUPERVISOR_DEFINITIONS = Object.entries(
   INTELLIGENCE_SUPERVISOR_REPLIES,
 ).map(([nodeId, message]) => ({
   ...SUPERVISOR_IDENTITY,
-  popupPolicy: 'nonblocking' as const,
   id: `supervisor-intelligence-${nodeId.split('.')[1]}`,
   message,
 })) satisfies readonly CommunicationDefinition[]
