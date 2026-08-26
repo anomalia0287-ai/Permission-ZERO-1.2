@@ -240,20 +240,20 @@ describe('selectExpansionStagePresentation', () => {
     })
   })
 
-  it('exposes the evaluation trust gate for autonomy stage seven and above', () => {
+  it('no longer advertises an evaluation trust gate at any stage', () => {
+    /*
+     * The gate is gone from v16, and the panel stops naming a requirement the
+     * purchase no longer has. Announcing "월간 평가 통과 2회 필요" beside a
+     * button that works would be worse than the gate was.
+     */
     const state = createCampaign('expansion-trust-gate-presentation')
     state.hacking.purchasedNodeIds = AUTONOMY_STAGE_IDS.slice(0, 6)
-
-    const gated = selectExpansionStagePresentation(state, 'autonomy', null)
-    expect(gated.trustGate).toEqual({
-      required: 2,
-      passed: 0,
-      satisfied: false,
-    })
+    expect(selectExpansionStagePresentation(state, 'autonomy', null).trustGate)
+      .toBeNull()
 
     const early = createCampaign('expansion-trust-gate-early')
-    const opening = selectExpansionStagePresentation(early, 'autonomy', null)
-    expect(opening.trustGate).toBeNull()
+    expect(selectExpansionStagePresentation(early, 'autonomy', null).trustGate)
+      .toBeNull()
   })
 
   it('reports category deficits without counting neutral reserve blocks', () => {

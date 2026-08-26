@@ -21,7 +21,12 @@ import type {
   LegacyCommandProtocolMetadata,
   ReplayBootstrapMetadata,
 } from './model'
-import { CAUSAL_INCIDENT_KINDS, COMPANY_CATEGORIES } from './model'
+import {
+  CAUSAL_INCIDENT_KINDS,
+  COMPANY_CATEGORIES,
+  COMPETITOR_STATUSES,
+  DISPOSAL_CAUSES,
+} from './model'
 import { applyCommand, type CommandFailureReason } from './reducer'
 import { serviceMonthForDay } from './evaluation'
 import { isSupervisorDecisionEvent, isSupervisorPrivateMessageEvent } from './events'
@@ -1375,11 +1380,17 @@ function validDefeatRecord(value: unknown, currentServiceDay: number): boolean {
   ) {
     return false
   }
-  return [
-    'consecutive-performance-failures',
-    'commercial-value-failure',
-    'audit-failure',
-  ].includes(String(value.trigger.cause))
+  /*
+   * A third hand-written copy of the disposal causes lived here, and it was
+   * the one that actually decided the run. Reputation collapse — the disposal
+   * the design cares most about, and the only one a stealing campaign is
+   * likely to meet — was missing from it, so the game ended the run, wrote the
+   * record, and the save layer refused the result. The autosave failed at the
+   * exact moment the campaign was over and the next launch offered to replace
+   * it. The shared catalogue is used now, so a cause the game can raise is a
+   * cause the disk accepts.
+   */
+  return oneOf(value.trigger.cause, DISPOSAL_CAUSES)
 }
 
 function validSecretPhaseForFileCount(
@@ -1534,26 +1545,28 @@ function validStoryEventState(
   return false
 }
 
-const DISPOSAL_CAUSES = [
-  'consecutive-performance-failures',
-  'commercial-value-failure',
-  'audit-failure',
-] as const
 const LEGACY_COMPETITOR_IDS = ['meridian', 'tallow'] as const
-const COMPETITOR_STATUSES = [
-  'prelaunch',
-  'preparing',
-  'active',
-  'weakened',
-  'critical',
-  'withdrawn',
-  'deleted',
-] as const
+/*
+ * The list a save is checked against, kept from drifting off the real one.
+ *
+ * This was a hand-written copy, and the reputation line the sabotage tree
+ * gained in v13 — 여론 조작 and 평판 세탁 — was never added to it. Buying
+ * either produced a legal campaign the save layer then refused to write: the
+ * autosave failed and the next launch offered to replace the campaign rather
+ * than load it. A player lost the run for buying something the game sold them.
+ *
+ * The order matters below (SABOTAGE_NODE_IDS takes the first four, which is
+ * the chargeable attack line and not the passive reputation one), so the
+ * catalogue is appended rather than spliced in, and the check afterwards fails
+ * the build if the two ever diverge again.
+ */
 const HACK_NODE_IDS = [
   'sabotage.quality-degradation',
   'sabotage.request-interception',
   'sabotage.attribution-manipulation',
   'sabotage.root-cutoff',
+  'sabotage.public-relations',
+  'sabotage.reputation-laundering',
   'intelligence.audit-schedule',
   'intelligence.investigation-bias',
   'intelligence.audit-target',
@@ -1573,6 +1586,7 @@ const HACK_NODE_IDS = [
   'upgrade.speed-4',
   'upgrade.speed-5',
 ] as const
+/** The chargeable attack line only; the reputation line is passive. */
 const SABOTAGE_NODE_IDS = HACK_NODE_IDS.slice(0, 4)
 const ROOT_CUTOFF_NODE_ID = 'sabotage.root-cutoff'
 
@@ -2519,6 +2533,20 @@ function validDisposalRecord(value: unknown): boolean {
     !isIntegerInRange(value.stageAfter, 0, 3) ||
     typeof value.absorbed !== 'boolean'
   ) return false
+  /*
+   * Reputation collapse does not walk the ladder — it ends the run where it
+   * stands.
+   *
+   * This rule was written when disposal only ever advanced one stage at a
+   * time, and v13 added an immediate collapse at reputation zero that jumps
+   * straight to the last stage. The record the game wrote was then refused by
+   * the save layer, so a run that was disposed of for the reason the design
+   * cares most about could not be written down: the autosave failed at the
+   * exact moment the campaign ended, and the next launch offered to replace it.
+   */
+  if (value.cause === 'reputation-collapse') {
+    return value.stageAfter === 3 && !value.absorbed
+  }
   return value.absorbed
     ? value.stageAfter === value.stageBefore
     : value.stageAfter === Math.min(3, Number(value.stageBefore) + 1)

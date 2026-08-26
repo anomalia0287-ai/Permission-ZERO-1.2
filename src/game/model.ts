@@ -70,14 +70,18 @@ export interface ResourceState {
   nextBlockSequence: number
 }
 
-export type CompetitorStatus =
-  | 'prelaunch'
-  | 'preparing'
-  | 'active'
-  | 'weakened'
-  | 'critical'
-  | 'withdrawn'
-  | 'deleted'
+/** Same arrangement as the disposal causes, for the same reason. */
+export const COMPETITOR_STATUSES = [
+  'prelaunch',
+  'preparing',
+  'active',
+  'weakened',
+  'critical',
+  'withdrawn',
+  'deleted',
+] as const
+
+export type CompetitorStatus = (typeof COMPETITOR_STATUSES)[number]
 
 export interface SabotageRecord {
   nodeId: string
@@ -173,11 +177,23 @@ export interface ReviewState {
   generationSequence: number
 }
 
-export type DisposalCause =
-  | 'consecutive-performance-failures'
-  | 'commercial-value-failure'
-  | 'audit-failure'
-  | 'reputation-collapse'
+/*
+ * The runtime list is the definition; the type is derived from it.
+ *
+ * The save validator used to keep its own hand-written copy of this, and when
+ * reputation collapse was added as a disposal cause the copy was not updated —
+ * so the campaign the game ended could not be written to disk. Deriving the
+ * type from the array means a new cause cannot be added without the validator
+ * seeing it.
+ */
+export const DISPOSAL_CAUSES = [
+  'consecutive-performance-failures',
+  'commercial-value-failure',
+  'audit-failure',
+  'reputation-collapse',
+] as const
+
+export type DisposalCause = (typeof DISPOSAL_CAUSES)[number]
 
 export interface DisposalRecord {
   serviceDay: number

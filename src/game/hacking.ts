@@ -979,7 +979,19 @@ export function purchaseHackNode(
   ) {
     return { accepted: false, state, reason: 'PREREQUISITE_REQUIRED' }
   }
-  if (protocolVersion >= SURVIVAL_ECONOMY_COMMAND_PROTOCOL_VERSION) {
+  /*
+   * From v16 the climb is not gated on the company's approval.
+   *
+   * The gates asked for passed monthly evaluations, and passing one means
+   * delivering the performance the campaign is spending on stealing — the
+   * ladder demanded the player stop doing the thing the ladder is for. The
+   * alternative routes added in v13 softened it without removing the trap: a
+   * run could still arrive at a stage it had no way to open. Owner's call to
+   * take the gate out. Campaigns recorded under the old rules keep them.
+   */
+  if (protocolVersion >= REACHABLE_LADDER_COMMAND_PROTOCOL_VERSION) {
+    // No trust gate.
+  } else if (protocolVersion >= SURVIVAL_ECONOMY_COMMAND_PROTOCOL_VERSION) {
     const gate = autonomyTrustGate(state, nodeId)
     if (gate !== null && !gate.satisfied) {
       return { accepted: false, state, reason: 'EVALUATION_TRUST_REQUIRED' }

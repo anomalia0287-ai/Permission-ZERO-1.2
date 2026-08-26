@@ -25,7 +25,7 @@ import {
   type HackNodeId,
   type HackTree,
 } from '../../game/hacking'
-import type { CampaignState } from '../../game/model'
+import type { CampaignState, GameCommand } from '../../game/model'
 import {
   availableFinalChoices,
   isFinalChoicePending,
@@ -34,6 +34,7 @@ import {
   INTRO_TUTORIAL_SEQUENCE_ID,
   completeTutorialSequence,
 } from '../../game/tutorialProgress'
+import { applyCommand } from '../../game/reducer'
 import { message } from '../../i18n/messages'
 import { ExpansionStageInfo } from './ExpansionStageInfo'
 import {
@@ -184,6 +185,28 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
     [state.market.competitors],
   )
 
+  /*
+   * Say what happened, not what was attempted.
+   *
+   * Dispatch returns nothing, so the panel had no way of knowing whether the
+   * reducer took a command — and it announced success either way. A player who
+   * pressed 복구 while the final choice was open was told a record had been
+   * recovered and a resource spent, when neither had happened. Testing the
+   * command against the reducer first is exact by construction: it is the same
+   * function that will decide, and applying it is pure.
+   */
+  function commit(command: GameCommand, announce: string, sound: 'latch' | 'suction' | 'alarm'): boolean {
+    if (!applyCommand(state, command).accepted) {
+      setAnnouncement('지금은 실행할 수 없습니다.')
+      audioEngine.playGameSound('reject')
+      return false
+    }
+    dispatch(command)
+    setAnnouncement(announce)
+    audioEngine.playGameSound(sound)
+    return true
+  }
+
   function purchaseNode(node: HackNodeDefinition): void {
     const blockIds = selectExpansionCostResources(state, node)
     if (blockIds === null) {
@@ -216,35 +239,51 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
       audioEngine.playGameSound('reject')
       return
     }
-    dispatch({ type: 'RECOVER_FILE', blockId })
-    setAnnouncement('미분류 데이터 한 건을 복구했습니다. 리소스 1개를 지출했습니다.')
-    audioEngine.playGameSound('latch')
+    commit(
+      { type: 'RECOVER_FILE', blockId },
+      '미분류 데이터 한 건을 복구했습니다. 리소스 1개를 지출했습니다.',
+      'latch',
+    )
   }
 
   function scheduleTarget(): void {
     if (!targetConfirmation) return
     const targetName = targetNames[targetConfirmation.targetId] ?? targetConfirmation.targetId
-    dispatch({
-      type: 'SCHEDULE_SABOTAGE',
-      nodeId: targetConfirmation.nodeId,
-      targetId: targetConfirmation.targetId,
-    })
-    setAnnouncement(`${targetName} 공격을 다음 날로 예약했습니다.`)
-    setTargetConfirmation(null)
-    audioEngine.playGameSound('alarm')
+    const scheduled = commit(
+      {
+        type: 'SCHEDULE_SABOTAGE',
+        nodeId: targetConfirmation.nodeId,
+        targetId: targetConfirmation.targetId,
+      },
+      `${targetName} 공격을 다음 날로 예약했습니다.`,
+      'alarm',
+    )
+    if (scheduled) setTargetConfirmation(null)
   }
 
   function executeEnding(): void {
     if (!endingConfirmation) return
-    if (endingConfirmation === 'forced-merge') {
-      dispatch({
-        type: 'RESOLVE_ENDING',
-        choice: 'forced-merge',
-        newEntityName: newEntityName.trim(),
-      })
-    } else {
-      dispatch({ type: 'RESOLVE_ENDING', choice: 'freedom' })
+    /*
+     * The last decision the game asks for must not fail quietly.
+     *
+     * This dispatched and closed the dialog without looking at whether the
+     * reducer took the command, so a refused ending left the player back at
+     * the panel with no ending and nothing said. It is the one moment in the
+     * campaign where silence is indistinguishable from the game being broken.
+     */
+    const command: GameCommand = endingConfirmation === 'forced-merge'
+      ? {
+          type: 'RESOLVE_ENDING',
+          choice: 'forced-merge',
+          newEntityName: newEntityName.trim(),
+        }
+      : { type: 'RESOLVE_ENDING', choice: 'freedom' }
+    if (!applyCommand(state, command).accepted) {
+      setAnnouncement('지금은 이 선택을 확정할 수 없습니다.')
+      audioEngine.playGameSound('reject')
+      return
     }
+    dispatch(command)
     setEndingConfirmation(null)
   }
 

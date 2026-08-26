@@ -1,4 +1,8 @@
 import {
+  commandProtocolVersionForNextCommand,
+  REACHABLE_LADDER_COMMAND_PROTOCOL_VERSION,
+} from '../../game/commandProtocol'
+import {
   HACK_NODE_IDS,
   hackNodesForCampaign,
   autonomyTrustGateRequirement,
@@ -236,9 +240,18 @@ export function selectExpansionStagePresentation(
       ? undefined
       : preloadVisual
   const reserveCounts = reserveOriginCounts(state)
-  const gateRequirement = activeItem.status === 'current'
-    ? autonomyTrustGateRequirement(activeItem.node.id)
-    : null
+  /*
+   * The trust gate is gone from v16, so the panel stops advertising it. A
+   * campaign recorded under the older rules still plays by them, and still
+   * needs the requirement spelled out while it is the thing standing in the
+   * way.
+   */
+  const gateRequirement =
+    activeItem.status === 'current'
+    && commandProtocolVersionForNextCommand(state)
+      < REACHABLE_LADDER_COMMAND_PROTOCOL_VERSION
+      ? autonomyTrustGateRequirement(activeItem.node.id)
+      : null
   const trustGate = gateRequirement === null
     ? null
     : {

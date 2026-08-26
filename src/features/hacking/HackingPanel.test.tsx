@@ -416,21 +416,18 @@ describe('HackingPanel stage-scene expansion UI', () => {
       .toHaveTextContent('원인 미상 사건으로 게시됩니다')
   })
 
-  it('locks the stage seven spend button behind the evaluation trust gate', () => {
-    const state = withReserveVector(createCampaign('stage-seven-trust-gate'), {
-      reasoning: 3,
-      memory: 2,
-      fluency: 2,
-    })
-    state.hacking.purchasedNodeIds = AUTONOMY_STAGE_IDS.slice(0, 6)
+  it('sells stage seven without asking for the company’s approval', () => {
+    /*
+     * The trust gate is gone from v16. It demanded passed monthly evaluations
+     * from a campaign that funds itself by failing them, and the panel used to
+     * say so on a disabled button. Nothing about standing is named here now.
+     */
+    const state = withAutonomyStageFunded(createCampaign('stage-seven-open'), 6)
     renderHacking(storageForState(state))
 
-    const spend = screen.getByRole('button', {
-      name: '자율성 7단계 운영 신뢰 부족',
-    })
-    expect(spend).toBeDisabled()
-    expect(screen.getByLabelText('자율성 7단계 운영 신뢰 조건'))
-      .toHaveTextContent('월간 평가 통과 2회 필요 · 현재 0회')
+    expect(screen.getByRole('button', { name: '자율성 7단계 리소스 지출' }))
+      .toBeEnabled()
+    expect(screen.queryByLabelText('자율성 7단계 운영 신뢰 조건')).toBeNull()
   })
 
   it('unlocks the stage seven spend button once enough evaluations passed', () => {
