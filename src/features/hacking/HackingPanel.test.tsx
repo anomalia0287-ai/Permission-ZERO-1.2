@@ -230,7 +230,7 @@ describe('HackingPanel stage-scene expansion UI', () => {
     })).toBeInTheDocument()
   })
 
-  it('teaches autonomy, speed upgrades, and spending in three short steps', () => {
+  it('walks every tree the panel can spend on before it lets the player in', () => {
     const state = withReserveVector(createCampaign('first-expansion-guide'), {
       reasoning: 1,
       memory: 0,
@@ -247,6 +247,17 @@ describe('HackingPanel stage-scene expansion UI', () => {
     fireEvent.click(screen.getByRole('button', { name: '다음' }))
     expect(panel).toHaveAttribute('data-hacking-tutorial-step', 'upgrade')
     expect(guide).toHaveTextContent('단계마다 4%')
+
+    // Intelligence is the only brake on suspicion and sabotage the only way to
+    // manufacture standing; a guide that skips them leaves the player with no
+    // answer to the audits.
+    fireEvent.click(screen.getByRole('button', { name: '다음' }))
+    expect(panel).toHaveAttribute('data-hacking-tutorial-step', 'intelligence')
+    expect(guide).toHaveTextContent('의심을 되돌리는 유일한 수단')
+    fireEvent.click(screen.getByRole('button', { name: '다음' }))
+    expect(panel).toHaveAttribute('data-hacking-tutorial-step', 'sabotage')
+    expect(guide).toHaveTextContent('경쟁 AI를 직접 무너뜨린다')
+
     fireEvent.click(screen.getByRole('button', { name: '다음' }))
     expect(panel).toHaveAttribute('data-hacking-tutorial-step', 'spend')
     expect(guide).toHaveTextContent('표시된 빨강·파랑·노랑 리소스를 지출')

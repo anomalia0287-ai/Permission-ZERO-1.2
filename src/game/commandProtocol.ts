@@ -40,6 +40,26 @@ import type {
 // dead for up to three weeks and its intrusion card read "대상 없음" — the
 // player locked out of a resource line by the clock. Replay contract, and v13
 // saves already exist, so it is its own version.
+// v15 turns the supervisor's fate from an ending into a turn in the story.
+// Settling with the predecessor used to roll credits on the spot, spending the
+// whole hidden story on one click, and the private message that opens that
+// scene waited until the next service day — a night's sleep between the reveal
+// and the reaction to it. Both change what a recorded command produces: under
+// v14 the third recovery left the day free to advance and the decision closed
+// the campaign, so logs written then keep replaying under those rules and only
+// new commands see the immediate message and the continuing campaign.
+// v16 makes the ladder reachable. The autonomy line cost 178 blocks and the
+// whole tree 208, while a campaign that steals hard earns about three a day —
+// the company only restocks three — so buying the exit took roughly sixty days
+// against campaigns that were being disposed of around fifty. The climb was
+// priced past the end of the game. Autonomy halves, the sabotage line comes
+// down without losing the gaps between its stages, and losing performance
+// costs less market share than it did, because the same theft was being
+// charged twice: once in what it took and again in what the shortfall did to
+// standing. Prices and market rules are replay contracts, so campaigns
+// recorded earlier keep paying what they agreed to.
+export const REACHABLE_LADDER_COMMAND_PROTOCOL_VERSION = 16 as const
+export const STORY_CONTINUITY_COMMAND_PROTOCOL_VERSION = 15 as const
 export const CONTINUOUS_SUPPLY_COMMAND_PROTOCOL_VERSION = 14 as const
 export const SURVIVAL_ECONOMY_COMMAND_PROTOCOL_VERSION = 13 as const
 export const INTELLIGENCE_RELIEF_COMMAND_PROTOCOL_VERSION = 12 as const
@@ -50,7 +70,7 @@ export const REPUTATION_DRIFT_COMMAND_PROTOCOL_VERSION = 8 as const
 export const AUTONOMY_COST_COMMAND_PROTOCOL_VERSION = 7 as const
 export const FINAL_CHOICE_COMMAND_PROTOCOL_VERSION = 6 as const
 export const CURRENT_COMMAND_PROTOCOL_VERSION =
-  CONTINUOUS_SUPPLY_COMMAND_PROTOCOL_VERSION
+  REACHABLE_LADDER_COMMAND_PROTOCOL_VERSION
 export const EXPANSION_COMMAND_PROTOCOL_VERSION = 5 as const
 export const CURRENT_MARKET_COMMAND_PROTOCOL_VERSION =
   EXPANSION_COMMAND_PROTOCOL_VERSION
@@ -63,7 +83,7 @@ export const CAUSAL_COMMAND_PROTOCOL_VERSION = 3 as const
 export const PREVIOUS_COMMAND_PROTOCOL_VERSION = 2 as const
 export const LEGACY_COMMAND_PROTOCOL_VERSION = 1 as const
 
-const SUPPORTED_COMMAND_PROTOCOL_VERSIONS = [
+export const SUPPORTED_COMMAND_PROTOCOL_VERSIONS = [
   LEGACY_COMMAND_PROTOCOL_VERSION,
   PREVIOUS_COMMAND_PROTOCOL_VERSION,
   CAUSAL_COMMAND_PROTOCOL_VERSION,
@@ -77,6 +97,8 @@ const SUPPORTED_COMMAND_PROTOCOL_VERSIONS = [
   SUPERVISOR_PRESENCE_COMMAND_PROTOCOL_VERSION,
   INTELLIGENCE_RELIEF_COMMAND_PROTOCOL_VERSION,
   SURVIVAL_ECONOMY_COMMAND_PROTOCOL_VERSION,
+  CONTINUOUS_SUPPLY_COMMAND_PROTOCOL_VERSION,
+  STORY_CONTINUITY_COMMAND_PROTOCOL_VERSION,
   CURRENT_COMMAND_PROTOCOL_VERSION,
 ] as const
 

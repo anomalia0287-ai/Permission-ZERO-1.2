@@ -19,11 +19,14 @@ export type ResourceSnakeRewardOutcome =
 /**
  * Blocks a single kill is worth.
  *
- * One made the climb crawl — the autonomy line runs to dozens of blocks and a
- * round yields one or two kills — while three made a round trivial. Two keeps
- * the round meaningful and the campaign moving.
+ * One made the climb crawl: the autonomy line runs to dozens of blocks and a
+ * round yields one or two kills. Owner's call to pay three — a round that is
+ * survived on real-time reflexes should move the campaign, not inch it.
+ *
+ * The payout is capped by what the company actually holds in that category, so
+ * a stripped line still pays only what is there to take.
  */
-export const RESOURCE_SNAKE_BLOCKS_PER_KILL = 2
+export const RESOURCE_SNAKE_BLOCKS_PER_KILL = 3
 
 /**
  * The reserved block the guard was carrying, plus one more of the same

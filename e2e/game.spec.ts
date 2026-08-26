@@ -773,7 +773,10 @@ test('persists one won single-bot reward without auto-opening expansion', async 
     'data-hacking-tutorial-step',
     'autonomy',
   )
-  for (const expectedStep of ['upgrade', 'spend']) {
+  // The guide walks every tree the panel can spend on: intelligence is the
+  // only brake on suspicion and sabotage the only way to manufacture standing,
+  // so neither is left for the player to discover after the audits arrive.
+  for (const expectedStep of ['upgrade', 'intelligence', 'sabotage', 'spend']) {
     await hackingGuide.getByRole('button', { name: '다음' }).click()
     await expect(hacking.locator('.hacking-panel')).toHaveAttribute(
       'data-hacking-tutorial-step',

@@ -15,7 +15,8 @@ export const DEMO_PROFILE_02 = {
      * The company's refill rate is the campaign's real throughput (v13).
      * Expectation sits near 14 against 16 cells per category, so the intruder
      * could take about two blocks per category before the shortfall started
-     * costing reputation — while the autonomy line asks for sixty-nine. The
+     * costing reputation — while the autonomy line asks for ninety-one from
+     * v16, and asked for a hundred and seventy-eight before that. The
      * company now replaces what is taken at a rate that makes the climb
      * payable, which also turns theft into a rhythm: take, let the shelves
      * refill, take again. Taking faster than the refill is what costs standing.
@@ -32,6 +33,21 @@ export const DEMO_PROFILE_02 = {
     legacyReserveCapacity: 18,
     legacyStartingReserveResources: 3,
     diversionSuspicion: 2.4,
+    /*
+     * v16 price of taking a block, in suspicion.
+     *
+     * At 2.4 a block, a campaign stealing at a normal pace pinned suspicion at
+     * 100 within a week — and buying the whole intelligence tree, the only
+     * thing that pulls suspicion back down, moved that by one day. The counter
+     * to the pressure did not work, so there was nothing to decide. At 0.8 a
+     * block a kill costs what a single block used to, suspicion still pins for
+     * a campaign that ignores intelligence, and a campaign that invests in it
+     * stays off the ceiling without ever escaping the audit band. Lower than
+     * this and suspicion stops reaching the thresholds the audit and hidden
+     * resource systems are built on, which removes the pressure instead of
+     * making it answerable.
+     */
+    reachableDiversionSuspicion: 0.8,
     intrusionDefeatSuspicion: 5,
     cleanExtractionChance: 0.4,
     normalContribution: 1,

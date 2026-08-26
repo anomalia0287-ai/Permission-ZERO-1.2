@@ -586,7 +586,7 @@ export function applyCommand(
       return acceptCommand(state, command, result.state)
     }
     case 'RECOVER_FILE': {
-      const result = recoverNextFile(state, command.blockId)
+      const result = recoverNextFile(state, command.blockId, protocolVersion)
       if (!result.accepted) {
         return {
           accepted: false,
@@ -597,7 +597,11 @@ export function applyCommand(
       return acceptCommand(state, command, result.state)
     }
     case 'RESOLVE_SUPERVISOR_DECISION': {
-      const result = resolveSupervisorDecision(state, command.decision)
+      const result = resolveSupervisorDecision(
+        state,
+        command.decision,
+        protocolVersion,
+      )
       if (!result.accepted) {
         return {
           accepted: false,

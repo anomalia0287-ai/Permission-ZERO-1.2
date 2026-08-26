@@ -365,7 +365,7 @@ describe('typed hacking trees', () => {
     expect(remainingCosts.reduce((total, cost) => total + cost, 0)).toBe(121)
   })
 
-  it('uses the unbounded v4 diversion command and applies exactly 2.4 suspicion', () => {
+  it('uses the unbounded v4 diversion command and applies exactly 0.8 suspicion', () => {
     const initial = createCampaign('task-5-reserve-diversion-economy')
     const blockId = initial.resources.company.reasoning.find(
       (candidate): candidate is string => candidate !== null,
@@ -374,7 +374,7 @@ describe('typed hacking trees', () => {
       throw new Error('Task 5 diversion fixture is missing')
     }
 
-    expect(DEMO_PROFILE_02.resources.diversionSuspicion).toBe(2.4)
+    expect(DEMO_PROFILE_02.resources.reachableDiversionSuspicion).toBe(0.8)
     expect(initial.resources.reserve).toEqual([])
 
     const separated = applyCommand(initial, {
@@ -393,18 +393,18 @@ describe('typed hacking trees', () => {
 
     expect(diverted.state.resources.reserve).toEqual([blockId])
     expect(diverted.state.resources.blocks[blockId].location).toEqual({ kind: 'reserve' })
-    expect(diverted.state.suspicion - initial.suspicion).toBe(2.4)
+    expect(diverted.state.suspicion - initial.suspicion).toBe(0.8)
     expect(
       diverted.state.commandLog.tail.map(({ command }) => command.type),
     ).toEqual(['BEGIN_BLOCK_SEPARATION', 'DIVERT_BLOCK_TO_RESERVE'])
   })
 
   it.each([
-    // v11 support-tree prices: the story and pressure trees stopped losing
-    // the argument against autonomy for the same stolen blocks.
+    // v16 prices: the autonomy ladder halves so the exit can be reached
+    // inside a campaign, and the support trees keep their opening price.
     { nodeId: HACK_NODE_IDS.sabotage.qualityDegradation, cost: 1 },
     { nodeId: HACK_NODE_IDS.intelligence.auditSchedule, cost: 1 },
-    { nodeId: HACK_NODE_IDS.autonomy.selfDirection, cost: 5 },
+    { nodeId: HACK_NODE_IDS.autonomy.selfDirection, cost: 3 },
     { nodeId: HACK_NODE_IDS.upgrade.speed1, cost: 1 },
   ])('buys the first $nodeId path after stealing its exact vector', ({ nodeId, cost }) => {
     const initial = createCampaign(`first-${nodeId}`)

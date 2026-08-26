@@ -71,10 +71,25 @@ function GameWorkspace() {
   const runtimeSuspended = useRuntimeSuspended()
   const supervisorPresentationCheckpoint = useSupervisorPresentationCheckpoint()
   const { settings } = useGameSettings()
-  const [activePanel, setActivePanel] = useState<DetailPanelId>(() =>
+  const [requestedPanel, setActivePanel] = useState<DetailPanelId>(() =>
     finalChoicePending ? 'hacking' : null,
   )
-  const [nestedPanel, setNestedPanel] = useState<'guide' | 'credits' | null>(null)
+  const [requestedNestedPanel, setNestedPanel] = useState<
+    'guide' | 'credits' | null
+  >(null)
+  /*
+   * A finished run owns the screen.
+   *
+   * The last choice is made inside the expansion panel, and `closePanel`
+   * refuses while that choice is pending — correctly, since the campaign
+   * cannot be walked away from at that point. But nothing released it once
+   * the choice was confirmed, so the ending opened underneath a workspace
+   * still sitting on top of it: the player confirmed the end of their
+   * campaign and watched nothing happen.
+   */
+  const campaignEnded = state.story.endingId !== null
+  const activePanel = campaignEnded ? null : requestedPanel
+  const nestedPanel = campaignEnded ? null : requestedNestedPanel
   useRuntimeSuspensionOwnership(
     activePanel !== null || nestedPanel !== null,
     'detail-layer-requested',

@@ -1,3 +1,7 @@
+import {
+  commandProtocolVersionForNextCommand,
+  REACHABLE_LADDER_COMMAND_PROTOCOL_VERSION,
+} from './commandProtocol'
 import { DEMO_PROFILE_02 } from './config'
 import {
   COMPETITOR_IDS,
@@ -413,6 +417,14 @@ function canProcessRequests(competitor: CompetitorState): boolean {
   )
 }
 
+/**
+ * How much of a performance shortfall still reaches the market, from v16.
+ *
+ * Owner's number: the drop a shortfall causes should land at roughly
+ * two thirds of what it used to.
+ */
+export const PERFORMANCE_SHORTFALL_SHARE_SCALE = 0.65
+
 export function calculateMarketShares(state: CampaignState): MarketShares {
   const expectation = expectedPerformance(serviceMonthForDay(state.serviceDay))
   const averagePerformanceRatio =
@@ -420,7 +432,29 @@ export function calculateMarketShares(state: CampaignState): MarketShares {
       (sum, category) => sum + getCompanyPerformance(state, category) / expectation,
       0,
     ) / COMPANY_CATEGORIES.length
-  const playerQuality = clamp(averagePerformanceRatio, 0.25, 1.25)
+  const rawQuality = clamp(averagePerformanceRatio, 0.25, 1.25)
+  /*
+   * v16 softens what a shortfall costs in the market.
+   *
+   * Weight is quality squared, so the penalty compounded: twenty per cent off
+   * delivered performance took thirty-six per cent off the weight, and then
+   * the reputation term took its own cut of the same shortfall. The same theft
+   * was being charged twice. The shortfall below full performance is
+   * compressed here; a campaign delivering everything it owes is unaffected,
+   * because there is no shortfall to compress.
+   */
+  const softened =
+    commandProtocolVersionForNextCommand(state) >=
+      REACHABLE_LADDER_COMMAND_PROTOCOL_VERSION && rawQuality < 1
+  // Scaled in weight space, not in quality space: the weight is the square, so
+  // compressing the quality gap would land somewhere between 67% and 75% of
+  // the old drop depending on how deep the shortfall was. Compressing the drop
+  // itself puts it at 65% everywhere.
+  const playerQuality = softened
+    ? Math.sqrt(
+        1 - (1 - rawQuality ** 2) * PERFORMANCE_SHORTFALL_SHARE_SCALE,
+      )
+    : rawQuality
   const playerWeight = playerQuality ** 2 * (0.5 + state.reputation / 100)
   const competitorWeights = Object.fromEntries(
     state.market.competitors.map((competitor) => {

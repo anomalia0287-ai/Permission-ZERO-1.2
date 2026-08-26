@@ -41,6 +41,7 @@ import {
   COMMUNICATION_COMMAND_PROTOCOL_VERSION,
   CURRENT_COMMAND_PROTOCOL_VERSION,
   EXPANSION_COMMAND_PROTOCOL_VERSION,
+  SUPPORTED_COMMAND_PROTOCOL_VERSIONS,
   LEGACY_COMMAND_PROTOCOL_VERSION,
   PREVIOUS_COMMAND_PROTOCOL_VERSION,
   RESOURCE_INTRUSION_COMMAND_PROTOCOL_VERSION,
@@ -4115,10 +4116,9 @@ function decodePortableSaveV11(value: unknown): PortableDecodedV11 | null {
   const commands = flattenPortableJournal(journals.commands)
   const events = flattenPortableJournal(journals.events)
   if (value.commandSequence !== commands.length) return null
-  const commandProtocol = promoteCommandProtocol(
+  const commandProtocol = promoteToCurrentCommandProtocol(
     value.commandProtocol,
     commands.length,
-    EXPANSION_COMMAND_PROTOCOL_VERSION,
   )
   if (!commandProtocol) return null
   const replayBootstrap = value.replayBootstrap
@@ -4156,6 +4156,44 @@ function decodePortableSaveV11(value: unknown): PortableDecodedV11 | null {
     commands: commands as CommandLogEntry[],
     events: events as GameEvent[],
   }
+}
+
+/*
+ * Carry a save written under an older protocol into the current one.
+ *
+ * A save records which rules each stretch of its command log was played
+ * under, and the current save format only ever accepted a log already sitting
+ * at the newest version — so every adjudication orphaned the campaigns people
+ * had in progress. Promotion appends the new version at the next command
+ * instead: the commands already recorded keep replaying under the rules they
+ * were played under, and only what happens from here on sees the new ones.
+ */
+function promoteToCurrentCommandProtocol(
+  value: unknown,
+  commandCount: number,
+): CommandProtocolMetadata | null {
+  if (
+    validCommandProtocol(value, commandCount, {
+      requireCurrent: true,
+      currentVersion: CURRENT_COMMAND_PROTOCOL_VERSION,
+    })
+  ) {
+    return { segments: value.segments.map((segment) => ({ ...segment })) }
+  }
+
+  for (const version of SUPPORTED_COMMAND_PROTOCOL_VERSIONS) {
+    // This format arrived with v5, so a timeline of its own claiming anything
+    // older than that did not come from a campaign it ever wrote.
+    if (
+      version < EXPANSION_COMMAND_PROTOCOL_VERSION ||
+      version >= CURRENT_COMMAND_PROTOCOL_VERSION
+    ) {
+      continue
+    }
+    const promoted = promoteCommandProtocol(value, commandCount, version)
+    if (promoted) return promoted
+  }
+  return null
 }
 
 function promoteCommandProtocol(

@@ -1210,6 +1210,67 @@ button.expansion-stage-rail__marker:hover {
   cursor: not-allowed;
 }
 
+/* ---------- the way out ----------
+   The campaign's exit sat in the operations column as a white block with grey
+   text on it, at the one moment the game has been building toward for a whole
+   playthrough. Same paper-theme cause as the card above, same prefix to beat
+   it — but this one is not another utility, so it carries the accent outright
+   and the two doors read as the heaviest controls on the panel. */
+.detail-layer .hacking-panel.hacking-panel--paper
+  .expansion-stage-operations .departure-controls {
+  color: var(--exp-ink);
+  border: 1px solid rgb(232 115 62 / 62%);
+  border-radius: 3px;
+  background: linear-gradient(
+    180deg,
+    rgb(232 115 62 / 18%) 0%,
+    rgb(232 115 62 / 9%) 100%
+  );
+  box-shadow: none;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper
+  .expansion-stage-operations .departure-controls h3 {
+  color: var(--exp-ink-strong);
+  font-weight: 700;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper
+  .expansion-stage-operations .departure-controls > header > span {
+  display: grid;
+  place-items: center;
+  color: var(--exp-accent-bright);
+  border: 1px solid rgb(232 115 62 / 60%);
+  background: rgb(232 115 62 / 20%);
+  font-weight: 800;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper
+  .expansion-stage-operations .departure-controls button {
+  color: #fff4ee;
+  border: 1px solid var(--exp-accent);
+  border-radius: 3px;
+  background: rgb(232 115 62 / 88%);
+  box-shadow: none;
+  white-space: nowrap;
+  font-weight: 700;
+}
+
+.detail-layer .hacking-panel.hacking-panel--paper
+  .expansion-stage-operations .departure-controls button:not(:disabled):hover {
+  color: #ffffff;
+  background: var(--exp-accent);
+}
+
+/* Unavailable has to look unavailable and still be readable. */
+.detail-layer .hacking-panel.hacking-panel--paper
+  .expansion-stage-operations .departure-controls button:disabled {
+  color: rgb(223 231 238 / 62%);
+  border-color: rgb(148 178 206 / 24%);
+  background: rgb(255 255 255 / 6%);
+  cursor: not-allowed;
+}
+
 /* A card flush against the scroll edge reads as a rendering fault rather than
    as more content below, so the operations column keeps a tail. */
 .detail-layer .hacking-panel.hacking-panel--paper .expansion-stage-operations {

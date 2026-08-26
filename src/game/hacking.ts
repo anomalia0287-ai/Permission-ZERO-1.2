@@ -11,6 +11,7 @@ import {
   EXPANSION_COMMAND_PROTOCOL_VERSION,
   FINAL_CHOICE_COMMAND_PROTOCOL_VERSION,
   CONTINUOUS_SUPPLY_COMMAND_PROTOCOL_VERSION,
+  REACHABLE_LADDER_COMMAND_PROTOCOL_VERSION,
   SURVIVAL_ECONOMY_COMMAND_PROTOCOL_VERSION,
   commandProtocolVersionForNextCommand,
 } from './commandProtocol'
@@ -425,6 +426,19 @@ export const AUTONOMY_STAGE_TOTALS_V14 = Object.freeze(
   [5, 8, 13, 18, 21, 24, 26, 29, 34] as const,
 )
 
+/*
+ * v16: the same ladder at half price.
+ *
+ * 178 blocks against an income of roughly three a day put the top of the
+ * ladder past the day the campaign typically ended — the exit existed and
+ * could not be bought. Ninety-one keeps every step distinct and the shape of
+ * the climb (cheap opening, a hard middle, a last stage that costs the most)
+ * while bringing the whole line inside a campaign's life.
+ */
+export const AUTONOMY_STAGE_TOTALS_V16 = Object.freeze(
+  [3, 4, 7, 9, 11, 12, 13, 15, 17] as const,
+)
+
 // No single category may carry more than this share of a stage's total, so a
 // draw cannot demand a category the campaign has no way to supply.
 const AUTONOMY_CATEGORY_SHARE_CEILING = 0.6
@@ -563,6 +577,41 @@ const SUPPORT_COSTS_V13: Readonly<Record<string, {
 }
 
 /** v12: the intelligence tree gets the deeper cut the owner asked for. */
+/*
+ * v16: the sabotage line comes down without losing its gaps.
+ *
+ * The intelligence ladder is left alone: at 1/2/3/4 it is already the
+ * shortest strictly-rising ladder that starts at one, and cutting it further
+ * would collapse two stages into the same price rather than lower it.
+ */
+const SUPPORT_COSTS_V16: Readonly<Record<string, {
+  cost: number
+  costVector: { reasoning: number; memory: number; fluency: number }
+}>> = {
+  [HACK_NODE_IDS.sabotage.qualityDegradation]: {
+    cost: 1, costVector: { reasoning: 0, memory: 0, fluency: 1 },
+  },
+  [HACK_NODE_IDS.sabotage.requestInterception]: {
+    cost: 2, costVector: { reasoning: 1, memory: 0, fluency: 1 },
+  },
+  [HACK_NODE_IDS.sabotage.attributionManipulation]: {
+    cost: 3, costVector: { reasoning: 1, memory: 1, fluency: 1 },
+  },
+  [HACK_NODE_IDS.sabotage.rootCutoff]: {
+    cost: 4, costVector: { reasoning: 2, memory: 1, fluency: 1 },
+  },
+}
+
+/** v16 prices for the reputation line, which is bought out of the same purse. */
+const REPUTATION_LINE_COSTS_V16: Readonly<Record<string, {
+  cost: number
+  costVector: { reasoning: number; memory: number; fluency: number }
+}>> = {
+  [HACK_NODE_IDS.sabotage.publicRelations]: {
+    cost: 2, costVector: { reasoning: 0, memory: 1, fluency: 1 },
+  },
+}
+
 const INTELLIGENCE_COSTS_V12: Readonly<Record<string, {
   cost: number
   costVector: { reasoning: number; memory: number; fluency: number }
@@ -628,23 +677,31 @@ export function hackNodesForProtocol(
   campaignSeed = '',
 ): readonly HackNodeDefinition[] {
   if (protocolVersion >= SURVIVAL_ECONOMY_COMMAND_PROTOCOL_VERSION) {
+    const reachable =
+      protocolVersion >= REACHABLE_LADDER_COMMAND_PROTOCOL_VERSION
     const autonomy = autonomyNodesV7(
       campaignSeed,
-      protocolVersion >= CONTINUOUS_SUPPLY_COMMAND_PROTOCOL_VERSION
-        ? AUTONOMY_STAGE_TOTALS_V14
-        : AUTONOMY_STAGE_TOTALS_V7,
+      reachable
+        ? AUTONOMY_STAGE_TOTALS_V16
+        : protocolVersion >= CONTINUOUS_SUPPLY_COMMAND_PROTOCOL_VERSION
+          ? AUTONOMY_STAGE_TOTALS_V14
+          : AUTONOMY_STAGE_TOTALS_V7,
     )
     const base = HACK_NODES.map((node) => {
       const versioned = autonomy.find(({ id }) => id === node.id) ?? node
       const discounted =
-        SUPPORT_COSTS_V13[node.id]
+        (reachable ? SUPPORT_COSTS_V16[node.id] : undefined)
+        ?? SUPPORT_COSTS_V13[node.id]
         ?? INTELLIGENCE_COSTS_V12[node.id]
         ?? SUPPORT_COSTS_V11[node.id]
       return discounted ? { ...versioned, ...discounted } : versioned
     })
     return [
       ...base,
-      ...REPUTATION_LINE_NODES_V13,
+      ...REPUTATION_LINE_NODES_V13.map((node) => {
+        const discounted = reachable ? REPUTATION_LINE_COSTS_V16[node.id] : undefined
+        return discounted ? { ...node, ...discounted } : node
+      }),
     ] as unknown as readonly HackNodeDefinition[]
   }
   if (protocolVersion >= AUTONOMY_COST_COMMAND_PROTOCOL_VERSION) {

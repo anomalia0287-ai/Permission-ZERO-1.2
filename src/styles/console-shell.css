@@ -606,3 +606,82 @@
     animation: none;
   }
 }
+
+/* ---------- the ending owns the frame ----------
+   The event layer is deliberately parked below the HUD (`inset: 66px 10px
+   10px`) so a notification never covers the numbers the player is managing.
+   An ending is not a notification: it is the last thing the game says, and it
+   was arriving with the reputation and suspicion meters still lit above it.
+   This sheet loads last, so the ending — and only the ending — takes the
+   whole viewport. */
+.event-layer:has(.event-card--ending) {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  padding: 0;
+}
+
+.event-layer:has(.event-card--ending) .event-card--ending {
+  border-radius: 0;
+}
+
+/* The plate is the ground the closing line sits on, not a picture pasted
+   above it. */
+.event-card--ending .ending-scene {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.event-card--ending .ending-scene img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  border: 0;
+  border-radius: 0;
+  object-fit: cover;
+  opacity: 0.32;
+}
+
+/* The plate carries an entry animation, and an animated `opacity` outranks any
+   declaration this sheet can write against it — the image kept rendering at
+   full strength with white text laid over a bright photograph. A scrim does
+   not compete with the animation: it sits above the plate and below the words,
+   so the closing line is legible no matter which plate the ending draws. */
+.event-card--ending .ending-scene::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgb(4 7 11 / 74%) 0%,
+    rgb(4 7 11 / 86%) 46%,
+    rgb(4 7 11 / 92%) 100%
+  );
+}
+
+/* A closing courtesy pinned to one corner reads as a dialog footer. It sits
+   under the line it belongs to. */
+.event-layer:has(.event-card--ending) .event-card--ending .ending-farewell {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-auto-flow: row;
+  place-items: center end;
+  justify-items: center;
+  justify-content: center;
+  align-content: end;
+  gap: 18px;
+  width: 100%;
+  padding: 0 28px 44px;
+  border-top: 0;
+  text-align: center;
+  background: none;
+}

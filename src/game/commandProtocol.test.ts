@@ -25,6 +25,8 @@ import {
   MESSAGE_CADENCE_COMMAND_PROTOCOL_VERSION,
   INTELLIGENCE_RELIEF_COMMAND_PROTOCOL_VERSION,
   CONTINUOUS_SUPPLY_COMMAND_PROTOCOL_VERSION,
+  REACHABLE_LADDER_COMMAND_PROTOCOL_VERSION,
+  STORY_CONTINUITY_COMMAND_PROTOCOL_VERSION,
   SURVIVAL_ECONOMY_COMMAND_PROTOCOL_VERSION,
   SUPERVISOR_PRESENCE_COMMAND_PROTOCOL_VERSION,
   REVIEW_CLASSIFICATION_COMMAND_PROTOCOL_VERSION,
@@ -35,7 +37,7 @@ import type {
 } from './model'
 
 describe('command protocol timeline', () => {
-  it('pins the fourteen supported protocol constants and every v5 feature boundary', () => {
+  it('pins the sixteen supported protocol constants and every v5 feature boundary', () => {
     expect(LEGACY_COMMAND_PROTOCOL_VERSION).toBe(1)
     expect(PREVIOUS_COMMAND_PROTOCOL_VERSION).toBe(2)
     expect(CAUSAL_COMMAND_PROTOCOL_VERSION).toBe(3)
@@ -52,15 +54,17 @@ describe('command protocol timeline', () => {
     expect(INTELLIGENCE_RELIEF_COMMAND_PROTOCOL_VERSION).toBe(12)
     expect(SURVIVAL_ECONOMY_COMMAND_PROTOCOL_VERSION).toBe(13)
     expect(CONTINUOUS_SUPPLY_COMMAND_PROTOCOL_VERSION).toBe(14)
-    expect(CURRENT_COMMAND_PROTOCOL_VERSION).toBe(14)
+    expect(STORY_CONTINUITY_COMMAND_PROTOCOL_VERSION).toBe(15)
+    expect(REACHABLE_LADDER_COMMAND_PROTOCOL_VERSION).toBe(16)
+    expect(CURRENT_COMMAND_PROTOCOL_VERSION).toBe(16)
   })
 
-  it('creates a fresh native v14 timeline on every call', () => {
+  it('creates a fresh native v16 timeline on every call', () => {
     const first = nativeCommandProtocol()
     const second = nativeCommandProtocol()
 
     expect(first).toEqual({
-      segments: [{ version: 14, startsAtSequence: 1 }],
+      segments: [{ version: 16, startsAtSequence: 1 }],
     })
     expect(second).toEqual(first)
     expect(second).not.toBe(first)
@@ -73,27 +77,27 @@ describe('command protocol timeline', () => {
     [
       { version: 1, legacyCommandCount: 0 },
       0,
-      [{ version: 14, startsAtSequence: 1 }],
+      [{ version: 16, startsAtSequence: 1 }],
     ],
     [
       { version: 1, legacyCommandCount: 31 },
       31,
       [
         { version: 1, startsAtSequence: 1 },
-        { version: 14, startsAtSequence: 32 },
+        { version: 16, startsAtSequence: 32 },
       ],
     ],
     [
       { version: 2, legacyCommandCount: 0 },
       0,
-      [{ version: 14, startsAtSequence: 1 }],
+      [{ version: 16, startsAtSequence: 1 }],
     ],
     [
       { version: 2, legacyCommandCount: 0 },
       19,
       [
         { version: 2, startsAtSequence: 1 },
-        { version: 14, startsAtSequence: 20 },
+        { version: 16, startsAtSequence: 20 },
       ],
     ],
     [
@@ -102,7 +106,7 @@ describe('command protocol timeline', () => {
       [
         { version: 1, startsAtSequence: 1 },
         { version: 2, startsAtSequence: 32 },
-        { version: 14, startsAtSequence: 51 },
+        { version: 16, startsAtSequence: 51 },
       ],
     ],
   ])('migrates %j with %i commands', (legacy, commandCount, segments) => {
@@ -176,14 +180,14 @@ describe('command protocol timeline', () => {
   })
 
   it('returns only a well-formed final version', () => {
-    expect(currentCommandProtocolVersion(nativeCommandProtocol())).toBe(14)
+    expect(currentCommandProtocolVersion(nativeCommandProtocol())).toBe(16)
 
     expect(() =>
       currentCommandProtocolVersion({ segments: [] }),
     ).toThrow(RangeError)
     expect(() =>
       currentCommandProtocolVersion({
-        segments: [{ version: 15, startsAtSequence: 1 }],
+        segments: [{ version: 17, startsAtSequence: 1 }],
       } as unknown as CommandProtocolMetadata),
     ).toThrow(RangeError)
   })
@@ -289,7 +293,7 @@ describe('command protocol timeline', () => {
     },
     {
       label: 'a version is unsupported',
-      value: { segments: [{ version: 15, startsAtSequence: 1 }] },
+      value: { segments: [{ version: 17, startsAtSequence: 1 }] },
       commandCount: 1,
       requireCurrent: true,
     },

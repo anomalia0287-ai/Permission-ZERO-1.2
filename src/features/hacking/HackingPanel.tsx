@@ -60,6 +60,15 @@ function firstReserveBlockId(state: CampaignState): string | null {
   return null
 }
 
+/*
+ * Four trees, and the guide used to name two of them.
+ *
+ * Intelligence is the only thing that pulls suspicion back down and sabotage
+ * is the only way to manufacture standing while stealing, but a player who was
+ * never told they exist buys autonomy until the audits arrive and never
+ * understands what they were supposed to do about it. The guide now walks
+ * every tree it can be spent on.
+ */
 const HACKING_TUTORIAL_STEPS = [
   {
     id: 'autonomy',
@@ -68,6 +77,14 @@ const HACKING_TUTORIAL_STEPS = [
   {
     id: 'upgrade',
     copy: '업그레이드는 별도 경로다. 다섯 단계가 침투전에서 아노미의 이동 속도를 단계마다 4%씩 높인다.',
+  },
+  {
+    id: 'intelligence',
+    copy: '정보는 의심을 되돌리는 유일한 수단이다. 훔칠 때마다 의심이 오르고, 정보 단계를 열 때마다 의심이 매일 더 빠르게 내려간다. 감사 일정과 조사 지침, 폐기 대장까지 열람하게 된다.',
+  },
+  {
+    id: 'sabotage',
+    copy: '사보타주는 경쟁 AI를 직접 무너뜨린다. 훔치는 아노미는 성능을 정직하게 올릴 수 없으므로, 상대를 끌어내려 상대적인 평판을 만든다. 여론 조작은 평판 하락 자체를 늦춘다.',
   },
   {
     id: 'spend',

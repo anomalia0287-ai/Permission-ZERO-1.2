@@ -1,4 +1,8 @@
-import { CONTINUOUS_SUPPLY_COMMAND_PROTOCOL_VERSION } from './commandProtocol'
+import {
+  commandProtocolVersionForNextCommand,
+  CONTINUOUS_SUPPLY_COMMAND_PROTOCOL_VERSION,
+  REACHABLE_LADDER_COMMAND_PROTOCOL_VERSION,
+} from './commandProtocol'
 import { DEMO_PROFILE_02 } from './config'
 import {
   COMPANY_CATEGORIES,
@@ -330,7 +334,7 @@ export function previewDiversion(
   const performanceBefore = getCompanyPerformance(state, located.category)
   const suspicionAfter = Math.min(
     100,
-    round(state.suspicion + DEMO_PROFILE_02.resources.diversionSuspicion),
+    round(state.suspicion + diversionSuspicionFor(state)),
   )
 
   return {
@@ -345,6 +349,16 @@ export function previewDiversion(
     suspicionBefore: state.suspicion,
     suspicionAfter,
   }
+}
+
+/** What one diverted block adds to suspicion under the campaign's rules. */
+function diversionSuspicionFor(
+  state: Pick<CampaignState, 'commandProtocol' | 'commandSequence'>,
+): number {
+  return commandProtocolVersionForNextCommand(state) >=
+    REACHABLE_LADDER_COMMAND_PROTOCOL_VERSION
+    ? DEMO_PROFILE_02.resources.reachableDiversionSuspicion
+    : DEMO_PROFILE_02.resources.diversionSuspicion
 }
 
 export function divertBlock(
@@ -407,7 +421,7 @@ export function previewUnboundedDiversion(
   const performanceBefore = getCompanyPerformance(state, located.category)
   const suspicionAfter = Math.min(
     100,
-    round(state.suspicion + DEMO_PROFILE_02.resources.diversionSuspicion),
+    round(state.suspicion + diversionSuspicionFor(state)),
   )
 
   return {

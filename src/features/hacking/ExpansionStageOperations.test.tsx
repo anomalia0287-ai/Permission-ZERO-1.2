@@ -127,8 +127,11 @@ describe('ExpansionStageOperations', () => {
       name: '자율성 1단계 필요 리소스 부족',
     })
     expect(disabledSpend).toBeDisabled()
-    // v14 stage one asks 2/2/1 from an empty reserve.
-    expect(operations).toHaveTextContent('추론 2개 부족')
+    // v16 halves the ladder: stage one asks 1/1/1 from an empty reserve, and
+    // the panel has to name every line it is short of, not just the first.
+    expect(operations).toHaveTextContent('추론 1개 부족')
+    expect(operations).toHaveTextContent('기억 1개 부족')
+    expect(operations).toHaveTextContent('유창성 1개 부족')
     fireEvent.click(disabledSpend)
     expect(callbacks.onPurchase).not.toHaveBeenCalled()
   })

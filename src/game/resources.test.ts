@@ -100,7 +100,7 @@ describe('resource diversion', () => {
     expect(first.accepted).toBe(true)
     if (!first.accepted) return
     expect(first.state.resourceIntrusion.successfulCoreDeposits).toBe(1)
-    expect(first.state.suspicion).toBe(2.4)
+    expect(first.state.suspicion).toBe(0.8)
 
     const secondBlockId = firstCompanyBlock(first.state, 'memory')
     const second = divertBlockToReserve(first.state, secondBlockId)
@@ -108,7 +108,7 @@ describe('resource diversion', () => {
     expect(second.accepted).toBe(true)
     if (!second.accepted) return
     expect(second.state.resourceIntrusion.successfulCoreDeposits).toBe(2)
-    expect(second.state.suspicion).toBe(4.8)
+    expect(second.state.suspicion).toBe(1.6)
   })
 
   it('does not count a rejected core deposit', () => {
@@ -138,6 +138,7 @@ describe('resource diversion', () => {
       reserveBefore: 3,
       reserveAfter: 4,
       suspicionBefore: 0,
+      // A v3 campaign keeps the price it was played at.
       suspicionAfter: 2.4,
     })
     expect(result.accepted).toBe(true)

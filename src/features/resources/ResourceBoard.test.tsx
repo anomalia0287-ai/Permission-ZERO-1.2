@@ -293,7 +293,7 @@ describe('ResourceBoard', () => {
 
     expect(screen.getByText('추론 16.0 → 15.0')).toBeInTheDocument()
     expect(screen.getByText('확보 0 → 1')).toBeInTheDocument()
-    expect(screen.getByText('의심 0.0 → 2.4')).toBeInTheDocument()
+    expect(screen.getByText('의심 0.0 → 0.8')).toBeInTheDocument()
     expect(screen.getByText('기준 유지 · 여유 +1.0')).toBeInTheDocument()
     expect(reserveIntake()).toBeEnabled()
   })
@@ -305,7 +305,7 @@ describe('ResourceBoard', () => {
     fireEvent.click(reserveIntake())
 
     expect(screen.getByLabelText('reserve count')).toHaveTextContent('1')
-    expect(screen.getByLabelText('suspicion value')).toHaveTextContent('2.4')
+    expect(screen.getByLabelText('suspicion value')).toHaveTextContent('0.8')
     expect(screen.getByLabelText('command count')).toHaveTextContent('2')
     expect(screen.getByLabelText('command types')).toHaveTextContent(
       'BEGIN_BLOCK_SEPARATION,DIVERT_BLOCK_TO_RESERVE',

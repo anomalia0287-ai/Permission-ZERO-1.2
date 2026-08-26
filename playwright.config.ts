@@ -2,6 +2,8 @@ import { defineConfig } from '@playwright/test'
 
 export default defineConfig({
   testDir: './e2e',
+  // The demo reel drives the build for the camera, not for assertions.
+  testIgnore: 'promo-capture.spec.ts',
   fullyParallel: false,
   // The snake journeys depend on real RAF cadence and real keyboard events.
   // Serial browser execution keeps other viewports from starving those input loops.

@@ -31,6 +31,7 @@ import {
   FINAL_CHOICE_COMMAND_PROTOCOL_VERSION,
   MESSAGE_CADENCE_COMMAND_PROTOCOL_VERSION,
   REPUTATION_DRIFT_COMMAND_PROTOCOL_VERSION,
+  STORY_CONTINUITY_COMMAND_PROTOCOL_VERSION,
   commandProtocolVersionForNextCommand,
 } from './commandProtocol'
 
@@ -212,6 +213,7 @@ export function advanceSupervisorMessagePresentation(
 export function recoverNextFile(
   state: CampaignState,
   blockId: string,
+  protocolVersion: CommandProtocolVersion = commandProtocolVersionForNextCommand(state),
 ): StoryMutationResult {
   if (!hasNode(state, HACK_NODE_IDS.intelligence.supervisorAccess)) {
     return { accepted: false, state, reason: 'SUPERVISOR_ACCESS_REQUIRED' }
@@ -235,6 +237,8 @@ export function recoverNextFile(
     },
   ]
   const allRecovered = recoveredFileIds.length === STORY_FILES.length
+  const immediateMessage =
+    protocolVersion >= STORY_CONTINUITY_COMMAND_PROTOCOL_VERSION
   let next: CampaignState = {
     ...consumed.state,
     story: {
@@ -244,15 +248,18 @@ export function recoverNextFile(
       secretDecisionState: allRecovered ? 'message-pending' : 'recovering',
       // The supervisor answers the moment the last record is out, not the
       // morning after. Waiting a day put a night's sleep between the reveal
-      // and the reaction to it.
-      personalMessageDueOnServiceDay: allRecovered ? state.serviceDay : null,
+      // and the reaction to it. Logs recorded before v15 left that day free to
+      // advance, so they keep the delay.
+      personalMessageDueOnServiceDay: allRecovered
+        ? state.serviceDay + (immediateMessage ? 0 : 1)
+        : null,
     },
   }
   next = appendEvent(
     next,
     createGameEvent(next, 'story', `${nextFile.title} 복구 완료`),
   )
-  if (allRecovered) next = enqueueDueStoryEvents(next)
+  if (allRecovered && immediateMessage) next = enqueueDueStoryEvents(next)
   return { accepted: true, state: next }
 }
 
@@ -442,6 +449,7 @@ export function resolveDefeatEnding(
 export function resolveSupervisorDecision(
   state: CampaignState,
   decision: SupervisorDecision,
+  protocolVersion: CommandProtocolVersion = commandProtocolVersionForNextCommand(state),
 ): StoryMutationResult {
   if (!['defer', 'liberate', 'terminate'].includes(decision)) {
     return {
@@ -483,6 +491,11 @@ export function resolveSupervisorDecision(
    */
   const liberated = decision === 'liberate'
   const supervisorState = liberated ? 'liberated' : 'terminated'
+  // Before v15 this closed the campaign, so those logs keep ending here.
+  const endingId =
+    protocolVersion >= STORY_CONTINUITY_COMMAND_PROTOCOL_VERSION
+      ? null
+      : ((liberated ? 'takeover-liberated' : 'takeover-terminated') as EndingId)
   const next = resolveActiveEvent({
     ...state,
     story: {
@@ -490,9 +503,13 @@ export function resolveSupervisorDecision(
       secretDecisionState: 'resolved',
       personalMessageDueOnServiceDay: null,
       supervisorState,
+      ...(endingId === null ? {} : { endingId }),
     },
   })
-  return { accepted: true, state: next }
+  return {
+    accepted: true,
+    state: endingId === null ? next : openEnding(next, endingId),
+  }
 }
 
 function needsMercy(competitor: CompetitorState): boolean {
