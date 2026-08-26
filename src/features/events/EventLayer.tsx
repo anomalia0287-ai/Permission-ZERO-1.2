@@ -22,6 +22,8 @@ import {
 import { useReturnToTitle } from '../../app/titleReturn'
 import { endingSceneFor } from '../../content/endingScenes.ko'
 import { getCompanyPerformance } from '../../game/resources'
+import { createPortal } from 'react-dom'
+
 import { useAccessibleDialog } from '../../app/useAccessibleDialog'
 import {
   isGenericDismissibleEvent,
@@ -362,7 +364,24 @@ function ActiveEventLayer({ activeEvent }: { activeEvent: GameEvent }) {
 
   if (!presentedEvent) return null
 
-  return (
+  /*
+   * Rendered at the document root, not inside the console.
+   *
+   * `.game-shell` carries `isolation: isolate`, which makes it a stacking
+   * context — and a stacking context is absolute: nothing inside it can paint
+   * above one of its siblings, whatever z-index it claims. The event layer
+   * asks for 60 and the expansion panel sits at 20, but the panel is a sibling
+   * of the shell, so it covered every event that arrived while it was open.
+   *
+   * That is what made the supervisor's answer look like a hang: the answer
+   * fires the moment the last record is recovered, the panel goes inert
+   * because a blocking event is waiting, and the event itself was painted
+   * underneath — a frozen console with nothing on screen to unfreeze it.
+   *
+   * Leaving the shell puts the layer in the root stacking context, where its
+   * z-index means what it says.
+   */
+  const layer = (
     <div
       className={`event-layer${presentedEvent.type === 'audit' ? ' event-layer--audit' : ''}`}
       data-app-background={presentedEvent.type === 'audit' ? '' : undefined}
@@ -370,6 +389,9 @@ function ActiveEventLayer({ activeEvent }: { activeEvent: GameEvent }) {
       <EventDialog event={presentedEvent} key={presentedEvent.id} />
     </div>
   )
+  return typeof document === 'undefined'
+    ? layer
+    : createPortal(layer, document.body)
 }
 
 // The audit workspace is the retired resource-field build: resource pressure is

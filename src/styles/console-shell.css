@@ -685,3 +685,20 @@
   text-align: center;
   background: none;
 }
+
+/* ---------- the event layer lives at the document root ----------
+   It is portalled out of `.game-shell` so its z-index escapes that shell's
+   stacking context. Absolute positioning would then resolve against the
+   initial containing block rather than the shell, so the box is pinned to the
+   viewport explicitly and keeps the same geometry it always had: below the
+   status strip, inset from the console's edge. */
+.event-layer {
+  position: fixed;
+  inset: 66px 10px 10px;
+}
+
+/* A rival's last message breaks its own lines — the plea ends in binary on a
+   line of its own, and collapsing that puts the noise inside the sentence. */
+.event-message p {
+  white-space: pre-line;
+}

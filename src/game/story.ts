@@ -512,6 +512,28 @@ export function resolveSupervisorDecision(
   }
 }
 
+/*
+ * What a rival says when it is asking not to be finished off.
+ *
+ * A shared procedural line let the moment pass as one more notification: the
+ * thing on the other end is about to stop existing and it was reading like a
+ * service ticket. The two rivals a campaign actually gets to this point with
+ * plead in their own voices; anything else falls back to the neutral request.
+ */
+function mercyPlea(competitorId: string): string {
+  const line = STORY_LINES.find(
+    ({ family, variant }) =>
+      family === 'mercy' && variant === `request-${competitorId}`,
+  )
+  return (
+    line?.text
+    ?? STORY_LINES.find(
+      ({ family, variant }) => family === 'mercy' && variant === 'request',
+    )?.text
+    ?? '공격자에게 요청합니다. 다음 명령을 중단하십시오.'
+  )
+}
+
 function needsMercy(competitor: CompetitorState): boolean {
   return (
     competitor.status === 'critical' &&
@@ -536,7 +558,7 @@ export function enqueueMercyIfNeeded(state: CampaignState): CampaignState {
     createGameEvent(
       prepared,
       'competitor-mercy',
-      `${competitor.name}: 공격자에게 요청합니다. 다음 명령을 중단하십시오.`,
+      `${competitor.name}: ${mercyPlea(competitor.id)}`,
       true,
     ),
   )

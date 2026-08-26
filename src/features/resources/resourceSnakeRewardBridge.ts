@@ -54,11 +54,30 @@ export function resourceSnakeRewardCommands(
   if (!category || !COMPANY_CATEGORIES.includes(category as CompanyCategory)) {
     return commands
   }
-  const extras = state.resources.company[category as CompanyCategory]
+  /*
+   * The extras stop before the line runs dry.
+   *
+   * A kill takes the guard's own block plus more of the same colour from the
+   * company grid, and at three a kill that could empty a line outright — the
+   * intrusion card for it then read "대상 없음" while the player watched their
+   * own stock of that colour sit in the pocket beside it. The card looked
+   * broken and the player lost the ability to steer toward the colour they
+   * needed until the company restocked.
+   *
+   * Leaving one block behind keeps every card raidable by construction rather
+   * than by tuning the restock rate. The guarded block itself is still taken,
+   * so a line that was down to that single block still empties — but that was
+   * true at every payout size and is not what this change is about.
+   */
+  const held = state.resources.company[category as CompanyCategory]
     .filter((blockId): blockId is string => (
       blockId !== null && blockId !== effect.blockId
     ))
-    .slice(0, RESOURCE_SNAKE_BLOCKS_PER_KILL - 1)
+  const affordableExtras = Math.max(0, held.length - 1)
+  const extras = held.slice(
+    0,
+    Math.min(RESOURCE_SNAKE_BLOCKS_PER_KILL - 1, affordableExtras),
+  )
   for (const blockId of extras) {
     commands.push(
       { type: 'BEGIN_BLOCK_SEPARATION', blockId, purpose: 'divert' },

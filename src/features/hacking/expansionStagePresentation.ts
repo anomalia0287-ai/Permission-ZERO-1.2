@@ -198,7 +198,19 @@ export function selectExpansionStagePresentation(
       : index === currentIndex
         ? 'current'
         : 'locked',
-    selectable: node.tree === 'sabotage' && purchasedNodeIds.has(node.id),
+    /*
+     * The current stage is reachable too, not only the bought ones.
+     *
+     * Only purchased sabotage nodes used to be clickable, so stepping back to
+     * an earlier stage was a one-way trip: the stage the tree was actually on
+     * could not be clicked, and nothing else in the panel cleared the
+     * selection. The way out was to leave for another tree and come back,
+     * which no player would guess. Making the current stage selectable closes
+     * the loop inside the tree.
+     */
+    selectable:
+      node.tree === 'sabotage'
+      && (purchasedNodeIds.has(node.id) || index === currentIndex),
   }))
   const selectedOperationalItem = tree === 'sabotage'
     ? items.find(

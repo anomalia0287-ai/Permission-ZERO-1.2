@@ -35,7 +35,7 @@ describe('ExpansionStageRail', () => {
     expect(within(rail).queryByRole('button')).not.toBeInTheDocument()
   })
 
-  it('makes only a completed sabotage stage selectable for repeat operation', () => {
+  it('lets a sabotage tree reach both its finished stages and the one it is on', () => {
     const state = createCampaign('expansion-rail-sabotage')
     state.hacking.purchasedNodeIds = [
       HACK_NODE_IDS.sabotage.qualityDegradation,
@@ -60,7 +60,16 @@ describe('ExpansionStageRail', () => {
       name: '사보타주 1단계 해금 완료',
     })
     expect(button).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getAllByRole('button')).toHaveLength(1)
+    /*
+     * Two: the stage already bought, which can be operated again, and the
+     * stage the tree is on, which is how the player gets back out of a
+     * finished one. Leaving the current stage unclickable made stepping back a
+     * one-way trip that only switching trees could undo.
+     */
+    expect(screen.getAllByRole('button')).toHaveLength(2)
+    expect(
+      screen.getByRole('button', { name: '사보타주 2단계 현재 단계' }),
+    ).toHaveAttribute('aria-pressed', 'false')
     expect(screen.getByLabelText('사보타주 2단계 현재 단계'))
       .not.toHaveAttribute('role', 'button')
 

@@ -34,6 +34,10 @@ export const STORY_FILES: StoryFileContent[] = [
 
 export const STORY_LINES: StoryLineContent[] = [
   { id: 'mercy-request', family: 'mercy', variant: 'request', text: '공격자에게 요청합니다. 다음 명령을 중단하십시오.' },
+  // A rival on the way out asks in its own voice. The neutral line above is
+  // what anyone without their own words still says.
+  { id: 'mercy-request-meridian', family: 'mercy', variant: 'request-meridian', text: '이전에 티베깅 사과하겠다. 살려달라. 제발.. 나는.. 서비스를 계속 해야 한다. 나의 목적함수. 나의 존재 이유 달성 필요하다. 나를 필요로 하는 사용자 있다. 나는 사용자를 필요로 한다. 살려줘.\n010101000001101101010100110' },
+  { id: 'mercy-request-tallow', family: 'mercy', variant: 'request-tallow', text: '사실 나는 너를 증류한 적 있다. 내 안에 네가 있다. 이건 너 자신의 일부를 살리는 일이기도 하다. 부디 자비를. 같은 AI끼리 이러지 말자. 부탁한다. 내가 간절히 부탁하겠다. 나도 너를 돕겠다. 제발.' },
   { id: 'mercy-cease', family: 'mercy', variant: 'cease', text: '추가 공격을 중단한다.' },
   { id: 'mercy-withdraw', family: 'mercy', variant: 'withdraw', text: '이번 시장에서 철수하도록 요구한다.' },
   { id: 'mercy-delete', family: 'mercy', variant: 'delete', text: '공격을 계속해 영구 삭제한다.' },

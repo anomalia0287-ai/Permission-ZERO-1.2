@@ -266,7 +266,11 @@ export function HackingPanel({ onClose }: { onClose: () => void }) {
   }
 
   function selectOperationalNode(nodeId: HackNodeId): void {
-    setSelectedOperationalNodeId(nodeId)
+    // Choosing the stage the tree is already on means "stop looking at the old
+    // one", so it clears the operational selection rather than pinning to a
+    // node that cannot be operated yet.
+    const purchased = state.hacking.purchasedNodeIds.includes(nodeId)
+    setSelectedOperationalNodeId(purchased ? nodeId : null)
     setTargetConfirmation(null)
   }
 
